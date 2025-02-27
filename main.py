@@ -133,13 +133,12 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "t":
                 self.tool_buttons["add_text"].set_active(True)
                 return True
-            elif keyname == "escape":
-                if self.canvas.tool_mode == "draw_rooms":
-                    self.canvas.cancel_room_drawing()
-                    return True
-                if self.canvas.tool_mode == "draw_walls":
-                    self.canvas.finish_wall_drawing(finalize=False)
-                    return True
+            elif keyname == "escape" and self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall:
+                print("Esc pressed: Ending wall drawing")
+                self.canvas.current_wall = None
+                self.canvas.drawing_wall = False
+                self.canvas.queue_draw()
+                return True
             elif keyname == "f1":
                 self.on_help_clicked(None)
                 return True

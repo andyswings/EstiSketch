@@ -16,14 +16,11 @@ class Wall:
         self.material = "wood"  # wood, metal, concrete
         self.interior_finish = "drywall"  # drywall, plaster, wood
         self.exterior_finish = "stucco"  # stucco, brick, hardie, LP_lap
-        self.color = "#FFFFFF"  # hex color
-        self.cost_per_sqft = 0.0
         
         # Construction details
         self.stud_spacing = 16  # inches
         self.insulation_type = "fiberglass"
         self.fire_rating = "1hr"
-        self.sound_rating = "STC 35"
         
     def length(self) -> float:
         """Calculate wall length in inches"""
@@ -34,14 +31,6 @@ class Wall:
     def area(self) -> float:
         """Calculate wall area in square feet"""
         return (self.length() * self.height) / 144  # Convert to sq ft
-        
-    def volume(self) -> float:
-        """Calculate wall volume in cubic feet"""
-        return (self.length() * self.height * self.width) / 1728  # Convert to cu ft
-        
-    def total_cost(self) -> float:
-        """Calculate total wall cost"""
-        return self.area() * self.cost_per_sqft
 
 @dataclass
 class Room:
