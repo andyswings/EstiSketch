@@ -33,15 +33,26 @@ class EstimatorApp(Gtk.Application):
         # Define toggle callbacks
         def on_pointer_toggled(toggle_button):
             if toggle_button.get_active():
+                self.tool_buttons["panning"].set_active(False)
                 self.tool_buttons["draw_walls"].set_active(False)
                 self.tool_buttons["draw_rooms"].set_active(False)
                 self.canvas.set_tool_mode("pointer")
             else:
                 self.canvas.set_tool_mode(None)
 
+        def on_panning_toggled(toggle_button):
+            if toggle_button.get_active():
+                self.tool_buttons["pointer"].set_active(False)
+                self.tool_buttons["draw_walls"].set_active(False)
+                self.tool_buttons["draw_rooms"].set_active(False)
+                self.canvas.set_tool_mode("panning")
+            else:
+                self.canvas.set_tool_mode(None)
+
         def on_draw_walls_toggled(toggle_button):
             if toggle_button.get_active():
                 self.tool_buttons["pointer"].set_active(False)
+                self.tool_buttons["panning"].set_active(False)
                 self.tool_buttons["draw_rooms"].set_active(False)
                 self.canvas.set_tool_mode("draw_walls")
             else:
@@ -50,11 +61,13 @@ class EstimatorApp(Gtk.Application):
         def on_draw_rooms_toggled(toggle_button):
             if toggle_button.get_active():
                 self.tool_buttons["pointer"].set_active(False)
+                self.tool_buttons["panning"].set_active(False)
                 self.tool_buttons["draw_walls"].set_active(False)
                 self.canvas.set_tool_mode("draw_rooms")
 
         callbacks = {
             "pointer": on_pointer_toggled,
+            "panning": on_panning_toggled,
             "draw_walls": on_draw_walls_toggled,
             "draw_rooms": on_draw_rooms_toggled
         }
@@ -98,6 +111,9 @@ class EstimatorApp(Gtk.Application):
         if not ctrl_pressed and not shift_pressed:
             if keyname == "v":
                 self.tool_buttons["pointer"].set_active(True)
+                return True
+            elif keyname == "p":
+                self.tool_buttons["panning"].set_active(True)
                 return True
             elif keyname == "w":
                 self.tool_buttons["draw_walls"].set_active(True)

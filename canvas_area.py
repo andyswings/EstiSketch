@@ -19,9 +19,9 @@ class CanvasArea(Gtk.DrawingArea):
         self.offset_x = 0
         self.offset_y = 0
         self.ruler_offset = 30
-        self.drag_start_x = 0  # Store drag start position
+        self.drag_start_x = 0
         self.drag_start_y = 0
-        self.last_offset_x = 0  # Track last offset for delta
+        self.last_offset_x = 0
         self.last_offset_y = 0
 
         self.tool_mode = None
@@ -90,7 +90,6 @@ class CanvasArea(Gtk.DrawingArea):
 
     def on_drag_begin(self, gesture, start_x, start_y):
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
-        # Store the starting position of the drag
         self.drag_start_x = start_x
         self.drag_start_y = start_y
         self.last_offset_x = self.offset_x
@@ -98,19 +97,14 @@ class CanvasArea(Gtk.DrawingArea):
         print(f"Drag begin at x={start_x}, y={start_y}")
 
     def on_drag_update(self, gesture, offset_x, offset_y):
-        # Calculate delta from start position
-        delta_x = (self.drag_start_x + offset_x - self.drag_start_x) / self.zoom
-        delta_y = (self.drag_start_y + offset_y - self.drag_start_y) / self.zoom
-        
-        # Apply delta to the last offset
-        self.offset_x = self.last_offset_x + delta_x
-        self.offset_y = self.last_offset_y + delta_y
-        
-        # Debug prints
-        print(f"Drag offset_x: {offset_x}, offset_y: {offset_y}, zoom: {self.zoom}")
-        print(f"Delta_x: {delta_x}, Delta_y: {delta_y}")
-        print(f"New self.offset_x: {self.offset_x}, self.offset_y: {self.offset_y}")
-        
+        if self.tool_mode == "panning":
+            delta_x = (self.drag_start_x + offset_x - self.drag_start_x) / self.zoom
+            delta_y = (self.drag_start_y + offset_y - self.drag_start_y) / self.zoom
+            self.offset_x = self.last_offset_x + delta_x
+            self.offset_y = self.last_offset_y + delta_y
+            print(f"Drag offset_x: {offset_x}, offset_y: {offset_y}, zoom: {self.zoom}")
+            print(f"Delta_x: {delta_x}, Delta_y: {delta_y}")
+            print(f"New self.offset_x: {self.offset_x}, self.offset_y: {self.offset_y}")
         self.queue_draw()
 
     def draw_rulers(self, cr, width, height):
@@ -130,9 +124,9 @@ class CanvasArea(Gtk.DrawingArea):
         first_grid_x_feet = math.floor(left_feet / 8) * 8
         first_grid_y_feet = math.floor(top_feet / 8) * 8
 
-        # Map to unzoomed ruler pixels
-        first_major_x_pixel = (first_grid_x_feet / base_feet_per_pixel * self.zoom - self.offset_x)
-        first_major_y_pixel = (first_grid_y_feet / base_feet_per_pixel * self.zoom - self.offset_y)
+        # Map to unzoomed ruler pixels, syncing with grid translation
+        first_major_x_pixel = (first_grid_x_feet / base_feet_per_pixel * self.zoom + self.offset_x)
+        first_major_y_pixel = (first_grid_y_feet / base_feet_per_pixel * self.zoom + self.offset_y)
 
         # Adjust to ensure ticks start before the visible area
         while first_major_x_pixel > self.ruler_offset:

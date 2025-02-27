@@ -50,6 +50,7 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
 
     # Group 2: Tool buttons (centered)
     tool_buttons["pointer"] = create_icon_toggle_button("pointer", "Select (V)")
+    tool_buttons["panning"] = create_icon_toggle_button("panning", "Pan (P)")  # New panning button
     tool_buttons["draw_walls"] = create_icon_toggle_button("draw_walls", f"{config_constants.DRAW_WALLS_LABEL} (W)")
     tool_buttons["draw_rooms"] = create_icon_toggle_button("draw_rooms", f"{config_constants.DRAW_ROOMS_LABEL} (R)")
     tool_buttons["add_doors"] = create_icon_toggle_button("add_doors", f"{config_constants.ADD_DOORS_LABEL} (D)")
@@ -58,6 +59,7 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
     tool_buttons["add_text"] = create_icon_toggle_button("add_text", f"{config_constants.ADD_TEXT_LABEL} (T)")
 
     # Set up toggle button group
+    tool_buttons["panning"].set_group(tool_buttons["pointer"])  # Add to group
     tool_buttons["draw_walls"].set_group(tool_buttons["pointer"])
     tool_buttons["draw_rooms"].set_group(tool_buttons["pointer"])
     tool_buttons["add_doors"].set_group(tool_buttons["pointer"])
@@ -67,6 +69,7 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
 
     # Add tool buttons to toolbar
     tb.append(tool_buttons["pointer"])
+    tb.append(tool_buttons["panning"])  # Insert between pointer and draw_walls
     tb.append(tool_buttons["draw_walls"])
     tb.append(tool_buttons["draw_rooms"])
     tb.append(tool_buttons["add_doors"])
