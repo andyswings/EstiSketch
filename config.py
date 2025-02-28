@@ -32,7 +32,7 @@ DEFAULT_SETTINGS = {
     "SNAP_THRESHOLD": 10,
     "SHOW_GRID": True,
     "FONT": "Sans 10",
-    "SHOW_RULERS": False,
+    "SHOW_RULERS": True,
     "WALL_DISPLAY_PATTERN": "solid",
     "CONSTRUCTION_TYPE": "stick",
     "DEFAULT_ZOOM_LEVEL": 1.0,
