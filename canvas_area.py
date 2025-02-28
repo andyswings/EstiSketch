@@ -61,16 +61,28 @@ class CanvasArea(Gtk.DrawingArea):
 
         self.draw_grid(cr, width, height)
 
+        # Draw walls with mitered joins
         base_feet_per_pixel = 60.0 / width
         wall_thickness_feet = self.config.DEFAULT_WALL_WIDTH / 12
         wall_pixel_width = wall_thickness_feet / base_feet_per_pixel
         cr.set_source_rgb(0, 0, 0)
         cr.set_line_width(max(wall_pixel_width * self.zoom, 1.0))
-        for wall in self.walls:
-            cr.move_to(wall.start[0], wall.start[1])
-            cr.line_to(wall.end[0], wall.end[1])
-            cr.stroke()
+        cr.set_line_join(0)  # LINE_JOIN_MITER = 0
+        cr.set_line_cap(0)   # LINE_CAP_BUTT = 0
+        cr.set_miter_limit(10.0)  # Ensure sharp miters
 
+        # Draw all completed walls as a continuous path where connected
+        if self.walls:
+            cr.move_to(self.walls[0].start[0], self.walls[0].start[1])
+            for i, wall in enumerate(self.walls):
+                cr.line_to(wall.end[0], wall.end[1])
+                # Stroke and start new path if next wall doesn’t connect
+                if i + 1 < len(self.walls) and self.walls[i + 1].start != wall.end:
+                    cr.stroke()
+                    cr.move_to(self.walls[i + 1].start[0], self.walls[i + 1].start[1])
+            cr.stroke()  # Final stroke for last segment or continuous path
+
+        # Draw current wall being dragged
         if self.current_wall:
             cr.move_to(self.current_wall.start[0], self.current_wall.start[1])
             cr.line_to(self.current_wall.end[0], self.current_wall.end[1])
@@ -183,9 +195,9 @@ class CanvasArea(Gtk.DrawingArea):
     def draw_rulers(self, cr, width, height):
         """Draw rulers synced with grid, incrementing by 8 ft, following panning."""
         ruler_size = 20
-        base_feet_per_pixel = 60.0 / width  # Same as grid: 60 ft across width
-        major_spacing = 8 / base_feet_per_pixel * self.zoom  # 8 ft in pixels at current zoom
-        minor_spacing = major_spacing / 8  # 1 ft in pixels
+        base_feet_per_pixel = 60.0 / width
+        major_spacing = 8 / base_feet_per_pixel * self.zoom
+        minor_spacing = major_spacing / 8
 
         grid_left_pixel = -self.offset_x / self.zoom
         grid_top_pixel = -self.offset_y / self.zoom
