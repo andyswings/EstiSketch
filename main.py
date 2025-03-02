@@ -213,21 +213,29 @@ class EstimatorApp(Gtk.Application):
         if response == Gtk.ResponseType.OK:
             print("Settings updated")
             config.save_config(self.config.__dict__)
+            # Immediately update canvas parameters to reflect the new settings
+            self.canvas.zoom = self.config.DEFAULT_ZOOM_LEVEL
+            self.canvas.snap_manager.snap_threshold = self.config.SNAP_THRESHOLD * self.canvas.zoom
+            self.canvas.queue_draw()
         dialog.destroy()
 
     def on_manage_materials_clicked(self, button):
+        import manage_materials
         dialog = manage_materials.create_manage_materials_dialog(self.window)
         dialog.present()
 
     def on_estimate_materials_clicked(self, button):
+        import estimate_materials
         dialog = estimate_materials.create_estimate_materials_dialog(self.window)
         dialog.present()
 
     def on_estimate_cost_clicked(self, button):
+        import estimate_cost
         dialog = estimate_cost.create_estimate_cost_dialog(self.window)
         dialog.present()
 
     def on_help_clicked(self, button):
+        import help_dialog
         dialog = help_dialog.create_help_dialog(self.window)
         dialog.present()
 

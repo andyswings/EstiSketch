@@ -42,6 +42,8 @@ def create_settings_dialog(parent, config_constants, canvas):
         ("Font Size for Dimensions", "FONT_SIZE_DIMENSIONS"),
         ("Labor Cost per Hour ($)", "LABOR_COST_PER_HOUR"),
         ("Tax Rate (%)", "TAX_RATE_PERCENTAGE"),
+        ("Snap Threshold", "SNAP_THRESHOLD"),
+        ("Default Zoom Level", "DEFAULT_ZOOM_LEVEL")
     ]
     
     numeric_entries = {}
@@ -96,7 +98,7 @@ def create_settings_dialog(parent, config_constants, canvas):
         ("Enable Undo/Redo Limit", "ENABLE_UNDO_REDO_LIMIT"),
         ("Enable PDF Export Options", "ENABLE_PDF_EXPORT_OPTIONS"),
         ("Include Cost Estimate in Export", "INCLUDE_COST_ESTIMATE_IN_EXPORT"),
-        ("Allow Curved Walls", "ALLOW_CURVED_WALLS"),
+        ("Allow Curved Walls", "ALLOW_CURVED_WALLS")
     ]
     
     switches = {}
@@ -111,7 +113,7 @@ def create_settings_dialog(parent, config_constants, canvas):
         grid.attach(switch, 1, row, 1, 1)
         row += 1
     
-    # Apply changes
+    # Apply changes: update the config and also force a redraw of the canvas
     def update_config():
         for key, entry in numeric_entries.items():
             try:

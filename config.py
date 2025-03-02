@@ -44,9 +44,6 @@ DEFAULT_SETTINGS = {
     "SHOW_MEASUREMENT_HINTS": True,
     "DEFAULT_ROOM_HEIGHT": 96.0,
     "WALL_JOIN_TOLERANCE": 5,
-    "ALLOW_CURVED_WALLS": False,
-    "DEFAULT_INTERIOR_WALL_MATERIAL": "Drywall",
-    "DEFAULT_EXTERIOR_WALL_MATERIAL": "Brick",
     "SNAP_TO_ANGLE_INCREMENT": 22.5,
     "ENABLE_PERPENDICULAR_SNAPPING": True,
     "ENABLE_CENTERLINE_SNAPPING": True,
@@ -62,19 +59,20 @@ DEFAULT_SETTINGS = {
     "DEFAULT_MATERIAL_COST_UNIT": "per sq ft",
     "LABOR_COST_PER_HOUR": 50.0,
     "TAX_RATE_PERCENTAGE": 8.0,
+    "ALLOW_CURVED_WALLS": False,               # Added new key
+    "DEFAULT_INTERIOR_WALL_MATERIAL": "Drywall",  # Added new key
+    "DEFAULT_EXTERIOR_WALL_MATERIAL": "Brick"       # Added new key
 }
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
-                # Check if file is empty
                 contents = f.read().strip()
                 if not contents:
                     return DEFAULT_SETTINGS.copy()
                 settings = json.loads(contents)
         except (json.JSONDecodeError, IOError):
-            # In case of error, use defaults.
             settings = DEFAULT_SETTINGS.copy()
     else:
         settings = DEFAULT_SETTINGS.copy()

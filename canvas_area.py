@@ -9,6 +9,7 @@ class CanvasArea(Gtk.DrawingArea):
     def __init__(self, config_constants):
         super().__init__()
         self.config = config_constants
+        self.converter = MeasurementConverter()
 
         self.set_focusable(True)
         self.grab_focus()
@@ -16,7 +17,8 @@ class CanvasArea(Gtk.DrawingArea):
         self.set_vexpand(True)
         self.set_draw_func(self.on_draw)
 
-        self.zoom = 1.0
+        # Use the default zoom level from settings.
+        self.zoom = self.config.DEFAULT_ZOOM_LEVEL
         self.offset_x = 0
         self.offset_y = 0
         self.ruler_offset = 30
@@ -26,14 +28,21 @@ class CanvasArea(Gtk.DrawingArea):
         self.last_offset_y = 0
         self.mouse_x = 0
         self.mouse_y = 0
+        self.snap_type = "none"
 
         self.tool_mode = None
         self.walls = []
         self.rooms = []
         self.current_wall = None
         self.drawing_wall = False
-        self.wall_sets = []  # Store finalized sets of walls (loops or open chains)
-        self.snap_manager = SnappingManager(snap_enabled=self.config.SNAP_ENABLED, snap_threshold=10)
+        self.wall_sets = []
+        # Initialize snapping manager using current settings; snap_threshold is set as SNAP_THRESHOLD * zoom.
+        self.snap_manager = SnappingManager(
+            snap_enabled=self.config.SNAP_ENABLED, 
+            snap_threshold=self.config.SNAP_THRESHOLD * self.zoom,
+            config=self.config,
+            zoom=self.zoom
+        )
 
         scroll_controller = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.NONE)
         scroll_controller.connect("scroll", self.on_scroll)
@@ -53,6 +62,7 @@ class CanvasArea(Gtk.DrawingArea):
         self.add_controller(motion_controller)
 
     def on_draw(self, widget, cr, width, height):
+        # Clear the canvas.
         cr.set_source_rgb(1, 1, 1)
         cr.paint()
 
@@ -62,70 +72,185 @@ class CanvasArea(Gtk.DrawingArea):
 
         self.draw_grid(cr, width, height)
 
-        # Draw walls with mitered joins
         base_feet_per_pixel = 60.0 / width
         wall_thickness_feet = self.config.DEFAULT_WALL_WIDTH / 12
         wall_pixel_width = wall_thickness_feet / base_feet_per_pixel
         cr.set_source_rgb(0, 0, 0)
         cr.set_line_width(max(wall_pixel_width * self.zoom, 1.0))
-        cr.set_line_join(0)  # LINE_JOIN_MITER = 0
-        cr.set_line_cap(0)   # LINE_CAP_BUTT = 0
-        cr.set_miter_limit(10.0)  # Ensure sharp miters
+        cr.set_line_join(0)
+        cr.set_line_cap(0)
+        cr.set_miter_limit(10.0)
 
-        # Draw finalized wall sets
+        # Draw finalized wall sets.
         for wall_set in self.wall_sets:
             if not wall_set:
                 continue
             cr.move_to(wall_set[0].start[0], wall_set[0].start[1])
             for wall in wall_set:
                 cr.line_to(wall.end[0], wall.end[1])
-            # Close the path if it’s a loop
             if len(wall_set) > 2 and wall_set[-1].end == wall_set[0].start:
                 cr.close_path()
             cr.stroke()
 
-        # Draw current in-progress walls
+        # Draw current in-progress wall(s).
         if self.walls:
             cr.move_to(self.walls[0].start[0], self.walls[0].start[1])
             for wall in self.walls:
                 cr.line_to(wall.end[0], wall.end[1])
-            # If current_wall exists, connect to it
             if self.current_wall:
                 cr.line_to(self.current_wall.end[0], self.current_wall.end[1])
-            # Close the path if it’s a loop and not drawing further
             if not self.drawing_wall and len(self.walls) > 2 and self.walls[-1].end == self.walls[0].start:
                 cr.close_path()
             cr.stroke()
-        # Draw current wall being dragged (if no prior walls)
         elif self.current_wall:
             cr.move_to(self.current_wall.start[0], self.current_wall.start[1])
             cr.line_to(self.current_wall.end[0], self.current_wall.end[1])
             cr.stroke()
+
+        # Draw live length and angle labels while drawing a wall.
+        if self.drawing_wall and self.current_wall:
+            dx = self.current_wall.end[0] - self.current_wall.start[0]
+            dy = self.current_wall.end[1] - self.current_wall.start[1]
+            length_pixels = math.sqrt(dx**2 + dy**2)
+            length_inches = length_pixels * (60.0 / width) * 12
+            length_str = self.converter.format_measurement(self, length_inches, use_fraction=True)
+            wall_angle = math.atan2(dy, dx)  # in radians
+            angle_deg = math.degrees(wall_angle) % 360
+            angle_str = f"{round(angle_deg, 2)}°"
+            
+            # Compute the midpoint of the wall.
+            mid_x = (self.current_wall.start[0] + self.current_wall.end[0]) / 2
+            mid_y = (self.current_wall.start[1] + self.current_wall.end[1]) / 2
+            
+            # Compute the wall's normal vector from the wall segment.
+            n_x = -dy
+            n_y = dx
+            norm = math.sqrt(n_x*n_x + n_y*n_y)
+            if norm != 0:
+                n_x /= norm
+                n_y /= norm
+            # Force the normal to point upward (i.e. negative y in screen space).
+            # If the computed n_y is nearly zero (vertical wall), override it.
+            if abs(n_y) < 1e-6:
+                n_x, n_y = 0, -1
+            elif n_y > 0:
+                n_x = -n_x
+                n_y = -n_y
+            # Use a fixed offset for label separation.
+            offset = 20 / self.zoom
+            label_pos_x = mid_x + n_x * offset
+            label_pos_y = mid_y + n_y * offset
+
+            # Determine proper text rotation.
+            # Flip text (add 180°) if the wall angle is between 90° and 270°.
+            if 90 < angle_deg < 270:
+                text_rotation = wall_angle + math.pi
+            else:
+                text_rotation = wall_angle
+
+            # Draw the labels using a rotated coordinate system.
+            cr.save()
+            cr.translate(label_pos_x, label_pos_y)
+            cr.rotate(text_rotation)
+            cr.set_font_size(12 / self.zoom)
+            cr.select_font_face("Sans", cairo.FontSlant.NORMAL, cairo.FontWeight.NORMAL)
+            # Measure text extents.
+            ext_length = cr.text_extents(length_str)
+            ext_angle = cr.text_extents(angle_str)
+            margin = 5 / self.zoom
+            # Use a text offset that is consistent.
+            text_offset = max(20 / self.zoom, ext_length.height + margin)
+            # Draw length label centered horizontally.
+            cr.move_to(-ext_length.width/2, -text_offset)
+            cr.show_text(length_str)
+            # Draw angle label above the length label.
+            cr.move_to(-ext_angle.width/2, -text_offset - ext_length.height - margin)
+            cr.show_text(angle_str)
+            cr.restore()
+
+        self.draw_snap_indicator(cr)
 
         cr.restore()
 
         if self.config.SHOW_RULERS:
             self.draw_rulers(cr, width, height)
 
+    def draw_snap_indicator(self, cr):
+        if self.snap_type == "none" or not self.drawing_wall or not self.current_wall:
+            return
+        cr.save()
+        snap_x, snap_y = self.current_wall.end
+        cr.set_line_width(2.0 / self.zoom)
+        cr.set_font_size(12 / self.zoom)
+        cr.select_font_face("Sans")
+        if self.snap_type == "endpoint":
+            cr.set_source_rgb(1, 0, 0)
+            cr.arc(snap_x, snap_y, 10 / self.zoom, 0, 2 * math.pi)
+            cr.fill()
+            cr.move_to(snap_x + 15 / self.zoom, snap_y)
+            cr.show_text("Endpoint")
+        elif self.snap_type == "midpoint":
+            cr.set_source_rgb(0, 0, 1)
+            cr.arc(snap_x, snap_y, 10 / self.zoom, 0, 2 * math.pi)
+            cr.stroke()
+            cr.move_to(snap_x + 15 / self.zoom, snap_y)
+            cr.show_text("Midpoint")
+        elif self.snap_type == "axis":
+            cr.set_source_rgb(0, 1, 0)
+            cr.move_to(snap_x - 20 / self.zoom, snap_y)
+            cr.line_to(snap_x + 20 / self.zoom, snap_y)
+            cr.move_to(snap_x, snap_y - 20 / self.zoom)
+            cr.line_to(snap_x, snap_y + 20 / self.zoom)
+            cr.stroke()
+            cr.move_to(snap_x + 15 / self.zoom, snap_y)
+            cr.show_text("Axis")
+        elif self.snap_type in ["angle", "perpendicular"]:
+            cr.set_source_rgb(1, 0, 1)
+            cr.move_to(self.current_wall.start[0], self.current_wall.start[1])
+            cr.line_to(snap_x, snap_y)
+            cr.stroke()
+            if self.snap_type == "perpendicular":
+                cr.move_to(snap_x + 15 / self.zoom, snap_y)
+                cr.show_text("Perpendicular")
+        elif self.snap_type == "grid":
+            cr.set_source_rgb(0.5, 0.5, 0.5)
+            cr.rectangle(snap_x - 10 / self.zoom, snap_y - 10 / self.zoom, 20 / self.zoom, 20 / self.zoom)
+            cr.stroke()
+            cr.move_to(snap_x + 15 / self.zoom, snap_y)
+            cr.show_text("Grid")
+        elif self.snap_type == "distance":
+            cr.set_source_rgb(1, 0.5, 0)
+            cr.move_to(snap_x + 15 / self.zoom, snap_y)
+            cr.show_text("Distance")
+        elif self.snap_type == "tangent":
+            cr.set_source_rgb(0, 1, 1)
+            cr.arc(snap_x, snap_y, 10 / self.zoom, 0, 2 * math.pi)
+            cr.fill()
+            cr.move_to(snap_x + 15 / self.zoom, snap_y)
+            cr.show_text("Tangent")
+        cr.restore()
+
     def set_tool_mode(self, mode):
         self.tool_mode = mode
         self.current_wall = None
         self.drawing_wall = False
+        self.snap_type = "none"
         self.queue_draw()
 
     def adjust_zoom(self, factor, center_x=None, center_y=None):
         old_zoom = self.zoom
         new_zoom = self.zoom * factor
         self.zoom = max(0.1, min(new_zoom, 10.0))
-
+        # Update snap threshold according to new zoom and setting.
+        self.snap_manager.snap_threshold = self.config.SNAP_THRESHOLD * self.zoom
         if center_x is not None and center_y is not None:
             self.offset_x = center_x - (center_x - self.offset_x) * (self.zoom / old_zoom)
             self.offset_y = center_y - (center_y - self.offset_y) * (self.zoom / old_zoom)
-
         self.queue_draw()
 
     def reset_zoom(self):
-        self.zoom = 1.0
+        self.zoom = self.config.DEFAULT_ZOOM_LEVEL
+        self.snap_manager.snap_threshold = self.config.SNAP_THRESHOLD * self.zoom
         self.offset_x = 0
         self.offset_y = 0
         self.queue_draw()
@@ -139,28 +264,32 @@ class CanvasArea(Gtk.DrawingArea):
         self.adjust_zoom(zoom_factor, center_x, center_y)
         return True
 
-    def on_click(self, gesture, n_press, x, y):
-        self.grab_focus()
-        self.queue_draw()
-
     def on_wall_click(self, gesture, n_press, x, y):
         if self.tool_mode != "draw_walls":
             return
         canvas_x = (x - self.offset_x) / self.zoom
         canvas_y = (y - self.offset_y) / self.zoom
-        if n_press == 1:  # Single click
+        last_wall = self.walls[-1] if self.walls else None
+        canvas_width = self.get_allocation().width or self.config.WINDOW_WIDTH
+        base_x = canvas_x if not self.drawing_wall else self.current_wall.start[0]
+        base_y = canvas_y if not self.drawing_wall else self.current_wall.start[1]
+        print(f"Click at screen ({x}, {y}), canvas ({canvas_x}, {canvas_y})")
+        (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
+            canvas_x, canvas_y, base_x, base_y, self.walls, self.rooms, 
+            current_wall=self.current_wall, last_wall=last_wall, canvas_width=canvas_width, zoom=self.zoom
+        )
+        print(f"Snapped to ({snapped_x}, {snapped_y}), type: {self.snap_type}")
+        if n_press == 1:
             if not self.drawing_wall:
-                snapped_x, snapped_y = self.snap_manager.snap_point(canvas_x, canvas_y, canvas_x, canvas_y, self.walls, self.rooms)
                 self.current_wall = Wall(
                     (snapped_x, snapped_y), 
                     (snapped_x, snapped_y), 
                     width=self.config.DEFAULT_WALL_WIDTH, 
                     height=self.config.DEFAULT_WALL_HEIGHT
                 )
-                self.walls = []  # Start a new set of walls
+                self.walls = []
                 self.drawing_wall = True
             else:
-                snapped_x, snapped_y = self.snap_manager.snap_point(canvas_x, canvas_y, self.current_wall.start[0], self.current_wall.start[1], self.walls, self.rooms)
                 self.current_wall.end = (snapped_x, snapped_y)
                 self.walls.append(self.current_wall)
                 self.current_wall = Wall(
@@ -169,15 +298,15 @@ class CanvasArea(Gtk.DrawingArea):
                     width=self.config.DEFAULT_WALL_WIDTH, 
                     height=self.config.DEFAULT_WALL_HEIGHT
                 )
-        elif n_press == 2:  # Double click
+        elif n_press == 2:
             if self.drawing_wall:
-                snapped_x, snapped_y = self.snap_manager.snap_point(canvas_x, canvas_y, self.current_wall.start[0], self.current_wall.start[1], self.walls, self.rooms)
                 self.current_wall.end = (snapped_x, snapped_y)
                 self.walls.append(self.current_wall)
-                self.wall_sets.append(self.walls.copy())  # Finalize the current set
-                self.walls = []  # Clear for next set
+                self.wall_sets.append(self.walls.copy())
+                self.walls = []
                 self.current_wall = None
                 self.drawing_wall = False
+                self.snap_type = "none"
         self.queue_draw()
 
     def on_drag_begin(self, gesture, start_x, start_y):
@@ -186,7 +315,6 @@ class CanvasArea(Gtk.DrawingArea):
         self.drag_start_y = start_y
         self.last_offset_x = self.offset_x
         self.last_offset_y = self.offset_y
-        print(f"Drag begin at x={start_x}, y={start_y}")
 
     def on_drag_update(self, gesture, offset_x, offset_y):
         if self.tool_mode == "panning":
@@ -194,9 +322,6 @@ class CanvasArea(Gtk.DrawingArea):
             delta_y = offset_y
             self.offset_x = self.last_offset_x + delta_x
             self.offset_y = self.last_offset_y + delta_y
-            print(f"Drag offset_x: {offset_x}, offset_y: {offset_y}, zoom: {self.zoom}")
-            print(f"Delta_x: {delta_x}, Delta_y: {delta_y}")
-            print(f"New self.offset_x: {self.offset_x}, self.offset_y: {self.offset_y}")
         self.queue_draw()
 
     def on_motion(self, controller, x, y):
@@ -205,12 +330,19 @@ class CanvasArea(Gtk.DrawingArea):
         if self.tool_mode == "draw_walls" and self.drawing_wall and self.current_wall:
             canvas_x = (x - self.offset_x) / self.zoom
             canvas_y = (y - self.offset_y) / self.zoom
-            snapped_x, snapped_y = self.snap_manager.snap_point(canvas_x, canvas_y, self.current_wall.start[0], self.current_wall.start[1], self.walls, self.rooms)
+            last_wall = self.walls[-1] if self.walls else None
+            canvas_width = self.get_allocation().width or self.config.WINDOW_WIDTH
+            print(f"Mouse at screen ({x}, {y}), canvas ({canvas_x}, {canvas_y})")
+            (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
+                canvas_x, canvas_y, self.current_wall.start[0], self.current_wall.start[1], 
+                self.walls, self.rooms, current_wall=self.current_wall, last_wall=last_wall, 
+                canvas_width=canvas_width, zoom=self.zoom
+            )
+            print(f"Snapped to ({snapped_x}, {snapped_y}), type: {self.snap_type}")
             self.current_wall.end = (snapped_x, snapped_y)
             self.queue_draw()
 
     def draw_rulers(self, cr, width, height):
-        """Draw rulers synced with grid, incrementing by 8 ft, following panning."""
         ruler_size = 20
         base_feet_per_pixel = 60.0 / width
         major_spacing = 8 / base_feet_per_pixel * self.zoom
@@ -248,11 +380,6 @@ class CanvasArea(Gtk.DrawingArea):
         cr.set_source_rgb(0, 0, 0)
         cr.set_line_width(1)
 
-        print(f"Major spacing: {major_spacing}, Minor spacing: {minor_spacing}")
-        print(f"Base feet per pixel: {base_feet_per_pixel}")
-        print(f"First X pixel: {first_major_x_pixel}, First Y pixel: {first_major_y_pixel}")
-        print(f"First grid X feet: {first_grid_x_feet}, First grid Y feet: {first_grid_y_feet}")
-
         for x in range(int(first_major_x_pixel), width + int(major_spacing), int(major_spacing)):
             if x >= self.ruler_offset and x <= width:
                 cr.move_to(x, ruler_size - 10)
@@ -261,8 +388,6 @@ class CanvasArea(Gtk.DrawingArea):
                 feet = round((x - first_major_x_pixel) / major_spacing) * 8 + first_grid_x_feet
                 cr.move_to(x + 2, ruler_size - 7)
                 cr.show_text(f"{feet} ft")
-                print(f"Horizontal tick at x={x}, feet={feet}")
-
             for i in range(1, 8):
                 minor_x = x + i * minor_spacing
                 if minor_x >= self.ruler_offset and minor_x <= width:
@@ -278,8 +403,6 @@ class CanvasArea(Gtk.DrawingArea):
                 feet = round((y - first_major_y_pixel) / major_spacing) * 8 + first_grid_y_feet
                 cr.move_to(2, y + 10)
                 cr.show_text(f"{feet} ft")
-                print(f"Vertical tick at y={y}, feet={feet}")
-
             for i in range(1, 8):
                 minor_y = y + i * minor_spacing
                 if minor_y >= self.ruler_offset and minor_y <= height:
@@ -288,7 +411,6 @@ class CanvasArea(Gtk.DrawingArea):
                     cr.stroke()
 
     def draw_grid(self, cr, width, height):
-        """Draw grid for the viewable area with proper scaling."""
         if not self.config.SHOW_GRID:
             return
 
