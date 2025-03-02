@@ -32,6 +32,7 @@ class CanvasArea(Gtk.DrawingArea):
         self.rooms = []
         self.current_wall = None
         self.drawing_wall = False
+        self.wall_sets = []  # Store finalized sets of walls (loops or open chains)
         self.snap_manager = SnappingManager(snap_enabled=self.config.SNAP_ENABLED, snap_threshold=10)
 
         scroll_controller = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.NONE)
@@ -71,19 +72,32 @@ class CanvasArea(Gtk.DrawingArea):
         cr.set_line_cap(0)   # LINE_CAP_BUTT = 0
         cr.set_miter_limit(10.0)  # Ensure sharp miters
 
-        # Draw all completed walls as a continuous path where connected
+        # Draw finalized wall sets
+        for wall_set in self.wall_sets:
+            if not wall_set:
+                continue
+            cr.move_to(wall_set[0].start[0], wall_set[0].start[1])
+            for wall in wall_set:
+                cr.line_to(wall.end[0], wall.end[1])
+            # Close the path if it’s a loop
+            if len(wall_set) > 2 and wall_set[-1].end == wall_set[0].start:
+                cr.close_path()
+            cr.stroke()
+
+        # Draw current in-progress walls
         if self.walls:
             cr.move_to(self.walls[0].start[0], self.walls[0].start[1])
-            for i, wall in enumerate(self.walls):
+            for wall in self.walls:
                 cr.line_to(wall.end[0], wall.end[1])
-                # Stroke and start new path if next wall doesn’t connect
-                if i + 1 < len(self.walls) and self.walls[i + 1].start != wall.end:
-                    cr.stroke()
-                    cr.move_to(self.walls[i + 1].start[0], self.walls[i + 1].start[1])
-            cr.stroke()  # Final stroke for last segment or continuous path
-
-        # Draw current wall being dragged
-        if self.current_wall:
+            # If current_wall exists, connect to it
+            if self.current_wall:
+                cr.line_to(self.current_wall.end[0], self.current_wall.end[1])
+            # Close the path if it’s a loop and not drawing further
+            if not self.drawing_wall and len(self.walls) > 2 and self.walls[-1].end == self.walls[0].start:
+                cr.close_path()
+            cr.stroke()
+        # Draw current wall being dragged (if no prior walls)
+        elif self.current_wall:
             cr.move_to(self.current_wall.start[0], self.current_wall.start[1])
             cr.line_to(self.current_wall.end[0], self.current_wall.end[1])
             cr.stroke()
@@ -143,6 +157,7 @@ class CanvasArea(Gtk.DrawingArea):
                     width=self.config.DEFAULT_WALL_WIDTH, 
                     height=self.config.DEFAULT_WALL_HEIGHT
                 )
+                self.walls = []  # Start a new set of walls
                 self.drawing_wall = True
             else:
                 snapped_x, snapped_y = self.snap_manager.snap_point(canvas_x, canvas_y, self.current_wall.start[0], self.current_wall.start[1], self.walls, self.rooms)
@@ -159,6 +174,8 @@ class CanvasArea(Gtk.DrawingArea):
                 snapped_x, snapped_y = self.snap_manager.snap_point(canvas_x, canvas_y, self.current_wall.start[0], self.current_wall.start[1], self.walls, self.rooms)
                 self.current_wall.end = (snapped_x, snapped_y)
                 self.walls.append(self.current_wall)
+                self.wall_sets.append(self.walls.copy())  # Finalize the current set
+                self.walls = []  # Clear for next set
                 self.current_wall = None
                 self.drawing_wall = False
         self.queue_draw()

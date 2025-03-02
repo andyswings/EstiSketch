@@ -135,6 +135,8 @@ class EstimatorApp(Gtk.Application):
                 return True
             elif keyname == "escape" and self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall:
                 print("Esc pressed: Ending wall drawing")
+                self.canvas.wall_sets.append(self.canvas.walls.copy())  # Finalize the current set
+                self.canvas.walls = []  # Clear for next set
                 self.canvas.current_wall = None
                 self.canvas.drawing_wall = False
                 self.canvas.queue_draw()
@@ -186,7 +188,7 @@ class EstimatorApp(Gtk.Application):
                 return True
 
         return False
-    
+
     def on_zoom_in_clicked(self, button):
         allocation = self.canvas.get_allocation()
         center_x = allocation.width / 2
