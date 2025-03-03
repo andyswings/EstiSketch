@@ -48,6 +48,7 @@ Ensure you have Python 3 and GTK4 installed. Then install the required Python pa
 
     ```bash
     pip install -r requirements.txt
+    *Currently no requirements*
 
 3. **Run the Application:**
 
