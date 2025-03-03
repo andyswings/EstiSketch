@@ -44,11 +44,7 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
    cd EstiSketch
 
 2. **Install Dependencies:**
-Ensure you have Python 3 and GTK4 installed. Then install the required Python packages:
-
-    ```bash
-    pip install -r requirements.txt
-    *Currently no requirements*
+Ensure you have Python 3 and GTK4 installed.
 
 3. **Run the Application:**
 
