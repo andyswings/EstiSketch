@@ -30,7 +30,7 @@ class EstimatorApp(Gtk.Application):
 
         self.canvas = canvas_area.create_canvas_area(self.config)
 
-        # Define toggle callbacks
+        # Define toggle callbacks.
         def on_pointer_toggled(toggle_button):
             if toggle_button.get_active():
                 self.tool_buttons["panning"].set_active(False)
@@ -75,12 +75,12 @@ class EstimatorApp(Gtk.Application):
         vbox.append(toolbar_box)
         vbox.append(self.canvas)
 
-        # Connect all non-toggle button actions
+        # Connect non-toggle button actions.
         self.tool_buttons["save"].connect("clicked", lambda btn: print("Save action triggered"))
         self.tool_buttons["open"].connect("clicked", lambda btn: print("Open action triggered"))
         self.tool_buttons["export"].connect("clicked", lambda btn: print("Export as PDF triggered"))
-        self.tool_buttons["undo"].connect("clicked", lambda btn: print("Undo action triggered"))
-        self.tool_buttons["redo"].connect("clicked", lambda btn: print("Redo action triggered"))
+        self.tool_buttons["undo"].connect("clicked", lambda btn: self.canvas.undo())
+        self.tool_buttons["redo"].connect("clicked", lambda btn: self.canvas.redo())
         self.tool_buttons["manage_materials"].connect("clicked", self.on_manage_materials_clicked)
         self.tool_buttons["estimate_materials"].connect("clicked", self.on_estimate_materials_clicked)
         self.tool_buttons["estimate_cost"].connect("clicked", self.on_estimate_cost_clicked)
@@ -88,7 +88,7 @@ class EstimatorApp(Gtk.Application):
         self.tool_buttons["zoom_out"].connect("clicked", self.on_zoom_out_clicked)
         self.tool_buttons["zoom_reset"].connect("clicked", self.on_zoom_reset_clicked)
 
-        # Connect extra buttons
+        # Connect extra buttons.
         extra_buttons["settings"].connect("clicked", self.on_settings_clicked)
         extra_buttons["help"].connect("clicked", self.on_help_clicked)
 
@@ -121,42 +121,31 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "r":
                 self.tool_buttons["draw_rooms"].set_active(True)
                 return True
-            elif keyname == "d":
-                self.tool_buttons["add_doors"].set_active(True)
-                return True
-            elif keyname == "a":
-                self.tool_buttons["add_windows"].set_active(True)
-                return True
-            elif keyname == "m":
-                self.tool_buttons["add_dimension"].set_active(True)
-                return True
-            elif keyname == "t":
-                self.tool_buttons["add_text"].set_active(True)
-                return True
             elif keyname == "escape" and self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall:
-                print("Esc pressed: Ending wall drawing")
-                self.canvas.wall_sets.append(self.canvas.walls.copy())  # Finalize the current set
-                self.canvas.walls = []  # Clear for next set
+                print("Esc pressed: Finalizing wall drawing")
+                # First, save the state before finalization.
+                self.canvas.save_state()
+                # Now finalize the wall drawing:
+                self.canvas.wall_sets.append(self.canvas.walls.copy())
+                self.canvas.walls = []
                 self.canvas.current_wall = None
                 self.canvas.drawing_wall = False
+                # Save the finalized state.
+                self.canvas.save_state()
                 self.canvas.queue_draw()
                 return True
             elif keyname == "f1":
                 self.on_help_clicked(None)
                 return True
 
-        # Ctrl + Shift combinations
-        if ctrl_pressed and shift_pressed:
-            if keyname == "m":
-                self.on_estimate_materials_clicked(None)
-                return True
-            elif keyname == "c":
-                self.on_estimate_cost_clicked(None)
-                return True
-
-        # Ctrl only combinations
         if ctrl_pressed and not shift_pressed:
-            if keyname == "s":
+            if keyname == "z":
+                self.canvas.undo()
+                return True
+            elif keyname == "y":
+                self.canvas.redo()
+                return True
+            elif keyname == "s":
                 print("Save action triggered")
                 return True
             elif keyname == "o":
@@ -164,12 +153,6 @@ class EstimatorApp(Gtk.Application):
                 return True
             elif keyname == "e":
                 print("Export as PDF triggered")
-                return True
-            elif keyname == "z":
-                print("Undo action triggered")
-                return True
-            elif keyname == "y":
-                print("Redo action triggered")
                 return True
             elif keyname == "m":
                 self.on_manage_materials_clicked(None)
@@ -185,6 +168,14 @@ class EstimatorApp(Gtk.Application):
                 return True
             elif keyname == "0":
                 self.on_zoom_reset_clicked(None)
+                return True
+
+        if ctrl_pressed and shift_pressed:
+            if keyname == "m":
+                self.on_estimate_materials_clicked(None)
+                return True
+            elif keyname == "c":
+                self.on_estimate_cost_clicked(None)
                 return True
 
         return False
@@ -213,29 +204,21 @@ class EstimatorApp(Gtk.Application):
         if response == Gtk.ResponseType.OK:
             print("Settings updated")
             config.save_config(self.config.__dict__)
-            # Immediately update canvas parameters to reflect the new settings
-            self.canvas.zoom = self.config.DEFAULT_ZOOM_LEVEL
-            self.canvas.snap_manager.snap_threshold = self.config.SNAP_THRESHOLD * self.canvas.zoom
-            self.canvas.queue_draw()
         dialog.destroy()
 
     def on_manage_materials_clicked(self, button):
-        import manage_materials
         dialog = manage_materials.create_manage_materials_dialog(self.window)
         dialog.present()
 
     def on_estimate_materials_clicked(self, button):
-        import estimate_materials
         dialog = estimate_materials.create_estimate_materials_dialog(self.window)
         dialog.present()
 
     def on_estimate_cost_clicked(self, button):
-        import estimate_cost
         dialog = estimate_cost.create_estimate_cost_dialog(self.window)
         dialog.present()
 
     def on_help_clicked(self, button):
-        import help_dialog
         dialog = help_dialog.create_help_dialog(self.window)
         dialog.present()
 

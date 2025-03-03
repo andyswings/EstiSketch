@@ -36,7 +36,11 @@ class CanvasArea(Gtk.DrawingArea):
         self.current_wall = None
         self.drawing_wall = False
         self.wall_sets = []
-        # Initialize snapping manager; snap_threshold is multiplied by zoom.
+        # Undo/Redo stacks
+        self.undo_stack = []
+        self.redo_stack = []
+
+        # Initialize snapping manager; snap_threshold is multiplied by zoom
         self.snap_manager = SnappingManager(
             snap_enabled=self.config.SNAP_ENABLED, 
             snap_threshold=self.config.SNAP_THRESHOLD, 
@@ -44,7 +48,7 @@ class CanvasArea(Gtk.DrawingArea):
             zoom=self.zoom
         )
 
-        # Existing controllers.
+        # Set up controllers
         scroll_controller = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.NONE)
         scroll_controller.connect("scroll", self.on_scroll)
         self.add_controller(scroll_controller)
@@ -62,13 +66,12 @@ class CanvasArea(Gtk.DrawingArea):
         motion_controller.connect("motion", self.on_motion)
         self.add_controller(motion_controller)
 
-        # New: Pinch-to-zoom gesture for laptop trackpads.
+        # Pinch-to-zoom gesture (for trackpads)
         pinch_gesture = Gtk.GestureZoom.new()
         pinch_gesture.connect("scale-changed", self.on_zoom_changed)
         self.add_controller(pinch_gesture)
 
     def on_zoom_changed(self, controller, scale):
-        # Adjust the scale factor by a sensitivity factor to slow down zoom.
         sensitivity = 0.2
         factor = 1 + (scale - 1) * sensitivity
         allocation = self.get_allocation()
@@ -77,7 +80,7 @@ class CanvasArea(Gtk.DrawingArea):
         self.adjust_zoom(factor, center_x, center_y)
 
     def on_draw(self, widget, cr, width, height):
-        # Clear the canvas.
+        # Clear the canvas
         cr.set_source_rgb(1, 1, 1)
         cr.paint()
 
@@ -96,7 +99,7 @@ class CanvasArea(Gtk.DrawingArea):
         cr.set_line_cap(0)
         cr.set_miter_limit(10.0)
 
-        # Draw finalized wall sets.
+        # Draw finalized wall sets
         for wall_set in self.wall_sets:
             if not wall_set:
                 continue
@@ -107,7 +110,7 @@ class CanvasArea(Gtk.DrawingArea):
                 cr.close_path()
             cr.stroke()
 
-        # Draw current in-progress wall(s).
+        # Draw current in-progress wall(s)
         if self.walls:
             cr.move_to(self.walls[0].start[0], self.walls[0].start[1])
             for wall in self.walls:
@@ -122,7 +125,7 @@ class CanvasArea(Gtk.DrawingArea):
             cr.line_to(self.current_wall.end[0], self.current_wall.end[1])
             cr.stroke()
 
-        # Draw live measurement labels for the current wall.
+        # Draw live measurement labels for the current wall
         if self.drawing_wall and self.current_wall:
             dx = self.current_wall.end[0] - self.current_wall.start[0]
             dy = self.current_wall.end[1] - self.current_wall.start[1]
@@ -136,14 +139,13 @@ class CanvasArea(Gtk.DrawingArea):
             mid_x = (self.current_wall.start[0] + self.current_wall.end[0]) / 2
             mid_y = (self.current_wall.start[1] + self.current_wall.end[1]) / 2
 
-            # Compute wall normal.
+            # Compute wall normal
             n_x = -dy
             n_y = dx
             norm = math.sqrt(n_x*n_x + n_y*n_y)
             if norm != 0:
                 n_x /= norm
                 n_y /= norm
-            # For vertical walls, force normal to (0, -1)
             if abs(n_y) < 1e-6:
                 n_x, n_y = 0, -1
             elif n_y > 0:
@@ -153,13 +155,11 @@ class CanvasArea(Gtk.DrawingArea):
             label_pos_x = mid_x + n_x * offset
             label_pos_y = mid_y + n_y * offset
 
-            # Determine text rotation; flip if angle is between 90 and 270.
             if 90 < angle_deg < 270:
                 text_rotation = wall_angle + math.pi
             else:
                 text_rotation = wall_angle
 
-            # Draw the labels using a rotated coordinate system.
             cr.save()
             cr.translate(label_pos_x, label_pos_y)
             cr.rotate(text_rotation)
@@ -287,6 +287,7 @@ class CanvasArea(Gtk.DrawingArea):
         print(f"Snapped to ({snapped_x}, {snapped_y}), type: {self.snap_type}")
         if n_press == 1:
             if not self.drawing_wall:
+                self.save_state()  # Save state before starting a new wall
                 self.current_wall = Wall(
                     (snapped_x, snapped_y),
                     (snapped_x, snapped_y),
@@ -296,6 +297,7 @@ class CanvasArea(Gtk.DrawingArea):
                 self.walls = []
                 self.drawing_wall = True
             else:
+                self.save_state()  # Save state before adding a segment
                 self.current_wall.end = (snapped_x, snapped_y)
                 self.walls.append(self.current_wall)
                 self.current_wall = Wall(
@@ -306,9 +308,11 @@ class CanvasArea(Gtk.DrawingArea):
                 )
         elif n_press == 2:
             if self.drawing_wall:
+                self.save_state()  # Save state before finalizing
                 self.current_wall.end = (snapped_x, snapped_y)
                 self.walls.append(self.current_wall)
                 self.wall_sets.append(self.walls.copy())
+                self.save_state()  # Save state after finalizing
                 self.walls = []
                 self.current_wall = None
                 self.drawing_wall = False
@@ -347,6 +351,57 @@ class CanvasArea(Gtk.DrawingArea):
             print(f"Snapped to ({snapped_x}, {snapped_y}), type: {self.snap_type}")
             self.current_wall.end = (snapped_x, snapped_y)
             self.queue_draw()
+
+    def save_state(self):
+        state = {
+            "wall_sets": copy.deepcopy(self.wall_sets),
+            "walls": copy.deepcopy(self.walls),
+            "current_wall": copy.deepcopy(self.current_wall) if self.current_wall else None,
+            "drawing_wall": self.drawing_wall
+        }
+        self.undo_stack.append(state)
+        if len(self.undo_stack) > self.config.UNDO_REDO_LIMIT:
+            self.undo_stack.pop(0)
+        print(f"Saved state: wall_sets={len(state['wall_sets'])}, walls={len(state['walls'])}, drawing_wall={state['drawing_wall']}")
+
+    def restore_state(self, state):
+        self.wall_sets = copy.deepcopy(state["wall_sets"])
+        self.walls = copy.deepcopy(state["walls"])
+        self.current_wall = copy.deepcopy(state["current_wall"]) if state["current_wall"] else None
+        self.drawing_wall = state["drawing_wall"]
+        self.snap_type = "none"  # Reset snapping to avoid visual artifacts
+        self.queue_draw()
+        print(f"Restored state: wall_sets={len(self.wall_sets)}, walls={len(self.walls)}, drawing_wall={self.drawing_wall}")
+
+    def undo(self):
+        if not self.undo_stack:
+            print("Nothing to undo.")
+            return
+        current_state = {
+            "wall_sets": copy.deepcopy(self.wall_sets),
+            "walls": copy.deepcopy(self.walls),
+            "current_wall": copy.deepcopy(self.current_wall) if self.current_wall else None,
+            "drawing_wall": self.drawing_wall
+        }
+        self.redo_stack.append(current_state)
+        state = self.undo_stack.pop()
+        self.restore_state(state)
+        print(f"Undo performed: redo_stack size={len(self.redo_stack)}, undo_stack size={len(self.undo_stack)}")
+
+    def redo(self):
+        if not self.redo_stack:
+            print("Nothing to redo.")
+            return
+        current_state = {
+            "wall_sets": copy.deepcopy(self.wall_sets),
+            "walls": copy.deepcopy(self.walls),
+            "current_wall": copy.deepcopy(self.current_wall) if self.current_wall else None,
+            "drawing_wall": self.drawing_wall
+        }
+        self.undo_stack.append(current_state)
+        state = self.redo_stack.pop()
+        self.restore_state(state)
+        print(f"Redo performed: redo_stack size={len(self.redo_stack)}, undo_stack size={len(self.undo_stack)}")
 
     def draw_rulers(self, cr, width, height):
         ruler_size = 20
