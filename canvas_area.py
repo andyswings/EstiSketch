@@ -17,7 +17,7 @@ class CanvasArea(Gtk.DrawingArea):
         self.set_vexpand(True)
         self.set_draw_func(self.on_draw)
 
-        # Use the default zoom level from settings.
+        # Use the default zoom level from settings
         self.zoom = self.config.DEFAULT_ZOOM_LEVEL
         self.offset_x = 0
         self.offset_y = 0
@@ -36,14 +36,15 @@ class CanvasArea(Gtk.DrawingArea):
         self.current_wall = None
         self.drawing_wall = False
         self.wall_sets = []
-        # Initialize snapping manager using current settings; snap_threshold is set as SNAP_THRESHOLD * zoom.
+        # Initialize snapping manager; snap_threshold is multiplied by zoom.
         self.snap_manager = SnappingManager(
             snap_enabled=self.config.SNAP_ENABLED, 
-            snap_threshold=self.config.SNAP_THRESHOLD * self.zoom,
+            snap_threshold=self.config.SNAP_THRESHOLD, 
             config=self.config,
             zoom=self.zoom
         )
 
+        # Existing controllers.
         scroll_controller = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.NONE)
         scroll_controller.connect("scroll", self.on_scroll)
         self.add_controller(scroll_controller)
@@ -60,6 +61,20 @@ class CanvasArea(Gtk.DrawingArea):
         motion_controller = Gtk.EventControllerMotion.new()
         motion_controller.connect("motion", self.on_motion)
         self.add_controller(motion_controller)
+
+        # New: Pinch-to-zoom gesture for laptop trackpads.
+        pinch_gesture = Gtk.GestureZoom.new()
+        pinch_gesture.connect("scale-changed", self.on_zoom_changed)
+        self.add_controller(pinch_gesture)
+
+    def on_zoom_changed(self, controller, scale):
+        # Adjust the scale factor by a sensitivity factor to slow down zoom.
+        sensitivity = 0.2
+        factor = 1 + (scale - 1) * sensitivity
+        allocation = self.get_allocation()
+        center_x = allocation.width / 2
+        center_y = allocation.height / 2
+        self.adjust_zoom(factor, center_x, center_y)
 
     def on_draw(self, widget, cr, width, height):
         # Clear the canvas.
@@ -107,42 +122,38 @@ class CanvasArea(Gtk.DrawingArea):
             cr.line_to(self.current_wall.end[0], self.current_wall.end[1])
             cr.stroke()
 
-        # Draw live length and angle labels while drawing a wall.
+        # Draw live measurement labels for the current wall.
         if self.drawing_wall and self.current_wall:
             dx = self.current_wall.end[0] - self.current_wall.start[0]
             dy = self.current_wall.end[1] - self.current_wall.start[1]
             length_pixels = math.sqrt(dx**2 + dy**2)
             length_inches = length_pixels * (60.0 / width) * 12
             length_str = self.converter.format_measurement(self, length_inches, use_fraction=True)
-            wall_angle = math.atan2(dy, dx)  # in radians
+            wall_angle = math.atan2(dy, dx)
             angle_deg = math.degrees(wall_angle) % 360
             angle_str = f"{round(angle_deg, 2)}°"
             
-            # Compute the midpoint of the wall.
             mid_x = (self.current_wall.start[0] + self.current_wall.end[0]) / 2
             mid_y = (self.current_wall.start[1] + self.current_wall.end[1]) / 2
-            
-            # Compute the wall's normal vector from the wall segment.
+
+            # Compute wall normal.
             n_x = -dy
             n_y = dx
             norm = math.sqrt(n_x*n_x + n_y*n_y)
             if norm != 0:
                 n_x /= norm
                 n_y /= norm
-            # Force the normal to point upward (i.e. negative y in screen space).
-            # If the computed n_y is nearly zero (vertical wall), override it.
+            # For vertical walls, force normal to (0, -1)
             if abs(n_y) < 1e-6:
                 n_x, n_y = 0, -1
             elif n_y > 0:
                 n_x = -n_x
                 n_y = -n_y
-            # Use a fixed offset for label separation.
             offset = 20 / self.zoom
             label_pos_x = mid_x + n_x * offset
             label_pos_y = mid_y + n_y * offset
 
-            # Determine proper text rotation.
-            # Flip text (add 180°) if the wall angle is between 90° and 270°.
+            # Determine text rotation; flip if angle is between 90 and 270.
             if 90 < angle_deg < 270:
                 text_rotation = wall_angle + math.pi
             else:
@@ -154,17 +165,13 @@ class CanvasArea(Gtk.DrawingArea):
             cr.rotate(text_rotation)
             cr.set_font_size(12 / self.zoom)
             cr.select_font_face("Sans", cairo.FontSlant.NORMAL, cairo.FontWeight.NORMAL)
-            # Measure text extents.
             ext_length = cr.text_extents(length_str)
             ext_angle = cr.text_extents(angle_str)
             margin = 5 / self.zoom
-            # Use a text offset that is consistent.
             text_offset = max(20 / self.zoom, ext_length.height + margin)
-            # Draw length label centered horizontally.
-            cr.move_to(-ext_length.width/2, -text_offset)
+            cr.move_to(-ext_length.width / 2, -text_offset)
             cr.show_text(length_str)
-            # Draw angle label above the length label.
-            cr.move_to(-ext_angle.width/2, -text_offset - ext_length.height - margin)
+            cr.move_to(-ext_angle.width / 2, -text_offset - ext_length.height - margin)
             cr.show_text(angle_str)
             cr.restore()
 
@@ -241,7 +248,6 @@ class CanvasArea(Gtk.DrawingArea):
         old_zoom = self.zoom
         new_zoom = self.zoom * factor
         self.zoom = max(0.1, min(new_zoom, 10.0))
-        # Update snap threshold according to new zoom and setting.
         self.snap_manager.snap_threshold = self.config.SNAP_THRESHOLD * self.zoom
         if center_x is not None and center_y is not None:
             self.offset_x = center_x - (center_x - self.offset_x) * (self.zoom / old_zoom)
@@ -275,16 +281,16 @@ class CanvasArea(Gtk.DrawingArea):
         base_y = canvas_y if not self.drawing_wall else self.current_wall.start[1]
         print(f"Click at screen ({x}, {y}), canvas ({canvas_x}, {canvas_y})")
         (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
-            canvas_x, canvas_y, base_x, base_y, self.walls, self.rooms, 
+            canvas_x, canvas_y, base_x, base_y, self.walls, self.rooms,
             current_wall=self.current_wall, last_wall=last_wall, canvas_width=canvas_width, zoom=self.zoom
         )
         print(f"Snapped to ({snapped_x}, {snapped_y}), type: {self.snap_type}")
         if n_press == 1:
             if not self.drawing_wall:
                 self.current_wall = Wall(
-                    (snapped_x, snapped_y), 
-                    (snapped_x, snapped_y), 
-                    width=self.config.DEFAULT_WALL_WIDTH, 
+                    (snapped_x, snapped_y),
+                    (snapped_x, snapped_y),
+                    width=self.config.DEFAULT_WALL_WIDTH,
                     height=self.config.DEFAULT_WALL_HEIGHT
                 )
                 self.walls = []
@@ -293,9 +299,9 @@ class CanvasArea(Gtk.DrawingArea):
                 self.current_wall.end = (snapped_x, snapped_y)
                 self.walls.append(self.current_wall)
                 self.current_wall = Wall(
-                    (snapped_x, snapped_y), 
-                    (snapped_x, snapped_y), 
-                    width=self.config.DEFAULT_WALL_WIDTH, 
+                    (snapped_x, snapped_y),
+                    (snapped_x, snapped_y),
+                    width=self.config.DEFAULT_WALL_WIDTH,
                     height=self.config.DEFAULT_WALL_HEIGHT
                 )
         elif n_press == 2:
@@ -334,8 +340,8 @@ class CanvasArea(Gtk.DrawingArea):
             canvas_width = self.get_allocation().width or self.config.WINDOW_WIDTH
             print(f"Mouse at screen ({x}, {y}), canvas ({canvas_x}, {canvas_y})")
             (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
-                canvas_x, canvas_y, self.current_wall.start[0], self.current_wall.start[1], 
-                self.walls, self.rooms, current_wall=self.current_wall, last_wall=last_wall, 
+                canvas_x, canvas_y, self.current_wall.start[0], self.current_wall.start[1],
+                self.walls, self.rooms, current_wall=self.current_wall, last_wall=last_wall,
                 canvas_width=canvas_width, zoom=self.zoom
             )
             print(f"Snapped to ({snapped_x}, {snapped_y}), type: {self.snap_type}")

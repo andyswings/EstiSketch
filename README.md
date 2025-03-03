@@ -13,7 +13,7 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
   The pan tool works as expected, allowing you to smoothly move around your drawing.
 
 - **Zoom Controls:**  
-  Zoom in, zoom out, and reset zoom functions are fully implemented, giving you flexible control over your view.
+  Zoom in, zoom out, and reset zoom functions are fully implemented, including pinch to zoom on touch devices, giving you flexible control over your view.
 
 - **Snapping and Live Measurement Labels:**  
   Walls snap precisely to key points and angles, and as you draw, live measurement labels display the current segment’s length and angle. These labels stay parallel to the wall and automatically flip for readability when needed.
