@@ -42,3 +42,24 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
    ```bash
    git clone <repository_url>
    cd EstiSketch
+
+2. **Install Dependencies:**
+Ensure you have Python 3 and GTK4 installed. Then install the required Python packages:
+
+    ```bash
+    pip install -r requirements.txt
+
+3. **Run the Application:**
+
+    ```bash
+    python main.py
+
+**Contributing**
+Contributions are welcome!
+
+Fork the repository, make your changes, and submit a pull request.
+For major changes, please open an issue first to discuss your ideas.
+
+
+**License**
+This project is licensed under the MIT License.
