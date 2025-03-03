@@ -40,7 +40,7 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
 1. **Clone the Repository:**
 
    ```bash
-   git clone <repository_url>
+   git clone https://github.com/andyswings/EstiSketch.git
    cd EstiSketch
 
 2. **Install Dependencies:**
