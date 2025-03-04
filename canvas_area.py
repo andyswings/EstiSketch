@@ -36,6 +36,10 @@ class CanvasArea(Gtk.DrawingArea):
         self.current_wall = None
         self.drawing_wall = False
         self.wall_sets = []
+        # For alignment snapping display:
+        self.alignment_candidate = None  # Candidate point to snap to
+        self.raw_current_end = None      # Unaligned endpoint from snapping manager
+
         # Undo/Redo stacks
         self.undo_stack = []
         self.redo_stack = []
@@ -70,6 +74,56 @@ class CanvasArea(Gtk.DrawingArea):
         pinch_gesture = Gtk.GestureZoom.new()
         pinch_gesture.connect("scale-changed", self.on_zoom_changed)
         self.add_controller(pinch_gesture)
+
+    def _apply_alignment_snapping(self, x, y):
+        """
+        Given a raw coordinate (x,y), check candidate endpoints (from finalized and in-progress walls)
+        and, if the x or y is within tolerance, return the aligned coordinate and candidate point.
+        """
+        candidates = []
+        # Endpoints from finalized walls
+        for wall_set in self.wall_sets:
+            for wall in wall_set:
+                candidates.append(wall.start)
+                candidates.append(wall.end)
+        # Endpoints from walls in progress
+        for wall in self.walls:
+            candidates.append(wall.start)
+            candidates.append(wall.end)
+        # Also include the start point of the current wall
+        if self.current_wall:
+            candidates.append(self.current_wall.start)
+
+        tolerance = 10 / self.zoom
+        aligned_x = x
+        aligned_y = y
+        candidate_x = None
+        candidate_y = None
+
+        # Find best candidate for vertical alignment (x coordinate)
+        min_diff_x = tolerance
+        for (cx, cy) in candidates:
+            diff = abs(cx - x)
+            if diff < min_diff_x:
+                min_diff_x = diff
+                candidate_x = cx
+        if candidate_x is not None:
+            aligned_x = candidate_x
+
+        # Find best candidate for horizontal alignment (y coordinate)
+        min_diff_y = tolerance
+        for (cx, cy) in candidates:
+            diff = abs(cy - y)
+            if diff < min_diff_y:
+                min_diff_y = diff
+                candidate_y = cy
+        if candidate_y is not None:
+            aligned_y = candidate_y
+
+        candidate = None
+        if candidate_x is not None or candidate_y is not None:
+            candidate = (aligned_x, aligned_y)
+        return aligned_x, aligned_y, candidate
 
     def on_zoom_changed(self, controller, scale):
         sensitivity = 0.2
@@ -175,12 +229,36 @@ class CanvasArea(Gtk.DrawingArea):
             cr.show_text(angle_str)
             cr.restore()
 
+        # Draw alignment dashed line if an alignment candidate was found
+        self.draw_alignment_guide(cr)
+
+        # Draw snap indicator (if any)
         self.draw_snap_indicator(cr)
 
         cr.restore()
 
         if self.config.SHOW_RULERS:
             self.draw_rulers(cr, width, height)
+
+    def draw_alignment_guide(self, cr):
+        """
+        If an alignment candidate exists, draw a thin dashed line connecting
+        the raw (unsnapped) endpoint and the candidate endpoint.
+        """
+        if not (self.drawing_wall and self.current_wall and self.alignment_candidate and self.raw_current_end):
+            return
+
+        cr.save()
+        # Use a thinner line width for precision
+        cr.set_line_width(1.0 / self.zoom)
+        # Thinner dash pattern
+        cr.set_dash([2.0 / self.zoom, 2.0 / self.zoom])
+        cr.set_source_rgb(0.7, 0.7, 0.7)
+        # Draw the dashed line from the raw (unsnapped) endpoint to the candidate endpoint
+        cr.move_to(self.raw_current_end[0], self.raw_current_end[1])
+        cr.line_to(self.alignment_candidate[0], self.alignment_candidate[1])
+        cr.stroke()
+        cr.restore()
 
     def draw_snap_indicator(self, cr):
         if self.snap_type == "none" or not self.drawing_wall or not self.current_wall:
@@ -279,12 +357,33 @@ class CanvasArea(Gtk.DrawingArea):
         canvas_width = self.get_allocation().width or self.config.WINDOW_WIDTH
         base_x = canvas_x if not self.drawing_wall else self.current_wall.start[0]
         base_y = canvas_y if not self.drawing_wall else self.current_wall.start[1]
+
         print(f"Click at screen ({x}, {y}), canvas ({canvas_x}, {canvas_y})")
+        # Gather finalized endpoints for snapping
+        finalized_points = []
+        for wall_set in self.wall_sets:
+            for wall in wall_set:
+                finalized_points.append(wall.start)
+                finalized_points.append(wall.end)
         (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
             canvas_x, canvas_y, base_x, base_y, self.walls, self.rooms,
-            current_wall=self.current_wall, last_wall=last_wall, canvas_width=canvas_width, zoom=self.zoom
+            current_wall=self.current_wall, last_wall=last_wall,
+            in_progress_points=finalized_points, canvas_width=canvas_width, zoom=self.zoom
         )
+        # Store raw snapped coordinates before alignment
+        raw_x, raw_y = snapped_x, snapped_y
+        # Apply alignment snapping based on candidate endpoints
+        aligned_x, aligned_y, candidate = self._apply_alignment_snapping(raw_x, raw_y)
+        snapped_x, snapped_y = aligned_x, aligned_y
+        self.alignment_candidate = candidate
+        # For drawing the guide, store the raw coordinate if candidate exists
+        if candidate:
+            self.raw_current_end = (raw_x, raw_y)
+        else:
+            self.raw_current_end = None
+
         print(f"Snapped to ({snapped_x}, {snapped_y}), type: {self.snap_type}")
+
         if n_press == 1:
             if not self.drawing_wall:
                 self.save_state()  # Save state before starting a new wall
@@ -317,6 +416,8 @@ class CanvasArea(Gtk.DrawingArea):
                 self.current_wall = None
                 self.drawing_wall = False
                 self.snap_type = "none"
+                self.alignment_candidate = None
+                self.raw_current_end = None
         self.queue_draw()
 
     def on_drag_begin(self, gesture, start_x, start_y):
@@ -342,12 +443,27 @@ class CanvasArea(Gtk.DrawingArea):
             canvas_y = (y - self.offset_y) / self.zoom
             last_wall = self.walls[-1] if self.walls else None
             canvas_width = self.get_allocation().width or self.config.WINDOW_WIDTH
+            # Gather finalized endpoints for snapping
+            finalized_points = []
+            for wall_set in self.wall_sets:
+                for wall in wall_set:
+                    finalized_points.append(wall.start)
+                    finalized_points.append(wall.end)
             print(f"Mouse at screen ({x}, {y}), canvas ({canvas_x}, {canvas_y})")
             (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
                 canvas_x, canvas_y, self.current_wall.start[0], self.current_wall.start[1],
                 self.walls, self.rooms, current_wall=self.current_wall, last_wall=last_wall,
-                canvas_width=canvas_width, zoom=self.zoom
+                in_progress_points=finalized_points, canvas_width=canvas_width, zoom=self.zoom
             )
+            raw_x, raw_y = snapped_x, snapped_y
+            aligned_x, aligned_y, candidate = self._apply_alignment_snapping(raw_x, raw_y)
+            snapped_x, snapped_y = aligned_x, aligned_y
+            self.alignment_candidate = candidate
+            if candidate:
+                self.raw_current_end = (raw_x, raw_y)
+            else:
+                self.raw_current_end = None
+
             print(f"Snapped to ({snapped_x}, {snapped_y}), type: {self.snap_type}")
             self.current_wall.end = (snapped_x, snapped_y)
             self.queue_draw()
