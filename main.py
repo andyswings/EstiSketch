@@ -121,19 +121,24 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "r":
                 self.tool_buttons["draw_rooms"].set_active(True)
                 return True
-            elif keyname == "escape" and self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall:
-                print("Esc pressed: Finalizing wall drawing")
-                # First, save the state before finalization.
-                self.canvas.save_state()
-                # Now finalize the wall drawing:
-                self.canvas.wall_sets.append(self.canvas.walls.copy())
-                self.canvas.walls = []
-                self.canvas.current_wall = None
-                self.canvas.drawing_wall = False
-                # Save the finalized state.
-                self.canvas.save_state()
-                self.canvas.queue_draw()
-                return True
+            elif keyname == "escape":
+                if self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall:
+                    print("Esc pressed: Finalizing wall drawing")
+                    self.canvas.save_state()
+                    self.canvas.wall_sets.append(self.canvas.walls.copy())
+                    self.canvas.walls = []
+                    self.canvas.current_wall = None
+                    self.canvas.drawing_wall = False
+                    self.canvas.save_state()
+                    self.canvas.queue_draw()
+                    return True
+                elif self.canvas.tool_mode == "draw_rooms" and self.canvas.current_room_points:
+                    print("Esc pressed: Finalizing room drawing")
+                    self.canvas.save_state()
+                    self.canvas.finalize_room()
+                    self.canvas.save_state()
+                    self.canvas.queue_draw()
+                    return True
             elif keyname == "f1":
                 self.on_help_clicked(None)
                 return True
