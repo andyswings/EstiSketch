@@ -9,6 +9,10 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
   The basic wall drawing tool is mostly complete. You can draw walls with live snapping (to endpoints, angles, and grid points) and real‑time measurement labels that display both the wall’s length and its angle.  
   *Note: The planned feature to auto-complete walls in a room via double-click is not yet implemented.*
 
+- **Room Creation:**  
+  *New:* Manual point-by-point room drawing is now supported, allowing precise control over room shapes.
+  *New:* Double-click inside a closed wall loop to automatically create a room, streamlining the process of defining enclosed spaces.
+
 - **Pan Tool:**  
   The pan tool works as expected, allowing you to smoothly move around your drawing.
 
