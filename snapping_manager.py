@@ -23,7 +23,7 @@ class SnappingManager:
             points.extend(in_progress_points)
         if self.config and self.config.ENABLE_CENTERLINE_SNAPPING:
             points.extend(self.find_intersections(walls))
-        print(f"Collected points: {points}")
+        # print(f"Collected points: {points}")
         return points
 
     def snap_to_points(self, x, y, points, walls):
@@ -32,20 +32,20 @@ class SnappingManager:
         best_type = "none"
         for px, py in points:
             d_sq = (x - px) ** 2 + (y - py) ** 2
-            print(f"Checking point ({px}, {py}), distance squared: {d_sq}, threshold squared: {best_dist_sq}")
+            # print(f"Checking point ({px}, {py}), distance squared: {d_sq}, threshold squared: {best_dist_sq}")
             if d_sq < best_dist_sq:
                 best_candidate = (px, py)
                 best_dist_sq = d_sq
                 best_type = "endpoint" if (px, py) in [w.start for w in walls] + [w.end for w in walls] else "midpoint"
-        print(f"Best point snap: {best_candidate}, type: {best_type}")
+        # print(f"Best point snap: {best_candidate}, type: {best_type}")
         return best_candidate, best_type
 
     def snap_to_axis(self, x, y, base_x, base_y):
         if abs(x - base_x) < self.snap_threshold:
-            print(f"Snapped to vertical axis: ({base_x}, {y})")
+            # print(f"Snapped to vertical axis: ({base_x}, {y})")
             return (base_x, y), "axis"
         if abs(y - base_y) < self.snap_threshold:
-            print(f"Snapped to horizontal axis: ({x}, {base_y})")
+            # print(f"Snapped to horizontal axis: ({x}, {base_y})")
             return (x, base_y), "axis"
         return (x, y), "none"
 
@@ -60,7 +60,7 @@ class SnappingManager:
                 rad = math.radians(allowed_angle)
                 dist = math.sqrt(dx ** 2 + dy ** 2)
                 snapped = (base_x + dist * math.cos(rad), base_y + dist * math.sin(rad))
-                print(f"Snapped to angle {allowed_angle}°: {snapped}")
+                # print(f"Snapped to angle {allowed_angle}°: {snapped}")
                 return snapped, "angle"
         return (x, y), "none"
 
@@ -78,7 +78,7 @@ class SnappingManager:
         perp_x = base_x + dist * math.cos(rad)
         perp_y = base_y + dist * math.sin(rad)
         if math.sqrt((x - perp_x) ** 2 + (y - perp_y) ** 2) < self.snap_threshold:
-            print(f"Snapped to perpendicular: ({perp_x}, {perp_y})")
+            # print(f"Snapped to perpendicular: ({perp_x}, {perp_y})")
             return (perp_x, perp_y), "perpendicular"
         return (x, y), "none"
 
@@ -89,7 +89,7 @@ class SnappingManager:
                 intersect = self.line_intersection(wall1.start, wall1.end, wall2.start, wall2.end)
                 if intersect:
                     intersections.append(intersect)
-        print(f"Intersections found: {intersections}")
+        # print(f"Intersections found: {intersections}")
         return intersections
 
     def line_intersection(self, p1, p2, p3, p4):
@@ -117,7 +117,7 @@ class SnappingManager:
         snapped_x = round(x / grid_spacing_pixels) * grid_spacing_pixels
         snapped_y = round(y / grid_spacing_pixels) * grid_spacing_pixels
         if math.sqrt((x - snapped_x) ** 2 + (y - snapped_y) ** 2) < self.snap_threshold:
-            print(f"Snapped to grid: ({snapped_x}, {snapped_y})")
+            # print(f"Snapped to grid: ({snapped_x}, {snapped_y})")
             return (snapped_x, snapped_y), "grid"
         return (x, y), "none"
 
@@ -129,7 +129,7 @@ class SnappingManager:
         if abs(current_dist - target_dist) < self.snap_threshold:
             angle = math.atan2(dy, dx)
             snapped = (base_x + target_dist * math.cos(angle), base_y + target_dist * math.sin(angle))
-            print(f"Snapped to distance {target_dist}: {snapped}")
+            # print(f"Snapped to distance {target_dist}: {snapped}")
             return snapped, "distance"
         return (x, y), "none"
 
@@ -142,7 +142,7 @@ class SnappingManager:
         if abs(dist - radius) < self.snap_threshold:
             angle = math.atan2(dy, dx)
             snapped = (curve_center[0] + radius * math.cos(angle), curve_center[1] + radius * math.sin(angle))
-            print(f"Snapped to tangent: {snapped}")
+            # print(f"Snapped to tangent: {snapped}")
             return snapped, "tangent"
         return (x, y), "none"
 
@@ -151,7 +151,7 @@ class SnappingManager:
             print("Snapping disabled")
             return (x, y), "none"
         
-        print(f"Snapping point ({x}, {y}) from base ({base_x}, {base_y}), zoom: {zoom}, canvas_width: {canvas_width}")
+        # print(f"Snapping point ({x}, {y}) from base ({base_x}, {base_y}), zoom: {zoom}, canvas_width: {canvas_width}")
         points = self.collect_points_of_interest(walls, rooms, current_wall, in_progress_points)
         candidates = [
             self.snap_to_points(x, y, points, walls),  # Endpoint/midpoint
@@ -178,7 +178,7 @@ class SnappingManager:
         valid_candidates = []
         for (snap_candidate, snap_type) in candidates:
             dist = math.sqrt((x - snap_candidate[0])**2 + (y - snap_candidate[1])**2)
-            print(f"Candidate: ({snap_candidate[0]}, {snap_candidate[1]}), type: {snap_type}, distance: {dist}")
+            # print(f"Candidate: ({snap_candidate[0]}, {snap_candidate[1]}), type: {snap_type}, distance: {dist}")
             if dist <= self.snap_threshold and snap_type != "none":
                 valid_candidates.append((snap_candidate, snap_type, dist, priority_map.get(snap_type, 100)))
         
@@ -188,5 +188,5 @@ class SnappingManager:
         else:
             best_candidate, best_type = (x, y), "none"
         
-        print(f"Final snap: {best_candidate}, type: {best_type}")
+        # print(f"Final snap: {best_candidate}, type: {best_type}")
         return best_candidate, best_type
