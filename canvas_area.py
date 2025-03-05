@@ -425,12 +425,13 @@ class CanvasArea(Gtk.DrawingArea):
         aligned_x, aligned_y, candidate = self._apply_alignment_snapping(raw_x, raw_y)
         snapped_x, snapped_y = aligned_x, aligned_y
         self.alignment_candidate = candidate
+
         if n_press == 1:
             if not self.drawing_wall:
                 self.save_state()
                 self.current_wall = Wall((snapped_x, snapped_y), (snapped_x, snapped_y),
-                                         width=self.config.DEFAULT_WALL_WIDTH,
-                                         height=self.config.DEFAULT_WALL_HEIGHT)
+                                        width=self.config.DEFAULT_WALL_WIDTH,
+                                        height=self.config.DEFAULT_WALL_HEIGHT)
                 self.walls = []
                 self.drawing_wall = True
             else:
@@ -438,10 +439,11 @@ class CanvasArea(Gtk.DrawingArea):
                 self.current_wall.end = (snapped_x, snapped_y)
                 self.walls.append(self.current_wall)
                 self.current_wall = Wall((snapped_x, snapped_y), (snapped_x, snapped_y),
-                                         width=self.config.DEFAULT_WALL_WIDTH,
-                                         height=self.config.DEFAULT_WALL_HEIGHT)
+                                        width=self.config.DEFAULT_WALL_WIDTH,
+                                        height=self.config.DEFAULT_WALL_HEIGHT)
         elif n_press == 2:
-            if self.drawing_wall:
+            # If drawing is in progress and at least one wall segment exists, finalize normally.
+            if self.drawing_wall and self.walls:
                 self.save_state()
                 self.current_wall.end = (snapped_x, snapped_y)
                 self.walls.append(self.current_wall)
@@ -453,7 +455,31 @@ class CanvasArea(Gtk.DrawingArea):
                 self.snap_type = "none"
                 self.alignment_candidate = None
                 self.raw_current_end = None
+            else:
+                # Otherwise, treat the double-click as a command to auto-create walls.
+                print(f"Auto-wall creation: raw_point = {raw_point}, rooms count = {len(self.rooms)}")
+                found = False
+                for room in self.rooms:
+                    if len(room.points) < 3:
+                        print(f"Skipping room with insufficient points: {room.points}")
+                        continue
+                    print(f"Checking room with points: {room.points} for raw_point: {raw_point}")
+                    if self._point_in_polygon(raw_point, room.points):
+                        pts = room.points if room.points[0] == room.points[-1] else room.points + [room.points[0]]
+                        new_wall_set = []
+                        for i in range(len(pts) - 1):
+                            new_wall = Wall(pts[i], pts[i+1],
+                                            width=self.config.DEFAULT_WALL_WIDTH,
+                                            height=self.config.DEFAULT_WALL_HEIGHT)
+                            new_wall_set.append(new_wall)
+                        self.wall_sets.append(new_wall_set)
+                        print(f"Auto-created walls for room with points: {room.points}")
+                        found = True
+                        break
+                if not found:
+                    print("No room found for auto-wall creation.")
         self.queue_draw()
+
 
     def on_drag_begin(self, gesture, start_x, start_y):
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
