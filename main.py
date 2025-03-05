@@ -55,6 +55,7 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["panning"].set_active(False)
                 self.tool_buttons["draw_rooms"].set_active(False)
                 self.canvas.set_tool_mode("draw_walls")
+                print("Draw walls mode activated")
             else:
                 self.canvas.set_tool_mode(None)
 
@@ -64,6 +65,7 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["panning"].set_active(False)
                 self.tool_buttons["draw_walls"].set_active(False)
                 self.canvas.set_tool_mode("draw_rooms")
+                print("Draw rooms mode activated")
 
         callbacks = {
             "pointer": on_pointer_toggled,
