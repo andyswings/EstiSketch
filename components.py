@@ -3,24 +3,31 @@ from typing import List, Tuple
 import math
 from gi.repository import Pango
 
-@dataclass
+@dataclass(eq=False)
 class Wall:
     def __init__(self, start, end, width, height):
-        # Basic geometry
         self.start = start  # tuple of (x, y)
-        self.end = end    # tuple of (x, y)
+        self.end = end      # tuple of (x, y)
         self.width = width  # integer (inches)
         self.height = height  # integer (inches)
         
         # Material properties
-        self.material = "wood"  # wood, metal, concrete
-        self.interior_finish = "drywall"  # drywall, plaster, wood
-        self.exterior_finish = "stucco"  # stucco, brick, hardie, LP_lap
+        self.material = "wood"
+        self.interior_finish = "drywall"
+        self.exterior_finish = "stucco"
         
         # Construction details
-        self.stud_spacing = 16  # inches
+        self.stud_spacing = 16
         self.insulation_type = "fiberglass"
         self.fire_rating = "1hr"
+
+    def __eq__(self, other):
+        if not isinstance(other, Wall):
+            return False
+        return (self.start == other.start and
+                self.end == other.end and
+                self.width == other.width and
+                self.height == other.height)
         
     def length(self) -> float:
         """Calculate wall length in inches"""

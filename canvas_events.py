@@ -1,3 +1,4 @@
+import math
 from gi.repository import Gtk, Gdk
 
 class CanvasEventsMixin:
@@ -6,6 +7,81 @@ class CanvasEventsMixin:
             self._handle_wall_click(n_press, x, y)
         elif self.tool_mode == "draw_rooms":
             self._handle_room_click(n_press, x, y)
+        elif self.tool_mode == "pointer":
+            self._handle_pointer_click(gesture, n_press, x, y)
+    
+    def _handle_pointer_click(self, gesture, n_press, x, y):
+        # Get modifier state (shift pressed or not)
+        event = gesture.get_current_event()
+        state = event.get_modifier_state() if event is not None else 0
+        shift_pressed = bool(state & Gdk.ModifierType.SHIFT_MASK)
+
+        
+        # Convert click from screen to world coordinates:
+        world_x = (x - self.offset_x) / self.zoom
+        world_y = (y - self.offset_y) / self.zoom
+
+        # Set a threshold in world coordinates (e.g., 10 pixels on screen)
+        threshold = 10 / self.zoom
+
+        best_distance = float('inf')
+        candidate_type = None
+        candidate_object = None
+
+        # Helper function: distance from point P to segment AB.
+        def distance_point_to_segment(P, A, B):
+            (px, py) = P
+            (ax, ay) = A
+            (bx, by) = B
+            dx = bx - ax
+            dy = by - ay
+            if dx == 0 and dy == 0:
+                return math.hypot(px - ax, py - ay)
+            t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)
+            if t < 0:
+                return math.hypot(px - ax, py - ay)
+            elif t > 1:
+                return math.hypot(px - bx, py - by)
+            proj_x = ax + t * dx
+            proj_y = ay + t * dy
+            return math.hypot(px - proj_x, py - proj_y)
+
+        # Check each wall segment in all finalized wall sets.
+        for wall_set in self.wall_sets:
+            for wall in wall_set:
+                d = distance_point_to_segment((world_x, world_y), wall.start, wall.end)
+                if d < threshold and d < best_distance:
+                    best_distance = d
+                    candidate_type = "wall"
+                    candidate_object = wall
+
+        # Also check room vertices.
+        for room in self.rooms:
+            for idx, pt in enumerate(room.points):
+                d = math.hypot(world_x - pt[0], world_y - pt[1])
+                if d < threshold and d < best_distance:
+                    best_distance = d
+                    candidate_type = "vertex"
+                    candidate_object = (room, idx)
+
+        # Update the selection based on shift key:
+        if candidate_object is not None:
+            if shift_pressed:
+                # If already selected, toggle it off; else add to selection.
+                if not any(item["type"] == candidate_type and item["object"] == candidate_object for item in self.selected_items):
+                    self.selected_items.append({"type": candidate_type, "object": candidate_object})
+                else:
+                    self.selected_items = [item for item in self.selected_items
+                                           if not (item["type"] == candidate_type and item["object"] == candidate_object)]
+            else:
+                # Clear any previous selection and select the candidate.
+                self.selected_items = [{"type": candidate_type, "object": candidate_object}]
+        else:
+            if not shift_pressed:
+                # Clear selection if nothing is hit and shift is not pressed.
+                self.selected_items = []
+        
+        self.queue_draw()
 
     def on_drag_begin(self, gesture, start_x, start_y):
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)

@@ -56,6 +56,9 @@ class CanvasArea(Gtk.DrawingArea,
         # Undo/Redo stacks
         self.undo_stack = []
         self.redo_stack = []
+        
+        # Selection list
+        self.selected_items = []
 
         # Expose Wall and Room for mixins
         self.Wall = Wall
@@ -90,6 +93,21 @@ class CanvasArea(Gtk.DrawingArea,
         pinch_gesture = Gtk.GestureZoom.new()
         pinch_gesture.connect("scale-changed", self.on_zoom_changed)
         self.add_controller(pinch_gesture)
+    
+    def finalize_room(self):
+        # Only finalize if there are enough points to form a room
+        if self.current_room_points and len(self.current_room_points) >= 3:
+            # Ensure the room is closed by appending the first point if necessary
+            if self.current_room_points[0] != self.current_room_points[-1]:
+                self.current_room_points.append(self.current_room_points[0])
+            new_room = self.Room(self.current_room_points)
+            self.rooms.append(new_room)
+            print(f"Finalized room with points: {self.current_room_points}")
+        # Clear the temporary room points and preview
+        self.current_room_points = []
+        self.current_room_preview = None
+        self.queue_draw()
+
 
 def create_canvas_area(config_constants):
     return CanvasArea(config_constants)

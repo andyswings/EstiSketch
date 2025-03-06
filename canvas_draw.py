@@ -69,6 +69,26 @@ class CanvasDrawMixin:
                 cr.line_to(self.current_room_preview[0], self.current_room_preview[1])
             cr.stroke()
             cr.restore()
+        
+        if hasattr(self, "selected_items"):
+            for item in self.selected_items:
+                if item["type"] == "wall":
+                    wall = item["object"]
+                    cr.save()
+                    cr.set_source_rgb(1, 0, 0)  # red highlight for wall segments
+                    cr.set_line_width(3.0 / self.zoom)
+                    cr.move_to(wall.start[0], wall.start[1])
+                    cr.line_to(wall.end[0], wall.end[1])
+                    cr.stroke()
+                    cr.restore()
+                elif item["type"] == "vertex":
+                    room, index = item["object"]
+                    pt = room.points[index]
+                    cr.save()
+                    cr.set_source_rgb(0, 1, 0)  # green highlight for room vertices
+                    cr.arc(pt[0], pt[1], 5 / self.zoom, 0, 2 * math.pi)
+                    cr.fill()
+                    cr.restore()
 
         self.draw_alignment_guide(cr)
         self.draw_snap_indicator(cr)
