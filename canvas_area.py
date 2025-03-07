@@ -57,8 +57,12 @@ class CanvasArea(Gtk.DrawingArea,
         self.undo_stack = []
         self.redo_stack = []
         
-        # Selection list
+        # Selection variables
         self.selected_items = []
+        self.box_selecting = False
+        self.box_select_start = (0, 0)
+        self.box_select_end = (0, 0)
+
 
         # Expose Wall and Room for mixins
         self.Wall = Wall
@@ -84,6 +88,7 @@ class CanvasArea(Gtk.DrawingArea,
         drag_gesture = Gtk.GestureDrag.new()
         drag_gesture.connect("drag-begin", self.on_drag_begin)
         drag_gesture.connect("drag-update", self.on_drag_update)
+        drag_gesture.connect("drag-end", self.on_drag_end)
         self.add_controller(drag_gesture)
 
         motion_controller = Gtk.EventControllerMotion.new()

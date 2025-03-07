@@ -82,20 +82,185 @@ class CanvasEventsMixin:
                 self.selected_items = []
         
         self.queue_draw()
+    
+    def line_intersects_rect(self, A, B, rect):
+        """Return True if line segment AB intersects the rectangle defined by rect = (rx1, ry1, rx2, ry2) 
+        (with rx1 < rx2 and ry1 < ry2)."""
+        rx1, ry1, rx2, ry2 = rect
+
+        def point_in_rect(pt):
+            x, y = pt
+            return rx1 <= x <= rx2 and ry1 <= y <= ry2
+
+        # If either endpoint is inside the rectangle, the segment intersects.
+        if point_in_rect(A) or point_in_rect(B):
+            return True
+
+        # Helper: Check if two segments (p,q) and (r,s) intersect.
+        def segments_intersect(p, q, r, s):
+            def orientation(a, b, c):
+                # Calculate the orientation of triplet (a,b,c)
+                val = (b[1]-a[1])*(c[0]-b[0]) - (b[0]-a[0])*(c[1]-b[1])
+                if abs(val) < 1e-6:
+                    return 0  # colinear
+                return 1 if val > 0 else 2  # 1: clockwise, 2: counterclockwise
+
+            def on_segment(a, b, c):
+                return (min(a[0], b[0]) <= c[0] <= max(a[0], b[0]) and
+                        min(a[1], b[1]) <= c[1] <= max(a[1], b[1]))
+
+            o1 = orientation(p, q, r)
+            o2 = orientation(p, q, s)
+            o3 = orientation(r, s, p)
+            o4 = orientation(r, s, q)
+
+            if o1 != o2 and o3 != o4:
+                return True
+
+            if o1 == 0 and on_segment(p, q, r):
+                return True
+            if o2 == 0 and on_segment(p, q, s):
+                return True
+            if o3 == 0 and on_segment(r, s, p):
+                return True
+            if o4 == 0 and on_segment(r, s, q):
+                return True
+
+            return False
+
+        # Define the rectangle's four edges:
+        edges = [
+            ((rx1, ry1), (rx2, ry1)),  # top edge
+            ((rx2, ry1), (rx2, ry2)),  # right edge
+            ((rx2, ry2), (rx1, ry2)),  # bottom edge
+            ((rx1, ry2), (rx1, ry1))   # left edge
+        ]
+
+        for edge in edges:
+            if segments_intersect(A, B, edge[0], edge[1]):
+                return True
+        return False
+
 
     def on_drag_begin(self, gesture, start_x, start_y):
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
-        self.drag_start_x = start_x
-        self.drag_start_y = start_y
-        self.last_offset_x = self.offset_x
-        self.last_offset_y = self.offset_y
+        if self.tool_mode == "panning":
+            self.drag_start_x = start_x
+            self.drag_start_y = start_y
+            self.last_offset_x = self.offset_x
+            self.last_offset_y = self.offset_y
+        elif self.tool_mode == "pointer":
+            self.box_selecting = True
+            self.box_select_start = ((start_x - self.offset_x) / self.zoom,
+                                    (start_y - self.offset_y) / self.zoom)
+            self.box_select_end = self.box_select_start
+            # Determine if the selection should be extended:
+            event = gesture.get_current_event()
+            # Depending on GTK version, use get_modifier_state or event.state
+            state = event.get_modifier_state() if hasattr(event, "get_modifier_state") else event.state
+            self.box_select_extend = bool(state & Gdk.ModifierType.SHIFT_MASK)
+
+
 
     def on_drag_update(self, gesture, offset_x, offset_y):
         if self.tool_mode == "panning":
             self.offset_x = self.last_offset_x + offset_x
             self.offset_y = self.last_offset_y + offset_y
-        self.queue_draw()
+            self.queue_draw()
+        elif self.tool_mode == "pointer" and self.box_selecting:
+            # Calculate current world position from offset:
+            current_x = self.box_select_start[0] + (offset_x / self.zoom)
+            current_y = self.box_select_start[1] + (offset_y / self.zoom)
+            self.box_select_end = (current_x, current_y)
+            self.queue_draw()
+    
+    def on_drag_end(self, gesture, offset_x, offset_y):
+        if self.tool_mode == "pointer" and self.box_selecting:
+            # Determine selection rectangle in world coordinates:
+            x1 = min(self.box_select_start[0], self.box_select_end[0])
+            y1 = min(self.box_select_start[1], self.box_select_end[1])
+            x2 = max(self.box_select_start[0], self.box_select_end[0])
+            y2 = max(self.box_select_start[1], self.box_select_end[1])
+            rect = (x1, y1, x2, y2)
+            
+            # Helper function: Check if line segment (A,B) intersects the rectangle.
+            def line_intersects_rect(A, B, rect):
+                rx1, ry1, rx2, ry2 = rect
+                
+                def point_in_rect(pt):
+                    x, y = pt
+                    return rx1 <= x <= rx2 and ry1 <= y <= ry2
+                
+                if point_in_rect(A) or point_in_rect(B):
+                    return True
+                
+                def segments_intersect(p, q, r, s):
+                    def orientation(a, b, c):
+                        val = (b[1] - a[1]) * (c[0] - b[0]) - (b[0] - a[0]) * (c[1] - b[1])
+                        if abs(val) < 1e-6:
+                            return 0
+                        return 1 if val > 0 else 2
+                    
+                    def on_segment(a, b, c):
+                        return (min(a[0], b[0]) <= c[0] <= max(a[0], b[0]) and
+                                min(a[1], b[1]) <= c[1] <= max(a[1], b[1]))
+                    
+                    o1 = orientation(p, q, r)
+                    o2 = orientation(p, q, s)
+                    o3 = orientation(r, s, p)
+                    o4 = orientation(r, s, q)
+                    
+                    if o1 != o2 and o3 != o4:
+                        return True
+                    if o1 == 0 and on_segment(p, q, r):
+                        return True
+                    if o2 == 0 and on_segment(p, q, s):
+                        return True
+                    if o3 == 0 and on_segment(r, s, p):
+                        return True
+                    if o4 == 0 and on_segment(r, s, q):
+                        return True
+                    return False
+                
+                # Define rectangle edges:
+                edges = [
+                    ((rx1, ry1), (rx2, ry1)),
+                    ((rx2, ry1), (rx2, ry2)),
+                    ((rx2, ry2), (rx1, ry2)),
+                    ((rx1, ry2), (rx1, ry1))
+                ]
+                for edge in edges:
+                    if segments_intersect(A, B, edge[0], edge[1]):
+                        return True
+                return False
+            
+            new_selection = []
+            
+            # Check wall segments: use intersection test
+            for wall_set in self.wall_sets:
+                for wall in wall_set:
+                    if line_intersects_rect(wall.start, wall.end, rect):
+                        new_selection.append({"type": "wall", "object": wall})
+            
+            # Check room vertices
+            for room in self.rooms:
+                for idx, pt in enumerate(room.points):
+                    if (x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2):
+                        new_selection.append({"type": "vertex", "object": (room, idx)})
+            
+            # If extending selection, add to the existing selection without duplicates
+            if hasattr(self, "box_select_extend") and self.box_select_extend:
+                for item in new_selection:
+                    if not any(existing["type"] == item["type"] and existing["object"] == item["object"]
+                            for existing in self.selected_items):
+                        self.selected_items.append(item)
+            else:
+                self.selected_items = new_selection
+            
+            self.box_selecting = False
+            self.queue_draw()
 
+    
     def on_motion(self, controller, x, y):
         self.mouse_x = x
         self.mouse_y = y

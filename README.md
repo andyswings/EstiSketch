@@ -12,6 +12,12 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
   Manual point-by-point room drawing is now supported, allowing precise control over room shapes.
   Double-click inside a closed wall loop to automatically create a room, streamlining the process of defining enclosed spaces.
 
+- **Pointer Tool:**
+  The pointer tool currently supports two methods of selection. 
+    1. Selection of single wall segments or room vertices. 
+    2. Box selection or clicking and dragging to select multiple items at once.
+  Selection can be extended by holding the shift key and selecting additional segments or vertices. 
+
 - **Pan Tool:**  
   The pan tool works as expected, allowing you to smoothly move around your drawing.
 

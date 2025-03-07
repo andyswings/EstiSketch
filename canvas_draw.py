@@ -89,6 +89,23 @@ class CanvasDrawMixin:
                     cr.arc(pt[0], pt[1], 5 / self.zoom, 0, 2 * math.pi)
                     cr.fill()
                     cr.restore()
+        
+        if hasattr(self, "box_selecting") and self.box_selecting:
+            cr.save()
+            # Use a dashed line and semi-transparent fill:
+            cr.set_source_rgba(0, 0, 1, 0.3)  # blue fill with some transparency
+            x1 = min(self.box_select_start[0], self.box_select_end[0])
+            y1 = min(self.box_select_start[1], self.box_select_end[1])
+            x2 = max(self.box_select_start[0], self.box_select_end[0])
+            y2 = max(self.box_select_start[1], self.box_select_end[1])
+            cr.rectangle(x1, y1, x2 - x1, y2 - y1)
+            cr.set_line_width(2.0 / self.zoom)
+            cr.set_dash([4.0 / self.zoom, 4.0 / self.zoom])
+            cr.stroke_preserve()
+            cr.set_source_rgba(0, 0, 1, 0.1)
+            cr.fill()
+            cr.restore()
+
 
         self.draw_alignment_guide(cr)
         self.draw_snap_indicator(cr)
