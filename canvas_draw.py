@@ -106,13 +106,48 @@ class CanvasDrawMixin:
             cr.fill()
             cr.restore()
 
-
+        self.draw_live_measurements(cr)
         self.draw_alignment_guide(cr)
         self.draw_snap_indicator(cr)
 
         cr.restore()
         if self.config.SHOW_RULERS:
             self.draw_rulers(cr, width, height)
+
+    def draw_live_measurements(self, cr):
+        if self.drawing_wall and self.current_wall:
+            start = self.current_wall.start
+            end = self.current_wall.end
+            dx = end[0] - start[0]
+            dy = end[1] - start[1]
+            length = math.hypot(dx, dy)
+            angle = math.atan2(dy, dx)
+            deg = math.degrees(angle)
+            mid_x = (start[0] + end[0]) / 2
+            mid_y = (start[1] + end[1]) / 2
+            
+            # Convert the length to feet and inches.
+            measurement_str = self.converter.format_measurement(self, length, use_fraction=False)
+            text = f'{measurement_str} @ {deg:.1f}°'
+            
+            cr.save()
+            cr.translate(mid_x, mid_y)
+            cr.rotate(angle)
+            offset = 20 / self.zoom  # Increase offset to keep text off the wall
+            if -90 < deg < 90:
+                cr.move_to(0, offset)
+            else:
+                cr.rotate(math.radians(180))
+                cr.move_to(0, offset)
+            cr.set_source_rgb(0, 0, 0)
+            cr.select_font_face("Sans")
+            cr.set_font_size(12 / self.zoom)
+            cr.show_text(text)
+            cr.restore()
+
+
+
+
 
     def draw_alignment_guide(self, cr):
         if not (self.drawing_wall and self.current_wall and self.alignment_candidate and self.raw_current_end):
