@@ -9,79 +9,88 @@ class CanvasEventsMixin:
             self._handle_room_click(n_press, x, y)
         elif self.tool_mode == "pointer":
             self._handle_pointer_click(gesture, n_press, x, y)
+            
+    def on_click_pressed(self, gesture, n_press, x, y):
+        self.click_start = (x, y)
     
     def _handle_pointer_click(self, gesture, n_press, x, y):
-        # Get modifier state (shift pressed or not)
-        event = gesture.get_current_event()
-        state = event.get_modifier_state() if event is not None else 0
-        shift_pressed = bool(state & Gdk.ModifierType.SHIFT_MASK)
 
-        
-        # Convert click from screen to world coordinates:
-        world_x = (x - self.offset_x) / self.zoom
-        world_y = (y - self.offset_y) / self.zoom
+        # Check if the click is part of a drag (based on movement)
+        if hasattr(self, "click_start"):
+            dx = x - self.click_start[0]
+            dy = y - self.click_start[1]
+            if math.hypot(dx, dy) > 5:
+                return
 
-        # Set a threshold in world coordinates (e.g., 10 pixels on screen)
-        threshold = 10 / self.zoom
+        click_pt = (x, y)
+        fixed_threshold = 10  # fixed tolerance in pixels
+        best_dist = float('inf')
+        selected_item = None
 
-        best_distance = float('inf')
-        candidate_type = None
-        candidate_object = None
-
-        # Helper function: distance from point P to segment AB.
-        def distance_point_to_segment(P, A, B):
-            (px, py) = P
-            (ax, ay) = A
-            (bx, by) = B
-            dx = bx - ax
-            dy = by - ay
-            if dx == 0 and dy == 0:
-                return math.hypot(px - ax, py - ay)
-            t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)
-            if t < 0:
-                return math.hypot(px - ax, py - ay)
-            elif t > 1:
-                return math.hypot(px - bx, py - by)
-            proj_x = ax + t * dx
-            proj_y = ay + t * dy
-            return math.hypot(px - proj_x, py - proj_y)
-
-        # Check each wall segment in all finalized wall sets.
+        # Iterate through wall sets and perform hit testing in widget coordinates.
         for wall_set in self.wall_sets:
             for wall in wall_set:
-                d = distance_point_to_segment((world_x, world_y), wall.start, wall.end)
-                if d < threshold and d < best_distance:
-                    best_distance = d
-                    candidate_type = "wall"
-                    candidate_object = wall
+                # Convert wall endpoints from world to widget coordinates.
+                start_widget = (
+                    wall.start[0] * self.zoom + self.offset_x,
+                    wall.start[1] * self.zoom + self.offset_y
+                )
+                end_widget = (
+                    wall.end[0] * self.zoom + self.offset_x,
+                    wall.end[1] * self.zoom + self.offset_y
+                )
 
-        # Also check room vertices.
-        for room in self.rooms:
-            for idx, pt in enumerate(room.points):
-                d = math.hypot(world_x - pt[0], world_y - pt[1])
-                if d < threshold and d < best_distance:
-                    best_distance = d
-                    candidate_type = "vertex"
-                    candidate_object = (room, idx)
+                # Check distance from click to each endpoint.
+                dist_start = math.hypot(click_pt[0] - start_widget[0],
+                                        click_pt[1] - start_widget[1])
+                dist_end = math.hypot(click_pt[0] - end_widget[0],
+                                    click_pt[1] - end_widget[1])
+                if dist_start < fixed_threshold and dist_start < best_dist:
+                    best_dist = dist_start
+                    selected_item = {"type": "wall", "object": wall}
+                if dist_end < fixed_threshold and dist_end < best_dist:
+                    best_dist = dist_end
+                    selected_item = {"type": "wall", "object": wall}
 
-        # Update the selection based on shift key:
-        if candidate_object is not None:
+                # Check distance from click to the wall segment.
+                dist_seg = self.distance_point_to_segment(click_pt, start_widget, end_widget)
+                if dist_seg < fixed_threshold and dist_seg < best_dist:
+                    best_dist = dist_seg
+                    selected_item = {"type": "wall", "object": wall}
+
+        # Determine if SHIFT is pressed.
+        event = gesture.get_current_event()
+        state = event.get_modifier_state() if hasattr(event, "get_modifier_state") else event.state
+        shift_pressed = bool(state & Gdk.ModifierType.SHIFT_MASK)
+
+        # Update selection: if SHIFT is pressed, extend the selection.
+        if selected_item:
             if shift_pressed:
-                # If already selected, toggle it off; else add to selection.
-                if not any(item["type"] == candidate_type and item["object"] == candidate_object for item in self.selected_items):
-                    self.selected_items.append({"type": candidate_type, "object": candidate_object})
-                else:
-                    self.selected_items = [item for item in self.selected_items
-                                           if not (item["type"] == candidate_type and item["object"] == candidate_object)]
+                # Add the new item if not already in the selection.
+                if not any(existing["object"] == selected_item["object"] for existing in self.selected_items):
+                    self.selected_items.append(selected_item)
             else:
-                # Clear any previous selection and select the candidate.
-                self.selected_items = [{"type": candidate_type, "object": candidate_object}]
+                self.selected_items = [selected_item]
         else:
             if not shift_pressed:
-                # Clear selection if nothing is hit and shift is not pressed.
                 self.selected_items = []
-        
         self.queue_draw()
+
+
+
+    def distance_point_to_segment(self, P, A, B):
+        px, py = P = P
+        ax, ay = A
+        bx, by = B
+        dx = bx - ax
+        dy = by - ay
+        if dx == dy == 0:
+            return math.hypot(px - ax, py - ay)
+        t = ((px - ax) * dx + (py - ay) * dy) / (dx ** 2 + dy ** 2)
+        t = max(0, min(1, t))
+        proj_x = ax + t * dx
+        proj_y = ay + t * dy
+        return math.hypot(px - proj_x, py - proj_y)
     
     def line_intersects_rect(self, A, B, rect):
         """Return True if line segment AB intersects the rectangle defined by rect = (rx1, ry1, rx2, ry2) 
@@ -384,45 +393,50 @@ class CanvasEventsMixin:
             self.queue_draw()
 
     def _handle_wall_click(self, n_press, x, y):
+        # Convert widget coordinates (x, y) to world coordinates.
         canvas_x = (x - self.offset_x) / self.zoom
         canvas_y = (y - self.offset_y) / self.zoom
         raw_point = (canvas_x, canvas_y)
+
         last_wall = self.walls[-1] if self.walls else None
         canvas_width = self.get_allocation().width or self.config.WINDOW_WIDTH
-        base_x = canvas_x if not self.drawing_wall else self.current_wall.start[0]
-        base_y = canvas_y if not self.drawing_wall else self.current_wall.start[1]
+        # Use the click point as the base if not drawing; otherwise, use the current wall's start.
+        base_x, base_y = (canvas_x, canvas_y) if not self.drawing_wall else self.current_wall.start
+
+        # Gather any finalized points from existing wall sets.
         finalized_points = []
         for wall_set in self.wall_sets:
             for wall in wall_set:
-                finalized_points.append(wall.start)
-                finalized_points.append(wall.end)
+                finalized_points.extend([wall.start, wall.end])
+
+        # Snap the click point.
         (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
             canvas_x, canvas_y, base_x, base_y, self.walls, self.rooms,
             current_wall=self.current_wall, last_wall=last_wall,
-            in_progress_points=finalized_points, canvas_width=canvas_width, zoom=self.zoom
+            in_progress_points=finalized_points, canvas_width=canvas_width,
+            zoom=self.zoom
         )
         self.raw_current_end = raw_point
-        raw_x, raw_y = raw_point
-        aligned_x, aligned_y, candidate = self._apply_alignment_snapping(raw_x, raw_y)
+        aligned_x, aligned_y, candidate = self._apply_alignment_snapping(snapped_x, snapped_y)
         snapped_x, snapped_y = aligned_x, aligned_y
         self.alignment_candidate = candidate
 
         if n_press == 1:
+            # Single-click: either start a new wall or extend the current wall.
             if not self.drawing_wall:
-                self.save_state()
-                self.current_wall = self.Wall((snapped_x, snapped_y), (snapped_x, snapped_y),
-                                            width=self.config.DEFAULT_WALL_WIDTH,
-                                            height=self.config.DEFAULT_WALL_HEIGHT)
-                self.walls = []
                 self.drawing_wall = True
+                self.current_wall = self.Wall(
+                    (snapped_x, snapped_y), (snapped_x, snapped_y),
+                    self.config.DEFAULT_WALL_WIDTH, self.config.DEFAULT_WALL_HEIGHT
+                )
             else:
-                self.save_state()
-                self.current_wall.end = (snapped_x, snapped_y)
-                self.walls.append(self.current_wall)
-                self.current_wall = self.Wall((snapped_x, snapped_y), (snapped_x, snapped_y),
-                                            width=self.config.DEFAULT_WALL_WIDTH,
-                                            height=self.config.DEFAULT_WALL_HEIGHT)
+                self.walls.append(self.Wall(self.current_wall.start, (snapped_x, snapped_y),
+                                            self.config.DEFAULT_WALL_WIDTH, self.config.DEFAULT_WALL_HEIGHT))
+                self.current_wall.start = (snapped_x, snapped_y)
+            self.queue_draw()
+
         elif n_press == 2:
+            print(f"Double-click at ({snapped_x}, {snapped_y}), drawing_wall = {self.drawing_wall}")
             if self.drawing_wall and self.walls:
                 self.save_state()
                 self.current_wall.end = (snapped_x, snapped_y)
@@ -438,12 +452,15 @@ class CanvasEventsMixin:
             else:
                 print(f"Auto-wall creation: raw_point = {raw_point}, rooms count = {len(self.rooms)}")
                 found = False
+                # Use the aligned point for testing.
+                test_point = (snapped_x, snapped_y)
                 for room in self.rooms:
                     if len(room.points) < 3:
                         print(f"Skipping room with insufficient points: {room.points}")
                         continue
-                    print(f"Checking room with points: {room.points} for raw_point: {raw_point}")
-                    if self._point_in_polygon(raw_point, room.points):
+                    inside = self._point_in_polygon(test_point, room.points)
+                    print(f"Checking room with points: {room.points} for test_point: {test_point} -> inside: {inside}")
+                    if inside:
                         pts = room.points if room.points[0] == room.points[-1] else room.points + [room.points[0]]
                         new_wall_set = []
                         for i in range(len(pts) - 1):
@@ -457,6 +474,6 @@ class CanvasEventsMixin:
                         break
                 if not found:
                     print("No room found for auto-wall creation.")
-        self.queue_draw()
-
-
+                # Clear snap type to avoid showing the red indicator.
+                self.snap_type = "none"
+            self.queue_draw()

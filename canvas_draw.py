@@ -81,6 +81,11 @@ class CanvasDrawMixin:
                     cr.line_to(wall.end[0], wall.end[1])
                     cr.stroke()
                     cr.restore()
+                    # Draw handles at endpoints
+                    for pt in [wall.start, wall.end]:
+                        cr.set_source_rgb(0, 1, 0)
+                        cr.arc(pt[0], pt[1], 6 / self.zoom, 0, 2 * math.pi)
+                        cr.fill()
                 elif item["type"] == "vertex":
                     room, index = item["object"]
                     pt = room.points[index]

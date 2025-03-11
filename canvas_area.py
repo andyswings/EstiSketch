@@ -82,7 +82,8 @@ class CanvasArea(Gtk.DrawingArea,
         self.add_controller(scroll_controller)
 
         click_gesture = Gtk.GestureClick.new()
-        click_gesture.connect("pressed", self.on_click)
+        click_gesture.connect("pressed", self.on_click_pressed)
+        click_gesture.connect("released", self.on_click)
         self.add_controller(click_gesture)
 
         drag_gesture = Gtk.GestureDrag.new()
