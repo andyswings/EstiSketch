@@ -1,6 +1,6 @@
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gdk
+from gi.repository import Gtk, Gdk, Gio
 from types import SimpleNamespace
 import config
 import toolbar
@@ -11,12 +11,21 @@ import estimate_materials
 import estimate_cost
 import help_dialog
 from file_menu import create_file_menu
+from sh3d_importer import import_sh3d
 from components import Wall
 
 class EstimatorApp(Gtk.Application):
     def __init__(self, config_constants):
         super().__init__(application_id="com.example.estimator")
         self.config = config_constants
+    
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        # Add an action for importing SH3D files.
+        import_action = Gio.SimpleAction.new("import_sh3d", None)
+        import_action.connect("activate", self.on_import_sh3d)
+        self.add_action(import_action)
+        # (Other actions like "open", "save", etc. are added similarly.)
 
     def do_activate(self):
         self.window = Gtk.ApplicationWindow(
@@ -236,6 +245,45 @@ class EstimatorApp(Gtk.Application):
     def on_help_clicked(self, button):
         dialog = help_dialog.create_help_dialog(self.window)
         dialog.present()
+    
+    def on_import_sh3d(self, action, parameter):
+        # Create a standard file chooser dialog.
+        dialog = Gtk.FileChooserDialog(
+            title="Import SH3D File",
+            transient_for=self.window,
+            action=Gtk.FileChooserAction.OPEN
+        )
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Open", Gtk.ResponseType.OK)
+        
+        # Add a file filter for .sh3d files.
+        sh3d_filter = Gtk.FileFilter()
+        sh3d_filter.set_name("Sweet Home 3D Files")
+        sh3d_filter.add_pattern("*.sh3d")
+        dialog.add_filter(sh3d_filter)
+        
+        dialog.connect("response", self.on_import_sh3d_response)
+        dialog.show()
+
+    def on_import_sh3d_response(self, dialog, response):
+        if response == Gtk.ResponseType.OK:
+            file = dialog.get_file()
+            sh3d_file = file.get_path()
+            try:
+                imported = import_sh3d(sh3d_file)
+                # Clear the current canvas content.
+                self.canvas.wall_sets.clear()
+                self.canvas.walls.clear()
+                self.canvas.rooms.clear()
+                # Populate the canvas with imported data.
+                if imported["walls"]:
+                    self.canvas.wall_sets.append(imported["walls"])
+                self.canvas.rooms.extend(imported["rooms"])
+                self.canvas.queue_draw()
+            except Exception as e:
+                print(f"Error importing SH3D file: {e}")
+        dialog.destroy()
+
 
 def main():
     config_dict = config.load_config()
