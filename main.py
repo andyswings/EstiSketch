@@ -10,6 +10,7 @@ import manage_materials
 import estimate_materials
 import estimate_cost
 import help_dialog
+from file_menu import create_file_menu
 from components import Wall
 
 class EstimatorApp(Gtk.Application):
@@ -27,6 +28,13 @@ class EstimatorApp(Gtk.Application):
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.window.set_child(vbox)
+        
+        # Create the file menu button and add it at the top
+        file_menu_button = create_file_menu(self)
+        # Pack the menu button in a horizontal box to simulate a menu bar area.
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        header_box.append(file_menu_button)
+        vbox.append(header_box)
 
         self.canvas = canvas_area.create_canvas_area(self.config)
 
