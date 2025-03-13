@@ -205,15 +205,13 @@ class EstimatorApp(Gtk.Application):
         return False
 
     def on_zoom_in_clicked(self, button):
-        allocation = self.canvas.get_allocation()
-        center_x = allocation.width / 2
-        center_y = allocation.height / 2
+        center_x = self.canvas.get_width() / 2
+        center_y = self.canvas.get_height() / 2
         self.canvas.adjust_zoom(1.1, center_x, center_y)
 
     def on_zoom_out_clicked(self, button):
-        allocation = self.canvas.get_allocation()
-        center_x = allocation.width / 2
-        center_y = allocation.height / 2
+        center_x = self.canvas.get_width() / 2
+        center_y = self.canvas.get_height() / 2
         self.canvas.adjust_zoom(0.9, center_x, center_y)
 
     def on_zoom_reset_clicked(self, button):

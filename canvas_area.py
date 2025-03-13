@@ -100,6 +100,21 @@ class CanvasArea(Gtk.DrawingArea,
         pinch_gesture.connect("scale-changed", self.on_zoom_changed)
         self.add_controller(pinch_gesture)
     
+    def adjust_zoom(self, factor, center_x, center_y):
+        # Calculate the new zoom level.
+        new_zoom = self.zoom * factor
+        # Adjust offsets so that the point at (center_x, center_y) stays fixed.
+        self.offset_x = center_x - factor * (center_x - self.offset_x)
+        self.offset_y = center_y - factor * (center_y - self.offset_y)
+        self.zoom = new_zoom
+        self.queue_draw()
+    
+    def reset_zoom(self):
+        self.zoom = 1.0
+        self.offset_x = 0
+        self.offset_y = 0
+        self.queue_draw()
+
     def finalize_room(self):
         # Only finalize if there are enough points to form a room
         if self.current_room_points and len(self.current_room_points) >= 3:

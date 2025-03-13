@@ -6,8 +6,9 @@ class CanvasDrawMixin:
         cr.set_source_rgb(1, 1, 1)
         cr.paint()
         cr.save()
-        cr.translate(self.offset_x, self.offset_y)
         cr.scale(self.zoom, self.zoom)
+        cr.translate(self.offset_x, self.offset_y)
+        # cr.scale(self.zoom, self.zoom)
         self.draw_grid(cr, width, height)
 
         # Draw walls
