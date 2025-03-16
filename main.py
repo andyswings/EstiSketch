@@ -169,6 +169,15 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "y":
                 self.canvas.redo()
                 return True
+            elif keyname == "c":
+                print("Copy action triggered")
+                return True
+            elif keyname == "p":
+                print("Paste action triggered")
+                return True
+            elif keyname == "j":
+                self.canvas.join_selected_walls()
+                return True
             elif keyname == "s":
                 print("Save action triggered")
                 return True

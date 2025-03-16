@@ -1,5 +1,8 @@
 import math
 from gi.repository import Gtk, Gdk
+from typing import List
+from components import Wall
+
 
 class CanvasEventsMixin:
     def on_click(self, gesture, n_press, x, y):
@@ -9,6 +12,177 @@ class CanvasEventsMixin:
             self._handle_room_click(n_press, x, y)
         elif self.tool_mode == "pointer":
             self._handle_pointer_click(gesture, n_press, x, y)
+    
+    def on_right_click(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
+        """
+        Handle right-click events by invoking the pointer tool's right-click handler.
+        
+        Parameters:
+            gesture (Gtk.GestureClick): The gesture object for the right-click.
+            n_press (int): The click count.
+            x (float): The x-coordinate of the click in widget coordinates.
+            y (float): The y-coordinate of the click in widget coordinates.
+        
+        Returns:
+            None
+        """
+        # Invoke the existing right-click handler.
+        self._handle_pointer_right_click(gesture, n_press, x, y)
+
+    
+    def _handle_pointer_right_click(self, gesture, n_press, x, y):
+        """
+        Handle right-click events in pointer mode by displaying a context menu
+        (using a Gtk.Popover) when two or more wall segments are selected.
+        
+        This context menu currently has a single entry ("Join Walls") that calls
+        join_selected_walls() when activated.
+        
+        Parameters:
+            gesture (Gtk.GestureClick): The gesture that triggered the right-click.
+            n_press (int): The number of clicks.
+            x (float): The x-coordinate of the click (in widget coordinates).
+            y (float): The y-coordinate of the click (in widget coordinates).
+        
+        Returns:
+            None
+        """
+        # Filter selected items to get only wall segments.
+        selected_walls = [item for item in self.selected_items if item.get("type") == "wall"]
+        if len(selected_walls) < 2:
+            print("Right-click: Need at least 2 selected walls to join.")
+            return
+
+        # Create a popover to serve as the context menu.
+        popover = Gtk.Popover()
+        
+        # Create a vertical box to hold the menu item(s).
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        popover.set_child(box)
+        
+        # Create a button labeled "Join Walls".
+        join_button = Gtk.Button(label="Join Walls")
+        join_button.connect("clicked", lambda btn: self.join_selected_walls())
+        box.append(join_button)
+        
+        # Position the popover at the click location.
+        rect = Gdk.Rectangle()
+        rect.x = int(x)
+        rect.y = int(y)
+        rect.width = 1
+        rect.height = 1
+        popover.set_pointing_to(rect)
+        
+        # Set the popover's parent to the canvas (self).
+        popover.set_parent(self)
+        
+        # Show the popover.
+        popover.show()
+    
+    def join_selected_walls(self) -> None:
+        """
+        Join selected wall segments or wall sets into a single continuous wall set.
+
+        This method searches the current selection (stored in self.selected_items) for wall segments.
+        It then determines which wall sets contain any of these selected walls, removes those wall sets
+        from self.wall_sets, and merges their walls into a single chain. Walls are considered connected
+        if the distance between an endpoint of one wall and the start point of the next wall is within a
+        specified tolerance (typically based on a configuration value divided by the current zoom level).
+
+        If some selected walls are not contiguous with the main chain, they will not be merged and a warning
+        is printed. The resulting joined wall set preserves each wall segment’s original start and end coordinates.
+        Finally, the method clears the current selection and requests a redraw of the canvas.
+
+        Returns:
+            None
+        """
+        # Gather all wall sets that contain at least one selected wall.
+        selected_sets: List[List[Wall]] = []
+        for item in self.selected_items:
+            if item.get("type") == "wall":
+                # For each selected wall, find which wall set it belongs to.
+                for ws in self.wall_sets:
+                    if item["object"] in ws and ws not in selected_sets:
+                        selected_sets.append(ws)
+                        break
+
+        if not selected_sets:
+            print("No wall segments selected for joining.")
+            return
+
+        # Remove the selected wall sets from the overall list.
+        for ws in selected_sets:
+            if ws in self.wall_sets:
+                self.wall_sets.remove(ws)
+
+        # Flatten all selected walls into a single list.
+        all_walls: List[Wall] = []
+        for ws in selected_sets:
+            all_walls.extend(ws)
+
+        # Define a helper function to compute Euclidean distance.
+        def distance(p, q):
+            return math.hypot(p[0] - q[0], p[1] - q[1])
+
+        # Use a tolerance for determining connectivity.
+        # Use the config's WALL_JOIN_TOLERANCE (if defined) divided by zoom, or default to 5.
+        tol = (getattr(self.config, "WALL_JOIN_TOLERANCE", 5.0)) / self.zoom
+
+        # Greedily order the walls into a continuous chain.
+        remaining: List[Wall] = all_walls.copy()
+        joined: List[Wall] = []
+        if not remaining:
+            return
+
+        # Start with an arbitrary wall.
+        current = remaining.pop(0)
+        joined.append(current)
+
+        # Extend forward from the end of the chain.
+        extended = True
+        while extended and remaining:
+            extended = False
+            last_point = joined[-1].end
+            for wall in remaining:
+                if distance(wall.start, last_point) < tol:
+                    joined.append(wall)
+                    remaining.remove(wall)
+                    extended = True
+                    break
+                elif distance(wall.end, last_point) < tol:
+                    # Reverse the wall so its start becomes the connecting endpoint.
+                    wall.start, wall.end = wall.end, wall.start
+                    joined.append(wall)
+                    remaining.remove(wall)
+                    extended = True
+                    break
+
+        # Extend backward from the beginning of the chain.
+        extended = True
+        while extended and remaining:
+            extended = False
+            first_point = joined[0].start
+            for wall in remaining:
+                if distance(wall.end, first_point) < tol:
+                    joined.insert(0, wall)
+                    remaining.remove(wall)
+                    extended = True
+                    break
+                elif distance(wall.start, first_point) < tol:
+                    wall.start, wall.end = wall.end, wall.start
+                    joined.insert(0, wall)
+                    remaining.remove(wall)
+                    extended = True
+                    break
+
+        if remaining:
+            print("Warning: Not all selected walls are contiguous; only contiguous segments have been joined.")
+
+        # Append the new, joined wall set to the canvas.
+        self.wall_sets.append(joined)
+        # Clear selection and request a redraw.
+        self.selected_items = []
+        self.queue_draw()
             
     def on_click_pressed(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
         self.click_start = (x, y)

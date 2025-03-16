@@ -1,6 +1,7 @@
 import gi, copy, math
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, cairo
+from typing import List
 
 from measurement_utils import MeasurementConverter
 from components import Wall, Room
@@ -99,6 +100,13 @@ class CanvasArea(Gtk.DrawingArea,
         pinch_gesture = Gtk.GestureZoom.new()
         pinch_gesture.connect("scale-changed", self.on_zoom_changed)
         self.add_controller(pinch_gesture)
+        
+        # Create a gesture click dedicated to right-click (secondary button)
+        right_click_gesture = Gtk.GestureClick.new()
+        right_click_gesture.set_button(Gdk.BUTTON_SECONDARY)  # Listen for right-click events.
+        right_click_gesture.connect("pressed", self.on_right_click)
+        self.add_controller(right_click_gesture)
+
     
     def adjust_zoom(self, factor, center_x, center_y):
         # Calculate the new zoom level.
@@ -128,7 +136,6 @@ class CanvasArea(Gtk.DrawingArea,
         self.current_room_points = []
         self.current_room_preview = None
         self.queue_draw()
-
 
 def create_canvas_area(config_constants):
     return CanvasArea(config_constants)
