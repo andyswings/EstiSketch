@@ -5,11 +5,12 @@ from gi.repository import Pango
 
 @dataclass(eq=False)
 class Wall:
-    def __init__(self, start, end, width, height):
+    def __init__(self, start, end, width, height, exterior_wall=False):
         self.start = start  # tuple of (x, y)
         self.end = end      # tuple of (x, y)
         self.width = width  # integer (inches)
         self.height = height  # integer (inches)
+        self.exterior_wall = exterior_wall  # boolean
         
         # Material properties
         self.material = "wood"
