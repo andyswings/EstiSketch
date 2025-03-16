@@ -3,12 +3,12 @@ from gi.repository import cairo
 
 class CanvasDrawMixin:
     def on_draw(self, widget, cr, width, height):
+        cr.identity_matrix()
         cr.set_source_rgb(1, 1, 1)
         cr.paint()
         cr.save()
         cr.scale(self.zoom, self.zoom)
-        cr.translate(self.offset_x, self.offset_y)
-        # cr.scale(self.zoom, self.zoom)
+        cr.translate(self.offset_x / self.zoom, self.offset_y / self.zoom)
         self.draw_grid(cr, width, height)
 
         # Draw walls
@@ -150,10 +150,6 @@ class CanvasDrawMixin:
             cr.set_font_size(12 / self.zoom)
             cr.show_text(text)
             cr.restore()
-
-
-
-
 
     def draw_alignment_guide(self, cr):
         if not (self.drawing_wall and self.current_wall and self.alignment_candidate and self.raw_current_end):
