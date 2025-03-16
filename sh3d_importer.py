@@ -5,17 +5,21 @@ import xml.etree.ElementTree as ET
 
 from components import Wall, Room
 
-def import_sh3d(sh3d_file_path):
+def import_sh3d(sh3d_file_path: str) -> dict:
     """
     Import a Sweet Home 3D (.sh3d) file and extract walls and rooms.
+
+    The imported walls are returned as individual wall sets so that each wall
+    uses its own imported start and end coordinates. Walls will only be mitered
+    together if they share an endpoint.
 
     Parameters:
         sh3d_file_path (str): The path to the .sh3d file.
 
     Returns:
         dict: A dictionary containing two keys:
-            'walls' - a list of Wall objects
-            'rooms' - a list of Room objects
+            'wall_sets' - a list of wall sets, where each wall set is a list containing a single Wall object.
+            'rooms' - a list of Room objects.
     """
     if not os.path.exists(sh3d_file_path):
         raise FileNotFoundError(f"File {sh3d_file_path} does not exist.")
@@ -54,8 +58,12 @@ def import_sh3d(sh3d_file_path):
                 continue
 
             # Create a Wall object using the extracted data.
-            wall = Wall(start=(x_start, y_start), end=(x_end, y_end), width=thickness, height=wall_elem_height)
+            wall = Wall(start=(x_start, y_start), end=(x_end, y_end),
+                        width=thickness, height=wall_elem_height)
             walls.append(wall)
+        print(f"Extracted {len(walls)} walls from the file.")
+        for wall in walls:
+            print(f"Wall from {wall.start} to {wall.end}, width: {wall.width}, height: {wall.height}")
 
         # Extract rooms from the XML.
         rooms = []
@@ -73,7 +81,11 @@ def import_sh3d(sh3d_file_path):
                 room = Room(points=points, height=wall_height)
                 rooms.append(room)
 
-        return {"walls": walls, "rooms": rooms}
+        # Create wall sets: each wall is placed in its own set.
+        # This ensures that each wall is drawn independently using its own start and end points.
+        wall_sets = [[wall] for wall in walls]
+
+        return {"wall_sets": wall_sets, "rooms": rooms}
 
 # Example usage:
 if __name__ == '__main__':
@@ -86,8 +98,9 @@ if __name__ == '__main__':
     try:
         imported = import_sh3d(sh3d_file)
         print("Imported Walls:")
-        for wall in imported["walls"]:
-            print(f"  Wall from {wall.start} to {wall.end}, width: {wall.width}, height: {wall.height}")
+        for wall_set in imported["wall_sets"]:
+            for wall in wall_set:
+                print(f"  Wall from {wall.start} to {wall.end}, width: {wall.width}, height: {wall.height}")
         print("\nImported Rooms:")
         for room in imported["rooms"]:
             print(f"  Room with points: {room.points}, height: {room.height}")

@@ -274,9 +274,9 @@ class EstimatorApp(Gtk.Application):
                 self.canvas.walls.clear()
                 self.canvas.rooms.clear()
                 # Populate the canvas with imported data.
-                if imported["walls"]:
-                    self.canvas.wall_sets.append(imported["walls"])
+                self.canvas.wall_sets.extend(imported["wall_sets"])
                 self.canvas.rooms.extend(imported["rooms"])
+                # Request redraw of canvas
                 self.canvas.queue_draw()
             except Exception as e:
                 print(f"Error importing SH3D file: {e}")
