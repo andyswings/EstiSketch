@@ -10,70 +10,103 @@ class CanvasEventsMixin:
         elif self.tool_mode == "pointer":
             self._handle_pointer_click(gesture, n_press, x, y)
             
-    def on_click_pressed(self, gesture, n_press, x, y):
+    def on_click_pressed(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
         self.click_start = (x, y)
     
-    def _handle_pointer_click(self, gesture, n_press, x, y):
+    def _handle_pointer_click(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
+        """
+        Handle a pointer click event when the pointer tool is active.
 
-        # Check if the click is part of a drag (based on movement)
+        This method processes a click by first checking if the click is actually part of a drag 
+        (i.e. if the pointer has moved more than a small threshold from the initial click position).
+        It then performs hit testing against the walls rendered on the canvas by converting the 
+        click's widget (screen) coordinates into world coordinates and comparing the distances to each 
+        wall's endpoints and segments. The wall that is closest to the click (within a fixed threshold) 
+        is considered selected.
+
+        If the SHIFT key is held down during the click, the selected item is added to the current 
+        selection. Otherwise, the selection is replaced with the new item. Finally, the method requests 
+        a redraw of the canvas so that any visual indicators of selection are updated.
+
+        Parameters:
+            gesture (Gtk.GestureClick): The gesture object representing the pointer click event.
+            n_press (int): The number of clicks (e.g., 1 for single-click, 2 for double-click).
+            x (float): The x-coordinate of the click in widget (screen) coordinates.
+            y (float): The y-coordinate of the click in widget (screen) coordinates.
+
+        Returns:
+            None
+        """
+        # Check if this click is part of a drag by comparing current position to the initial click position.
         if hasattr(self, "click_start"):
-            dx = x - self.click_start[0]
-            dy = y - self.click_start[1]
+            dx = x - self.click_start[0]  # Difference in x from where the click started.
+            dy = y - self.click_start[1]  # Difference in y from where the click started.
+            # If the movement is more than 5 pixels, consider it part of a drag; do not treat it as a simple click.
             if math.hypot(dx, dy) > 5:
                 return
 
+        # Store the click point in widget (screen) coordinates.
         click_pt = (x, y)
-        fixed_threshold = 10  # fixed tolerance in pixels
-        best_dist = float('inf')
-        selected_item = None
+        fixed_threshold = 10  # Tolerance threshold in pixels for considering a click "close" to an item.
+        best_dist = float('inf')  # Initialize best (smallest) distance found to infinity.
+        selected_item = None  # This will hold the item (wall) that is the best candidate for selection.
 
-        # Iterate through wall sets and perform hit testing in widget coordinates.
+        # Loop through each set of walls (each wall_set may represent connected segments).
         for wall_set in self.wall_sets:
             for wall in wall_set:
-                # Convert wall endpoints from world to widget coordinates.
+                # Convert the wall's start point from world coordinates to widget coordinates.
                 start_widget = (
                     wall.start[0] * self.zoom + self.offset_x,
                     wall.start[1] * self.zoom + self.offset_y
                 )
+                # Convert the wall's end point from world coordinates to widget coordinates.
                 end_widget = (
                     wall.end[0] * self.zoom + self.offset_x,
                     wall.end[1] * self.zoom + self.offset_y
                 )
 
-                # Check distance from click to each endpoint.
+                # Compute the distance from the click to the start point of the wall.
                 dist_start = math.hypot(click_pt[0] - start_widget[0],
                                         click_pt[1] - start_widget[1])
+                # Compute the distance from the click to the end point of the wall.
                 dist_end = math.hypot(click_pt[0] - end_widget[0],
                                     click_pt[1] - end_widget[1])
+                # If the click is within threshold of the start point and closer than any previous candidate...
                 if dist_start < fixed_threshold and dist_start < best_dist:
-                    best_dist = dist_start
-                    selected_item = {"type": "wall", "object": wall}
+                    best_dist = dist_start  # Update best distance.
+                    selected_item = {"type": "wall", "object": wall}  # Select this wall.
+                # If the click is within threshold of the end point and closer than any previous candidate...
                 if dist_end < fixed_threshold and dist_end < best_dist:
-                    best_dist = dist_end
-                    selected_item = {"type": "wall", "object": wall}
+                    best_dist = dist_end  # Update best distance.
+                    selected_item = {"type": "wall", "object": wall}  # Select this wall.
 
-                # Check distance from click to the wall segment.
+                # Also check the distance from the click to the wall segment (the line between start and end).
                 dist_seg = self.distance_point_to_segment(click_pt, start_widget, end_widget)
                 if dist_seg < fixed_threshold and dist_seg < best_dist:
-                    best_dist = dist_seg
-                    selected_item = {"type": "wall", "object": wall}
+                    best_dist = dist_seg  # Update best distance.
+                    selected_item = {"type": "wall", "object": wall}  # Select this wall.
 
-        # Determine if SHIFT is pressed.
+        # Retrieve the current event from the gesture to check for modifier keys.
         event = gesture.get_current_event()
+        # Use get_modifier_state if available; otherwise, use event.state.
         state = event.get_modifier_state() if hasattr(event, "get_modifier_state") else event.state
+        # Determine if the SHIFT key is pressed (used to extend the current selection).
         shift_pressed = bool(state & Gdk.ModifierType.SHIFT_MASK)
 
-        # Update selection: if SHIFT is pressed, extend the selection.
+        # Update the selection based on the hit test and whether SHIFT is held.
         if selected_item:
             if shift_pressed:
-                # Add the new item if not already in the selection.
+                # If SHIFT is pressed, add the new item to the current selection if it's not already selected.
                 if not any(existing["object"] == selected_item["object"] for existing in self.selected_items):
                     self.selected_items.append(selected_item)
             else:
+                # If SHIFT is not pressed, replace any existing selection with this new item.
                 self.selected_items = [selected_item]
         else:
+            # If no item was selected and SHIFT is not pressed, clear the current selection.
             if not shift_pressed:
                 self.selected_items = []
+        # Request a redraw of the canvas to update any visual selection indicators.
         self.queue_draw()
 
 
@@ -163,9 +196,7 @@ class CanvasEventsMixin:
             self.box_select_start = ((start_x - self.offset_x) / self.zoom,
                                     (start_y - self.offset_y) / self.zoom)
             self.box_select_end = self.box_select_start
-            # Determine if the selection should be extended:
             event = gesture.get_current_event()
-            # Depending on GTK version, use get_modifier_state or event.state
             state = event.get_modifier_state() if hasattr(event, "get_modifier_state") else event.state
             self.box_select_extend = bool(state & Gdk.ModifierType.SHIFT_MASK)
 
@@ -268,58 +299,137 @@ class CanvasEventsMixin:
             
             self.box_selecting = False
             self.queue_draw()
-
     
-    def on_motion(self, controller, x, y):
+    def _get_candidate_points(self): # Helper function to get all candidate points from wall sets.
+            return [point for wall_set in self.wall_sets for wall in wall_set for point in (wall.start, wall.end)]
+
+    def on_motion(self, controller: Gtk.EventControllerMotion, x: float, y: float) -> None: # This function is called when the mouse moves over the canvas.
+        """
+        Handle mouse movement events on the canvas and update the drawing preview.
+
+        This method is invoked whenever the mouse moves over the canvas. It updates the current
+        mouse position (in widget coordinates) and converts these coordinates into world coordinates.
+        Based on the active tool mode, it then updates either the wall or room preview by applying
+        snapping and alignment rules.
+
+        In "draw_walls" mode:
+        - Converts the pointer's widget coordinates (x, y) to world coordinates.
+        - Stores the raw pointer world coordinate for potential reference.
+        - Uses the snapping manager to adjust the pointer's position relative to the starting
+            point of the current wall and candidate snapping points (from finalized walls and rooms).
+        - Applies additional alignment snapping to further refine the pointer position.
+        - Updates the end point of the current wall with the final snapped (and aligned) coordinates.
+        - Requests a canvas redraw to update the wall preview.
+
+        In "draw_rooms" mode:
+        - Converts the pointer's widget coordinates (x, y) to world coordinates.
+        - Determines a base point for snapping (using the last point of the current room, if available).
+        - Collects candidate snapping points from finalized walls and current room points.
+        - Uses the snapping manager to adjust the room point.
+        - Applies alignment snapping to the raw pointer coordinate.
+        - Updates the current room preview with the final snapped (and aligned) coordinates.
+        - Requests a canvas redraw to update the room preview.
+
+        Parameters:
+            controller (Gtk.EventControllerMotion): The motion event controller that triggered this event.
+            x (float): The x-coordinate of the mouse pointer in widget (screen) coordinates.
+            y (float): The y-coordinate of the mouse pointer in widget (screen) coordinates.
+
+        Returns:
+            None
+        """
+        # Store the current mouse (pointer) position in widget coordinates.
         self.mouse_x = x
         self.mouse_y = y
+        
+        # Convert the mouse coordinates (widget coordinates) to world coordinates.
+        canvas_x = (x - self.offset_x) / self.zoom
+        canvas_y = (y - self.offset_y) / self.zoom
+        # Save the raw (unmodified) world coordinate of the mouse pointer.
+        raw_point = (canvas_x, canvas_y)
+
+        # Check if we're in "draw_walls" mode and currently drawing a wall.
         if self.tool_mode == "draw_walls" and self.drawing_wall and self.current_wall:
-            canvas_x = (x - self.offset_x) / self.zoom
-            canvas_y = (y - self.offset_y) / self.zoom
-            raw_point = (canvas_x, canvas_y)
+            # If there are any finished walls, get the last one for snapping reference.
             last_wall = self.walls[-1] if self.walls else None
+            
+            # Determine the canvas width for snapping calculations; use allocation width or fallback default.
             canvas_width = self.get_allocation().width or self.config.WINDOW_WIDTH
-            finalized_points = []
-            for wall_set in self.wall_sets:
-                for wall in wall_set:
-                    finalized_points.append(wall.start)
-                    finalized_points.append(wall.end)
+            
+            # Build a list of points from already finalized walls (both start and end points) for snapping.
+            candidate_points = self._get_candidate_points()
+            
+            # Use the snapping manager to adjust the current mouse position.
+            # Pass in the current world coordinates (canvas_x, canvas_y),
+            # the starting point of the current wall, and other context information.
             (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
-                canvas_x, canvas_y, self.current_wall.start[0], self.current_wall.start[1],
-                self.walls, self.rooms, current_wall=self.current_wall, last_wall=last_wall,
-                in_progress_points=finalized_points, canvas_width=canvas_width, zoom=self.zoom
+                canvas_x, canvas_y,                  # Current pointer world coordinates.
+                self.current_wall.start[0],          # Base x for snapping (start of current wall).
+                self.current_wall.start[1],          # Base y for snapping (start of current wall).
+                self.walls,                          # List of finished walls.
+                self.rooms,                          # List of finalized rooms.
+                current_wall=self.current_wall,      # The wall currently being drawn.
+                last_wall=last_wall,                 # Last wall, for perpendicular or angle snapping.
+                in_progress_points=candidate_points, # All finalized wall endpoints for snapping.
+                canvas_width=canvas_width,           # Canvas width used in snapping calculations.
+                zoom=self.zoom                       # Current zoom level.
             )
+            
+            # Save the raw end point (before alignment snapping) for potential reference.
             self.raw_current_end = raw_point
+            
+            # Apply additional alignment snapping to further adjust the raw point.
             raw_x, raw_y = raw_point
             aligned_x, aligned_y, candidate = self._apply_alignment_snapping(raw_x, raw_y)
+            # Use the aligned coordinates from the alignment snapping.
             snapped_x, snapped_y = aligned_x, aligned_y
+            # Store the candidate alignment point (if any) to show visual feedback.
             self.alignment_candidate = candidate
+            
+            # Update the end point of the current wall to the final snapped (and aligned) coordinates.
             self.current_wall.end = (snapped_x, snapped_y)
+            
+            # Request a redraw of the canvas to update the wall preview.
             self.queue_draw()
+
+        # Else, if we're in "draw_rooms" mode...
         elif self.tool_mode == "draw_rooms":
-            canvas_x = (x - self.offset_x) / self.zoom
-            canvas_y = (y - self.offset_y) / self.zoom
-            raw_point = (canvas_x, canvas_y)
+            # Determine the base point for snapping:
+            # If there are already points in the room being drawn, use the last one.
+            # Otherwise, use the current mouse position.
             base_x = self.current_room_points[-1][0] if self.current_room_points else canvas_x
             base_y = self.current_room_points[-1][1] if self.current_room_points else canvas_y
-            candidate_points = []
-            for wall_set in self.wall_sets:
-                for wall in wall_set:
-                    candidate_points.append(wall.start)
-                    candidate_points.append(wall.end)
+            
+            # Collect candidate points from all finalized walls to help with snapping.
+            candidate_points = self._get_candidate_points()
+            
+            # Also include any points already added to the current room drawing.
             candidate_points.extend(self.current_room_points)
+            
+            # Use the snapping manager to adjust the room point.
+            # In this case, current_wall and last_wall are not applicable (set to None).
             (snapped_x, snapped_y), _ = self.snap_manager.snap_point(
-                canvas_x, canvas_y, base_x, base_y,
-                self.walls, self.rooms,
-                current_wall=None, last_wall=None,
-                in_progress_points=candidate_points,
+                canvas_x, canvas_y,      # Current mouse world coordinates.
+                base_x, base_y,          # Base point for snapping.
+                self.walls,              # Finished walls (for snapping reference).
+                self.rooms,              # Finalized rooms.
+                current_wall=None,       # Not drawing a wall here.
+                last_wall=None,          # Not applicable for room drawing.
+                in_progress_points=candidate_points,  # Candidate snapping points.
                 canvas_width=self.get_allocation().width or self.config.WINDOW_WIDTH,
-                zoom=self.zoom
+                zoom=self.zoom            # Current zoom level.
             )
+            
+            # Apply alignment snapping to the raw point.
             raw_x, raw_y = raw_point
             aligned_x, aligned_y, _ = self._apply_alignment_snapping(raw_x, raw_y)
+            # Use the aligned coordinates as the final snapped point.
             snapped_x, snapped_y = aligned_x, aligned_y
+            
+            # Update the current room preview point so the user can see a live preview.
             self.current_room_preview = (snapped_x, snapped_y)
+            
+            # Request a redraw of the canvas to update the room preview.
             self.queue_draw()
 
     def on_zoom_changed(self, controller, scale):
@@ -331,7 +441,6 @@ class CanvasEventsMixin:
         self.adjust_zoom(factor, center_x, center_y)
 
     def on_scroll(self, controller, dx, dy):
-        allocation = self.get_allocation()
         pointer_x, pointer_y = self.get_pointer()
         center_x = pointer_x
         center_y = pointer_y
@@ -345,11 +454,7 @@ class CanvasEventsMixin:
         raw_point = (canvas_x, canvas_y)
         base_x = self.current_room_points[-1][0] if self.current_room_points else canvas_x
         base_y = self.current_room_points[-1][1] if self.current_room_points else canvas_y
-        candidate_points = []
-        for wall_set in self.wall_sets:
-            for wall in wall_set:
-                candidate_points.append(wall.start)
-                candidate_points.append(wall.end)
+        candidate_points = self._get_candidate_points()  # Get all finalized points from wall sets.
         candidate_points.extend(self.current_room_points)
         (snapped_x, snapped_y), _ = self.snap_manager.snap_point(
             canvas_x, canvas_y, base_x, base_y,
@@ -403,17 +508,13 @@ class CanvasEventsMixin:
         # Use the click point as the base if not drawing; otherwise, use the current wall's start.
         base_x, base_y = (canvas_x, canvas_y) if not self.drawing_wall else self.current_wall.start
 
-        # Gather any finalized points from existing wall sets.
-        finalized_points = []
-        for wall_set in self.wall_sets:
-            for wall in wall_set:
-                finalized_points.extend([wall.start, wall.end])
+        candidate_points = self._get_candidate_points()  # Get all finalized points from wall sets.
 
         # Snap the click point.
         (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
             canvas_x, canvas_y, base_x, base_y, self.walls, self.rooms,
             current_wall=self.current_wall, last_wall=last_wall,
-            in_progress_points=finalized_points, canvas_width=canvas_width,
+            in_progress_points=candidate_points, canvas_width=canvas_width,
             zoom=self.zoom
         )
         self.raw_current_end = raw_point
