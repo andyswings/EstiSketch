@@ -49,9 +49,6 @@ class CanvasEventsMixin:
         """
         # Filter selected items to get only wall segments.
         selected_walls = [item for item in self.selected_items if item.get("type") == "wall"]
-        if len(selected_walls) < 2:
-            print("Right-click: Need at least 2 selected walls to join.")
-            return
 
         # Create a popover to serve as the context menu.
         popover = Gtk.Popover()
@@ -60,6 +57,29 @@ class CanvasEventsMixin:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         popover.set_child(box)
         
+        # Decide whether or not to create "Set as Exterior" or "Set as Interior" buttons
+        use_ext_button = False
+        use_int_button = False
+        for wall in selected_walls:
+            if wall["object"].exterior_wall == False and use_ext_button == False:
+                use_ext_button = True
+            elif wall["object"].exterior_wall == True and use_int_button == False:
+                use_int_button = True
+        
+        def set_ext_int(selected_walls, state):
+            for wall in selected_walls:
+                wall["object"].exterior_wall = state
+        
+        if use_ext_button:
+            ext_button = Gtk.Button(label="Set as Exterior")
+            ext_button.connect("clicked", lambda btn: set_ext_int(selected_walls, True))
+            box.append(ext_button)
+        
+        if use_int_button:
+            int_button = Gtk.Button(label="Set as Interior")
+            int_button.connect("clicked", lambda btn: set_ext_int(selected_walls, False))
+            box.append(int_button)
+            
         # Create a button labeled "Join Walls".
         join_button = Gtk.Button(label="Join Walls")
         join_button.connect("clicked", lambda btn: self.join_selected_walls())
@@ -105,6 +125,11 @@ class CanvasEventsMixin:
                     if item["object"] in ws and ws not in selected_sets:
                         selected_sets.append(ws)
                         break
+                    
+        # Check if there are at least two selected wall sets to join.
+        if len(selected_sets) < 2:
+            print("Right-click: Need at least 2 selected walls to join.")
+            return
 
         if not selected_sets:
             print("No wall segments selected for joining.")
