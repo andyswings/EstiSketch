@@ -10,8 +10,7 @@ def import_sh3d(sh3d_file_path: str) -> dict:
     Import a Sweet Home 3D (.sh3d) file and extract walls and rooms.
 
     The imported walls are returned as individual wall sets so that each wall
-    uses its own imported start and end coordinates. Walls will only be mitered
-    together if they share an endpoint.
+    uses its own imported start and end coordinates.
 
     Parameters:
         sh3d_file_path (str): The path to the .sh3d file.
@@ -86,23 +85,3 @@ def import_sh3d(sh3d_file_path: str) -> dict:
         wall_sets = [[wall] for wall in walls]
 
         return {"wall_sets": wall_sets, "rooms": rooms}
-
-# Example usage:
-if __name__ == '__main__':
-    import sys
-    if len(sys.argv) < 2:
-        print("Usage: python sh3d_importer.py <path_to_sh3d_file>")
-        sys.exit(1)
-
-    sh3d_file = sys.argv[1]
-    try:
-        imported = import_sh3d(sh3d_file)
-        print("Imported Walls:")
-        for wall_set in imported["wall_sets"]:
-            for wall in wall_set:
-                print(f"  Wall from {wall.start} to {wall.end}, width: {wall.width}, height: {wall.height}")
-        print("\nImported Rooms:")
-        for room in imported["rooms"]:
-            print(f"  Room with points: {room.points}, height: {room.height}")
-    except Exception as e:
-        print(f"Error importing sh3d file: {e}")
