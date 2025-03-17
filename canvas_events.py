@@ -1,7 +1,7 @@
 import math
 from gi.repository import Gtk, Gdk
 from typing import List
-from components import Wall
+from components import Wall, Door
 
 
 class CanvasEventsMixin:
@@ -10,6 +10,8 @@ class CanvasEventsMixin:
             self._handle_wall_click(n_press, x, y)
         elif self.tool_mode == "draw_rooms":
             self._handle_room_click(n_press, x, y)
+        elif self.tool_mode == "add_doors":
+            self._handle_door_click(n_press, x, y)
         elif self.tool_mode == "pointer":
             self._handle_pointer_click(gesture, n_press, x, y)
     
@@ -28,6 +30,69 @@ class CanvasEventsMixin:
         """
         # Invoke the existing right-click handler.
         self._handle_pointer_right_click(gesture, n_press, x, y)
+    
+    def _handle_door_click(self, n_press: int, x: float, y: float) -> None:
+        """
+        Handle a click event in 'add_doors' mode by adding a door on the wall nearest
+        to the click point.
+
+        The method converts the click position from widget to world coordinates, then
+        iterates over existing wall sets to find a wall whose segment is within a small
+        tolerance of the click. It computes the projection ratio along the wall (from 0.0 at
+        the wall's start to 1.0 at the wall's end) where the door should be placed. A new
+        Door object is created (using default attributes) and stored along with the target
+        wall and position ratio in self.doors. Subsequent redraws will use the current state
+        of each Door object to render the door on the wall.
+
+        Parameters:
+            n_press (int): The number of clicks (typically 1 for a single click).
+            x (float): The x-coordinate of the click in widget coordinates.
+            y (float): The y-coordinate of the click in widget coordinates.
+
+        Returns:
+            None
+        """
+        # Convert the widget (screen) coordinates to world coordinates.
+        canvas_x = (x - self.offset_x) / self.zoom
+        canvas_y = (y - self.offset_y) / self.zoom
+        click_pt = (canvas_x, canvas_y)
+        
+        # Define a tolerance in world coordinates for detecting a click near a wall.
+        tolerance = 10 / self.zoom  # Adjust as needed.
+        best_dist = float('inf')
+        selected_wall = None
+        selected_ratio = None
+        
+        # Iterate through all finished walls in wall sets.
+        for wall_set in self.wall_sets:
+            for wall in wall_set:
+                dist = self.distance_point_to_segment(click_pt, wall.start, wall.end)
+                if dist < tolerance and dist < best_dist:
+                    best_dist = dist
+                    selected_wall = wall
+                    # Compute projection ratio along the wall:
+                    dx = wall.end[0] - wall.start[0]
+                    dy = wall.end[1] - wall.start[1]
+                    wall_length = math.hypot(dx, dy)
+                    if wall_length > 0:
+                        t = ((canvas_x - wall.start[0]) * dx + (canvas_y - wall.start[1]) * dy) / (wall_length ** 2)
+                        # Clamp ratio to [0, 1]
+                        selected_ratio = max(0.0, min(1.0, t))
+                    else:
+                        selected_ratio = 0.5  # default if degenerate wall.
+        
+        if selected_wall is None:
+            print("No wall was found near the click for door addition.")
+            return
+        
+        # Create a new Door object with default attributes.
+        # (You can later expand this to allow the user to choose door types, etc.)
+        new_door = Door("single", 36.0, 80.0, "left", "inward")
+        
+        # Add the door placement to the canvas.
+        # Assume self.doors is a list initialized in CanvasArea.__init__.
+        self.doors.append((selected_wall, new_door, selected_ratio))
+        self.queue_draw()
 
     
     def _handle_pointer_right_click(self, gesture, n_press, x, y):
