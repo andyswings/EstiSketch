@@ -331,6 +331,8 @@ class EstimatorApp(Gtk.Application):
                 # Populate the canvas with imported data.
                 self.canvas.wall_sets.extend(imported["wall_sets"])
                 self.canvas.rooms.extend(imported["rooms"])
+                self.canvas.doors.extend(imported["doors"])
+                self.canvas.windows.extend(imported["windows"])
                 # Request redraw of canvas
                 self.canvas.queue_draw()
             except Exception as e:
