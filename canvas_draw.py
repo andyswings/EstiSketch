@@ -118,6 +118,12 @@ class CanvasDrawMixin:
             for door_placement in self.doors:
                 wall, door, position_ratio = door_placement
                 self.draw_door_on_wall(cr, wall, door, position_ratio)
+        
+        if hasattr(self, "windows"):
+            for window_placement in self.windows:
+                wall, window, position_ratio = window_placement
+                self.draw_window_on_wall(cr, wall, window, position_ratio)
+
 
 
         self.draw_live_measurements(cr)
@@ -127,56 +133,129 @@ class CanvasDrawMixin:
         cr.restore()
         if self.config.SHOW_RULERS:
             self.draw_rulers(cr, width, height)
+            
+
+    def draw_window_on_wall(self, cr, wall, window, position_ratio: float = 0.5) -> None:
+        """
+        Draw a window opening on a wall.
+        
+        The window is drawn at its full width (window.width) along the wall,
+        with a depth equal to the wall thickness (simulating an opening).
+        A dimension label (showing the window's full width and height in feet and inches)
+        is drawn parallel to the wall. The label is flipped if necessary so it is never upside down.
+        """
+        import math
+
+        # Calculate wall direction vectors.
+        dx = wall.end[0] - wall.start[0]
+        dy = wall.end[1] - wall.start[1]
+        wall_length = math.hypot(dx, dy)
+        if wall_length == 0:
+            return  # Avoid division by zero.
+        # Unit vector along the wall.
+        ux = dx / wall_length
+        uy = dy / wall_length
+        # Unit vector perpendicular to the wall.
+        nx = -uy
+        ny = ux
+
+        # Determine the center point of the window along the wall.
+        center_x = wall.start[0] + position_ratio * dx
+        center_y = wall.start[1] + position_ratio * dy
+
+        # For drawing:
+        # - Full window width (window.width) along the wall.
+        # - Depth equal to the wall thickness (self.config.DEFAULT_WALL_WIDTH).
+        half_width = window.width / 2.0
+        half_depth = self.config.DEFAULT_WALL_WIDTH / 2.0
+
+        # Calculate the four corners of the window opening.
+        corner1 = (center_x - half_width * ux - half_depth * nx,
+                center_y - half_width * uy - half_depth * ny)
+        corner2 = (center_x + half_width * ux - half_depth * nx,
+                center_y + half_width * uy - half_depth * ny)
+        corner3 = (center_x + half_width * ux + half_depth * nx,
+                center_y + half_width * uy + half_depth * ny)
+        corner4 = (center_x - half_width * ux + half_depth * nx,
+                center_y - half_width * uy + half_depth * ny)
+
+        # Draw the window opening.
+        cr.save()
+        cr.set_source_rgb(1, 1, 1)  # White fill.
+        cr.move_to(*corner1)
+        cr.line_to(*corner2)
+        cr.line_to(*corner3)
+        cr.line_to(*corner4)
+        cr.close_path()
+        cr.fill()
+        
+        cr.set_source_rgb(0, 0, 0)  # Black outline.
+        cr.set_line_width(1)
+        cr.move_to(*corner1)
+        cr.line_to(*corner2)
+        cr.line_to(*corner3)
+        cr.line_to(*corner4)
+        cr.close_path()
+        cr.stroke()
+        cr.restore()
+
+        # Prepare the dimension label.
+        window_width_str = self.converter.format_measurement(self, window.width, use_fraction=False)
+        window_height_str = self.converter.format_measurement(self, window.height, use_fraction=False)
+        dimension_text = f"W: {window_width_str}  H: {window_height_str}"
+
+        # Draw the dimension label parallel to the wall.
+        cr.save()
+        # Offset the label from the window center along the negative normal.
+        label_offset = 15 / self.zoom  # Adjust as needed.
+        label_x = center_x - label_offset * nx
+        label_y = center_y - label_offset * ny
+        cr.translate(label_x, label_y)
+        # Rotate to align with the wall.
+        angle = math.atan2(uy, ux)
+        cr.rotate(angle)
+        # Flip text if needed so it's never upside down.
+        if math.degrees(angle) < -90 or math.degrees(angle) > 90:
+            cr.rotate(math.radians(180))
+        cr.set_source_rgb(0, 0, 0)
+        cr.select_font_face("Sans", cairo.FontSlant.NORMAL, cairo.FontWeight.NORMAL)
+        cr.set_font_size(12 / self.zoom)
+        extents = cr.text_extents(dimension_text)
+        cr.move_to(-extents.width / 2, extents.height / 2)
+        cr.show_text(dimension_text)
+        cr.restore()
 
 
     def draw_door_on_wall(self, cr: cairo.Context, wall, door, position_ratio: float = 0.5) -> None:
         """
-        Draw a door on an existing wall with the door opening positioned along the wall’s centerline.
+        Draw a door on an existing wall with a dimension label.
         
-        The door is placed at the location defined by position_ratio (0.0 = wall start,
-        1.0 = wall end, 0.5 = center). The door opening is created by "cutting out" a rectangle
-        (filled with the canvas background color) along the wall's centerline based on door.width.
-        A door leaf is drawn from the hinge (determined by door.swing) at a 90° angle, and a dashed
-        swing arc is drawn to indicate the door's movement.
-        
-        Parameters:
-            cr (cairo.Context): The Cairo drawing context.
-            wall: A Wall object with attributes 'start' and 'end', each a tuple (x, y).
-            door: A Door object with attributes:
-                - door_type (str)
-                - width (float): door width in inches.
-                - height (float): door height in inches.
-                - swing (str): either "left" or "right" (determines hinge side).
-                - orientation (str): e.g., "inward" or "outward".
-            position_ratio (float, optional): A value between 0.0 and 1.0 indicating the door’s placement
-                along the wall’s centerline. Defaults to 0.5 (center).
-        
-        Returns:
-            None
+        The door opening is created by "cutting out" a rectangle along the wall’s centerline.
+        A door leaf and a dashed swing arc are drawn to indicate door movement.
+        A dimension label (showing the door's width and height in feet and inches) is drawn
+        parallel to the wall and flipped if necessary so it is never upside down.
         """
+        import math
+
         # Calculate wall vector and its length.
         dx = wall.end[0] - wall.start[0]
         dy = wall.end[1] - wall.start[1]
         wall_length = math.hypot(dx, dy)
         if wall_length == 0:
-            return  # Avoid division by zero
-
-        # Compute unit vector along the wall.
+            return
         ux = dx / wall_length
         uy = dy / wall_length
 
-        # Determine door center along the wall using position_ratio.
+        # Determine door center along the wall.
         door_center = (wall.start[0] + position_ratio * dx, wall.start[1] + position_ratio * dy)
-
-        # Compute half the door width.
         half_door = door.width / 2.0
 
         # Compute door opening endpoints along the wall's centerline.
-        door_start: Tuple[float, float] = (door_center[0] - half_door * ux, door_center[1] - half_door * uy)
-        door_end: Tuple[float, float] = (door_center[0] + half_door * ux, door_center[1] + half_door * uy)
+        door_start = (door_center[0] - half_door * ux, door_center[1] - half_door * uy)
+        door_end   = (door_center[0] + half_door * ux, door_center[1] + half_door * uy)
 
-        # Draw the wall segments (simulate the wall) before cutting out the door opening.
-        cr.set_source_rgb(0, 0, 0)  # Wall color: black
+        # Draw wall segments before cutting out the door.
+        cr.set_source_rgb(0, 0, 0)
         cr.set_line_width(2)
         cr.move_to(*wall.start)
         cr.line_to(*door_start)
@@ -184,24 +263,18 @@ class CanvasDrawMixin:
         cr.line_to(*wall.end)
         cr.stroke()
 
-        # Simulate an opening in the wall by covering the door area with a rectangle
-        # filled with the canvas background color (assumed white here).
-        # Determine a rectangle thickness that covers the wall drawing.
-        rect_height = 8 / self.zoom  # Adjust as needed.
+        # Create the door opening (cut-out).
+        rect_height = 8 / self.zoom  # Adjust thickness as needed.
         half_rect = rect_height / 2
-
-        # Compute the wall's normal vector (perpendicular to the wall direction).
-        # For a unit vector perpendicular, use (-uy, ux).
-        nx = -uy
+        nx = -uy  # Wall normal (perpendicular).
         ny = ux
 
-        # Calculate the four corners of the door opening rectangle.
         corner1 = (door_start[0] + nx * half_rect, door_start[1] + ny * half_rect)
         corner2 = (door_end[0] + nx * half_rect, door_end[1] + ny * half_rect)
         corner3 = (door_end[0] - nx * half_rect, door_end[1] - ny * half_rect)
         corner4 = (door_start[0] - nx * half_rect, door_start[1] - ny * half_rect)
 
-        cr.set_source_rgb(1, 1, 1)  # Canvas background color (white)
+        cr.set_source_rgb(1, 1, 1)
         cr.move_to(*corner1)
         cr.line_to(*corner2)
         cr.line_to(*corner3)
@@ -209,7 +282,6 @@ class CanvasDrawMixin:
         cr.close_path()
         cr.fill()
 
-        # Redraw the door opening boundary (optional)
         cr.set_source_rgb(0, 0, 0)
         cr.set_line_width(1)
         cr.move_to(*corner1)
@@ -219,36 +291,29 @@ class CanvasDrawMixin:
         cr.close_path()
         cr.stroke()
 
-        # Determine the hinge point based on door swing.
-        # For a left-swing door, hinge is at door_start; for right-swing, hinge is at door_end.
+        # Determine the hinge and door leaf.
         if door.swing.lower() == "left":
             hinge = door_start
-            swing_direction = 1  # Counterclockwise rotation.
+            swing_direction = 1
         else:
             hinge = door_end
-            swing_direction = -1  # Clockwise rotation.
+            swing_direction = -1
 
-        # Compute the wall's angle (in radians).
         wall_angle = math.atan2(uy, ux)
-        # The door leaf rotates 90° from the wall direction.
         door_leaf_angle = wall_angle + swing_direction * (math.pi / 2)
-
-        # Compute the door leaf endpoint (using door.width as the leaf length).
-        leaf_endpoint: Tuple[float, float] = (
+        leaf_endpoint = (
             hinge[0] + door.width * math.cos(door_leaf_angle),
             hinge[1] + door.width * math.sin(door_leaf_angle)
         )
 
-        # Draw the door leaf.
-        cr.set_source_rgb(0.3, 0.3, 0.3)  # Door leaf color (dark gray)
+        cr.set_source_rgb(0.3, 0.3, 0.3)
         cr.set_line_width(2)
         cr.move_to(*hinge)
         cr.line_to(*leaf_endpoint)
         cr.stroke()
 
-        # Draw a dashed swing arc to indicate door movement.
         cr.set_dash([4, 4])
-        cr.set_source_rgb(0.5, 0.5, 0.5)  # Arc color (light gray)
+        cr.set_source_rgb(0.5, 0.5, 0.5)
         start_angle = wall_angle
         end_angle = wall_angle + swing_direction * (math.pi / 2)
         if swing_direction == 1:
@@ -256,16 +321,31 @@ class CanvasDrawMixin:
         else:
             cr.arc_negative(hinge[0], hinge[1], door.width, start_angle, end_angle)
         cr.stroke()
-        cr.set_dash([])  # Reset dash pattern.
+        cr.set_dash([])
 
-        # Optionally, label the door.
+        # Prepare the door dimension label.
+        door_width_str = self.converter.format_measurement(self, door.width, use_fraction=False)
+        door_height_str = self.converter.format_measurement(self, door.height, use_fraction=False)
+        dimension_text = f"W: {door_width_str}  H: {door_height_str}"
+
+        # Draw the dimension label parallel to the wall.
+        cr.save()
+        label_offset = 15 / self.zoom  # Adjust as needed.
+        label_x = door_center[0] - label_offset * nx
+        label_y = door_center[1] - label_offset * ny
+        cr.translate(label_x, label_y)
+        cr.rotate(wall_angle)
+        # Flip label if necessary.
+        if math.degrees(wall_angle) < -90 or math.degrees(wall_angle) > 90:
+            cr.rotate(math.radians(180))
         cr.set_source_rgb(0, 0, 0)
         cr.select_font_face("Sans", cairo.FontSlant.NORMAL, cairo.FontWeight.NORMAL)
-        cr.set_font_size(12)
-        label = f"{door.door_type} door"
-        cr.move_to(door_center[0], door_center[1] - 10)
-        cr.show_text(label)
-        cr.stroke()
+        cr.set_font_size(12 / self.zoom)
+        extents = cr.text_extents(dimension_text)
+        cr.move_to(-extents.width / 2, extents.height / 2)
+        cr.show_text(dimension_text)
+        cr.restore()
+
 
 
     def draw_live_measurements(self, cr):

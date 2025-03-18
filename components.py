@@ -49,3 +49,11 @@ class Door:
         self.height = height    # Door height in inches
         self.swing = swing  # Door swing direction (e.g., "left", "right")
         self.orientation = orientation  # Orientation of the door (e.g., "inward", "outward")
+
+
+@dataclass
+class Window:
+    def __init__(self, width: float, height: float, window_type: str):
+        self.width = width  # Window width in inches
+        self.height = height  # Window height in inches
+        self.window_type = window_type # Type of window (e.g., "single-hung", "double-hung", "sliding", "fixed")

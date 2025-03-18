@@ -12,7 +12,6 @@ import estimate_cost
 import help_dialog
 from file_menu import create_file_menu
 from sh3d_importer import import_sh3d
-from components import Wall
 
 class EstimatorApp(Gtk.Application):
     def __init__(self, config_constants):
@@ -53,7 +52,10 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["panning"].set_active(False)
                 self.tool_buttons["draw_walls"].set_active(False)
                 self.tool_buttons["draw_rooms"].set_active(False)
+                self.tool_buttons["add_doors"].set_active(False)
+                self.tool_buttons["add_windows"].set_active(False)
                 self.canvas.set_tool_mode("pointer")
+                print("Pointer mode activated")
             else:
                 self.canvas.set_tool_mode(None)
 
@@ -62,7 +64,10 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["pointer"].set_active(False)
                 self.tool_buttons["draw_walls"].set_active(False)
                 self.tool_buttons["draw_rooms"].set_active(False)
+                self.tool_buttons["add_doors"].set_active(False)
+                self.tool_buttons["add_windows"].set_active(False)
                 self.canvas.set_tool_mode("panning")
+                print("Panning mode activated")
             else:
                 self.canvas.set_tool_mode(None)
 
@@ -71,8 +76,22 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["pointer"].set_active(False)
                 self.tool_buttons["panning"].set_active(False)
                 self.tool_buttons["draw_rooms"].set_active(False)
+                self.tool_buttons["add_doors"].set_active(False)
+                self.tool_buttons["add_windows"].set_active(False)
                 self.canvas.set_tool_mode("draw_walls")
                 print("Draw walls mode activated")
+            else:
+                self.canvas.set_tool_mode(None)
+        
+        def on_add_windows_toggled(toggle_button):
+            if toggle_button.get_active():
+                self.tool_buttons["pointer"].set_active(False)
+                self.tool_buttons["panning"].set_active(False)
+                self.tool_buttons["draw_walls"].set_active(False)
+                self.tool_buttons["draw_rooms"].set_active(False)
+                self.tool_buttons["add_doors"].set_active(False)
+                self.canvas.set_tool_mode("add_windows")
+                print("Add windows mode activated")
             else:
                 self.canvas.set_tool_mode(None)
 
@@ -81,6 +100,8 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["pointer"].set_active(False)
                 self.tool_buttons["panning"].set_active(False)
                 self.tool_buttons["draw_walls"].set_active(False)
+                self.tool_buttons["add_doors"].set_active(False)
+                self.tool_buttons["add_windows"].set_active(False)
                 self.canvas.set_tool_mode("draw_rooms")
                 print("Draw rooms mode activated")
             else:
@@ -93,6 +114,7 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["panning"].set_active(False)
                 self.tool_buttons["draw_walls"].set_active(False)
                 self.tool_buttons["draw_rooms"].set_active(False)
+                self.tool_buttons["add_windows"].set_active(False)
                 # Activate add_doors mode.
                 self.canvas.set_tool_mode("add_doors")
                 print("Add doors mode activated")
@@ -105,7 +127,8 @@ class EstimatorApp(Gtk.Application):
             "panning": on_panning_toggled,
             "draw_walls": on_draw_walls_toggled,
             "draw_rooms": on_draw_rooms_toggled,
-            "add_doors": on_add_doors_toggled
+            "add_doors": on_add_doors_toggled,
+            "add_windows": on_add_windows_toggled
         }
         toolbar_box, self.tool_buttons, extra_buttons = toolbar.create_toolbar(self.config, callbacks, self.canvas)
         vbox.append(toolbar_box)
@@ -159,6 +182,9 @@ class EstimatorApp(Gtk.Application):
                 return True
             elif keyname == "d":
                 self.tool_buttons["add_doors"].set_active(True)
+                return True
+            elif keyname == "a":
+                self.tool_buttons["add_windows"].set_active(True)
                 return True
             elif keyname == "escape":
                 if self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall:

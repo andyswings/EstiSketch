@@ -48,6 +48,7 @@ class CanvasArea(Gtk.DrawingArea,
         self.current_room_preview = None  # Live preview point (snapped)
         
         self.doors = []  # List of door placements; each item is a tuple: (wall, door, position_ratio)
+        self.windows = []  # List of window placements; each item is a tuple: (wall, window, position_ratio)
 
         # For alignment snapping (used for walls and rooms)
         self.alignment_candidate = None
