@@ -59,9 +59,10 @@ DEFAULT_SETTINGS = {
     "DEFAULT_MATERIAL_COST_UNIT": "per sq ft",
     "LABOR_COST_PER_HOUR": 50.0,
     "TAX_RATE_PERCENTAGE": 8.0,
-    "ALLOW_CURVED_WALLS": False,               # Added new key
-    "DEFAULT_INTERIOR_WALL_MATERIAL": "Drywall",  # Added new key
-    "DEFAULT_EXTERIOR_WALL_MATERIAL": "Brick"       # Added new key
+    "ALLOW_CURVED_WALLS": False,
+    "DEFAULT_INTERIOR_WALL_MATERIAL": "Drywall",
+    "DEFAULT_EXTERIOR_WALL_MATERIAL": "Brick",
+    "PIXELS_PER_INCH": 2.0
 }
 
 def load_config():

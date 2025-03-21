@@ -32,9 +32,10 @@ class CanvasArea(Gtk.DrawingArea,
 
         # Zoom and pan
         self.zoom = self.config.DEFAULT_ZOOM_LEVEL
-        self.offset_x = 0
-        self.offset_y = 0
-        self.ruler_offset = 30
+        self.ruler_offset = 80
+        self.offset_x = self.ruler_offset / (self.config.PIXELS_PER_INCH * self.zoom)
+        self.offset_y = self.ruler_offset / (self.config.PIXELS_PER_INCH * self.zoom)
+        
 
         # Wall drawing state
         self.walls = []

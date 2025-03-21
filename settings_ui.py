@@ -43,7 +43,8 @@ def create_settings_dialog(parent, config_constants, canvas):
         ("Labor Cost per Hour ($)", "LABOR_COST_PER_HOUR"),
         ("Tax Rate (%)", "TAX_RATE_PERCENTAGE"),
         ("Snap Threshold", "SNAP_THRESHOLD"),
-        ("Default Zoom Level", "DEFAULT_ZOOM_LEVEL")
+        ("Default Zoom Level", "DEFAULT_ZOOM_LEVEL"),
+        ("Pixels per inch", "PIXELS_PER_INCH")
     ]
     
     numeric_entries = {}
