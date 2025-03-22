@@ -24,6 +24,11 @@ class EstimatorApp(Gtk.Application):
         import_action = Gio.SimpleAction.new("import_sh3d", None)
         import_action.connect("activate", self.on_import_sh3d)
         self.add_action(import_action)
+        
+        # Add an action to clear canvas and start a new drawing
+        new_action = Gio.SimpleAction.new("new")
+        new_action.connect("activate", self.on_new)
+        self.add_action(new_action)
         # (Other actions like "open", "save", etc. are added similarly.)
 
     def do_activate(self):
@@ -338,6 +343,14 @@ class EstimatorApp(Gtk.Application):
             except Exception as e:
                 print(f"Error importing SH3D file: {e}")
         dialog.destroy()
+    
+    def on_new(self, action, parameter):
+        # Clear the current canvas content.
+        self.canvas.wall_sets.clear()
+        self.canvas.walls.clear()
+        self.canvas.rooms.clear()
+        # Request redraw of canvas
+        self.canvas.queue_draw()
 
 
 def main():
