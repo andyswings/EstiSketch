@@ -807,6 +807,7 @@ class CanvasEventsMixin:
                     (snapped_x, snapped_y), (snapped_x, snapped_y),
                     self.config.DEFAULT_WALL_WIDTH, self.config.DEFAULT_WALL_HEIGHT
                 )
+                print(f"Drawing current wall of width: {self.config.DEFAULT_WALL_WIDTH}")
             else:
                 self.walls.append(self.Wall(self.current_wall.start, (snapped_x, snapped_y),
                                             self.config.DEFAULT_WALL_WIDTH, self.config.DEFAULT_WALL_HEIGHT))

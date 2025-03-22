@@ -32,6 +32,7 @@ class CanvasArea(Gtk.DrawingArea,
 
         # Zoom and pan
         self.zoom = self.config.DEFAULT_ZOOM_LEVEL
+        print(f"Zoom level: {self.zoom}")
         self.ruler_offset = 80
         self.offset_x = self.ruler_offset / (self.config.PIXELS_PER_INCH * self.zoom)
         self.offset_y = self.ruler_offset / (self.config.PIXELS_PER_INCH * self.zoom)

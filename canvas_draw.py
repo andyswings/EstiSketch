@@ -58,11 +58,10 @@ class CanvasDrawMixin:
         # Draw grid, walls, rooms, etc. in model coordinates.
         self.draw_grid(cr)
 
-        cr.set_source_rgb(0, 0, 0)
-        wall_pixel_width = self.config.DEFAULT_WALL_WIDTH * pixels_per_inch
-        cr.set_line_width(max(wall_pixel_width, 1.0))
-        cr.set_line_join(cairo.LineJoin.ROUND)
-        cr.set_line_cap(cairo.LineCap.ROUND)
+        cr.set_source_rgb(0, 0, 0) # Black lines.
+        cr.set_line_width(self.config.DEFAULT_WALL_WIDTH) # Set wall width.
+        cr.set_line_join(0) # 0 = miter join.
+        cr.set_line_cap(0) # 0 = butt cap.
         cr.set_miter_limit(10.0)
         for wall_set in self.wall_sets:
             if not wall_set:
