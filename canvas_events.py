@@ -667,98 +667,53 @@ class CanvasEventsMixin:
         Returns:
             None
         """
-        # Store the current mouse (pointer) position in widget coordinates.
         self.mouse_x = x
         self.mouse_y = y
         
-        # Convert the mouse coordinates (widget coordinates) to world coordinates.
-        canvas_x = (x - self.offset_x) / self.zoom
-        canvas_y = (y - self.offset_y) / self.zoom
-        # Save the raw (unmodified) world coordinate of the mouse pointer.
+        # Convert widget coordinates to model coordinates
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        canvas_x, canvas_y = self.device_to_model(x, y, pixels_per_inch)
         raw_point = (canvas_x, canvas_y)
 
-        # Check if we're in "draw_walls" mode and currently drawing a wall.
         if self.tool_mode == "draw_walls" and self.drawing_wall and self.current_wall:
-            # If there are any finished walls, get the last one for snapping reference.
             last_wall = self.walls[-1] if self.walls else None
-            
-            # Determine the canvas width for snapping calculations; use allocation width or fallback default.
             canvas_width = self.get_allocation().width or self.config.WINDOW_WIDTH
-            
-            # Build a list of points from already finalized walls (both start and end points) for snapping.
             candidate_points = self._get_candidate_points()
             
-            # Use the snapping manager to adjust the current mouse position.
-            # Pass in the current world coordinates (canvas_x, canvas_y),
-            # the starting point of the current wall, and other context information.
             (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
-                canvas_x, canvas_y,                  # Current pointer world coordinates.
-                self.current_wall.start[0],          # Base x for snapping (start of current wall).
-                self.current_wall.start[1],          # Base y for snapping (start of current wall).
-                self.walls,                          # List of finished walls.
-                self.rooms,                          # List of finalized rooms.
-                current_wall=self.current_wall,      # The wall currently being drawn.
-                last_wall=last_wall,                 # Last wall, for perpendicular or angle snapping.
-                in_progress_points=candidate_points, # All finalized wall endpoints for snapping.
-                canvas_width=canvas_width,           # Canvas width used in snapping calculations.
-                zoom=self.zoom                       # Current zoom level.
+                canvas_x, canvas_y,
+                self.current_wall.start[0], self.current_wall.start[1],
+                self.walls, self.rooms,
+                current_wall=self.current_wall, last_wall=last_wall,
+                in_progress_points=candidate_points,
+                canvas_width=canvas_width, zoom=self.zoom
             )
-            
-            # Save the raw end point (before alignment snapping) for potential reference.
             self.raw_current_end = raw_point
-            
-            # Apply additional alignment snapping to further adjust the raw point.
-            raw_x, raw_y = raw_point
-            aligned_x, aligned_y, candidate = self._apply_alignment_snapping(raw_x, raw_y)
-            # Use the aligned coordinates from the alignment snapping.
+            aligned_x, aligned_y, candidate = self._apply_alignment_snapping(canvas_x, canvas_y)
             snapped_x, snapped_y = aligned_x, aligned_y
-            # Store the candidate alignment point (if any) to show visual feedback.
             self.alignment_candidate = candidate
             
-            # Update the end point of the current wall to the final snapped (and aligned) coordinates.
             self.current_wall.end = (snapped_x, snapped_y)
-            
-            # Request a redraw of the canvas to update the wall preview.
             self.queue_draw()
 
-        # Else, if we're in "draw_rooms" mode...
         elif self.tool_mode == "draw_rooms":
-            # Determine the base point for snapping:
-            # If there are already points in the room being drawn, use the last one.
-            # Otherwise, use the current mouse position.
             base_x = self.current_room_points[-1][0] if self.current_room_points else canvas_x
             base_y = self.current_room_points[-1][1] if self.current_room_points else canvas_y
-            
-            # Collect candidate points from all finalized walls to help with snapping.
             candidate_points = self._get_candidate_points()
-            
-            # Also include any points already added to the current room drawing.
             candidate_points.extend(self.current_room_points)
             
-            # Use the snapping manager to adjust the room point.
-            # In this case, current_wall and last_wall are not applicable (set to None).
             (snapped_x, snapped_y), _ = self.snap_manager.snap_point(
-                canvas_x, canvas_y,      # Current mouse world coordinates.
-                base_x, base_y,          # Base point for snapping.
-                self.walls,              # Finished walls (for snapping reference).
-                self.rooms,              # Finalized rooms.
-                current_wall=None,       # Not drawing a wall here.
-                last_wall=None,          # Not applicable for room drawing.
-                in_progress_points=candidate_points,  # Candidate snapping points.
+                canvas_x, canvas_y, base_x, base_y,
+                self.walls, self.rooms,
+                current_wall=None, last_wall=None,
+                in_progress_points=candidate_points,
                 canvas_width=self.get_allocation().width or self.config.WINDOW_WIDTH,
-                zoom=self.zoom            # Current zoom level.
+                zoom=self.zoom
             )
-            
-            # Apply alignment snapping to the raw point.
-            raw_x, raw_y = raw_point
-            aligned_x, aligned_y, _ = self._apply_alignment_snapping(raw_x, raw_y)
-            # Use the aligned coordinates as the final snapped point.
+            aligned_x, aligned_y, _ = self._apply_alignment_snapping(canvas_x, canvas_y)
             snapped_x, snapped_y = aligned_x, aligned_y
             
-            # Update the current room preview point so the user can see a live preview.
             self.current_room_preview = (snapped_x, snapped_y)
-            
-            # Request a redraw of the canvas to update the room preview.
             self.queue_draw()
 
     def on_zoom_changed(self, controller, scale):
@@ -778,13 +733,15 @@ class CanvasEventsMixin:
         return True
 
     def _handle_room_click(self, n_press, x, y):
-        canvas_x = (x - self.offset_x) / self.zoom
-        canvas_y = (y - self.offset_y) / self.zoom
+        """Handle clicks in draw_rooms mode."""
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        canvas_x, canvas_y = self.device_to_model(x, y, pixels_per_inch)
         raw_point = (canvas_x, canvas_y)
         base_x = self.current_room_points[-1][0] if self.current_room_points else canvas_x
         base_y = self.current_room_points[-1][1] if self.current_room_points else canvas_y
-        candidate_points = self._get_candidate_points()  # Get all finalized points from wall sets.
+        candidate_points = self._get_candidate_points()
         candidate_points.extend(self.current_room_points)
+        
         (snapped_x, snapped_y), _ = self.snap_manager.snap_point(
             canvas_x, canvas_y, base_x, base_y,
             self.walls, self.rooms,
@@ -793,8 +750,7 @@ class CanvasEventsMixin:
             canvas_width=self.get_allocation().width or self.config.WINDOW_WIDTH,
             zoom=self.zoom
         )
-        raw_x, raw_y = raw_point
-        aligned_x, aligned_y, _ = self._apply_alignment_snapping(raw_x, raw_y)
+        aligned_x, aligned_y, _ = self._apply_alignment_snapping(canvas_x, canvas_y)
         snapped_x, snapped_y = aligned_x, aligned_y
 
         if n_press == 1:
@@ -804,22 +760,18 @@ class CanvasEventsMixin:
             self.queue_draw()
         elif n_press == 2:
             self.save_state()
-            print(f"Double-click at ({snapped_x}, {snapped_y}), current_room_points: {len(self.current_room_points)}")
-            if self.current_room_points:
-                if len(self.current_room_points) > 2:
-                    if self.current_room_points[0] != self.current_room_points[-1]:
-                        self.current_room_points.append(self.current_room_points[0])
-                    new_room = self.Room(self.current_room_points)
-                    self.rooms.append(new_room)
-                    print(f"Finalized manual room with points: {self.current_room_points}")
+            if self.current_room_points and len(self.current_room_points) > 2:
+                if self.current_room_points[0] != self.current_room_points[-1]:
+                    self.current_room_points.append(self.current_room_points[0])
+                new_room = self.Room(self.current_room_points)
+                self.rooms.append(new_room)
+                print(f"Finalized manual room with points: {self.current_room_points}")
                 self.current_room_points = []
                 self.current_room_preview = None
-            print(f"Checking {len(self.wall_sets)} wall sets")
             for wall_set in self.wall_sets:
-                if len(wall_set) > 2:
+                if len(wall_set) > 2 and self._is_closed_polygon(wall_set):
                     poly = [w.start for w in wall_set]
-                    closed = self._is_closed_polygon(wall_set)
-                    if closed and self._point_in_polygon((snapped_x, snapped_y), poly):
+                    if self._point_in_polygon((snapped_x, snapped_y), poly):
                         new_room = self.Room(poly)
                         self.rooms.append(new_room)
                         print(f"Created room from wall set: {poly}")
@@ -827,19 +779,16 @@ class CanvasEventsMixin:
             self.queue_draw()
 
     def _handle_wall_click(self, n_press, x, y):
-        # Convert widget coordinates (x, y) to world coordinates.
-        canvas_x = (x - self.offset_x) / self.zoom
-        canvas_y = (y - self.offset_y) / self.zoom
+        """Handle clicks in draw_walls mode."""
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        canvas_x, canvas_y = self.device_to_model(x, y, pixels_per_inch)
         raw_point = (canvas_x, canvas_y)
 
         last_wall = self.walls[-1] if self.walls else None
         canvas_width = self.get_allocation().width or self.config.WINDOW_WIDTH
-        # Use the click point as the base if not drawing; otherwise, use the current wall's start.
         base_x, base_y = (canvas_x, canvas_y) if not self.drawing_wall else self.current_wall.start
+        candidate_points = self._get_candidate_points()
 
-        candidate_points = self._get_candidate_points()  # Get all finalized points from wall sets.
-
-        # Snap the click point.
         (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
             canvas_x, canvas_y, base_x, base_y, self.walls, self.rooms,
             current_wall=self.current_wall, last_wall=last_wall,
@@ -847,12 +796,11 @@ class CanvasEventsMixin:
             zoom=self.zoom
         )
         self.raw_current_end = raw_point
-        aligned_x, aligned_y, candidate = self._apply_alignment_snapping(snapped_x, snapped_y)
+        aligned_x, aligned_y, candidate = self._apply_alignment_snapping(canvas_x, canvas_y)
         snapped_x, snapped_y = aligned_x, aligned_y
         self.alignment_candidate = candidate
 
         if n_press == 1:
-            # Single-click: either start a new wall or extend the current wall.
             if not self.drawing_wall:
                 self.drawing_wall = True
                 self.current_wall = self.Wall(
@@ -880,17 +828,11 @@ class CanvasEventsMixin:
                 self.alignment_candidate = None
                 self.raw_current_end = None
             else:
-                print(f"Auto-wall creation: raw_point = {raw_point}, rooms count = {len(self.rooms)}")
-                found = False
-                # Use the aligned point for testing.
                 test_point = (snapped_x, snapped_y)
                 for room in self.rooms:
                     if len(room.points) < 3:
-                        print(f"Skipping room with insufficient points: {room.points}")
                         continue
-                    inside = self._point_in_polygon(test_point, room.points)
-                    print(f"Checking room with points: {room.points} for test_point: {test_point} -> inside: {inside}")
-                    if inside:
+                    if self._point_in_polygon(test_point, room.points):
                         pts = room.points if room.points[0] == room.points[-1] else room.points + [room.points[0]]
                         new_wall_set = []
                         for i in range(len(pts) - 1):
@@ -900,10 +842,6 @@ class CanvasEventsMixin:
                             new_wall_set.append(new_wall)
                         self.wall_sets.append(new_wall_set)
                         print(f"Auto-created walls for room with points: {room.points}")
-                        found = True
                         break
-                if not found:
-                    print("No room found for auto-wall creation.")
-                # Clear snap type to avoid showing the red indicator.
                 self.snap_type = "none"
             self.queue_draw()
