@@ -112,6 +112,60 @@ class CanvasDrawMixin:
                 cr.line_to(self.current_room_preview[0], self.current_room_preview[1])
             cr.stroke()
             cr.restore()
+        
+        # Draw live selection rectangle if box selecting is active.
+        if self.tool_mode == "pointer" and self.box_selecting:
+            cr.save()
+            # Set a dashed line style.
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            T = self.zoom * pixels_per_inch
+            dash_length = 4 / T  # adjust dash length based on zoom
+            cr.set_dash([dash_length, dash_length])
+            cr.set_source_rgba(0, 0, 1, 0.6)  # blue with 60% opacity
+
+            # Compute the rectangle bounds using the model coordinates for box_select_start and box_select_end.
+            x1 = min(self.box_select_start[0], self.box_select_end[0])
+            y1 = min(self.box_select_start[1], self.box_select_end[1])
+            x2 = max(self.box_select_start[0], self.box_select_end[0])
+            y2 = max(self.box_select_start[1], self.box_select_end[1])
+            width = x2 - x1
+            height = y2 - y1
+
+            # Draw the dashed rectangle.
+            cr.rectangle(x1, y1, width, height)
+            cr.stroke()
+            cr.restore()
+        
+        # Draw selection indicators.
+        if hasattr(self, "selected_items"):
+            cr.save()
+            # We’re still in model coordinates here.
+            for item in self.selected_items:
+                if item["type"] == "wall":
+                    wall = item["object"]
+                    # Set a red color with some opacity.
+                    cr.set_source_rgba(1, 0, 0, 1.0) # Opaque red.
+                    # Save the original line width.
+                    original_line_width = cr.get_line_width()
+                    # Set a thicker line width for the selection indicator.
+                    # Adjust this value as needed; here we double the default wall width.
+                    cr.set_line_width((self.config.DEFAULT_WALL_WIDTH) / self.zoom)
+                    # Draw the wall from start to end.
+                    cr.move_to(wall.start[0], wall.start[1])
+                    cr.line_to(wall.end[0], wall.end[1])
+                    cr.stroke()
+                    # Restore the original line width.
+                    cr.set_line_width(original_line_width)
+                elif item["type"] == "vertex":
+                    room, idx = item["object"]
+                    pt = room.points[idx]
+                    # Use a slightly less transparent red for vertices.
+                    cr.set_source_rgba(1, 0, 0, 0.8)
+                    radius = 5 / (self.zoom * getattr(self.config, "PIXELS_PER_INCH", 2.0))
+                    cr.arc(pt[0], pt[1], radius, 0, 2 * 3.1416)
+                    cr.fill()
+            cr.restore()
+
 
         self.draw_live_measurements(cr, pixels_per_inch)
         self.draw_alignment_guide(cr, pixels_per_inch)

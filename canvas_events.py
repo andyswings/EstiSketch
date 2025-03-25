@@ -6,6 +6,7 @@ from components import Wall, Door, Window
 
 class CanvasEventsMixin:
     def on_click(self, gesture, n_press, x, y):
+        print(f"Current tool_mode: {self.tool_mode}")
         if self.tool_mode == "draw_walls":
             self._handle_wall_click(n_press, x, y)
         elif self.tool_mode == "draw_rooms":
@@ -34,128 +35,71 @@ class CanvasEventsMixin:
         self._handle_pointer_right_click(gesture, n_press, x, y)
     
     def _handle_door_click(self, n_press: int, x: float, y: float) -> None:
-        """
-        Handle a click event in 'add_doors' mode by adding a door on the wall nearest
-        to the click point.
-
-        The method converts the click position from widget to world coordinates, then
-        iterates over existing wall sets to find a wall whose segment is within a small
-        tolerance of the click. It computes the projection ratio along the wall (from 0.0 at
-        the wall's start to 1.0 at the wall's end) where the door should be placed. A new
-        Door object is created (using default attributes) and stored along with the target
-        wall and position ratio in self.doors. Subsequent redraws will use the current state
-        of each Door object to render the door on the wall.
-
-        Parameters:
-            n_press (int): The number of clicks (typically 1 for a single click).
-            x (float): The x-coordinate of the click in widget coordinates.
-            y (float): The y-coordinate of the click in widget coordinates.
-
-        Returns:
-            None
-        """
-        # Convert the widget (screen) coordinates to world coordinates.
-        canvas_x = (x - self.offset_x) / self.zoom
-        canvas_y = (y - self.offset_y) / self.zoom
+        # Convert device (widget) coordinates to model coordinates using zoom and pixels-per-inch.
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        canvas_x = (x - self.offset_x) / (self.zoom * pixels_per_inch)
+        canvas_y = (y - self.offset_y) / (self.zoom * pixels_per_inch)
         click_pt = (canvas_x, canvas_y)
         
-        # Define a tolerance in world coordinates for detecting a click near a wall.
-        tolerance = 10 / self.zoom  # Adjust as needed.
+        tolerance = 10 / (self.zoom * pixels_per_inch)
         best_dist = float('inf')
         selected_wall = None
         selected_ratio = None
         
-        # Iterate through all finished walls in wall sets.
         for wall_set in self.wall_sets:
             for wall in wall_set:
                 dist = self.distance_point_to_segment(click_pt, wall.start, wall.end)
                 if dist < tolerance and dist < best_dist:
                     best_dist = dist
                     selected_wall = wall
-                    # Compute projection ratio along the wall:
                     dx = wall.end[0] - wall.start[0]
                     dy = wall.end[1] - wall.start[1]
                     wall_length = math.hypot(dx, dy)
                     if wall_length > 0:
                         t = ((canvas_x - wall.start[0]) * dx + (canvas_y - wall.start[1]) * dy) / (wall_length ** 2)
-                        # Clamp ratio to [0, 1]
                         selected_ratio = max(0.0, min(1.0, t))
                     else:
-                        selected_ratio = 0.5  # default if degenerate wall.
+                        selected_ratio = 0.5
         
         if selected_wall is None:
             print("No wall was found near the click for door addition.")
             return
         
-        # Create a new Door object with default attributes.
-        # (You can later expand this to allow the user to choose door types, etc.)
         new_door = Door("single", 36.0, 80.0, "left", "inward")
-        
-        # Add the door placement to the canvas.
-        # Assume self.doors is a list initialized in CanvasArea.__init__.
         self.doors.append((selected_wall, new_door, selected_ratio))
         self.queue_draw()
     
     def _handle_window_click(self, n_press: int, x: float, y: float) -> None:
-        """
-        Handle a click event in 'add_windows' mode by adding a window on the wall nearest
-        to the click point.
-
-        The method converts the click position from widget to world coordinates, then
-        iterates over existing wall sets to find a wall whose segment is within a small
-        tolerance of the click. It computes the projection ratio along the wall (from 0.0 at
-        the wall's start to 1.0 at the wall's end) where the window should be placed. A new
-        Window object is created (using default attributes) and stored along with the target
-        wall and position ratio in self.windows. Subsequent redraws will use the current state
-        of each Window object to render the window on the wall.
-
-        Parameters:
-            n_press (int): The number of clicks (typically 1 for a single click).
-            x (float): The x-coordinate of the click in widget coordinates.
-            y (float): The y-coordinate of the click in widget coordinates.
-
-        Returns:
-            None
-        """
-        # Convert the widget (screen) coordinates to world coordinates.
-        canvas_x = (x - self.offset_x) / self.zoom
-        canvas_y = (y - self.offset_y) / self.zoom
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        canvas_x = (x - self.offset_x) / (self.zoom * pixels_per_inch)
+        canvas_y = (y - self.offset_y) / (self.zoom * pixels_per_inch)
         click_pt = (canvas_x, canvas_y)
         
-        # Define a tolerance in world coordinates for detecting a click near a wall.
-        tolerance = 10 / self.zoom  # Adjust as needed.
+        tolerance = 10 / (self.zoom * pixels_per_inch)
         best_dist = float('inf')
         selected_wall = None
         selected_ratio = None
         
-        # Iterate through all finished walls in wall sets.
         for wall_set in self.wall_sets:
             for wall in wall_set:
                 dist = self.distance_point_to_segment(click_pt, wall.start, wall.end)
                 if dist < tolerance and dist < best_dist:
                     best_dist = dist
                     selected_wall = wall
-                    # Compute projection ratio along the wall:
                     dx = wall.end[0] - wall.start[0]
                     dy = wall.end[1] - wall.start[1]
                     wall_length = math.hypot(dx, dy)
                     if wall_length > 0:
                         t = ((canvas_x - wall.start[0]) * dx + (canvas_y - wall.start[1]) * dy) / (wall_length ** 2)
-                        # Clamp ratio to [0, 1]
                         selected_ratio = max(0.0, min(1.0, t))
                     else:
-                        selected_ratio = 0.5  # default if degenerate wall.
+                        selected_ratio = 0.5
         
         if selected_wall is None:
             print("No wall was found near the click for window addition.")
             return
         
-        # Create a new Window object with default attributes.
-        # (You can later expand this to allow the user to choose window types, etc.)
         new_window = Window(48.0, 36.0, "sliding")
-        
-        # Add the window placement to the canvas.
-        # Assume self.windows is a list initialized in CanvasArea.__init__.
         self.windows.append((selected_wall, new_window, selected_ratio))
         self.queue_draw()
 
@@ -343,101 +287,73 @@ class CanvasEventsMixin:
         self.click_start = (x, y)
     
     def _handle_pointer_click(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
-        """
-        Handle a pointer click event when the pointer tool is active.
-
-        This method processes a click by first checking if the click is actually part of a drag 
-        (i.e. if the pointer has moved more than a small threshold from the initial click position).
-        It then performs hit testing against the walls rendered on the canvas by converting the 
-        click's widget (screen) coordinates into world coordinates and comparing the distances to each 
-        wall's endpoints and segments. The wall that is closest to the click (within a fixed threshold) 
-        is considered selected.
-
-        If the SHIFT key is held down during the click, the selected item is added to the current 
-        selection. Otherwise, the selection is replaced with the new item. Finally, the method requests 
-        a redraw of the canvas so that any visual indicators of selection are updated.
-
-        Parameters:
-            gesture (Gtk.GestureClick): The gesture object representing the pointer click event.
-            n_press (int): The number of clicks (e.g., 1 for single-click, 2 for double-click).
-            x (float): The x-coordinate of the click in widget (screen) coordinates.
-            y (float): The y-coordinate of the click in widget (screen) coordinates.
-
-        Returns:
-            None
-        """
-        # Check if this click is part of a drag by comparing current position to the initial click position.
+        print(f"Pointer click: {n_press} press(es) at ({x}, {y})")
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         if hasattr(self, "click_start"):
-            dx = x - self.click_start[0]  # Difference in x from where the click started.
-            dy = y - self.click_start[1]  # Difference in y from where the click started.
-            # If the movement is more than 5 pixels, consider it part of a drag; do not treat it as a simple click.
+            dx = x - self.click_start[0]
+            dy = y - self.click_start[1]
             if math.hypot(dx, dy) > 5:
                 return
 
-        # Store the click point in widget (screen) coordinates.
         click_pt = (x, y)
-        fixed_threshold = 10  # Tolerance threshold in pixels for considering a click "close" to an item.
-        best_dist = float('inf')  # Initialize best (smallest) distance found to infinity.
-        selected_item = None  # This will hold the item (wall) that is the best candidate for selection.
+        fixed_threshold = 10      # device pixels for walls
+        vertex_threshold = 15     # device pixels for vertices
+        best_dist = float('inf')
+        selected_item = None
 
-        # Loop through each set of walls (each wall_set may represent connected segments).
+        T = self.zoom * pixels_per_inch
         for wall_set in self.wall_sets:
             for wall in wall_set:
-                # Convert the wall's start point from world coordinates to widget coordinates.
                 start_widget = (
-                    wall.start[0] * self.zoom + self.offset_x,
-                    wall.start[1] * self.zoom + self.offset_y
+                    (wall.start[0] * T) + self.offset_x,
+                    (wall.start[1] * T) + self.offset_y
                 )
-                # Convert the wall's end point from world coordinates to widget coordinates.
                 end_widget = (
-                    wall.end[0] * self.zoom + self.offset_x,
-                    wall.end[1] * self.zoom + self.offset_y
+                    (wall.end[0] * T) + self.offset_x,
+                    (wall.end[1] * T) + self.offset_y
                 )
-
-                # Compute the distance from the click to the start point of the wall.
                 dist_start = math.hypot(click_pt[0] - start_widget[0],
                                         click_pt[1] - start_widget[1])
-                # Compute the distance from the click to the end point of the wall.
                 dist_end = math.hypot(click_pt[0] - end_widget[0],
                                     click_pt[1] - end_widget[1])
-                # If the click is within threshold of the start point and closer than any previous candidate...
                 if dist_start < fixed_threshold and dist_start < best_dist:
-                    best_dist = dist_start  # Update best distance.
-                    selected_item = {"type": "wall", "object": wall}  # Select this wall.
-                # If the click is within threshold of the end point and closer than any previous candidate...
+                    best_dist = dist_start
+                    selected_item = {"type": "wall", "object": wall}
                 if dist_end < fixed_threshold and dist_end < best_dist:
-                    best_dist = dist_end  # Update best distance.
-                    selected_item = {"type": "wall", "object": wall}  # Select this wall.
-
-                # Also check the distance from the click to the wall segment (the line between start and end).
+                    best_dist = dist_end
+                    selected_item = {"type": "wall", "object": wall}
                 dist_seg = self.distance_point_to_segment(click_pt, start_widget, end_widget)
                 if dist_seg < fixed_threshold and dist_seg < best_dist:
-                    best_dist = dist_seg  # Update best distance.
-                    selected_item = {"type": "wall", "object": wall}  # Select this wall.
+                    best_dist = dist_seg
+                    selected_item = {"type": "wall", "object": wall}
+        
+        for room in self.rooms:
+            for idx, pt in enumerate(room.points):
+                pt_widget = (
+                    (pt[0] * T) + self.offset_x,
+                    (pt[1] * T) + self.offset_y
+                )
+                dist_pt = math.hypot(click_pt[0] - pt_widget[0],
+                                    click_pt[1] - pt_widget[1])
+                if dist_pt < vertex_threshold and dist_pt < best_dist:
+                    best_dist = dist_pt
+                    selected_item = {"type": "vertex", "object": (room, idx)}
 
-        # Retrieve the current event from the gesture to check for modifier keys.
         event = gesture.get_current_event()
-        # Use get_modifier_state if available; otherwise, use event.state.
         state = event.get_modifier_state() if hasattr(event, "get_modifier_state") else event.state
-        # Determine if the SHIFT key is pressed (used to extend the current selection).
         shift_pressed = bool(state & Gdk.ModifierType.SHIFT_MASK)
 
-        # Update the selection based on the hit test and whether SHIFT is held.
         if selected_item:
+            print("Selected item:", selected_item)
             if shift_pressed:
-                # If SHIFT is pressed, add the new item to the current selection if it's not already selected.
                 if not any(existing["object"] == selected_item["object"] for existing in self.selected_items):
                     self.selected_items.append(selected_item)
             else:
-                # If SHIFT is not pressed, replace any existing selection with this new item.
                 self.selected_items = [selected_item]
         else:
-            # If no item was selected and SHIFT is not pressed, clear the current selection.
             if not shift_pressed:
                 self.selected_items = []
-        # Request a redraw of the canvas to update any visual selection indicators.
         self.queue_draw()
-
 
 
     def distance_point_to_segment(self, P, A, B):
@@ -514,6 +430,7 @@ class CanvasEventsMixin:
 
 
     def on_drag_begin(self, gesture, start_x, start_y):
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
         if self.tool_mode == "panning":
             self.drag_start_x = start_x
@@ -522,102 +439,45 @@ class CanvasEventsMixin:
             self.last_offset_y = self.offset_y
         elif self.tool_mode == "pointer":
             self.box_selecting = True
-            self.box_select_start = ((start_x - self.offset_x) / self.zoom,
-                                    (start_y - self.offset_y) / self.zoom)
+            self.box_select_start = ((start_x - self.offset_x) / (self.zoom * pixels_per_inch),
+                                    (start_y - self.offset_y) / (self.zoom * pixels_per_inch))
             self.box_select_end = self.box_select_start
             event = gesture.get_current_event()
             state = event.get_modifier_state() if hasattr(event, "get_modifier_state") else event.state
             self.box_select_extend = bool(state & Gdk.ModifierType.SHIFT_MASK)
 
-
-
     def on_drag_update(self, gesture, offset_x, offset_y):
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         if self.tool_mode == "panning":
             self.offset_x = self.last_offset_x + offset_x
             self.offset_y = self.last_offset_y + offset_y
             self.queue_draw()
         elif self.tool_mode == "pointer" and self.box_selecting:
-            # Calculate current world position from offset:
-            current_x = self.box_select_start[0] + (offset_x / self.zoom)
-            current_y = self.box_select_start[1] + (offset_y / self.zoom)
+            current_x = self.box_select_start[0] + (offset_x / (self.zoom * pixels_per_inch))
+            current_y = self.box_select_start[1] + (offset_y / (self.zoom * pixels_per_inch))
             self.box_select_end = (current_x, current_y)
             self.queue_draw()
-    
+
     def on_drag_end(self, gesture, offset_x, offset_y):
         if self.tool_mode == "pointer" and self.box_selecting:
-            # Determine selection rectangle in world coordinates:
             x1 = min(self.box_select_start[0], self.box_select_end[0])
             y1 = min(self.box_select_start[1], self.box_select_end[1])
             x2 = max(self.box_select_start[0], self.box_select_end[0])
             y2 = max(self.box_select_start[1], self.box_select_end[1])
             rect = (x1, y1, x2, y2)
             
-            # Helper function: Check if line segment (A,B) intersects the rectangle.
-            def line_intersects_rect(A, B, rect):
-                rx1, ry1, rx2, ry2 = rect
-                
-                def point_in_rect(pt):
-                    x, y = pt
-                    return rx1 <= x <= rx2 and ry1 <= y <= ry2
-                
-                if point_in_rect(A) or point_in_rect(B):
-                    return True
-                
-                def segments_intersect(p, q, r, s):
-                    def orientation(a, b, c):
-                        val = (b[1] - a[1]) * (c[0] - b[0]) - (b[0] - a[0]) * (c[1] - b[1])
-                        if abs(val) < 1e-6:
-                            return 0
-                        return 1 if val > 0 else 2
-                    
-                    def on_segment(a, b, c):
-                        return (min(a[0], b[0]) <= c[0] <= max(a[0], b[0]) and
-                                min(a[1], b[1]) <= c[1] <= max(a[1], b[1]))
-                    
-                    o1 = orientation(p, q, r)
-                    o2 = orientation(p, q, s)
-                    o3 = orientation(r, s, p)
-                    o4 = orientation(r, s, q)
-                    
-                    if o1 != o2 and o3 != o4:
-                        return True
-                    if o1 == 0 and on_segment(p, q, r):
-                        return True
-                    if o2 == 0 and on_segment(p, q, s):
-                        return True
-                    if o3 == 0 and on_segment(r, s, p):
-                        return True
-                    if o4 == 0 and on_segment(r, s, q):
-                        return True
-                    return False
-                
-                # Define rectangle edges:
-                edges = [
-                    ((rx1, ry1), (rx2, ry1)),
-                    ((rx2, ry1), (rx2, ry2)),
-                    ((rx2, ry2), (rx1, ry2)),
-                    ((rx1, ry2), (rx1, ry1))
-                ]
-                for edge in edges:
-                    if segments_intersect(A, B, edge[0], edge[1]):
-                        return True
-                return False
-            
             new_selection = []
             
-            # Check wall segments: use intersection test
             for wall_set in self.wall_sets:
                 for wall in wall_set:
-                    if line_intersects_rect(wall.start, wall.end, rect):
+                    if self.line_intersects_rect(wall.start, wall.end, rect):
                         new_selection.append({"type": "wall", "object": wall})
             
-            # Check room vertices
             for room in self.rooms:
                 for idx, pt in enumerate(room.points):
                     if (x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2):
                         new_selection.append({"type": "vertex", "object": (room, idx)})
             
-            # If extending selection, add to the existing selection without duplicates
             if hasattr(self, "box_select_extend") and self.box_select_extend:
                 for item in new_selection:
                     if not any(existing["type"] == item["type"] and existing["object"] == item["object"]
@@ -632,45 +492,10 @@ class CanvasEventsMixin:
     def _get_candidate_points(self): # Helper function to get all candidate points from wall sets.
             return [point for wall_set in self.wall_sets for wall in wall_set for point in (wall.start, wall.end)]
 
-    def on_motion(self, controller: Gtk.EventControllerMotion, x: float, y: float) -> None: # This function is called when the mouse moves over the canvas.
-        """
-        Handle mouse movement events on the canvas and update the drawing preview.
-
-        This method is invoked whenever the mouse moves over the canvas. It updates the current
-        mouse position (in widget coordinates) and converts these coordinates into world coordinates.
-        Based on the active tool mode, it then updates either the wall or room preview by applying
-        snapping and alignment rules.
-
-        In "draw_walls" mode:
-        - Converts the pointer's widget coordinates (x, y) to world coordinates.
-        - Stores the raw pointer world coordinate for potential reference.
-        - Uses the snapping manager to adjust the pointer's position relative to the starting
-            point of the current wall and candidate snapping points (from finalized walls and rooms).
-        - Applies additional alignment snapping to further refine the pointer position.
-        - Updates the end point of the current wall with the final snapped (and aligned) coordinates.
-        - Requests a canvas redraw to update the wall preview.
-
-        In "draw_rooms" mode:
-        - Converts the pointer's widget coordinates (x, y) to world coordinates.
-        - Determines a base point for snapping (using the last point of the current room, if available).
-        - Collects candidate snapping points from finalized walls and current room points.
-        - Uses the snapping manager to adjust the room point.
-        - Applies alignment snapping to the raw pointer coordinate.
-        - Updates the current room preview with the final snapped (and aligned) coordinates.
-        - Requests a canvas redraw to update the room preview.
-
-        Parameters:
-            controller (Gtk.EventControllerMotion): The motion event controller that triggered this event.
-            x (float): The x-coordinate of the mouse pointer in widget (screen) coordinates.
-            y (float): The y-coordinate of the mouse pointer in widget (screen) coordinates.
-
-        Returns:
-            None
-        """
+    def on_motion(self, controller: Gtk.EventControllerMotion, x: float, y: float) -> None:
         self.mouse_x = x
         self.mouse_y = y
         
-        # Convert widget coordinates to model coordinates
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         canvas_x, canvas_y = self.device_to_model(x, y, pixels_per_inch)
         raw_point = (canvas_x, canvas_y)
@@ -733,7 +558,6 @@ class CanvasEventsMixin:
         return True
 
     def _handle_room_click(self, n_press, x, y):
-        """Handle clicks in draw_rooms mode."""
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         canvas_x, canvas_y = self.device_to_model(x, y, pixels_per_inch)
         raw_point = (canvas_x, canvas_y)
@@ -769,7 +593,9 @@ class CanvasEventsMixin:
                 self.current_room_points = []
                 self.current_room_preview = None
             for wall_set in self.wall_sets:
-                if len(wall_set) > 2 and self._is_closed_polygon(wall_set):
+                if len(wall_set) < 3:
+                    continue
+                if self._is_closed_polygon(wall_set):
                     poly = [w.start for w in wall_set]
                     if self._point_in_polygon((snapped_x, snapped_y), poly):
                         new_room = self.Room(poly)
@@ -779,7 +605,6 @@ class CanvasEventsMixin:
             self.queue_draw()
 
     def _handle_wall_click(self, n_press, x, y):
-        """Handle clicks in draw_walls mode."""
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         canvas_x, canvas_y = self.device_to_model(x, y, pixels_per_inch)
         raw_point = (canvas_x, canvas_y)
