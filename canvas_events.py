@@ -287,7 +287,7 @@ class CanvasEventsMixin:
         self.click_start = (x, y)
     
     def _handle_pointer_click(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
-        print(f"Pointer click: {n_press} press(es) at ({x}, {y})")
+        # print(f"Pointer click: {n_press} press(es) at ({x}, {y})")
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         if hasattr(self, "click_start"):
             dx = x - self.click_start[0]
@@ -344,7 +344,7 @@ class CanvasEventsMixin:
         shift_pressed = bool(state & Gdk.ModifierType.SHIFT_MASK)
 
         if selected_item:
-            print("Selected item:", selected_item)
+            # print("Selected item:", selected_item)
             if shift_pressed:
                 if not any(existing["object"] == selected_item["object"] for existing in self.selected_items):
                     self.selected_items.append(selected_item)

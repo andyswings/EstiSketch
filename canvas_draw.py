@@ -40,6 +40,11 @@ class CanvasDrawMixin:
         for n in range(n_min_y, n_max_y + 1):
             y_positions.append(n * major_spacing)
         return x_positions, y_positions
+    
+    def inches_to_feet_inches(self, inches):
+        feet = int(inches // 12)
+        inch = inches % 12
+        return f"{feet}'-{inch:.0f}\""
 
     def on_draw(self, widget, cr, width, height):
         # Clear background (device coordinates)
@@ -112,6 +117,126 @@ class CanvasDrawMixin:
                 cr.line_to(self.current_room_preview[0], self.current_room_preview[1])
             cr.stroke()
             cr.restore()
+        
+        # Draw doors
+        cr.save()
+        T = self.zoom * getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        wall_thickness = self.config.DEFAULT_WALL_WIDTH  # full wall thickness in inches
+
+        for door_item in self.doors:
+            wall, door, ratio = door_item
+            A = wall.start
+            B = wall.end
+            H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
+            
+            # Wall direction and perpendicular
+            dx = B[0] - A[0]
+            dy = B[1] - A[1]
+            length = math.hypot(dx, dy)
+            if length == 0:
+                continue
+            d = (dx / length, dy / length)
+            p = (-d[1], d[0])
+            
+            # Leaf direction based on swing
+            if door.swing == "left":
+                n = (-p[0], -p[1])  # -p
+            else:  # "right"
+                n = (p[0], p[1])    # p
+            
+            w = door.width
+            t = self.config.DEFAULT_WALL_WIDTH
+            
+            # Opening endpoints
+            H_start = (H[0] - (w / 2) * d[0], H[1] - (w / 2) * d[1])
+            H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
+            
+            # Opening rectangle
+            P1 = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])
+            P2 = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])
+            P3 = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])
+            P4 = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])
+            
+            cr.set_source_rgb(1, 1, 1)  # White fill for opening
+            cr.move_to(*P1)
+            cr.line_to(*P2)
+            cr.line_to(*P3)
+            cr.line_to(*P4)
+            cr.close_path()
+            cr.fill()
+            
+            # Hinge position
+            if door.swing == "left":
+                hinge = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Bottom-left corner
+            else:
+                hinge = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])     # Top-right corner
+            
+            # Draw leaf in open position
+            F = (hinge[0] + w * n[0], hinge[1] + w * n[1])
+            cr.set_source_rgb(0, 0, 0)
+            cr.set_line_width(1.0 / T)
+            cr.move_to(*hinge)
+            cr.line_to(*F)
+            cr.stroke()
+            
+            # Draw swing arc from closed to open
+            angle_closed = math.atan2(d[1], d[0])  # Along wall
+            angle_open = math.atan2(n[1], n[0])    # Along leaf
+            if door.swing == "left":
+                cr.arc_negative(hinge[0], hinge[1], w, angle_closed, angle_open)
+            else:
+                cr.arc(hinge[0], hinge[1], w, angle_closed, angle_open)
+            cr.set_dash([4.0 / T, 4.0 / T])
+            cr.stroke()
+            cr.set_dash([])
+
+            # Compute label text (e.g., "3'0\" x 6'8\"")
+            width_str = self.inches_to_feet_inches(door.width)
+            height_str = self.inches_to_feet_inches(door.height)
+            text = f"{width_str} x {height_str}"
+
+            # Compute label position (offset from wall center H, opposite the swing direction n)
+            margin = 6.0  # Offset in inches
+            t = 4.0       # Wall thickness in inches, example value
+            label_pos = (H[0] - (t / 2 + margin) * n[0], H[1] - (t / 2 + margin) * n[1])
+
+            # Compute the wall's angle
+            theta = math.atan2(d[1], d[0])
+
+            # Adjust theta to avoid upside-down text
+            theta_adjusted = theta % (2 * math.pi)
+            if theta_adjusted > math.pi / 2 and theta_adjusted < 3 * math.pi / 2:
+                theta_text = theta + math.pi
+            else:
+                theta_text = theta
+
+            # Save the Cairo context
+            cr.save()
+
+            # Translate to label position
+            cr.translate(label_pos[0], label_pos[1])
+
+            # Rotate to the adjusted angle
+            cr.rotate(theta_text)
+
+            # Set font properties
+            font_size = 12 / (self.zoom * pixels_per_inch)  # Adjust for zoom and DPI
+            cr.select_font_face("Sans", 0, 0)  # Family, slant, weight
+            cr.set_font_size(font_size)
+
+            # Center the text horizontally
+            extents = cr.text_extents(text)
+            x = -extents.width / 2  # Center along the wall
+            y = -font_size * -1.5    # Offset "above" in rotated coordinates
+
+            # Move to position and draw
+            cr.move_to(x, y)
+            cr.set_source_rgb(0, 0, 0)  # Black text
+            cr.show_text(text)
+
+            # Restore the context
+            cr.restore()
+        cr.restore()
         
         # Draw live selection rectangle if box selecting is active.
         if self.tool_mode == "pointer" and self.box_selecting:
