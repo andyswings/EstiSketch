@@ -7,11 +7,11 @@ from measurement_utils import MeasurementConverter
 from components import Wall, Room
 from snapping_manager import SnappingManager
 
-from canvas_draw import CanvasDrawMixin
-from canvas_events import CanvasEventsMixin
-from canvas_state import CanvasStateMixin
-from canvas_geometry import CanvasGeometryMixin
-from canvas_tool import CanvasToolMixin
+from Canvas.canvas_draw import CanvasDrawMixin
+from Canvas.canvas_events import CanvasEventsMixin
+from Canvas.canvas_state import CanvasStateMixin
+from Canvas.canvas_geometry import CanvasGeometryMixin
+from Canvas.canvas_tool import CanvasToolMixin
 
 class CanvasArea(Gtk.DrawingArea, 
                  CanvasDrawMixin, 
