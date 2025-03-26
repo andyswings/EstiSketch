@@ -4,7 +4,7 @@ from gi.repository import Gtk, Gdk, Gio
 from types import SimpleNamespace
 import config
 import toolbar
-import canvas_area
+from Canvas import canvas_area
 import settings_ui
 import manage_materials
 import estimate_materials

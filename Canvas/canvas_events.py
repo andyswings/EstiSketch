@@ -6,7 +6,7 @@ from components import Wall, Door, Window
 
 class CanvasEventsMixin:
     def on_click(self, gesture, n_press, x, y):
-        print(f"Current tool_mode: {self.tool_mode}")
+        # print(f"Current tool_mode: {self.tool_mode}")
         if self.tool_mode == "draw_walls":
             self._handle_wall_click(n_press, x, y)
         elif self.tool_mode == "draw_rooms":
