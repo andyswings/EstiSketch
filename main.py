@@ -349,6 +349,8 @@ class EstimatorApp(Gtk.Application):
         self.canvas.wall_sets.clear()
         self.canvas.walls.clear()
         self.canvas.rooms.clear()
+        self.canvas.doors.clear()
+        self.canvas.windows.clear()
         # Request redraw of canvas
         self.canvas.queue_draw()
 

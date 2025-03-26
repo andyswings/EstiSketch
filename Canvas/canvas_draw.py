@@ -238,6 +238,89 @@ class CanvasDrawMixin:
             cr.restore()
         cr.restore()
         
+        # Draw windows
+        for window_item in self.windows:
+            wall, window, ratio = window_item
+            A = wall.start
+            B = wall.end
+            H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
+            
+            # Calculate wall direction and perpendicular
+            dx = B[0] - A[0]
+            dy = B[1] - A[1]
+            length = math.hypot(dx, dy)
+            if length == 0:
+                continue
+            d = (dx / length, dy / length)  # Unit vector along wall
+            p = (-d[1], d[0])  # Perpendicular vector
+            
+            w = window.width
+            t = self.config.DEFAULT_WALL_WIDTH
+            
+            # Window opening endpoints along the wall
+            H_start = (H[0] - (w / 2) * d[0], H[1] - (w / 2) * d[1])
+            H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
+            
+            # Opening rectangle corners
+            P1 = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])
+            P2 = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])
+            P3 = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])
+            P4 = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])
+            
+            # Draw the opening as a white rectangle
+            cr.set_source_rgb(1, 1, 1)  # White fill
+            cr.move_to(*P1)
+            cr.line_to(*P2)
+            cr.line_to(*P3)
+            cr.line_to(*P4)
+            cr.close_path()
+            cr.fill()
+            
+            if window.window_type == "sliding":
+                # Draw two lines parallel to the wall for sliding panels
+                T = self.zoom * pixels_per_inch
+                offset = w / 4
+                line1_start = (H_start[0] + offset * d[0], H_start[1] + offset * d[1])
+                line1_end = (H_end[0] + offset * d[0], H_end[1] + offset * d[1])
+                line2_start = (H_start[0] - offset * d[0], H_start[1] - offset * d[1])
+                line2_end = (H_end[0] - offset * d[0], H_end[1] - offset * d[1])
+                
+                cr.set_source_rgb(0, 0, 0)  # Black lines
+                cr.set_line_width(1.0 / T)  # Thin line adjusted for zoom
+                cr.move_to(*line1_start)
+                cr.line_to(*line1_end)
+                cr.stroke()
+                cr.move_to(*line2_start)
+                cr.line_to(*line2_end)
+                cr.stroke()
+            
+            # Draw label with window dimensions
+            width_str = self.inches_to_feet_inches(window.width)
+            height_str = self.inches_to_feet_inches(window.height)
+            text = f"{width_str} x {height_str}"
+            margin = 6.0  # Offset in inches
+            label_pos = (H[0] + (t / 2 + margin) * p[0], H[1] + (t / 2 + margin) * p[1])
+            
+            cr.save()
+            cr.translate(label_pos[0], label_pos[1])
+            theta = math.atan2(d[1], d[0])
+            theta_adjusted = theta % (2 * math.pi)
+            if theta_adjusted > math.pi / 2 and theta_adjusted < 3 * math.pi / 2:
+                theta_text = theta + math.pi  # Flip if upside down
+            else:
+                theta_text = theta
+            cr.rotate(theta_text)
+            font_size = 12 / (self.zoom * pixels_per_inch)
+            cr.select_font_face("Sans", 0, 0)
+            cr.set_font_size(font_size)
+            extents = cr.text_extents(text)
+            x_text = -extents.width / 2  # Center horizontally
+            y_text = -font_size * -1.5   # Offset above
+            cr.move_to(x_text, y_text)
+            cr.set_source_rgb(0, 0, 0)  # Black text
+            cr.show_text(text)
+            cr.restore()
+        
         # Draw live selection rectangle if box selecting is active.
         if self.tool_mode == "pointer" and self.box_selecting:
             cr.save()
