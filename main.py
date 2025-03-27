@@ -72,8 +72,11 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["add_doors"].set_active(False)
                 self.tool_buttons["add_windows"].set_active(False)
                 self.canvas.set_tool_mode("panning")
+                cursor = Gdk.Cursor.new_from_name("grab", None)
+                self.canvas.set_cursor(cursor)
                 print("Panning mode activated")
             else:
+                self.canvas.set_cursor(None)
                 self.canvas.set_tool_mode(None)
 
         def on_draw_walls_toggled(toggle_button):
