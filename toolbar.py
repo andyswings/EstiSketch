@@ -9,7 +9,7 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
     tb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
     tool_buttons = {}
 
-    icon_dir = os.path.join(os.path.dirname(__file__), "icons")
+    icon_dir = os.path.join(os.path.dirname(__file__), "Icons")
 
     def create_icon_button(icon_name, tooltip):
         button = Gtk.Button()

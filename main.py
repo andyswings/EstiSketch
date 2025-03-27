@@ -5,11 +5,11 @@ from types import SimpleNamespace
 import config
 import toolbar
 from Canvas import canvas_area
-import settings_ui
-import manage_materials
-import estimate_materials
-import estimate_cost
-import help_dialog
+from Dialogs import settings_ui
+from Dialogs import manage_materials
+from Dialogs import estimate_materials
+from Dialogs import estimate_cost
+from Dialogs import help_dialog
 from file_menu import create_file_menu
 from sh3d_importer import import_sh3d
 
