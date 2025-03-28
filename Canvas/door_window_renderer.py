@@ -74,18 +74,28 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.stroke()
             cr.set_dash([])
         
+        # TODO Come up with a good recognizable symbol for garage doors. Make it distinct from other doors.
         if door.door_type == "garage":
             print("Garage door")
         
-        if door.door_type == "double":
+        if door.door_type == "double": 
             print(f"Double {door.swing} hand swing door")
             # Hinge positions for double doors
             hinge1 = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])
             hinge2 = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])
             
-            # Draw leaves in open position
-            F1 = (hinge1[0] + (w / 2) * n[0], hinge1[1] + (w / 2) * n[1])
-            F2 = (hinge2[0] - (w / 2) * n[0], hinge2[1] - (w / 2) * n[1])
+            # Calculate open leaf positions (90-degree swing from wall)
+            w_half = w / 2  # Half width for each leaf
+            if door.swing == "left":
+                # Both leaves swing toward the normal (outward)
+                F1 = (hinge1[0] + w_half * n[0], hinge1[1] + w_half * n[1])  # Left leaf
+                F2 = (hinge2[0] + w_half * n[0], hinge2[1] + w_half * n[1])  # Right leaf
+            else:
+                # Both leaves swing opposite the normal (inward)
+                F1 = (hinge1[0] - w_half * n[0], hinge1[1] - w_half * n[1])  # Left leaf
+                F2 = (hinge2[0] - w_half * n[0], hinge2[1] - w_half * n[1])  # Right leaf
+            
+            # Draw door leaves
             cr.set_source_rgb(0, 0, 0)
             cr.set_line_width(1.0 / T)
             cr.move_to(*hinge1)
@@ -97,24 +107,39 @@ def draw_doors(self, cr, pixels_per_inch):
             
             # Draw swing arcs for both leaves
             angle_closed = math.atan2(d[1], d[0])  # Along wall
-            angle_open1 = math.atan2(n[1], n[0])   # Along first leaf
-            angle_open2 = math.atan2(-n[1], -n[0]) # Along second leaf
             if door.swing == "left":
-                cr.arc_negative(hinge1[0], hinge1[1], w / 2, angle_closed, angle_open1)
-                cr.arc_negative(hinge2[0], hinge2[1], w / 2, angle_closed, angle_open2)
+                # Both leaves swing toward normal (counter-clockwise from wall)
+                angle_open = angle_closed - math.pi/2  # 90 degrees counter-clockwise
+                # Draw left leaf arc (from closed to open)
+                cr.move_to(*hinge1)
+                cr.arc_negative(hinge1[0], hinge1[1], w_half, angle_closed, angle_open)
+                cr.set_dash([4.0 / T, 4.0 / T])
+                cr.stroke()
+                # Draw right leaf arc (from closed on opposite side to open)
+                cr.move_to(*hinge2)
+                cr.arc(hinge2[0], hinge2[1], w_half, angle_closed + math.pi, angle_open)
+                cr.stroke()
             else:
-                cr.arc(hinge1[0], hinge1[1], w / 2, angle_closed, angle_open1)
-                cr.arc(hinge2[0], hinge2[1], w / 2, angle_closed, angle_open2)
-            cr.set_dash([4.0 / T, 4.0 / T])
-            cr.stroke()
-            cr.set_dash([])
+                # Both leaves swing opposite normal (clockwise from wall)
+                angle_open = angle_closed + math.pi/2  # 90 degrees clockwise
+                # Draw left leaf arc (from closed to open)
+                cr.move_to(*hinge1)
+                cr.arc(hinge1[0], hinge1[1], w_half, angle_closed, angle_open)
+                cr.set_dash([4.0 / T, 4.0 / T])
+                cr.stroke()
+                # Draw right leaf arc (from closed on opposite side to open)
+                cr.move_to(*hinge2)
+                cr.arc_negative(hinge2[0], hinge2[1], w_half, angle_closed + math.pi, angle_open)
+                cr.stroke()
+            
+            cr.set_dash([])  # Reset dash pattern
         
         if door.door_type == "frame":
             print("Door frame")
         
+        #TODO Draw sliding doors differently so they don't look the same as sliding windows. I don't like the way they look with the current code.
         if door.door_type == "sliding":
             print("Sliding door")
-            # Draw sliding door panels
             T = self.zoom * pixels_per_inch
             offset = w / 4  # Offset for the sliding panels
             panel1_start = (H_start[0] + offset * d[0], H_start[1] + offset * d[1])
@@ -122,15 +147,19 @@ def draw_doors(self, cr, pixels_per_inch):
             panel2_start = (H_start[0] - offset * d[0], H_start[1] - offset * d[1])
             panel2_end = (H_end[0] - offset * d[0], H_end[1] - offset * d[1])
             
+            
             cr.set_source_rgb(0, 0, 0)  # Black lines
             cr.set_line_width(1.0 / T)
+            cr.set_dash([6.0 / T, 3.0 / T])  # Dashed pattern
             cr.move_to(*panel1_start)
             cr.line_to(*panel1_end)
             cr.stroke()
             cr.move_to(*panel2_start)
             cr.line_to(*panel2_end)
             cr.stroke()
+            cr.set_dash([])  # Reset dash pattern
         
+        # TODO Fix the drawing of pocket doors. They currently look like fixed windows.
         if door.door_type == "pocket":
             print("Pocket door")
             # Draw pocket door outline
@@ -147,6 +176,7 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.line_to(*pocket_end)
             cr.stroke()
         
+        # TODO Fix the drawing of bi-fold doors. The door leaves should look like they are folding.
         if door.door_type == "bi-fold":
             print("Bi-fold door")
             # Draw bi-fold door panels
@@ -166,6 +196,7 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.line_to(*panel2_end)
             cr.stroke()
         
+        # TODO Fix the drawing of double bi-fold doors. The two sets of door leaves should look like they are folding.
         if door.door_type == "double-bi-fold":
             print("Double bi-fold door")
             # Draw double bi-fold door panels
