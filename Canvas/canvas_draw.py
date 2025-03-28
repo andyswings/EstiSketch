@@ -1,6 +1,7 @@
 import math
 from gi.repository import cairo
 import Canvas.door_window_renderer as dwr
+import Canvas.wall_room_renderer as wr
 
 class CanvasDrawMixin:
     # Helper: convert a model coordinate (in inches) to device coordinates.
@@ -56,68 +57,19 @@ class CanvasDrawMixin:
         # Save state and set up transformation for model coordinates.
         cr.save()
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
-        T = self.zoom * pixels_per_inch
-        # Transformation: device = model * T + self.offset
+        zoom_transform = self.zoom * pixels_per_inch # Scale factor for zooming.
+        # Transformation: device = model * zoom_transform + self.offset
         cr.translate(self.offset_x, self.offset_y)
-        cr.scale(T, T)
+        cr.scale(zoom_transform, zoom_transform)
 
         # Draw grid, walls, rooms, etc. in model coordinates.
         self.draw_grid(cr)
+        
+        # Draw walls
+        wr.draw_walls(self, cr)
 
-        cr.set_source_rgb(0, 0, 0) # Black lines.
-        cr.set_line_width(self.config.DEFAULT_WALL_WIDTH) # Set wall width.
-        cr.set_line_join(0) # 0 = miter join.
-        cr.set_line_cap(0) # 0 = butt cap.
-        cr.set_miter_limit(10.0)
-        for wall_set in self.wall_sets:
-            if not wall_set:
-                continue
-            cr.move_to(wall_set[0].start[0], wall_set[0].start[1])
-            for wall in wall_set:
-                cr.line_to(wall.end[0], wall.end[1])
-            if len(wall_set) > 2 and wall_set[-1].end == wall_set[0].start:
-                cr.close_path()
-            cr.stroke()
-
-        if self.walls:
-            cr.move_to(self.walls[0].start[0], self.walls[0].start[1])
-            for wall in self.walls:
-                cr.line_to(wall.end[0], wall.end[1])
-            if self.current_wall:
-                cr.line_to(self.current_wall.end[0], self.current_wall.end[1])
-            if not self.drawing_wall and len(self.walls) > 2 and self.walls[-1].end == self.walls[0].start:
-                cr.close_path()
-            cr.stroke()
-        elif self.current_wall:
-            cr.move_to(self.current_wall.start[0], self.current_wall.start[1])
-            cr.line_to(self.current_wall.end[0], self.current_wall.end[1])
-            cr.stroke()
-
-        cr.set_source_rgb(0.9, 0.9, 1)  # light blue fill.
-        cr.set_line_width(1.0 / T)
-        for room in self.rooms:
-            if room.points:
-                cr.save()
-                cr.move_to(room.points[0][0], room.points[0][1])
-                for pt in room.points[1:]:
-                    cr.line_to(pt[0], pt[1])
-                cr.close_path()
-                cr.fill_preserve()
-                cr.set_source_rgb(0, 0, 0)
-                cr.stroke()
-                cr.restore()
-
-        if self.tool_mode == "draw_rooms" and self.current_room_points:
-            cr.save()
-            cr.set_source_rgb(0, 0, 1)
-            cr.set_line_width(2.0 / T)
-            cr.move_to(self.current_room_points[0][0], self.current_room_points[0][1])
-            for pt in self.current_room_points[1:]:
-                cr.line_to(pt[0], pt[1])
-            if self.current_room_preview:
-                cr.line_to(self.current_room_preview[0], self.current_room_preview[1])
-            cr.stroke()
-            cr.restore()
+        # Draw rooms
+        wr.draw_rooms(self, cr, zoom_transform)
             
         # Draw doors
         dwr.draw_doors(self, cr, pixels_per_inch)
@@ -130,8 +82,8 @@ class CanvasDrawMixin:
             cr.save()
             # Set a dashed line style.
             pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
-            T = self.zoom * pixels_per_inch
-            dash_length = 4 / T  # adjust dash length based on zoom
+            zoom_transform = self.zoom * pixels_per_inch
+            dash_length = 4 / zoom_transform  # adjust dash length based on zoom
             cr.set_dash([dash_length, dash_length])
             cr.set_source_rgba(0, 0, 1, 0.6)  # blue with 60% opacity
 
