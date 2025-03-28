@@ -64,8 +64,8 @@ class CanvasEventsMixin:
         if selected_wall is None:
             print("No wall was found near the click for door addition.")
             return
-        
-        new_door = Door("single", 36.0, 80.0, "left", "inward")
+        door_type = getattr(self.config, "DEFAULT_DOOR_TYPE", "single")
+        new_door = Door(door_type, 36.0, 80.0, "left", "inward")
         self.doors.append((selected_wall, new_door, selected_ratio))
         self.queue_draw()
     
@@ -99,7 +99,8 @@ class CanvasEventsMixin:
             print("No wall was found near the click for window addition.")
             return
         
-        new_window = Window(48.0, 36.0, "sliding")
+        window_type = getattr(self.config, "DEFAULT_WINDOW_TYPE", "sliding")
+        new_window = Window(48.0, 36.0, window_type)
         self.windows.append((selected_wall, new_window, selected_ratio))
         self.queue_draw()
 
