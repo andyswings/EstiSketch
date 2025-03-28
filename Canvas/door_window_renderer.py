@@ -48,7 +48,6 @@ def draw_doors(self, cr, pixels_per_inch):
         cr.fill()
         
         if door.door_type == "single":
-            print(f"Single {door.swing} hand swing door")
             # Hinge position
             if door.swing == "left":
                 hinge = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Bottom-left corner
@@ -78,8 +77,7 @@ def draw_doors(self, cr, pixels_per_inch):
         if door.door_type == "garage":
             print("Garage door")
         
-        if door.door_type == "double": 
-            print(f"Double {door.swing} hand swing door")
+        if door.door_type == "double":
             # Hinge positions for double doors
             hinge1 = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])
             hinge2 = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])
@@ -176,54 +174,97 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.line_to(*pocket_end)
             cr.stroke()
         
-        # TODO Fix the drawing of bi-fold doors. The door leaves should look like they are folding.
         if door.door_type == "bi-fold":
-            print("Bi-fold door")
             # Draw bi-fold door panels
             T = self.zoom * pixels_per_inch
-            fold_offset = w / 4  # Offset for the folds
-            panel1_start = (H_start[0] + fold_offset * d[0], H_start[1] + fold_offset * d[1])
-            panel1_end = (H[0], H[1])
-            panel2_start = (H[0], H[1])
-            panel2_end = (H_end[0] - fold_offset * d[0], H_end[1] - fold_offset * d[1])
+            w_half = w / 2  # Each leaf is half the total width
             
+            # Hinge points
+            hinge_start = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Left hinge
+            hinge_end = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])      # Right hinge
+            
+            # Calculate center of door opening
+            center_x = (H_start[0] + H_end[0]) / 2 + (t / 2) * n[0]
+            center_y = (H_start[1] + H_end[1]) / 2 + (t / 2) * n[1]
+            
+            # Angles for 60-degree folds (converted to radians)
+            angle_60 = math.pi / 3  # 60 degrees
+            
+            # Left leaf: from hinge_start at 60 degrees toward center
+            angle_closed = math.atan2(d[1], d[0])  # Along wall
+            angle_left1 = angle_closed - angle_60  # 60 degrees counter-clockwise from wall
+            left1_end = (hinge_start[0] + w_half * math.cos(angle_left1),
+                        hinge_start[1] + w_half * math.sin(angle_left1))
+            
+            # Left leaf second segment: from left1_end at 60 degrees back toward center
+            direction_to_center = angle_closed + math.pi + angle_60
+            angle_left2 = direction_to_center + angle_60 * 3  
+            left2_end = (left1_end[0] + w_half * math.cos(angle_left2),
+                        left1_end[1] + w_half * math.sin(angle_left2))
+            
+            # Draw folded panels
             cr.set_source_rgb(0, 0, 0)  # Black lines
             cr.set_line_width(1.0 / T)
-            cr.move_to(*panel1_start)
-            cr.line_to(*panel1_end)
-            cr.stroke()
-            cr.move_to(*panel2_start)
-            cr.line_to(*panel2_end)
+            
+            # Left leaf: hinge_start -> left1_end -> left2_end
+            cr.move_to(*hinge_start)
+            cr.line_to(*left1_end)
+            cr.line_to(*left2_end)
             cr.stroke()
         
-        # TODO Fix the drawing of double bi-fold doors. The two sets of door leaves should look like they are folding.
-        if door.door_type == "double-bi-fold":
-            print("Double bi-fold door")
-            # Draw double bi-fold door panels
+        if door.door_type == "double bi-fold":
+            # Draw bi-fold door panels
             T = self.zoom * pixels_per_inch
-            fold_offset = w / 4  # Offset for the folds
-            panel1_start = (H_start[0] + fold_offset * d[0], H_start[1] + fold_offset * d[1])
-            panel1_end = (H[0] - (w / 4) * d[0], H[1] - (w / 4) * d[1])
-            panel2_start = (H[0] - (w / 4) * d[0], H[1] - (w / 4) * d[1])
-            panel2_end = (H_start[0], H_start[1])
-            panel3_start = (H[0] + (w / 4) * d[0], H[1] + (w / 4) * d[1])
-            panel3_end = (H_end[0] - fold_offset * d[0], H_end[1] - fold_offset * d[1])
-            panel4_start = (H_end[0] - fold_offset * d[0], H_end[1] - fold_offset * d[1])
-            panel4_end = (H[0] + (w / 4) * d[0], H[1] + (w / 4) * d[1])
+            w_quarter = w / 4  # Each leaf is a quarter the total width
             
+            # Hinge points
+            hinge_start = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Left hinge
+            hinge_end = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])      # Right hinge
+            
+            # Calculate center of door opening
+            center_x = (H_start[0] + H_end[0]) / 2 + (t / 2) * n[0]
+            center_y = (H_start[1] + H_end[1]) / 2 + (t / 2) * n[1]
+            
+            # Angles for 60-degree folds (converted to radians)
+            angle_60 = math.pi / 3  # 60 degrees
+            
+            # Left leaf: from hinge_start at 60 degrees toward center
+            angle_closed = math.atan2(d[1], d[0])  # Along wall
+            angle_left1 = angle_closed - angle_60  # 60 degrees counter-clockwise from wall
+            left1_end = (hinge_start[0] + w_quarter * math.cos(angle_left1),
+                        hinge_start[1] + w_quarter * math.sin(angle_left1))
+            
+            # Left leaf second segment: from left1_end at 60 degrees back toward center
+            direction_to_center = angle_closed + math.pi + angle_60
+            angle_left2 = direction_to_center + angle_60 * 3  
+            left2_end = (left1_end[0] + w_quarter * math.cos(angle_left2),
+                        left1_end[1] + w_quarter * math.sin(angle_left2))
+            
+            # Right leaf: from hinge_end at 60 degrees toward center
+            angle_right1 = angle_closed + math.pi + angle_60  # 60 degrees clockwise from opposite wall
+            right1_end = (hinge_end[0] + w_quarter * math.cos(angle_right1),
+                        hinge_end[1] + w_quarter * math.sin(angle_right1))
+            
+            # Right leaf second segment: from right1_end at 60 degrees back toward center
+            direction_to_center = math.atan2(center_y - right1_end[1], center_x + right1_end[0])
+            angle_right2 = direction_to_center - angle_60 * 4 # 60 degrees counter-clockwise from center direction
+            right2_end = (right1_end[0] + w_quarter * math.cos(angle_right2),
+                        right1_end[1] + w_quarter * math.sin(angle_right2))
+            
+            # Draw folded panels
             cr.set_source_rgb(0, 0, 0)  # Black lines
             cr.set_line_width(1.0 / T)
-            cr.move_to(*panel1_start)
-            cr.line_to(*panel1_end)
+            
+            # Left leaf: hinge_start -> left1_end -> left2_end
+            cr.move_to(*hinge_start)
+            cr.line_to(*left1_end)
+            cr.line_to(*left2_end)
             cr.stroke()
-            cr.move_to(*panel2_start)
-            cr.line_to(*panel2_end)
-            cr.stroke()
-            cr.move_to(*panel3_start)
-            cr.line_to(*panel3_end)
-            cr.stroke()
-            cr.move_to(*panel4_start)
-            cr.line_to(*panel4_end)
+            
+            # Right leaf: hinge_end -> right1_end -> right2_end
+            cr.move_to(*hinge_end)
+            cr.line_to(*right1_end)
+            cr.line_to(*right2_end)
             cr.stroke()
 
         # Compute label text (e.g., "3'0\" x 6'8\"")
