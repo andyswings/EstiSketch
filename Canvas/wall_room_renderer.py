@@ -1,12 +1,6 @@
 
 
 def draw_walls(self, cr):
-    """
-    Draw the walls on the canvas.
-
-    :param canvas: The canvas to draw on.
-    :param walls: The list of walls to draw.
-    """
     cr.set_source_rgb(0, 0, 0) # Black lines.
     cr.set_line_width(self.config.DEFAULT_WALL_WIDTH) # Set wall width.
     cr.set_line_join(0) # 0 = miter join.
