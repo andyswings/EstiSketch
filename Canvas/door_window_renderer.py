@@ -47,30 +47,31 @@ def draw_doors(self, cr, pixels_per_inch):
         cr.close_path()
         cr.fill()
         
-        # Hinge position
-        if door.swing == "left":
-            hinge = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Bottom-left corner
-        else:
-            hinge = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])     # Top-right corner
-        
-        # Draw leaf in open position
-        F = (hinge[0] + w * n[0], hinge[1] + w * n[1])
-        cr.set_source_rgb(0, 0, 0)
-        cr.set_line_width(1.0 / T)
-        cr.move_to(*hinge)
-        cr.line_to(*F)
-        cr.stroke()
-        
-        # Draw swing arc from closed to open
-        angle_closed = math.atan2(d[1], d[0])  # Along wall
-        angle_open = math.atan2(n[1], n[0])    # Along leaf
-        if door.swing == "left":
-            cr.arc_negative(hinge[0], hinge[1], w, angle_closed, angle_open)
-        else:
-            cr.arc(hinge[0], hinge[1], w, angle_closed, angle_open)
-        cr.set_dash([4.0 / T, 4.0 / T])
-        cr.stroke()
-        cr.set_dash([])
+        if door.door_type == "single":
+            # Hinge position
+            if door.swing == "left":
+                hinge = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Bottom-left corner
+            else:
+                hinge = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])     # Top-right corner
+            
+            # Draw leaf in open position
+            F = (hinge[0] + w * n[0], hinge[1] + w * n[1])
+            cr.set_source_rgb(0, 0, 0)
+            cr.set_line_width(1.0 / T)
+            cr.move_to(*hinge)
+            cr.line_to(*F)
+            cr.stroke()
+            
+            # Draw swing arc from closed to open
+            angle_closed = math.atan2(d[1], d[0])  # Along wall
+            angle_open = math.atan2(n[1], n[0])    # Along leaf
+            if door.swing == "left":
+                cr.arc_negative(hinge[0], hinge[1], w, angle_closed, angle_open)
+            else:
+                cr.arc(hinge[0], hinge[1], w, angle_closed, angle_open)
+            cr.set_dash([4.0 / T, 4.0 / T])
+            cr.stroke()
+            cr.set_dash([])
 
         # Compute label text (e.g., "3'0\" x 6'8\"")
         width_str = self.inches_to_feet_inches(door.width)
