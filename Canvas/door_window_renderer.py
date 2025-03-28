@@ -3,7 +3,7 @@ import math
 def draw_doors(self, cr, pixels_per_inch):
     # Draw doors
     cr.save()
-    T = self.zoom * getattr(self.config, "PIXELS_PER_INCH", 2.0)
+    zoom_transform = self.zoom * pixels_per_inch
 
     for door_item in self.doors:
         wall, door, ratio = door_item
@@ -57,7 +57,7 @@ def draw_doors(self, cr, pixels_per_inch):
             # Draw leaf in open position
             F = (hinge[0] + w * n[0], hinge[1] + w * n[1])
             cr.set_source_rgb(0, 0, 0)
-            cr.set_line_width(1.0 / T)
+            cr.set_line_width(1.0 / zoom_transform)
             cr.move_to(*hinge)
             cr.line_to(*F)
             cr.stroke()
@@ -69,7 +69,7 @@ def draw_doors(self, cr, pixels_per_inch):
                 cr.arc_negative(hinge[0], hinge[1], w, angle_closed, angle_open)
             else:
                 cr.arc(hinge[0], hinge[1], w, angle_closed, angle_open)
-            cr.set_dash([4.0 / T, 4.0 / T])
+            cr.set_dash([4.0 / zoom_transform, 4.0 / zoom_transform])
             cr.stroke()
             cr.set_dash([])
         
@@ -95,7 +95,7 @@ def draw_doors(self, cr, pixels_per_inch):
             
             # Draw door leaves
             cr.set_source_rgb(0, 0, 0)
-            cr.set_line_width(1.0 / T)
+            cr.set_line_width(1.0 / zoom_transform)
             cr.move_to(*hinge1)
             cr.line_to(*F1)
             cr.stroke()
@@ -111,7 +111,7 @@ def draw_doors(self, cr, pixels_per_inch):
                 # Draw left leaf arc (from closed to open)
                 cr.move_to(*hinge1)
                 cr.arc_negative(hinge1[0], hinge1[1], w_half, angle_closed, angle_open)
-                cr.set_dash([4.0 / T, 4.0 / T])
+                cr.set_dash([4.0 / zoom_transform, 4.0 / zoom_transform])
                 cr.stroke()
                 # Draw right leaf arc (from closed on opposite side to open)
                 cr.move_to(*hinge2)
@@ -123,7 +123,7 @@ def draw_doors(self, cr, pixels_per_inch):
                 # Draw left leaf arc (from closed to open)
                 cr.move_to(*hinge1)
                 cr.arc(hinge1[0], hinge1[1], w_half, angle_closed, angle_open)
-                cr.set_dash([4.0 / T, 4.0 / T])
+                cr.set_dash([4.0 / zoom_transform, 4.0 / zoom_transform])
                 cr.stroke()
                 # Draw right leaf arc (from closed on opposite side to open)
                 cr.move_to(*hinge2)
@@ -138,7 +138,6 @@ def draw_doors(self, cr, pixels_per_inch):
         #TODO Draw sliding doors differently so they don't look the same as sliding windows. I don't like the way they look with the current code.
         if door.door_type == "sliding":
             print("Sliding door")
-            T = self.zoom * pixels_per_inch
             offset = w / 4  # Offset for the sliding panels
             panel1_start = (H_start[0] + offset * d[0], H_start[1] + offset * d[1])
             panel1_end = (H_end[0] + offset * d[0], H_end[1] + offset * d[1])
@@ -147,8 +146,8 @@ def draw_doors(self, cr, pixels_per_inch):
             
             
             cr.set_source_rgb(0, 0, 0)  # Black lines
-            cr.set_line_width(1.0 / T)
-            cr.set_dash([6.0 / T, 3.0 / T])  # Dashed pattern
+            cr.set_line_width(1.0 / zoom_transform)
+            cr.set_dash([6.0 / zoom_transform, 3.0 / zoom_transform])  # Dashed pattern
             cr.move_to(*panel1_start)
             cr.line_to(*panel1_end)
             cr.stroke()
@@ -166,7 +165,7 @@ def draw_doors(self, cr, pixels_per_inch):
             pocket_end = (H_end[0] - (w / 2) * d[0], H_end[1] - (w / 2) * d[1])
             
             cr.set_source_rgb(0, 0, 0)  # Black outline
-            cr.set_line_width(1.0 / T)
+            cr.set_line_width(1.0 / zoom_transform)
             cr.move_to(*H_start)
             cr.line_to(*pocket_start)
             cr.stroke()
@@ -176,7 +175,6 @@ def draw_doors(self, cr, pixels_per_inch):
         
         if door.door_type == "bi-fold":
             # Draw bi-fold door panels
-            T = self.zoom * pixels_per_inch
             w_half = w / 2  # Each leaf is half the total width
             
             # Hinge points
@@ -204,7 +202,7 @@ def draw_doors(self, cr, pixels_per_inch):
             
             # Draw folded panels
             cr.set_source_rgb(0, 0, 0)  # Black lines
-            cr.set_line_width(1.0 / T)
+            cr.set_line_width(1.0 / zoom_transform)
             
             # Left leaf: hinge_start -> left1_end -> left2_end
             cr.move_to(*hinge_start)
@@ -214,7 +212,6 @@ def draw_doors(self, cr, pixels_per_inch):
         
         if door.door_type == "double bi-fold":
             # Draw bi-fold door panels
-            T = self.zoom * pixels_per_inch
             w_quarter = w / 4  # Each leaf is a quarter the total width
             
             # Hinge points
@@ -253,7 +250,7 @@ def draw_doors(self, cr, pixels_per_inch):
             
             # Draw folded panels
             cr.set_source_rgb(0, 0, 0)  # Black lines
-            cr.set_line_width(1.0 / T)
+            cr.set_line_width(1.0 / zoom_transform)
             
             # Left leaf: hinge_start -> left1_end -> left2_end
             cr.move_to(*hinge_start)
@@ -297,7 +294,7 @@ def draw_doors(self, cr, pixels_per_inch):
         cr.rotate(theta_text)
 
         # Set font properties
-        font_size = 12 / (self.zoom * pixels_per_inch)  # Adjust for zoom and DPI
+        font_size = 12 / zoom_transform  # Adjust for zoom and DPI
         cr.select_font_face("Sans", 0, 0)  # Family, slant, weight
         cr.set_font_size(font_size)
 
@@ -317,6 +314,7 @@ def draw_doors(self, cr, pixels_per_inch):
 
 
 def draw_windows(self, cr, pixels_per_inch):
+    zoom_transform = self.zoom * pixels_per_inch
     # Draw windows
     for window_item in self.windows: # window_item = (wall, window, ratio)
         wall, window, ratio = window_item # wall is a Wall object, window is a Window object, ratio is a float
@@ -358,7 +356,6 @@ def draw_windows(self, cr, pixels_per_inch):
         if window.window_type == "sliding":
             print("Sliding window")
             # Draw two lines parallel to the wall for sliding panels
-            T = self.zoom * pixels_per_inch 
             offset = w / 4 # Offset for the sliding panels
             line1_start = (H_start[0] + offset * d[0], H_start[1] + offset * d[1]) # Bottom line
             line1_end = (H_end[0] + offset * d[0], H_end[1] + offset * d[1])
@@ -366,7 +363,7 @@ def draw_windows(self, cr, pixels_per_inch):
             line2_end = (H_end[0] - offset * d[0], H_end[1] - offset * d[1])
             
             cr.set_source_rgb(0, 0, 0)  # Black lines
-            cr.set_line_width(1.0 / T)  # Thin line adjusted for zoom
+            cr.set_line_width(1.0 / zoom_transform)  # Thin line adjusted for zoom
             cr.move_to(*line1_start)
             cr.line_to(*line1_end)
             cr.stroke()
@@ -377,7 +374,6 @@ def draw_windows(self, cr, pixels_per_inch):
         if window.window_type == "double-hung":
             print("Double hung window")
             # Draw two horizontal lines for double-hung window sashes
-            T = self.zoom * pixels_per_inch
             sash_offset = w / 4  # Offset for the sashes
             sash1_start = (H_start[0] + sash_offset * d[0], H_start[1] + sash_offset * d[1])
             sash1_end = (H_end[0] + sash_offset * d[0], H_end[1] + sash_offset * d[1])
@@ -385,7 +381,7 @@ def draw_windows(self, cr, pixels_per_inch):
             sash2_end = (H_end[0] - sash_offset * d[0], H_end[1] - sash_offset * d[1])
             
             cr.set_source_rgb(0, 0, 0)  # Black lines
-            cr.set_line_width(1.0 / T)
+            cr.set_line_width(1.0 / zoom_transform)  # Thin line adjusted for zoom
             cr.move_to(*sash1_start)
             cr.line_to(*sash1_end)
             cr.stroke()
@@ -396,9 +392,8 @@ def draw_windows(self, cr, pixels_per_inch):
         if window.window_type == "fixed":
             print("Fixed window")
             # Draw a single rectangle outline for fixed window
-            T = self.zoom * pixels_per_inch
             cr.set_source_rgb(0, 0, 0)  # Black outline
-            cr.set_line_width(1.0 / T)
+            cr.set_line_width(1.0 / zoom_transform)
             cr.move_to(*P1)
             cr.line_to(*P2)
             cr.line_to(*P3)
@@ -423,7 +418,7 @@ def draw_windows(self, cr, pixels_per_inch):
         else:
             theta_text = theta
         cr.rotate(theta_text)
-        font_size = 12 / (self.zoom * pixels_per_inch)
+        font_size = 12 / zoom_transform  # Adjust for zoom and DPI
         cr.select_font_face("Sans", 0, 0)
         cr.set_font_size(font_size)
         extents = cr.text_extents(text)
