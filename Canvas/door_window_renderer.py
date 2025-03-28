@@ -48,6 +48,7 @@ def draw_doors(self, cr, pixels_per_inch):
         cr.fill()
         
         if door.door_type == "single":
+            print(f"Single {door.swing} hand swing door")
             # Hinge position
             if door.swing == "left":
                 hinge = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Bottom-left corner
@@ -72,6 +73,127 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.set_dash([4.0 / T, 4.0 / T])
             cr.stroke()
             cr.set_dash([])
+        
+        if door.door_type == "garage":
+            print("Garage door")
+        
+        if door.door_type == "double":
+            print(f"Double {door.swing} hand swing door")
+            # Hinge positions for double doors
+            hinge1 = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])
+            hinge2 = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])
+            
+            # Draw leaves in open position
+            F1 = (hinge1[0] + (w / 2) * n[0], hinge1[1] + (w / 2) * n[1])
+            F2 = (hinge2[0] - (w / 2) * n[0], hinge2[1] - (w / 2) * n[1])
+            cr.set_source_rgb(0, 0, 0)
+            cr.set_line_width(1.0 / T)
+            cr.move_to(*hinge1)
+            cr.line_to(*F1)
+            cr.stroke()
+            cr.move_to(*hinge2)
+            cr.line_to(*F2)
+            cr.stroke()
+            
+            # Draw swing arcs for both leaves
+            angle_closed = math.atan2(d[1], d[0])  # Along wall
+            angle_open1 = math.atan2(n[1], n[0])   # Along first leaf
+            angle_open2 = math.atan2(-n[1], -n[0]) # Along second leaf
+            if door.swing == "left":
+                cr.arc_negative(hinge1[0], hinge1[1], w / 2, angle_closed, angle_open1)
+                cr.arc_negative(hinge2[0], hinge2[1], w / 2, angle_closed, angle_open2)
+            else:
+                cr.arc(hinge1[0], hinge1[1], w / 2, angle_closed, angle_open1)
+                cr.arc(hinge2[0], hinge2[1], w / 2, angle_closed, angle_open2)
+            cr.set_dash([4.0 / T, 4.0 / T])
+            cr.stroke()
+            cr.set_dash([])
+        
+        if door.door_type == "frame":
+            print("Door frame")
+        
+        if door.door_type == "sliding":
+            print("Sliding door")
+            # Draw sliding door panels
+            T = self.zoom * pixels_per_inch
+            offset = w / 4  # Offset for the sliding panels
+            panel1_start = (H_start[0] + offset * d[0], H_start[1] + offset * d[1])
+            panel1_end = (H_end[0] + offset * d[0], H_end[1] + offset * d[1])
+            panel2_start = (H_start[0] - offset * d[0], H_start[1] - offset * d[1])
+            panel2_end = (H_end[0] - offset * d[0], H_end[1] - offset * d[1])
+            
+            cr.set_source_rgb(0, 0, 0)  # Black lines
+            cr.set_line_width(1.0 / T)
+            cr.move_to(*panel1_start)
+            cr.line_to(*panel1_end)
+            cr.stroke()
+            cr.move_to(*panel2_start)
+            cr.line_to(*panel2_end)
+            cr.stroke()
+        
+        if door.door_type == "pocket":
+            print("Pocket door")
+            # Draw pocket door outline
+            T = self.zoom * pixels_per_inch
+            pocket_start = (H_start[0] + (w / 2) * d[0], H_start[1] + (w / 2) * d[1])
+            pocket_end = (H_end[0] - (w / 2) * d[0], H_end[1] - (w / 2) * d[1])
+            
+            cr.set_source_rgb(0, 0, 0)  # Black outline
+            cr.set_line_width(1.0 / T)
+            cr.move_to(*H_start)
+            cr.line_to(*pocket_start)
+            cr.stroke()
+            cr.move_to(*H_end)
+            cr.line_to(*pocket_end)
+            cr.stroke()
+        
+        if door.door_type == "bi-fold":
+            print("Bi-fold door")
+            # Draw bi-fold door panels
+            T = self.zoom * pixels_per_inch
+            fold_offset = w / 4  # Offset for the folds
+            panel1_start = (H_start[0] + fold_offset * d[0], H_start[1] + fold_offset * d[1])
+            panel1_end = (H[0], H[1])
+            panel2_start = (H[0], H[1])
+            panel2_end = (H_end[0] - fold_offset * d[0], H_end[1] - fold_offset * d[1])
+            
+            cr.set_source_rgb(0, 0, 0)  # Black lines
+            cr.set_line_width(1.0 / T)
+            cr.move_to(*panel1_start)
+            cr.line_to(*panel1_end)
+            cr.stroke()
+            cr.move_to(*panel2_start)
+            cr.line_to(*panel2_end)
+            cr.stroke()
+        
+        if door.door_type == "double-bi-fold":
+            print("Double bi-fold door")
+            # Draw double bi-fold door panels
+            T = self.zoom * pixels_per_inch
+            fold_offset = w / 4  # Offset for the folds
+            panel1_start = (H_start[0] + fold_offset * d[0], H_start[1] + fold_offset * d[1])
+            panel1_end = (H[0] - (w / 4) * d[0], H[1] - (w / 4) * d[1])
+            panel2_start = (H[0] - (w / 4) * d[0], H[1] - (w / 4) * d[1])
+            panel2_end = (H_start[0], H_start[1])
+            panel3_start = (H[0] + (w / 4) * d[0], H[1] + (w / 4) * d[1])
+            panel3_end = (H_end[0] - fold_offset * d[0], H_end[1] - fold_offset * d[1])
+            panel4_start = (H_end[0] - fold_offset * d[0], H_end[1] - fold_offset * d[1])
+            panel4_end = (H[0] + (w / 4) * d[0], H[1] + (w / 4) * d[1])
+            
+            cr.set_source_rgb(0, 0, 0)  # Black lines
+            cr.set_line_width(1.0 / T)
+            cr.move_to(*panel1_start)
+            cr.line_to(*panel1_end)
+            cr.stroke()
+            cr.move_to(*panel2_start)
+            cr.line_to(*panel2_end)
+            cr.stroke()
+            cr.move_to(*panel3_start)
+            cr.line_to(*panel3_end)
+            cr.stroke()
+            cr.move_to(*panel4_start)
+            cr.line_to(*panel4_end)
+            cr.stroke()
 
         # Compute label text (e.g., "3'0\" x 6'8\"")
         width_str = self.inches_to_feet_inches(door.width)
@@ -161,8 +283,8 @@ def draw_windows(self, cr, pixels_per_inch):
         cr.close_path()
         cr.fill() 
         
-        #TODO Add other types of windows. (Double-hung, Fixed)
         if window.window_type == "sliding":
+            print("Sliding window")
             # Draw two lines parallel to the wall for sliding panels
             T = self.zoom * pixels_per_inch 
             offset = w / 4 # Offset for the sliding panels
@@ -178,6 +300,38 @@ def draw_windows(self, cr, pixels_per_inch):
             cr.stroke()
             cr.move_to(*line2_start)
             cr.line_to(*line2_end)
+            cr.stroke()
+        
+        if window.window_type == "double-hung":
+            print("Double hung window")
+            # Draw two horizontal lines for double-hung window sashes
+            T = self.zoom * pixels_per_inch
+            sash_offset = w / 4  # Offset for the sashes
+            sash1_start = (H_start[0] + sash_offset * d[0], H_start[1] + sash_offset * d[1])
+            sash1_end = (H_end[0] + sash_offset * d[0], H_end[1] + sash_offset * d[1])
+            sash2_start = (H_start[0] - sash_offset * d[0], H_start[1] - sash_offset * d[1])
+            sash2_end = (H_end[0] - sash_offset * d[0], H_end[1] - sash_offset * d[1])
+            
+            cr.set_source_rgb(0, 0, 0)  # Black lines
+            cr.set_line_width(1.0 / T)
+            cr.move_to(*sash1_start)
+            cr.line_to(*sash1_end)
+            cr.stroke()
+            cr.move_to(*sash2_start)
+            cr.line_to(*sash2_end)
+            cr.stroke()
+
+        if window.window_type == "fixed":
+            print("Fixed window")
+            # Draw a single rectangle outline for fixed window
+            T = self.zoom * pixels_per_inch
+            cr.set_source_rgb(0, 0, 0)  # Black outline
+            cr.set_line_width(1.0 / T)
+            cr.move_to(*P1)
+            cr.line_to(*P2)
+            cr.line_to(*P3)
+            cr.line_to(*P4)
+            cr.close_path()
             cr.stroke()
         
         # Draw label with window dimensions
