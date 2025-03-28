@@ -58,5 +58,7 @@
     "ALLOW_CURVED_WALLS": false,
     "DEFAULT_INTERIOR_WALL_MATERIAL": "Drywall",
     "DEFAULT_EXTERIOR_WALL_MATERIAL": "Brick",
+    "DEFAULT_DOOR_TYPE": "single",
+    "DEFAULT_WINDOW_TYPE": "sliding",
     "PIXELS_PER_INCH": 2.0
 }
