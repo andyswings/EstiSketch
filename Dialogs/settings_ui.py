@@ -35,13 +35,10 @@ def create_settings_dialog(parent, config_constants, canvas):
         ("Default Wall Width (inches)", "DEFAULT_WALL_WIDTH"),
         ("Default Room Height (inches)", "DEFAULT_ROOM_HEIGHT"),
         ("Grid Spacing (pixels)", "GRID_SPACING"),
-        ("Precision Level", "PRECISION_LEVEL"),
         ("Wall Join Tolerance", "WALL_JOIN_TOLERANCE"),
         ("Snap to Angle Increment", "SNAP_TO_ANGLE_INCREMENT"),
         ("Undo/Redo Limit", "UNDO_REDO_LIMIT"),
-        ("Font Size for Dimensions", "FONT_SIZE_DIMENSIONS"),
         ("Labor Cost per Hour ($)", "LABOR_COST_PER_HOUR"),
-        ("Tax Rate (%)", "TAX_RATE_PERCENTAGE"),
         ("Snap Threshold", "SNAP_THRESHOLD"),
         ("Default Zoom Level", "DEFAULT_ZOOM_LEVEL"),
         ("Pixels per inch", "PIXELS_PER_INCH")
@@ -64,9 +61,10 @@ def create_settings_dialog(parent, config_constants, canvas):
         ("Units", "UNITS", ["feet_inches", "metric"]),
         ("Wall Display Pattern", "WALL_DISPLAY_PATTERN", ["solid", "patterned", "filled_rectangle"]),
         ("Construction Type", "CONSTRUCTION_TYPE", ["stick", "metal", "cinder", "pole"]),
+        ("Default Door Type", "DEFAULT_DOOR_TYPE", ["single", "double", "sliding", "pocket", "bi-fold", "double bi-fold", "frame", "garage"]),
+        ("Default Window Type", "DEFAULT_WINDOW_TYPE", ["sliding", "fixed", "single-hung", "double-hung"]),
         ("Default Interior Wall Material", "DEFAULT_INTERIOR_WALL_MATERIAL", ["Drywall", "T&G"]),
         ("Default Exterior Wall Material", "DEFAULT_EXTERIOR_WALL_MATERIAL", ["Brick", "LP Lap Siding", "Hardie", "Stucco", "Wood", "Stone"]),
-        ("Default Dimension Style", "DEFAULT_DIMENSION_STYLE", ["inline", "above", "below"]),
         ("Default File Format", "DEFAULT_FILE_FORMAT", ["json", "xml", "csv"]),
         ("Default Material Cost Unit", "DEFAULT_MATERIAL_COST_UNIT", ["per sq ft", "per unit"])
     ]
@@ -88,18 +86,12 @@ def create_settings_dialog(parent, config_constants, canvas):
     toggles = [
         ("Enable Snapping", "SNAP_ENABLED"),
         ("Show Grid", "SHOW_GRID"),
-        ("Show Grid Labels", "SHOW_GRID_LABELS"),
         ("Show Rulers", "SHOW_RULERS"),
         ("Enable Auto Save", "ENABLE_AUTO_SAVE"),
         ("Show Measurement Hints", "SHOW_MEASUREMENT_HINTS"),
-        ("Enable Perpendicular Snapping", "ENABLE_PERPENDICULAR_SNAPPING"),
         ("Enable Centerline Snapping", "ENABLE_CENTERLINE_SNAPPING"),
-        ("Enable Object Locking", "ENABLE_OBJECT_LOCKING"),
-        ("Enable Dimension Auto Update", "ENABLE_DIMENSION_AUTO_UPDATE"),
         ("Enable Undo/Redo Limit", "ENABLE_UNDO_REDO_LIMIT"),
-        ("Enable PDF Export Options", "ENABLE_PDF_EXPORT_OPTIONS"),
         ("Include Cost Estimate in Export", "INCLUDE_COST_ESTIMATE_IN_EXPORT"),
-        ("Allow Curved Walls", "ALLOW_CURVED_WALLS")
     ]
     
     switches = {}
