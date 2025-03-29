@@ -73,10 +73,6 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.stroke()
             cr.set_dash([])
         
-        # TODO Come up with a good recognizable symbol for garage doors. Make it distinct from other doors.
-        if door.door_type == "garage":
-            print("Garage door")
-        
         if door.door_type == "double":
             # Hinge positions for double doors
             hinge1 = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])
@@ -156,23 +152,74 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.stroke()
             cr.set_dash([])  # Reset dash pattern
         
-        # TODO Fix the drawing of pocket doors. They currently look like fixed windows.
         if door.door_type == "pocket":
-            print("Pocket door")
-            # Draw pocket door outline
+            # Draw pocket door symbol
             T = self.zoom * pixels_per_inch
-            pocket_start = (H_start[0] + (w / 2) * d[0], H_start[1] + (w / 2) * d[1])
-            pocket_end = (H_end[0] - (w / 2) * d[0], H_end[1] - (w / 2) * d[1])
             
-            cr.set_source_rgb(0, 0, 0)  # Black outline
-            cr.set_line_width(1.0 / zoom_transform)
-            cr.move_to(*H_start)
-            cr.line_to(*pocket_start)
+            # Wall endpoints with thickness offset
+            wall_start = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Left edge (outside)
+            wall_end = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])      # Right edge (outside)
+            wall_inside_start = (H_start[0] - (t / 2) * n[0], H_start[1] - (t / 2) * n[1])  # Left inside
+            wall_inside_end = (H_end[0] - (t / 2) * n[0], H_end[1] - (t / 2) * n[1])      # Right inside
+            
+            # Door leaf width (one-third of door opening width)
+            door_width = w
+            # Door leaf thickness (one-third of wall thickness)
+            door_thickness = t / 3
+            
+            # Middle of the wall (centerline between outside and inside edges)
+            wall_mid_start = (H_start[0], H_start[1])  # Midpoint at start
+            wall_mid_end = (H_end[0], H_end[1])        # Midpoint at end
+            
+            # Door leaf position (centered in wall thickness, partially protruding into opening)
+            if door.swing == "left":
+                # Slides left: most of door in left wall, protruding slightly into opening
+                door_start = (wall_mid_start[0] - (door_width * 3 / 4) * d[0], wall_mid_start[1] - (door_width * 3 / 4) * d[1])  # 2/3 into wall
+                door_end = (wall_mid_start[0] + (door_width / 4) * d[0], wall_mid_start[1] + (door_width / 4) * d[1])  # 1/3 in opening
+            else:  # "right"
+                # Slides right: most of door in right wall, protruding slightly into opening
+                door_start = (wall_mid_end[0] - (door_width / 4) * d[0], wall_mid_end[1] - (door_width / 4) * d[1])  # 1/3 in opening
+                door_end = (wall_mid_end[0] + (door_width * 3 / 4) * d[0], wall_mid_end[1] + (door_width * 3 / 4) * d[1])  # 2/3 into wall
+            
+            # Calculate door leaf rectangle corners (centered in wall thickness)
+            # Normal vector n is perpendicular to door direction d, so use it for thickness offset
+            half_thickness = door_thickness / 2
+            door_top_start = (door_start[0] + half_thickness * n[0], door_start[1] + half_thickness * n[1])  # Top left
+            door_top_end = (door_end[0] + half_thickness * n[0], door_end[1] + half_thickness * n[1])      # Top right
+            door_bottom_start = (door_start[0] - half_thickness * n[0], door_start[1] - half_thickness * n[1])  # Bottom left
+            door_bottom_end = (door_end[0] - half_thickness * n[0], door_end[1] - half_thickness * n[1])      # Bottom right
+            
+            # Set drawing properties
+            cr.set_line_width(1.0 / T)
+            
+            # Draw solid black outline of door opening
+            cr.set_source_rgb(0, 0, 0)  # Black
+            cr.move_to(*wall_start)
+            cr.line_to(*wall_end)  # Top (outside wall)
+            cr.line_to(*wall_inside_end)  # Right side
+            cr.line_to(*wall_inside_start)  # Bottom (inside wall)
+            cr.line_to(*wall_start)  # Left side
             cr.stroke()
-            cr.move_to(*H_end)
-            cr.line_to(*pocket_end)
+            
+            # Draw door leaf as a rectangle (black outline, white fill)
+            # Fill with white first
+            cr.set_source_rgb(1, 1, 1)  # White
+            cr.move_to(*door_top_start)
+            cr.line_to(*door_top_end)
+            cr.line_to(*door_bottom_end)
+            cr.line_to(*door_bottom_start)
+            cr.close_path()
+            cr.fill()
+            
+            # Draw black outline
+            cr.set_source_rgb(0, 0, 0)  # Black
+            cr.move_to(*door_top_start)
+            cr.line_to(*door_top_end)
+            cr.line_to(*door_bottom_end)
+            cr.line_to(*door_bottom_start)
+            cr.close_path()
             cr.stroke()
-        
+    
         if door.door_type == "bi-fold":
             # Draw bi-fold door panels
             w_half = w / 2  # Each leaf is half the total width
@@ -263,6 +310,52 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.line_to(*right1_end)
             cr.line_to(*right2_end)
             cr.stroke()
+        
+        if door.door_type == "garage":
+            # Draw garage door symbol
+            T = self.zoom * pixels_per_inch
+            
+            # Door endpoints with thickness offset (outside of wall)
+            start = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Left edge
+            end = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])      # Right edge
+            
+            # Inside wall endpoints (opposite side of wall thickness)
+            inside_start = (H_start[0] - (t / 2) * n[0], H_start[1] - (t / 2) * n[1])  # Left inside
+            inside_end = (H_end[0] - (t / 2) * n[0], H_end[1] - (t / 2) * n[1])      # Right inside
+            
+            # Depth of the dashed rectangle (equal to door height, assuming w is width and height is similar)
+            depth = door.height  # Extend inward by the door's width
+            
+            # Endpoints of the inner dashed rectangle (extending inside the garage)
+            inner_left = (inside_start[0] - depth * n[0], inside_start[1] - depth * n[1])
+            inner_right = (inside_end[0] - depth * n[0], inside_end[1] - depth * n[1])
+            
+            # Set drawing properties
+            cr.set_source_rgb(0, 0, 0)  # Black lines
+            cr.set_line_width(1.0 / T)
+            
+            # Draw outer box (solid lines)
+            cr.move_to(*start)
+            cr.line_to(*end)  # Top (outside wall)
+            cr.line_to(*inside_end)  # Right side
+            cr.line_to(*inside_start)  # Bottom (inside wall)
+            cr.line_to(*start)  # Left side
+            cr.stroke()
+            
+            # Draw inner dashed line on inside of wall
+            cr.set_dash([4.0 / T, 4.0 / T])  # Dashed pattern
+            cr.move_to(*inside_start)
+            cr.line_to(*inside_end)
+            cr.stroke()
+            
+            # Draw dashed rectangle extending inside
+            cr.move_to(*inside_start)
+            cr.line_to(*inner_left)  # Left side inward
+            cr.line_to(*inner_right)  # Bottom inside
+            cr.line_to(*inside_end)  # Right side inward
+            cr.stroke()
+            
+            cr.set_dash([])  # Reset dash pattern
 
         # Compute label text (e.g., "3'0\" x 6'8\"")
         width_str = self.inches_to_feet_inches(door.width)
