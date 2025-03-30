@@ -510,21 +510,85 @@ def draw_windows(self, cr, pixels_per_inch):
         cr.fill() 
         
         if window.window_type == "sliding":
-            print("Sliding window")
-            # Draw two lines parallel to the wall for sliding panels
-            offset = (t / 4) # Offset for the sliding panels
-            line1_start = (H_start[0] + offset * d[0], H_start[1] + offset * d[1]) # Bottom line
-            line1_end = (H_end[0] + offset * d[0], H_end[1] + offset * d[1])
-            line2_start = (H_start[0] - offset * d[0], H_start[1] - offset * d[1]) # Top line
-            line2_end = (H_end[0] - offset * d[0], H_end[1] - offset * d[1])
             
-            cr.set_source_rgb(0, 0, 0)  # Black lines
-            cr.set_line_width(2.0 / zoom_transform)  # Thin line adjusted for zoom
-            cr.move_to(*line1_start)
-            cr.line_to(*line1_end)
+            # Wall endpoints with thickness offset
+            wall_start = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])  # Left edge (outside)
+            wall_end = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])      # Right edge (outside)
+            wall_inside_start = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])  # Left inside
+            wall_inside_end = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])      # Right inside
+            
+            # Middle of the wall (centerline between outside and inside edges)
+            wall_mid_start = (H_start[0], H_start[1])  # Midpoint at start
+            wall_mid_end = (H_end[0], H_end[1])        # Midpoint at end
+            
+            # Window pane thickness (one-quarter of wall thickness)
+            pane_thickness = t / 8
+            half_thickness = pane_thickness / 2
+            
+            # Window pane width (half of door opening width, assuming they overlap slightly when closed)
+            pane_width = w / 2
+            
+            # Offset from centerline for each pane
+            offset = half_thickness * 2.1  # Slight separation from centerline for clarity
+            
+            # Left pane: Touches left side of opening, offset above centerline
+            left_pane_start = wall_mid_start  # Starts at left edge of opening
+            left_pane_end = (wall_mid_start[0] + pane_width * d[0], wall_mid_start[1] + pane_width * d[1])  # Ends halfway across
+            left_top_start = (left_pane_start[0] + offset * p[0], left_pane_start[1] + offset * p[1])  # Top edge
+            left_top_end = (left_pane_end[0] + offset * p[0], left_pane_end[1] + offset * p[1])
+            left_bottom_start = (left_pane_start[0] + (offset - pane_thickness) * p[0], left_pane_start[1] + (offset - pane_thickness) * p[1])  # Bottom edge
+            left_bottom_end = (left_pane_end[0] + (offset - pane_thickness) * p[0], left_pane_end[1] + (offset - pane_thickness) * p[1])
+            
+            # Right pane: Positioned to show right side open, offset below centerline
+            right_pane_start = (wall_mid_end[0] - pane_width * d[0], wall_mid_end[1] - pane_width * d[1])  # Starts halfway, ends at right edge
+            right_pane_end = wall_mid_end  # Ends at right edge of opening
+            right_top_start = (right_pane_start[0] - offset * p[0], right_pane_start[1] - offset * p[1])  # Top edge
+            right_top_end = (right_pane_end[0] - offset * p[0], right_pane_end[1] - offset * p[1])
+            right_bottom_start = (right_pane_start[0] - (offset - pane_thickness) * p[0], right_pane_start[1] - (offset - pane_thickness) * p[1])  # Bottom edge
+            right_bottom_end = (right_pane_end[0] - (offset - pane_thickness) * p[0], right_pane_end[1] - (offset - pane_thickness) * p[1])
+            
+            # Set drawing properties
+            cr.set_line_width(1.0 / zoom_transform)
+            
+            # Draw solid black outline of window opening
+            cr.set_source_rgb(0, 0, 0)  # Black
+            cr.move_to(*wall_start)
+            cr.line_to(*wall_end)  # Top (outside wall)
+            cr.line_to(*wall_inside_end)  # Right side
+            cr.line_to(*wall_inside_start)  # Bottom (inside wall)
+            cr.line_to(*wall_start)  # Left side
             cr.stroke()
-            cr.move_to(*line2_start)
-            cr.line_to(*line2_end)
+            
+            # Draw left pane (black outline, white fill)
+            cr.set_source_rgb(1, 1, 1)  # White fill
+            cr.move_to(*left_top_start)
+            cr.line_to(*left_top_end)
+            cr.line_to(*left_bottom_end)
+            cr.line_to(*left_bottom_start)
+            cr.close_path()
+            cr.fill()
+            cr.set_source_rgb(0, 0, 0)  # Black outline
+            cr.move_to(*left_top_start)
+            cr.line_to(*left_top_end)
+            cr.line_to(*left_bottom_end)
+            cr.line_to(*left_bottom_start)
+            cr.close_path()
+            cr.stroke()
+            
+            # Draw right pane (black outline, white fill)
+            cr.set_source_rgb(1, 1, 1)  # White fill
+            cr.move_to(*right_top_start)
+            cr.line_to(*right_top_end)
+            cr.line_to(*right_bottom_end)
+            cr.line_to(*right_bottom_start)
+            cr.close_path()
+            cr.fill()
+            cr.set_source_rgb(0, 0, 0)  # Black outline
+            cr.move_to(*right_top_start)
+            cr.line_to(*right_top_end)
+            cr.line_to(*right_bottom_end)
+            cr.line_to(*right_bottom_start)
+            cr.close_path()
             cr.stroke()
         
         if window.window_type == "double-hung":
@@ -546,7 +610,17 @@ def draw_windows(self, cr, pixels_per_inch):
             cr.stroke()
 
         if window.window_type == "fixed":
-            print("Fixed window")
+            
+            # Wall endpoints with thickness offset
+            wall_start = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])  # Left edge (outside)
+            wall_end = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])      # Right edge (outside)
+            wall_inside_start = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])  # Left inside
+            wall_inside_end = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])      # Right inside
+            
+            # Middle of the wall (centerline between outside and inside edges)
+            wall_mid_start = (H_start[0], H_start[1])  # Midpoint at start
+            wall_mid_end = (H_end[0], H_end[1])        # Midpoint at end
+            
             # Draw a single rectangle outline for fixed window
             cr.set_source_rgb(0, 0, 0)  # Black outline
             cr.set_line_width(1.0 / zoom_transform)
@@ -555,6 +629,11 @@ def draw_windows(self, cr, pixels_per_inch):
             cr.line_to(*P3)
             cr.line_to(*P4)
             cr.close_path()
+            cr.stroke()
+            
+            # Draw solid black line for window pane
+            cr.move_to(*wall_mid_start)
+            cr.line_to(*wall_mid_end)
             cr.stroke()
         
         # Draw label with window dimensions
