@@ -592,25 +592,59 @@ def draw_windows(self, cr, pixels_per_inch):
             cr.stroke()
         
         if window.window_type == "double-hung":
-            print("Double hung window")
-            # Draw two horizontal lines for double-hung window sashes
-            sash_offset = w / 4  # Offset for the sashes
-            sash1_start = (H_start[0] + sash_offset * d[0], H_start[1] + sash_offset * d[1])
-            sash1_end = (H_end[0] + sash_offset * d[0], H_end[1] + sash_offset * d[1])
-            sash2_start = (H_start[0] - sash_offset * d[0], H_start[1] - sash_offset * d[1])
-            sash2_end = (H_end[0] - sash_offset * d[0], H_end[1] - sash_offset * d[1])
+            # Wall endpoints with thickness offset
+            wall_start = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])  # Left edge (outside)
+            wall_end = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])      # Right edge (outside)
+            wall_inside_start = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])  # Left inside
+            wall_inside_end = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])      # Right inside
             
-            cr.set_source_rgb(0, 0, 0)  # Black lines
-            cr.set_line_width(1.0 / zoom_transform)  # Thin line adjusted for zoom
-            cr.move_to(*sash1_start)
-            cr.line_to(*sash1_end)
+            # Middle of the wall (centerline between outside and inside edges)
+            wall_mid_start = (H_start[0], H_start[1])  # Midpoint at start
+            wall_mid_end = (H_end[0], H_end[1])        # Midpoint at end
+            
+            # Draw a single rectangle outline for fixed window
+            cr.set_source_rgb(0, 0, 0)  # Black outline
+            cr.set_line_width(1.0 / zoom_transform)
+            cr.move_to(*P1)
+            cr.line_to(*P2)
+            cr.line_to(*P3)
+            cr.line_to(*P4)
+            cr.close_path()
             cr.stroke()
-            cr.move_to(*sash2_start)
-            cr.line_to(*sash2_end)
+            
+            # Draw solid black line for window pane
+            cr.move_to(*wall_mid_start)
+            cr.line_to(*wall_mid_end)
+            cr.stroke()
+            
+            # Compute a unit vector along the window's width (from H_start to H_end)
+            dx = H_end[0] - H_start[0]
+            dy = H_end[1] - H_start[1]
+            length = math.sqrt(dx*dx + dy*dy)
+            v = (dx / length, dy / length)
+            
+            # Define the extension distance (in the same units as your drawing)
+            extension = 1.0  # one inch
+            
+            # Compute the base of the extension rectangle:
+            # Extend the window's outside edge by one inch on each side
+            rect_left_start = (wall_start[0] - extension * v[0], wall_start[1] - extension * v[1])
+            rect_right_start = (wall_end[0] + extension * v[0], wall_end[1] + extension * v[1])
+            
+            # Now, push that line outward by one inch (using the outward vector p)
+            rect_left_outer = (rect_left_start[0] + extension * p[0], rect_left_start[1] + extension * p[1])
+            rect_right_outer = (rect_right_start[0] + extension * p[0], rect_right_start[1] + extension * p[1])
+            
+            # Draw the extension rectangle outline
+            cr.set_source_rgb(0, 0, 0)  # Black outline (or choose a different color/style if desired)
+            cr.move_to(*rect_left_start)
+            cr.line_to(*rect_right_start)
+            cr.line_to(*rect_right_outer)
+            cr.line_to(*rect_left_outer)
+            cr.close_path()
             cr.stroke()
 
         if window.window_type == "fixed":
-            
             # Wall endpoints with thickness offset
             wall_start = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])  # Left edge (outside)
             wall_end = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])      # Right edge (outside)
