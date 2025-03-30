@@ -129,28 +129,91 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.set_dash([])  # Reset dash pattern
         
         if door.door_type == "frame":
-            print("Door frame")
+            # Door frame symbol needs nothing special, just draw the opening
+            pass
         
-        #TODO Draw sliding doors differently so they don't look the same as sliding windows. I don't like the way they look with the current code.
         if door.door_type == "sliding":
-            print("Sliding door")
-            offset = w / 4  # Offset for the sliding panels
-            panel1_start = (H_start[0] + offset * d[0], H_start[1] + offset * d[1])
-            panel1_end = (H_end[0] + offset * d[0], H_end[1] + offset * d[1])
-            panel2_start = (H_start[0] - offset * d[0], H_start[1] - offset * d[1])
-            panel2_end = (H_end[0] - offset * d[0], H_end[1] - offset * d[1])
+            T = self.zoom * pixels_per_inch
             
+            # Wall endpoints with thickness offset
+            wall_start = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Left edge (outside)
+            wall_end = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])      # Right edge (outside)
+            wall_inside_start = (H_start[0] - (t / 2) * n[0], H_start[1] - (t / 2) * n[1])  # Left inside
+            wall_inside_end = (H_end[0] - (t / 2) * n[0], H_end[1] - (t / 2) * n[1])      # Right inside
             
-            cr.set_source_rgb(0, 0, 0)  # Black lines
-            cr.set_line_width(1.0 / zoom_transform)
-            cr.set_dash([6.0 / zoom_transform, 3.0 / zoom_transform])  # Dashed pattern
-            cr.move_to(*panel1_start)
-            cr.line_to(*panel1_end)
+            # Middle of the wall (centerline between outside and inside edges)
+            wall_mid_start = (H_start[0], H_start[1])  # Midpoint at start
+            wall_mid_end = (H_end[0], H_end[1])        # Midpoint at end
+            
+            # Door leaf thickness (one-quarter of wall thickness)
+            leaf_thickness = t / 4
+            half_thickness = leaf_thickness / 2
+            
+            # Door leaf width (half of door opening width, assuming they overlap slightly when closed)
+            leaf_width = w / 2
+            
+            # Offset from centerline for each leaf
+            offset = half_thickness * 2.1  # Slight separation from centerline for clarity
+            
+            # Left leaf: Touches left side of opening, offset above centerline
+            left_leaf_start = wall_mid_start  # Starts at left edge of opening
+            left_leaf_end = (wall_mid_start[0] + leaf_width * d[0], wall_mid_start[1] + leaf_width * d[1])  # Ends halfway across
+            left_top_start = (left_leaf_start[0] + offset * n[0], left_leaf_start[1] + offset * n[1])  # Top edge
+            left_top_end = (left_leaf_end[0] + offset * n[0], left_leaf_end[1] + offset * n[1])
+            left_bottom_start = (left_leaf_start[0] + (offset - leaf_thickness) * n[0], left_leaf_start[1] + (offset - leaf_thickness) * n[1])  # Bottom edge
+            left_bottom_end = (left_leaf_end[0] + (offset - leaf_thickness) * n[0], left_leaf_end[1] + (offset - leaf_thickness) * n[1])
+            
+            # Right leaf: Positioned to show right side open, offset below centerline
+            right_leaf_start = (wall_mid_end[0] - leaf_width * d[0], wall_mid_end[1] - leaf_width * d[1])  # Starts halfway, ends at right edge
+            right_leaf_end = wall_mid_end  # Ends at right edge of opening
+            right_top_start = (right_leaf_start[0] - offset * n[0], right_leaf_start[1] - offset * n[1])  # Top edge
+            right_top_end = (right_leaf_end[0] - offset * n[0], right_leaf_end[1] - offset * n[1])
+            right_bottom_start = (right_leaf_start[0] - (offset - leaf_thickness) * n[0], right_leaf_start[1] - (offset - leaf_thickness) * n[1])  # Bottom edge
+            right_bottom_end = (right_leaf_end[0] - (offset - leaf_thickness) * n[0], right_leaf_end[1] - (offset - leaf_thickness) * n[1])
+            
+            # Set drawing properties
+            cr.set_line_width(1.0 / T)
+            
+            # Draw solid black outline of door opening
+            cr.set_source_rgb(0, 0, 0)  # Black
+            cr.move_to(*wall_start)
+            cr.line_to(*wall_end)  # Top (outside wall)
+            cr.line_to(*wall_inside_end)  # Right side
+            cr.line_to(*wall_inside_start)  # Bottom (inside wall)
+            cr.line_to(*wall_start)  # Left side
             cr.stroke()
-            cr.move_to(*panel2_start)
-            cr.line_to(*panel2_end)
+            
+            # Draw left leaf (black outline, white fill)
+            cr.set_source_rgb(1, 1, 1)  # White fill
+            cr.move_to(*left_top_start)
+            cr.line_to(*left_top_end)
+            cr.line_to(*left_bottom_end)
+            cr.line_to(*left_bottom_start)
+            cr.close_path()
+            cr.fill()
+            cr.set_source_rgb(0, 0, 0)  # Black outline
+            cr.move_to(*left_top_start)
+            cr.line_to(*left_top_end)
+            cr.line_to(*left_bottom_end)
+            cr.line_to(*left_bottom_start)
+            cr.close_path()
             cr.stroke()
-            cr.set_dash([])  # Reset dash pattern
+            
+            # Draw right leaf (black outline, white fill)
+            cr.set_source_rgb(1, 1, 1)  # White fill
+            cr.move_to(*right_top_start)
+            cr.line_to(*right_top_end)
+            cr.line_to(*right_bottom_end)
+            cr.line_to(*right_bottom_start)
+            cr.close_path()
+            cr.fill()
+            cr.set_source_rgb(0, 0, 0)  # Black outline
+            cr.move_to(*right_top_start)
+            cr.line_to(*right_top_end)
+            cr.line_to(*right_bottom_end)
+            cr.line_to(*right_bottom_start)
+            cr.close_path()
+            cr.stroke()
         
         if door.door_type == "pocket":
             # Draw pocket door symbol
@@ -449,14 +512,14 @@ def draw_windows(self, cr, pixels_per_inch):
         if window.window_type == "sliding":
             print("Sliding window")
             # Draw two lines parallel to the wall for sliding panels
-            offset = w / 4 # Offset for the sliding panels
+            offset = (t / 4) # Offset for the sliding panels
             line1_start = (H_start[0] + offset * d[0], H_start[1] + offset * d[1]) # Bottom line
             line1_end = (H_end[0] + offset * d[0], H_end[1] + offset * d[1])
             line2_start = (H_start[0] - offset * d[0], H_start[1] - offset * d[1]) # Top line
             line2_end = (H_end[0] - offset * d[0], H_end[1] - offset * d[1])
             
             cr.set_source_rgb(0, 0, 0)  # Black lines
-            cr.set_line_width(1.0 / zoom_transform)  # Thin line adjusted for zoom
+            cr.set_line_width(2.0 / zoom_transform)  # Thin line adjusted for zoom
             cr.move_to(*line1_start)
             cr.line_to(*line1_end)
             cr.stroke()
