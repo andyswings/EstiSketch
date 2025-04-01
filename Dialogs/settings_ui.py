@@ -62,11 +62,10 @@ def create_settings_dialog(parent, config_constants, canvas):
         ("Wall Display Pattern", "WALL_DISPLAY_PATTERN", ["solid", "patterned", "filled_rectangle"]),
         ("Construction Type", "CONSTRUCTION_TYPE", ["stick", "metal", "cinder", "pole"]),
         ("Default Door Type", "DEFAULT_DOOR_TYPE", ["single", "double", "sliding", "pocket", "bi-fold", "double bi-fold", "frame", "garage"]),
-        ("Default Window Type", "DEFAULT_WINDOW_TYPE", ["sliding", "fixed", "single-hung", "double-hung"]),
+        ("Default Window Type", "DEFAULT_WINDOW_TYPE", ["sliding", "fixed", "double-hung"]),
         ("Default Interior Wall Material", "DEFAULT_INTERIOR_WALL_MATERIAL", ["Drywall", "T&G"]),
         ("Default Exterior Wall Material", "DEFAULT_EXTERIOR_WALL_MATERIAL", ["Brick", "LP Lap Siding", "Hardie", "Stucco", "Wood", "Stone"]),
-        ("Default File Format", "DEFAULT_FILE_FORMAT", ["json", "xml", "csv"]),
-        ("Default Material Cost Unit", "DEFAULT_MATERIAL_COST_UNIT", ["per sq ft", "per unit"])
+        ("Default File Format", "DEFAULT_FILE_FORMAT", ["json", "xml", "csv"])
     ]
     
     dropdown_widgets = {}
