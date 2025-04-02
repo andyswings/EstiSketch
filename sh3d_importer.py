@@ -29,7 +29,7 @@ def import_sh3d(sh3d_file_path: str) -> dict:
         # Conversion factor: 1 cm ≈ 0.3937 inches
         cm_to_in = 0.393700787
 
-        wall_height = float(root.get('wallHeight', 96.0)) * cm_to_in
+        wall_height = float(root.get('wallHeight', 243.84)) * cm_to_in
 
         # Extract walls
         walls = []
@@ -47,9 +47,6 @@ def import_sh3d(sh3d_file_path: str) -> dict:
 
             wall = Wall(start=(x_start, y_start), end=(x_end, y_end),
                         width=thickness, height=wall_elem_height)
-            # Optionally, mark walls with a specific pattern as exterior
-            if wall_elem.get('pattern', '').lower() == 'hatchup':
-                wall.exterior_wall = True
             walls.append(wall)
         print(f"Extracted {len(walls)} walls.")
 
@@ -117,15 +114,28 @@ def import_sh3d(sh3d_file_path: str) -> dict:
                     best_ratio = t
                     associated_wall = wall
 
-            # Use a tolerance (e.g., 10 inches) to decide if the door/window is close enough to a wall.
+            # Use a tolerance of 10 inches to decide if the door/window is close enough to a wall.
             if best_dist > 10:
                 print(f"{element_type.title()} at {center} is too far from any wall (distance {best_dist:.2f} in). Skipping.")
                 continue
 
             if element_type == "door":
-                new_door = Door("single", width, height, "left", "inward")
+                if "frame" in name_attr:
+                    new_door = Door("frame", width, height, "left", "inward")
+                elif "pocket" in name_attr:
+                    new_door = Door("pocket", width, height, "left", "inward")
+                elif "french" in name_attr:
+                    new_door = Door("double", width, height, "left", "inward")
+                elif "sliding" in name_attr:
+                    new_door = Door("sliding", width, height, "left", "inward")
+                elif "garage" in name_attr:
+                    new_door = Door("garage", width, height, "left", "inward")
+                else:
+                    print(name_attr)
+                    new_door = Door("single", width, height, "left", "inward")
                 doors.append((associated_wall, new_door, best_ratio))
             else:  # window
+                print(name_attr)
                 new_window = Window(width, height, "sliding")
                 windows.append((associated_wall, new_window, best_ratio))
 
