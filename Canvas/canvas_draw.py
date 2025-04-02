@@ -106,6 +106,7 @@ class CanvasDrawMixin:
             # We’re still in model coordinates here.
             for item in self.selected_items:
                 if item["type"] == "wall":
+                    # print("Wall selected")
                     wall = item["object"]
                     # Set a red color with some opacity.
                     cr.set_source_rgba(1, 0, 0, 1.0) # Opaque red.
@@ -121,6 +122,7 @@ class CanvasDrawMixin:
                     # Restore the original line width.
                     cr.set_line_width(original_line_width)
                 elif item["type"] == "vertex":
+                    # print("Vertex selected")
                     room, idx = item["object"]
                     pt = room.points[idx]
                     # Use a slightly less transparent red for vertices.
@@ -128,6 +130,66 @@ class CanvasDrawMixin:
                     radius = 5 / (self.zoom * getattr(self.config, "PIXELS_PER_INCH", 2.0))
                     cr.arc(pt[0], pt[1], radius, 0, 2 * 3.1416)
                     cr.fill()
+                elif item["type"] == "door":
+                    # print("Door selected")
+                    wall, door, ratio = item["object"]
+                    A = wall.start
+                    B = wall.end
+                    H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
+                    dx = B[0] - A[0]
+                    dy = B[1] - A[1]
+                    length = math.hypot(dx, dy)
+                    if length == 0:
+                        continue
+                    d = (dx / length, dy / length)
+                    p = (-d[1], d[0])
+                    n = (-p[0], -p[1]) if door.swing == "left" else (p[0], p[1])
+                    w = door.width
+                    t = self.config.DEFAULT_WALL_WIDTH
+                    H_start = (H[0] - (w / 2) * d[0], H[1] - (w / 2) * d[1])
+                    H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
+                    P1 = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])
+                    P2 = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])
+                    P3 = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])
+                    P4 = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])
+                    cr.set_source_rgba(1, 0, 0, 1.0)  # red outline
+                    cr.set_line_width((self.config.DEFAULT_WALL_WIDTH) / self.zoom)
+                    cr.move_to(*P1)
+                    cr.line_to(*P2)
+                    cr.line_to(*P3)
+                    cr.line_to(*P4)
+                    cr.close_path()
+                    cr.stroke()
+
+                elif item["type"] == "window":
+                    # print("Window selected")
+                    wall, window, ratio = item["object"]
+                    A = wall.start
+                    B = wall.end
+                    H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
+                    dx = B[0] - A[0]
+                    dy = B[1] - A[1]
+                    length = math.hypot(dx, dy)
+                    if length == 0:
+                        continue
+                    d = (dx / length, dy / length)
+                    p = (-d[1], d[0])
+                    w = window.width
+                    t = self.config.DEFAULT_WALL_WIDTH
+                    H_start = (H[0] - (w / 2) * d[0], H[1] - (w / 2) * d[1])
+                    H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
+                    P1 = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])
+                    P2 = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])
+                    P3 = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])
+                    P4 = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])
+                    cr.set_source_rgba(1, 0, 0, 1.0)
+                    cr.set_line_width((self.config.DEFAULT_WALL_WIDTH) / self.zoom)
+                    cr.move_to(*P1)
+                    cr.line_to(*P2)
+                    cr.line_to(*P3)
+                    cr.line_to(*P4)
+                    cr.close_path()
+                    cr.stroke()
             cr.restore()
 
 

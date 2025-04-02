@@ -122,8 +122,10 @@ class CanvasEventsMixin:
         Returns:
             None
         """
-        # Filter selected items to get only wall segments.
+        # Filter selected items.
         selected_walls = [item for item in self.selected_items if item.get("type") == "wall"]
+        selected_doors = [item for item in self.selected_items if item.get("type") == "door"]
+        selected_windows = [item for item in self.selected_items if item.get("type") == "window"]
 
         # Create a popover to serve as the context menu.
         popover = Gtk.Popover()
@@ -156,9 +158,25 @@ class CanvasEventsMixin:
             box.append(int_button)
             
         # Create a button labeled "Join Walls".
-        join_button = Gtk.Button(label="Join Walls")
-        join_button.connect("clicked", lambda btn: self.join_selected_walls())
-        box.append(join_button)
+        if len(selected_walls) >= 2:
+            # Only show the button if there are at least two selected walls.
+            # This button will call the join_selected_walls() method when clicked.
+            # The lambda function captures the current state of selected_walls.
+            join_button = Gtk.Button(label="Join Walls")
+            join_button.connect("clicked", lambda btn: self.join_selected_walls())
+            box.append(join_button)
+        
+        # Door-specific option.
+        if selected_doors:
+            door_button = Gtk.Button(label="Change Door Type")
+            door_button.connect("clicked", lambda btn: self.change_door_type(selected_doors))
+            box.append(door_button)
+        
+        # Window-specific option.
+        if selected_windows:
+            window_button = Gtk.Button(label="Change Window Type")
+            window_button.connect("clicked", lambda btn: self.change_window_type(selected_windows))
+            box.append(window_button)
         
         # Position the popover at the click location.
         rect = Gdk.Rectangle()
@@ -326,6 +344,7 @@ class CanvasEventsMixin:
                 dist_seg = self.distance_point_to_segment(click_pt, start_widget, end_widget)
                 if dist_seg < fixed_threshold and dist_seg < best_dist:
                     best_dist = dist_seg
+                    # print("Wall selected")
                     selected_item = {"type": "wall", "object": wall}
         
         for room in self.rooms:
@@ -338,7 +357,70 @@ class CanvasEventsMixin:
                                     click_pt[1] - pt_widget[1])
                 if dist_pt < vertex_threshold and dist_pt < best_dist:
                     best_dist = dist_pt
+                    # print("Vertex selected")
                     selected_item = {"type": "vertex", "object": (room, idx)}
+
+        for door_item in self.doors:
+            wall, door, ratio = door_item
+            A = wall.start
+            B = wall.end
+            H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
+            dx = B[0] - A[0]
+            dy = B[1] - A[1]
+            length = math.hypot(dx, dy)
+            if length == 0:
+                continue
+            d = (dx / length, dy / length)
+            p = (-d[1], d[0])
+            n = (-p[0], -p[1]) if door.swing == "left" else (p[0], p[1])
+            w = door.width
+            t = self.config.DEFAULT_WALL_WIDTH
+            H_start = (H[0] - (w / 2) * d[0], H[1] - (w / 2) * d[1])
+            H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
+            P1 = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])
+            P2 = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])
+            P3 = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])
+            P4 = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])
+            P1_dev = self.model_to_device(P1[0], P1[1], pixels_per_inch)
+            P2_dev = self.model_to_device(P2[0], P2[1], pixels_per_inch)
+            P3_dev = self.model_to_device(P3[0], P3[1], pixels_per_inch)
+            P4_dev = self.model_to_device(P4[0], P4[1], pixels_per_inch)
+            door_poly = [P1_dev, P2_dev, P3_dev, P4_dev]
+            if self._point_in_polygon(click_pt, door_poly):
+                # print("Door selected")
+                selected_item = {"type": "door", "object": door_item}
+                break  # Exit loop if door is selected
+
+        for window_item in self.windows:
+            wall, window, ratio = window_item
+            A = wall.start
+            B = wall.end
+            H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
+            dx = B[0] - A[0]
+            dy = B[1] - A[1]
+            length = math.hypot(dx, dy)
+            if length == 0:
+                continue
+            d = (dx / length, dy / length)
+            p = (-d[1], d[0])
+            w = window.width
+            t = self.config.DEFAULT_WALL_WIDTH
+            H_start = (H[0] - (w / 2) * d[0], H[1] - (w / 2) * d[1])
+            H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
+            P1 = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])
+            P2 = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])
+            P3 = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])
+            P4 = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])
+            P1_dev = self.model_to_device(P1[0], P1[1], pixels_per_inch)
+            P2_dev = self.model_to_device(P2[0], P2[1], pixels_per_inch)
+            P3_dev = self.model_to_device(P3[0], P3[1], pixels_per_inch)
+            P4_dev = self.model_to_device(P4[0], P4[1], pixels_per_inch)
+            window_poly = [P1_dev, P2_dev, P3_dev, P4_dev]
+            if self._point_in_polygon(click_pt, window_poly):
+                # print("Window selected")
+                selected_item = {"type": "window", "object": window_item}
+                break
+
 
         event = gesture.get_current_event()
         state = event.get_modifier_state() if hasattr(event, "get_modifier_state") else event.state
@@ -478,6 +560,63 @@ class CanvasEventsMixin:
                 for idx, pt in enumerate(room.points):
                     if (x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2):
                         new_selection.append({"type": "vertex", "object": (room, idx)})
+            
+            for door_item in self.doors:
+                wall, door, ratio = door_item
+                A = wall.start
+                B = wall.end
+                H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
+                dx = B[0] - A[0]
+                dy = B[1] - A[1]
+                length = math.hypot(dx, dy)
+                if length == 0:
+                    continue
+                d = (dx / length, dy / length)
+                p = (-d[1], d[0])
+                n = (-p[0], -p[1]) if door.swing == "left" else (p[0], p[1])
+                w = door.width
+                t = self.config.DEFAULT_WALL_WIDTH
+                H_start = (H[0] - (w / 2) * d[0], H[1] - (w / 2) * d[1])
+                H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
+                P1 = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])
+                P2 = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])
+                P3 = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])
+                P4 = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])
+                # Compute bounding box for the door polygon.
+                door_min_x = min(P1[0], P2[0], P3[0], P4[0])
+                door_max_x = max(P1[0], P2[0], P3[0], P4[0])
+                door_min_y = min(P1[1], P2[1], P3[1], P4[1])
+                door_max_y = max(P1[1], P2[1], P3[1], P4[1])
+                # If the door bounding box overlaps with the selection rectangle, add it.
+                if door_max_x >= x1 and door_min_x <= x2 and door_max_y >= y1 and door_min_y <= y2:
+                    new_selection.append({"type": "door", "object": door_item})
+
+            for window_item in self.windows:
+                wall, window, ratio = window_item
+                A = wall.start
+                B = wall.end
+                H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
+                dx = B[0] - A[0]
+                dy = B[1] - A[1]
+                length = math.hypot(dx, dy)
+                if length == 0:
+                    continue
+                d = (dx / length, dy / length)
+                p = (-d[1], d[0])
+                w = window.width
+                t = self.config.DEFAULT_WALL_WIDTH
+                H_start = (H[0] - (w / 2) * d[0], H[1] - (w / 2) * d[1])
+                H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
+                P1 = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])
+                P2 = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])
+                P3 = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])
+                P4 = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])
+                window_min_x = min(P1[0], P2[0], P3[0], P4[0])
+                window_max_x = max(P1[0], P2[0], P3[0], P4[0])
+                window_min_y = min(P1[1], P2[1], P3[1], P4[1])
+                window_max_y = max(P1[1], P2[1], P3[1], P4[1])
+                if window_max_x >= x1 and window_min_x <= x2 and window_max_y >= y1 and window_min_y <= y2:
+                    new_selection.append({"type": "window", "object": window_item})
             
             if hasattr(self, "box_select_extend") and self.box_select_extend:
                 for item in new_selection:
@@ -672,3 +811,11 @@ class CanvasEventsMixin:
                         break
                 self.snap_type = "none"
             self.queue_draw()
+
+    def change_door_type(self, selected_doors):
+        print("Change door type for:", selected_doors)
+        # TODO Open a dialog here to let the user select a new door type or make it a combo box.
+        
+    def change_window_type(self, selected_windows):
+        print("Change window type for:", selected_windows)
+        # TODO Open a dialog to choose a new window type or make it a combo box.
