@@ -56,4 +56,4 @@ class Window:
     def __init__(self, width: float, height: float, window_type: str):
         self.width = width  # Window width in inches
         self.height = height  # Window height in inches
-        self.window_type = window_type # Type of window (e.g., "single-hung", "double-hung", "sliding", "fixed")
+        self.window_type = window_type # Type of window (e.g.,"double-hung", "sliding", "fixed")

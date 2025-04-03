@@ -106,33 +106,17 @@ class CanvasEventsMixin:
 
     
     def _handle_pointer_right_click(self, gesture, n_press, x, y):
-        """
-        Handle right-click events in pointer mode by displaying a context menu
-        (using a Gtk.Popover) when two or more wall segments are selected.
-        
-        This context menu currently has a single entry ("Join Walls") that calls
-        join_selected_walls() when activated.
-        
-        Parameters:
-            gesture (Gtk.GestureClick): The gesture that triggered the right-click.
-            n_press (int): The number of clicks.
-            x (float): The x-coordinate of the click (in widget coordinates).
-            y (float): The y-coordinate of the click (in widget coordinates).
-        
-        Returns:
-            None
-        """
-        # Filter selected items.
+        # Filter selected items
         selected_walls = [item for item in self.selected_items if item.get("type") == "wall"]
         selected_doors = [item for item in self.selected_items if item.get("type") == "door"]
         selected_windows = [item for item in self.selected_items if item.get("type") == "window"]
 
-        # Create a popover to serve as the context menu.
-        popover = Gtk.Popover()
+        # Create a popover to serve as the context menu
+        parent_popover = Gtk.Popover()  # Renamed for clarity
         
-        # Create a vertical box to hold the menu item(s).
+        # Create a vertical box to hold the menu item(s)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        popover.set_child(box)
+        parent_popover.set_child(box)
         
         # Decide whether or not to create "Set as Exterior" or "Set as Interior" buttons
         use_ext_button = False
@@ -143,56 +127,56 @@ class CanvasEventsMixin:
             elif wall["object"].exterior_wall == True and use_int_button == False:
                 use_int_button = True
         
-        def set_ext_int(selected_walls, state):
+        def set_ext_int(selected_walls, state, popover):
             for wall in selected_walls:
                 wall["object"].exterior_wall = state
+            self.queue_draw()
+            popover.popdown()
         
         if use_ext_button:
             ext_button = Gtk.Button(label="Set as Exterior")
-            ext_button.connect("clicked", lambda btn: set_ext_int(selected_walls, True))
+            ext_button.connect("clicked", lambda btn: set_ext_int(selected_walls, True, parent_popover))
             box.append(ext_button)
         
         if use_int_button:
             int_button = Gtk.Button(label="Set as Interior")
-            int_button.connect("clicked", lambda btn: set_ext_int(selected_walls, False))
+            int_button.connect("clicked", lambda btn: set_ext_int(selected_walls, False, parent_popover))
             box.append(int_button)
-            
-        # Create a button labeled "Join Walls".
+        
+        # Create a button labeled "Join Walls"
         if len(selected_walls) >= 2:
-            # Only show the button if there are at least two selected walls.
-            # This button will call the join_selected_walls() method when clicked.
-            # The lambda function captures the current state of selected_walls.
             join_button = Gtk.Button(label="Join Walls")
-            join_button.connect("clicked", lambda btn: self.join_selected_walls())
+            join_button.connect("clicked", lambda btn: self.join_selected_walls(parent_popover))
             box.append(join_button)
         
-        # Door-specific option.
+        # Door-specific option
         if selected_doors:
             door_button = Gtk.Button(label="Change Door Type")
-            door_button.connect("clicked", lambda btn: self.change_door_type(selected_doors))
+            # Pass both the button and the parent_popover to the submenu method
+            door_button.connect("clicked", lambda btn: self.show_change_door_type_submenu(btn, selected_doors, parent_popover))
             box.append(door_button)
         
-        # Window-specific option.
+        # Window-specific option
         if selected_windows:
             window_button = Gtk.Button(label="Change Window Type")
-            window_button.connect("clicked", lambda btn: self.change_window_type(selected_windows))
+            window_button.connect("clicked", lambda btn: self.show_change_window_type_submenu(btn, selected_windows, parent_popover))
             box.append(window_button)
         
-        # Position the popover at the click location.
+        # Position the popover at the click location
         rect = Gdk.Rectangle()
         rect.x = int(x)
         rect.y = int(y)
         rect.width = 1
         rect.height = 1
-        popover.set_pointing_to(rect)
+        parent_popover.set_pointing_to(rect)
         
-        # Set the popover's parent to the canvas (self).
-        popover.set_parent(self)
+        # Set the popover's parent to the canvas (self)
+        parent_popover.set_parent(self)
         
-        # Show the popover.
-        popover.show()
+        # Show the popover
+        parent_popover.popup()
     
-    def join_selected_walls(self) -> None:
+    def join_selected_walls(self, popover) -> None:
         """
         Join selected wall segments or wall sets into a single continuous wall set.
 
@@ -301,6 +285,7 @@ class CanvasEventsMixin:
         # Clear selection and request a redraw.
         self.selected_items = []
         self.queue_draw()
+        popover.popdown()
             
     def on_click_pressed(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
         self.click_start = (x, y)
@@ -812,10 +797,88 @@ class CanvasEventsMixin:
                 self.snap_type = "none"
             self.queue_draw()
 
-    def change_door_type(self, selected_doors):
-        print("Change door type for:", selected_doors)
-        # TODO Open a dialog here to let the user select a new door type or make it a combo box.
+    def show_change_door_type_submenu(self, widget, selected_doors, parent_popover):
+        # Create a popover to serve as the sub-menu
+        popover = Gtk.Popover()
         
-    def change_window_type(self, selected_windows):
-        print("Change window type for:", selected_windows)
-        # TODO Open a dialog to choose a new window type or make it a combo box.
+        # Create a vertical box to hold the menu items
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        popover.set_child(box)
+        
+        # Add a button for each door type
+        door_types = ["single", "double", "sliding", "pocket", "bi-fold", "double bi-fold", "garage"]
+        for dt in door_types:
+            btn = Gtk.Button(label=dt)
+            btn.connect("clicked", lambda btn, dt=dt: self.on_change_door_type_selected(dt, selected_doors, popover, parent_popover))
+            box.append(btn)
+        
+        # Set the popover's parent to the "Change Door Type" button (widget)
+        popover.set_parent(widget)
+        
+        # Position the popover relative to the button
+        allocation = widget.get_allocation()
+        rect = Gdk.Rectangle()
+        rect.x = allocation.width  # Relative to the button’s left edge
+        rect.y = allocation.height  # Below the button
+        rect.width = 1
+        rect.height = 1
+        
+        popover.set_pointing_to(rect)
+        
+        # Show the popover
+        popover.popup()
+
+    def on_change_door_type_selected(self, new_type, selected_doors, popover, parent_popover):
+        for door_item in selected_doors:
+            wall, door, ratio = door_item["object"]
+            door.door_type = new_type
+        self.queue_draw()
+        popover.popdown()  # Hide the sub-menu popover
+        parent_popover.popdown()  # Hide the parent right-click popover
+        
+    def show_change_window_type_submenu(self, widget, selected_windows, parent_popover):
+        # Create a popover to serve as the sub-menu
+        popover = Gtk.Popover()
+        
+        # Create a vertical box to hold the menu items
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        popover.set_child(box)
+        
+        # Add a button for each door type
+        window_types = ["sliding", "fixed", "double-hung"]
+        for dt in window_types:
+            btn = Gtk.Button(label=dt)
+            btn.connect("clicked", lambda btn, dt=dt: self.on_change_window_type_selected(dt, selected_windows, popover, parent_popover))
+            box.append(btn)
+        
+        # Set the popover's parent to the "Change Door Type" button (widget)
+        popover.set_parent(widget)
+        
+        # Position the popover relative to the button
+        allocation = widget.get_allocation()
+        rect = Gdk.Rectangle()
+        rect.x = allocation.width  # Relative to the button’s left edge
+        rect.y = allocation.height  # Below the button
+        rect.width = 1
+        rect.height = 1
+        
+        popover.set_pointing_to(rect)
+        
+        # Show the popover
+        popover.popup()
+    
+    def on_change_window_type_selected(self, new_type, selected_windows, popover, parent_popover):
+        for window_item in selected_windows:
+            wall, window, ratio = window_item["object"]
+            window.window_type = new_type
+        self.queue_draw()
+        popover.popdown()  # Hide the sub-menu popover
+        parent_popover.popdown()  # Hide the parent right-click popover
