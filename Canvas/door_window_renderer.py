@@ -9,7 +9,7 @@ def draw_doors(self, cr, pixels_per_inch):
         wall, door, ratio = door_item
         A = wall.start
         B = wall.end
-        H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
+        H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1])) # Center of door opening
         
         # Wall direction and perpendicular
         dx = B[0] - A[0]
@@ -18,7 +18,7 @@ def draw_doors(self, cr, pixels_per_inch):
         if length == 0:
             continue
         d = (dx / length, dy / length)
-        p = (-d[1], d[0])
+        p = (-d[1], d[0]) # Perpendicular vector to wall direction
         
         # Leaf direction based on swing
         if door.swing == "left":
@@ -327,65 +327,65 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.stroke()
     
         if door.door_type == "bi-fold":
-            # Each panel is half the total width
-            w_half = w / 2  
-
-            # Compute hinge points (left and right)
-            hinge_start = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])
-            hinge_end   = (H_end[0]   + (t / 2) * n[0], H_end[1]   + (t / 2) * n[1])
-
-            # Determine swing normal based on door.orientation
-            # (This is used only to position the door opening center.)
             if door.orientation == "outswing":
-                swing_normal = n
-            else:  # inswing
-                swing_normal = (-n[0], -n[1])
+                current_normal = p
+                offset_vector = (p[0], p[1])
+            else:  # "inswing"
+                current_normal = (-p[0], -p[1])
+                offset_vector = (current_normal[0], current_normal[1])
 
-            # Calculate center of door opening (used as the 180° pivot for inswing)
-            center = ( (H_start[0] + H_end[0]) / 2 + (t / 2) * swing_normal[0],
-                    (H_start[1] + H_end[1]) / 2 + (t / 2) * swing_normal[1] )
+            if (door.orientation == "outswing" and door.swing == "left") or \
+            (door.orientation == "inswing" and door.swing == "right"):
+                hinge_base = H_start
+            else:
+                hinge_base = H_end
+            
+            if door.orientation == "outswing":
+                if door.swing == "left":
+                    hinge_wall_direction = d
+                else:  # "right"
+                    hinge_wall_direction = (-d[0], -d[1])
+            else:  # "inswing"
+                if door.swing == "left":
+                    hinge_wall_direction = (-d[0], -d[1])
+                else:  # "right"
+                    hinge_wall_direction = d
 
-            # Closed door angle (along the wall)
-            angle_closed = math.atan2(d[1], d[0])
-            angle_60 = math.pi / 3  # 60 degrees
+            hinge = (hinge_base[0] + offset_vector[0], hinge_base[1] + offset_vector[1])
 
-            # Choose pivot based on door.swing: left leaf uses hinge_start, right leaf uses hinge_end
+            F = (hinge[0] + w * current_normal[0], hinge[1] + w * current_normal[1])
+            
+            # Each panel is half the total door width.
+            w_half = w / 2
+
+            # Compute the door center (already defined as H)
+            # and then compute the base angle from the pivot to H.
+            base_angle = math.atan2(H[1] - hinge[1], H[0] - hinge[0])
+            angle_60 = math.pi / 3  # 60° in radians
+
+            # For the door leaf panels, adjust the base angle by 60°:
+            # For a left-swing door, subtract 60°; for a right-swing door, add 60°.
             if door.swing == "left":
-                pivot = hinge_start
-                # For an outswing left door, the door rotates by -60° from closed position.
-                angle1 = angle_closed - angle_60
-                # The second panel folds by +120° from the first panel
-                angle2 = angle1 + 2 * angle_60
-            else:  # door.swing == "right"
-                pivot = hinge_end
-                # For an outswing right door, use the mirror angle:
-                angle1 = angle_closed + angle_60
-                angle2 = angle1 - 2 * angle_60
+                angle1 = base_angle - angle_60  # first panel rotates -60° from the inward direction
+                angle2 = angle1 + 2 * angle_60    # second panel folds +120° relative to the first
+            else:
+                angle1 = base_angle + angle_60  # first panel rotates +60° from the inward direction
+                angle2 = angle1 - 2 * angle_60    # second panel folds -120° relative to the first
 
-            # Compute endpoints for the panels relative to the chosen pivot
-            end1 = (pivot[0] + w_half * math.cos(angle1),
-                    pivot[1] + w_half * math.sin(angle1))
+            # Compute endpoints for the panels relative to the pivot.
+            end1 = (hinge[0] + w_half * math.cos(angle1),
+                    hinge[1] + w_half * math.sin(angle1))
             end2 = (end1[0] + w_half * math.cos(angle2),
                     end1[1] + w_half * math.sin(angle2))
 
-            # If door.orientation is "inswing", rotate the computed points 180° about the center.
-            if door.orientation == "inswing":
-                def rotate_180(point, center):
-                    # A 180° rotation about center is equivalent to mirroring:
-                    return (2 * center[0] - point[0], 2 * center[1] - point[1])
-                pivot = rotate_180(pivot, center)
-                end1 = rotate_180(end1, center)
-                end2 = rotate_180(end2, center)
-
-            # Set drawing properties
-            cr.set_source_rgb(0, 0, 0)  # Black lines
+            # Draw the door leaf.
+            cr.set_source_rgb(0, 0, 0)           # Black lines.
             cr.set_line_width(1.0 / zoom_transform)
-
-            # Draw the door panel
-            cr.move_to(*pivot)
+            cr.move_to(*hinge)
             cr.line_to(*end1)
             cr.line_to(*end2)
             cr.stroke()
+
             
         if door.door_type == "double bi-fold":
             
