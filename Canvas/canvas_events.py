@@ -65,7 +65,12 @@ class CanvasEventsMixin:
             print("No wall was found near the click for door addition.")
             return
         door_type = getattr(self.config, "DEFAULT_DOOR_TYPE", "single")
-        new_door = Door(door_type, 36.0, 80.0, "left", "inward")
+        if door_type == "garage":
+            new_door = Door(door_type, 96.0, 80.0, "left", "inswing")
+        elif door_type == "double" or door_type == "sliding":
+            new_door = Door(door_type, 72.0, 80.0, "left", "inswing")
+        else:
+            new_door = Door(door_type, 36.0, 80.0, "left", "inswing")
         self.doors.append((selected_wall, new_door, selected_ratio))
         self.queue_draw()
     
@@ -127,20 +132,14 @@ class CanvasEventsMixin:
             elif wall["object"].exterior_wall == True and use_int_button == False:
                 use_int_button = True
         
-        def set_ext_int(selected_walls, state, popover):
-            for wall in selected_walls:
-                wall["object"].exterior_wall = state
-            self.queue_draw()
-            popover.popdown()
-        
         if use_ext_button:
             ext_button = Gtk.Button(label="Set as Exterior")
-            ext_button.connect("clicked", lambda btn: set_ext_int(selected_walls, True, parent_popover))
+            ext_button.connect("clicked", lambda btn: self.set_ext_int(selected_walls, True, parent_popover))
             box.append(ext_button)
         
         if use_int_button:
             int_button = Gtk.Button(label="Set as Interior")
-            int_button.connect("clicked", lambda btn: set_ext_int(selected_walls, False, parent_popover))
+            int_button.connect("clicked", lambda btn: self.set_ext_int(selected_walls, False, parent_popover))
             box.append(int_button)
         
         # Create a button labeled "Join Walls"
@@ -149,12 +148,15 @@ class CanvasEventsMixin:
             join_button.connect("clicked", lambda btn: self.join_selected_walls(parent_popover))
             box.append(join_button)
         
-        # Door-specific option
+        # Door-specific options
         if selected_doors:
             door_button = Gtk.Button(label="Change Door Type")
-            # Pass both the button and the parent_popover to the submenu method
             door_button.connect("clicked", lambda btn: self.show_change_door_type_submenu(btn, selected_doors, parent_popover))
             box.append(door_button)
+            
+            toggle_in_out_button = Gtk.Button(label="Toggle Inward/Outward Orientation")
+            toggle_in_out_button.connect("clicked", lambda btn: self.toggle_door_orientation(selected_doors, parent_popover))
+            box.append(toggle_in_out_button)
         
         # Window-specific option
         if selected_windows:
@@ -882,3 +884,16 @@ class CanvasEventsMixin:
         self.queue_draw()
         popover.popdown()  # Hide the sub-menu popover
         parent_popover.popdown()  # Hide the parent right-click popover
+
+    def set_ext_int(self, selected_walls, state, popover):
+            for wall in selected_walls:
+                wall["object"].exterior_wall = state
+            self.queue_draw()
+            popover.popdown()
+    
+    def toggle_door_orientation(self, selected_doors, popover):
+        for door_item in selected_doors:
+            wall, door, ratio = door_item["object"]
+            door.orientation = "inswing" if door.orientation == "outswing" else "outswing"
+        self.queue_draw()
+        popover.popdown()

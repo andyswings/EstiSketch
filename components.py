@@ -44,11 +44,11 @@ class Room:
 @dataclass
 class Door:
     def __init__(self, door_type: str, width: float, height: float, swing: str, orientation: str):
-        self.door_type = door_type  # Type of door (e.g., "single", "double", "sliding", "pocket", "bi-fold", "double_bi-fold", "door_frame")
+        self.door_type = door_type  # Type of door (e.g., "single", "double", "sliding", "pocket", "bi-fold", "double_bi-fold", "door_frame", "garage")
         self.width = width  # Door width in inches
         self.height = height    # Door height in inches
         self.swing = swing  # Door swing direction (e.g., "left", "right")
-        self.orientation = orientation  # Orientation of the door (e.g., "inward", "outward")
+        self.orientation = orientation  # Orientation of the door (e.g., "inswing", "outswing")
 
 
 @dataclass

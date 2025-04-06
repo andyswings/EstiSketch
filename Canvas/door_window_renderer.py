@@ -51,11 +51,17 @@ def draw_doors(self, cr, pixels_per_inch):
             # Hinge position
             if door.swing == "left":
                 hinge = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Bottom-left corner
-            else:
+            else:  # "right"
                 hinge = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])     # Top-right corner
             
+            # Determine swing direction based on orientation
+            if door.orientation == "outswing":
+                swing_normal = n
+            else:  # "inswing"
+                swing_normal = (-n[0], -n[1])
+            
             # Draw leaf in open position
-            F = (hinge[0] + w * n[0], hinge[1] + w * n[1])
+            F = (hinge[0] + w * swing_normal[0], hinge[1] + w * swing_normal[1])
             cr.set_source_rgb(0, 0, 0)
             cr.set_line_width(1.0 / zoom_transform)
             cr.move_to(*hinge)
@@ -63,31 +69,51 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.stroke()
             
             # Draw swing arc from closed to open
-            angle_closed = math.atan2(d[1], d[0])  # Along wall
-            angle_open = math.atan2(n[1], n[0])    # Along leaf
-            if door.swing == "left":
-                cr.arc_negative(hinge[0], hinge[1], w, angle_closed, angle_open)
-            else:
-                cr.arc(hinge[0], hinge[1], w, angle_closed, angle_open)
+            angle_closed = math.atan2(d[1], d[0])  # Along wall direction
+            
+            # Reset the path to avoid connecting lines from leaf to arc
+            cr.new_path()
+            
             cr.set_dash([4.0 / zoom_transform, 4.0 / zoom_transform])
+            if door.swing == "left":
+                if door.orientation == "outswing":
+                    # 90 degrees counter-clockwise from closed to open (toward n)
+                    angle_open = angle_closed - math.pi / 2
+                    cr.arc_negative(hinge[0], hinge[1], w, angle_closed, angle_open)
+                else:  # "outward"
+                    # 90 degrees clockwise from closed to open (toward -n)
+                    angle_open = angle_closed + math.pi / 2
+                    cr.arc(hinge[0], hinge[1], w, angle_closed, angle_open)
+            else:  # "right"
+                if door.orientation == "outswing":
+                    # 90 degrees clockwise from closed to open (toward n)
+                    angle_open = angle_closed - math.pi / 2
+                    cr.arc(hinge[0], hinge[1], w, angle_closed, angle_open)
+                else:  # "outward"
+                    # 90 degrees counter-clockwise from closed to open (toward -n)
+                    angle_open = angle_closed + math.pi / 2
+                    cr.arc_negative(hinge[0], hinge[1], w, angle_closed, angle_open)
+            
             cr.stroke()
-            cr.set_dash([])
+            cr.set_dash([])  # Reset dash pattern
         
         if door.door_type == "double":
             # Hinge positions for double doors
-            hinge1 = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])
-            hinge2 = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])
+            hinge1 = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Left hinge
+            hinge2 = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])      # Right hinge
             
             # Calculate open leaf positions (90-degree swing from wall)
             w_half = w / 2  # Half width for each leaf
-            if door.swing == "left":
-                # Both leaves swing toward the normal (outward)
-                F1 = (hinge1[0] + w_half * n[0], hinge1[1] + w_half * n[1])  # Left leaf
-                F2 = (hinge2[0] + w_half * n[0], hinge2[1] + w_half * n[1])  # Right leaf
-            else:
-                # Both leaves swing opposite the normal (inward)
-                F1 = (hinge1[0] - w_half * n[0], hinge1[1] - w_half * n[1])  # Left leaf
-                F2 = (hinge2[0] - w_half * n[0], hinge2[1] - w_half * n[1])  # Right leaf
+            
+            # Determine swing direction based on orientation
+            if door.orientation == "outswing":
+                swing_normal = n 
+            else:  # "inswing"
+                swing_normal = (-n[0], -n[1])
+            
+            # Leaf positions based on swing direction
+            F1 = (hinge1[0] + w_half * swing_normal[0], hinge1[1] + w_half * swing_normal[1])  # Left leaf
+            F2 = (hinge2[0] + w_half * swing_normal[0], hinge2[1] + w_half * swing_normal[1])  # Right leaf
             
             # Draw door leaves
             cr.set_source_rgb(0, 0, 0)
@@ -100,31 +126,54 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.stroke()
             
             # Draw swing arcs for both leaves
-            angle_closed = math.atan2(d[1], d[0])  # Along wall
+            angle_closed = math.atan2(d[1], d[0])  # Along wall direction
+            
+            # Reset the path to avoid connecting lines from leaves to arcs
+            cr.new_path()
+            
+            cr.set_dash([4.0 / zoom_transform, 4.0 / zoom_transform])
             if door.swing == "left":
-                # Both leaves swing toward normal (counter-clockwise from wall)
-                angle_open = angle_closed - math.pi/2  # 90 degrees counter-clockwise
-                # Draw left leaf arc (from closed to open)
-                cr.move_to(*hinge1)
-                cr.arc_negative(hinge1[0], hinge1[1], w_half, angle_closed, angle_open)
-                cr.set_dash([4.0 / zoom_transform, 4.0 / zoom_transform])
-                cr.stroke()
-                # Draw right leaf arc (from closed on opposite side to open)
-                cr.move_to(*hinge2)
-                cr.arc(hinge2[0], hinge2[1], w_half, angle_closed + math.pi, angle_open)
-                cr.stroke()
-            else:
-                # Both leaves swing opposite normal (clockwise from wall)
-                angle_open = angle_closed + math.pi/2  # 90 degrees clockwise
-                # Draw left leaf arc (from closed to open)
-                cr.move_to(*hinge1)
-                cr.arc(hinge1[0], hinge1[1], w_half, angle_closed, angle_open)
-                cr.set_dash([4.0 / zoom_transform, 4.0 / zoom_transform])
-                cr.stroke()
-                # Draw right leaf arc (from closed on opposite side to open)
-                cr.move_to(*hinge2)
-                cr.arc_negative(hinge2[0], hinge2[1], w_half, angle_closed + math.pi, angle_open)
-                cr.stroke()
+                if door.orientation == "outswing":
+                    # Left leaf: 90 degrees counter-clockwise from closed to open (toward n)
+                    angle_open_left = angle_closed - math.pi / 2
+                    cr.arc_negative(hinge1[0], hinge1[1], w_half, angle_closed, angle_open_left)
+                    cr.stroke()
+                    # Right leaf: 90 degrees clockwise from opposite side to open (toward n)
+                    angle_open_right = angle_closed - math.pi / 2
+                    cr.new_path()  # Reset path to avoid connecting arcs
+                    cr.arc(hinge2[0], hinge2[1], w_half, angle_closed + math.pi, angle_open_right)
+                    cr.stroke()
+                else:  # "outswing"
+                    # Left leaf: 90 degrees clockwise from closed to open (toward -n)
+                    angle_open_left = angle_closed + math.pi / 2
+                    cr.arc(hinge1[0], hinge1[1], w_half, angle_closed, angle_open_left)
+                    cr.stroke()
+                    # Right leaf: 90 degrees counter-clockwise from opposite side to open (toward -n)
+                    angle_open_right = angle_closed + math.pi / 2
+                    cr.new_path()
+                    cr.arc_negative(hinge2[0], hinge2[1], w_half, angle_closed + math.pi, angle_open_right)
+                    cr.stroke()
+            else:  # "right"
+                if door.orientation == "outswing":
+                    # Left leaf: 90 degrees counter-clockwise from opposite side to open (toward n)
+                    angle_open_left = angle_closed - math.pi / 2
+                    cr.arc_negative(hinge1[0], hinge1[1], w_half, angle_closed + math.pi, angle_open_left)
+                    cr.stroke()
+                    # Right leaf: 90 degrees clockwise from closed to open (toward n)
+                    angle_open_right = angle_closed - math.pi / 2
+                    cr.new_path()
+                    cr.arc(hinge2[0], hinge2[1], w_half, angle_closed, angle_open_right)
+                    cr.stroke()
+                else:  # "outswing"
+                    # Left leaf: 90 degrees clockwise from opposite side to open (toward -n)
+                    angle_open_left = angle_closed + math.pi / 2
+                    cr.arc(hinge1[0], hinge1[1], w_half, angle_closed + math.pi, angle_open_left)
+                    cr.stroke()
+                    # Right leaf: 90 degrees counter-clockwise from closed to open (toward -n)
+                    angle_open_right = angle_closed + math.pi / 2
+                    cr.new_path()
+                    cr.arc_negative(hinge2[0], hinge2[1], w_half, angle_closed, angle_open_right)
+                    cr.stroke()
             
             cr.set_dash([])  # Reset dash pattern
         
@@ -285,83 +334,111 @@ def draw_doors(self, cr, pixels_per_inch):
     
         if door.door_type == "bi-fold":
             # Draw bi-fold door panels
-            w_half = w / 2  # Each leaf is half the total width
+            w_half = w / 2  # Each panel is half the total width
             
             # Hinge points
             hinge_start = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Left hinge
             hinge_end = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])      # Right hinge
             
-            # Calculate center of door opening
-            center_x = (H_start[0] + H_end[0]) / 2 + (t / 2) * n[0]
-            center_y = (H_start[1] + H_end[1]) / 2 + (t / 2) * n[1]
+            # Determine swing direction based on orientation
+            if door.orientation == "outswing":
+                swing_normal = n  # Fold toward the normal (inside)
+            else:  # "inswing"
+                swing_normal = (-n[0], -n[1])  # Fold toward the negative normal (outside)
+            
+            # Calculate center of door opening, adjusted for orientation
+            center_x = (H_start[0] + H_end[0]) / 2 + (t / 2) * swing_normal[0]
+            center_y = (H_start[1] + H_end[1]) / 2 + (t / 2) * swing_normal[1]
             
             # Angles for 60-degree folds (converted to radians)
             angle_60 = math.pi / 3  # 60 degrees
+            angle_closed = math.atan2(d[1], d[0])  # Along wall direction
             
-            # Left leaf: from hinge_start at 60 degrees toward center
-            angle_closed = math.atan2(d[1], d[0])  # Along wall
-            angle_left1 = angle_closed - angle_60  # 60 degrees counter-clockwise from wall
+            # Set drawing properties
+            cr.set_source_rgb(0, 0, 0)  # Black lines
+            cr.set_line_width(1.0 / zoom_transform)
+            
+            # First panel: 60 degrees from wall direction
+            if door.orientation == "outswing":
+                angle_left1 = angle_closed - angle_60  # 60° counter-clockwise (toward n)
+            else:  # "inswing"
+                angle_left1 = angle_closed + angle_60  # 60° clockwise (toward -n)
             left1_end = (hinge_start[0] + w_half * math.cos(angle_left1),
                         hinge_start[1] + w_half * math.sin(angle_left1))
             
-            # Left leaf second segment: from left1_end at 60 degrees back toward center
-            direction_to_center = angle_closed + math.pi + angle_60
-            angle_left2 = direction_to_center + angle_60 * 3  
+            # Second panel: 120 degrees from first panel direction (60° back from 60°)
+            if door.orientation == "outswing":
+                angle_left2 = angle_left1 + 2 * angle_60  # 120° clockwise from first panel
+            else:  # "inswing"
+                angle_left2 = angle_left1 - 2 * angle_60  # 120° counter-clockwise from first panel
             left2_end = (left1_end[0] + w_half * math.cos(angle_left2),
                         left1_end[1] + w_half * math.sin(angle_left2))
             
             # Draw folded panels
-            cr.set_source_rgb(0, 0, 0)  # Black lines
-            cr.set_line_width(1.0 / zoom_transform)
-            
-            # Left leaf: hinge_start -> left1_end -> left2_end
             cr.move_to(*hinge_start)
             cr.line_to(*left1_end)
             cr.line_to(*left2_end)
             cr.stroke()
         
         if door.door_type == "double bi-fold":
-            # Draw bi-fold door panels
-            w_quarter = w / 4  # Each leaf is a quarter the total width
+            # Draw double bi-fold door panels
+            w_quarter = w / 4  # Each panel is a quarter of the total width
             
             # Hinge points
             hinge_start = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Left hinge
             hinge_end = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])      # Right hinge
             
-            # Calculate center of door opening
-            center_x = (H_start[0] + H_end[0]) / 2 + (t / 2) * n[0]
-            center_y = (H_start[1] + H_end[1]) / 2 + (t / 2) * n[1]
+            # Determine swing direction based on orientation
+            if door.orientation == "outswing":
+                swing_normal = n  # Fold toward the normal (inside)
+            else:  # "outward"
+                swing_normal = (-n[0], -n[1])  # Fold toward the negative normal (outside)
+            
+            # Calculate center of door opening, adjusted for orientation
+            center_x = (H_start[0] + H_end[0]) / 2 + (t / 2) * swing_normal[0]
+            center_y = (H_start[1] + H_end[1]) / 2 + (t / 2) * swing_normal[1]
             
             # Angles for 60-degree folds (converted to radians)
             angle_60 = math.pi / 3  # 60 degrees
+            angle_closed = math.atan2(d[1], d[0])  # Along wall direction
             
-            # Left leaf: from hinge_start at 60 degrees toward center
-            angle_closed = math.atan2(d[1], d[0])  # Along wall
-            angle_left1 = angle_closed - angle_60  # 60 degrees counter-clockwise from wall
+            # Set drawing properties
+            cr.set_source_rgb(0, 0, 0)  # Black lines
+            cr.set_line_width(1.0 / zoom_transform)
+            
+            # Left side: First panel (60° from wall)
+            if door.orientation == "outswing":
+                angle_left1 = angle_closed - angle_60  # 60° counter-clockwise (toward n)
+            else:  # "outward"
+                angle_left1 = angle_closed + angle_60  # 60° clockwise (toward -n)
             left1_end = (hinge_start[0] + w_quarter * math.cos(angle_left1),
                         hinge_start[1] + w_quarter * math.sin(angle_left1))
             
-            # Left leaf second segment: from left1_end at 60 degrees back toward center
-            direction_to_center = angle_closed + math.pi + angle_60
-            angle_left2 = direction_to_center + angle_60 * 3  
+            # Left side: Second panel (120° from first panel direction)
+            if door.orientation == "outswing":
+                angle_left2 = angle_left1 + 2 * angle_60  # 120° clockwise from first panel
+            else:  # "outward"
+                angle_left2 = angle_left1 - 2 * angle_60  # 120° counter-clockwise from first panel
             left2_end = (left1_end[0] + w_quarter * math.cos(angle_left2),
                         left1_end[1] + w_quarter * math.sin(angle_left2))
             
-            # Right leaf: from hinge_end at 60 degrees toward center
-            angle_right1 = angle_closed + math.pi + angle_60  # 60 degrees clockwise from opposite wall
+            # Right side: First panel (60° from opposite wall direction)
+            if door.orientation == "outswing":
+                angle_right1 = angle_closed + math.pi + angle_60  # 60° clockwise from opposite wall (toward n)
+            else:  # "outward"
+                angle_right1 = angle_closed + math.pi - angle_60  # 60° counter-clockwise from opposite wall (toward -n)
             right1_end = (hinge_end[0] + w_quarter * math.cos(angle_right1),
                         hinge_end[1] + w_quarter * math.sin(angle_right1))
             
-            # Right leaf second segment: from right1_end at 60 degrees back toward center
-            direction_to_center = math.atan2(center_y - right1_end[1], center_x + right1_end[0])
-            angle_right2 = direction_to_center - angle_60 * 4 # 60 degrees counter-clockwise from center direction
+            # Right side: Second panel (120° from first panel direction)
+            if door.orientation == "outswing":
+                angle_right2 = angle_right1 - 2 * angle_60  # 120° counter-clockwise from first panel
+            else:  # "outward"
+                angle_right2 = angle_right1 + 2 * angle_60  # 120° clockwise from first panel
             right2_end = (right1_end[0] + w_quarter * math.cos(angle_right2),
                         right1_end[1] + w_quarter * math.sin(angle_right2))
             
             # Draw folded panels
-            cr.set_source_rgb(0, 0, 0)  # Black lines
-            cr.set_line_width(1.0 / zoom_transform)
-            
             # Left leaf: hinge_start -> left1_end -> left2_end
             cr.move_to(*hinge_start)
             cr.line_to(*left1_end)
