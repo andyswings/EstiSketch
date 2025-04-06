@@ -154,9 +154,19 @@ class CanvasEventsMixin:
             door_button.connect("clicked", lambda btn: self.show_change_door_type_submenu(btn, selected_doors, parent_popover))
             box.append(door_button)
             
-            toggle_in_out_button = Gtk.Button(label="Toggle Inswing/Outswing Orientation")
-            toggle_in_out_button.connect("clicked", lambda btn: self.toggle_door_orientation(selected_doors, parent_popover))
-            box.append(toggle_in_out_button)
+            if len(selected_doors) == 1:
+                if selected_doors[0]["object"][1].orientation == "inswing":
+                    orientation_button = Gtk.Button(label="Change to Outswing")
+                    orientation_button.connect("clicked", lambda btn: self.toggle_door_orientation(selected_doors, parent_popover, outswing=True))
+                    box.append(orientation_button)
+                else:
+                    orientation_button = Gtk.Button(label="Change to Inswing")
+                    orientation_button.connect("clicked", lambda btn: self.toggle_door_orientation(selected_doors, parent_popover, inswing=True))
+                    box.append(orientation_button)
+            # else:
+            #     toggle_in_out_button = Gtk.Button(label="Toggle Inswing/Outswing Orientation")
+            #     toggle_in_out_button.connect("clicked", lambda btn: self.toggle_door_orientation(selected_doors, parent_popover))
+            #     box.append(toggle_in_out_button)
             
             toggle_swing_button = Gtk.Button(label="Toggle Swing Direction")
             toggle_swing_button.connect("clicked", lambda btn: self.toggle_door_swing(selected_doors, parent_popover))
@@ -895,10 +905,15 @@ class CanvasEventsMixin:
             self.queue_draw()
             popover.popdown()
     
-    def toggle_door_orientation(self, selected_doors, popover):
+    def toggle_door_orientation(self, selected_doors, popover, inswing=False, outswing=False):
         for door_item in selected_doors:
             wall, door, ratio = door_item["object"]
-            door.orientation = "inswing" if door.orientation == "outswing" else "outswing"
+            if inswing == True:
+                door.orientation = "inswing"
+            elif outswing == True:
+                door.orientation = "outswing"
+            else:
+                door.orientation = "inswing" if door.orientation == "outswing" else "outswing"
         self.queue_draw()
         popover.popdown()
     
