@@ -132,48 +132,27 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.new_path()
             
             cr.set_dash([4.0 / zoom_transform, 4.0 / zoom_transform])
-            if door.swing == "left":
-                if door.orientation == "outswing":
-                    # Left leaf: 90 degrees counter-clockwise from closed to open (toward n)
-                    angle_open_left = angle_closed - math.pi / 2
-                    cr.arc_negative(hinge1[0], hinge1[1], w_half, angle_closed, angle_open_left)
-                    cr.stroke()
-                    # Right leaf: 90 degrees clockwise from opposite side to open (toward n)
-                    angle_open_right = angle_closed - math.pi / 2
-                    cr.new_path()  # Reset path to avoid connecting arcs
-                    cr.arc(hinge2[0], hinge2[1], w_half, angle_closed + math.pi, angle_open_right)
-                    cr.stroke()
-                else:  # "outswing"
-                    # Left leaf: 90 degrees clockwise from closed to open (toward -n)
-                    angle_open_left = angle_closed + math.pi / 2
-                    cr.arc(hinge1[0], hinge1[1], w_half, angle_closed, angle_open_left)
-                    cr.stroke()
-                    # Right leaf: 90 degrees counter-clockwise from opposite side to open (toward -n)
-                    angle_open_right = angle_closed + math.pi / 2
-                    cr.new_path()
-                    cr.arc_negative(hinge2[0], hinge2[1], w_half, angle_closed + math.pi, angle_open_right)
-                    cr.stroke()
-            else:  # "right"
-                if door.orientation == "outswing":
-                    # Left leaf: 90 degrees counter-clockwise from opposite side to open (toward n)
-                    angle_open_left = angle_closed - math.pi / 2
-                    cr.arc_negative(hinge1[0], hinge1[1], w_half, angle_closed + math.pi, angle_open_left)
-                    cr.stroke()
-                    # Right leaf: 90 degrees clockwise from closed to open (toward n)
-                    angle_open_right = angle_closed - math.pi / 2
-                    cr.new_path()
-                    cr.arc(hinge2[0], hinge2[1], w_half, angle_closed, angle_open_right)
-                    cr.stroke()
-                else:  # "outswing"
-                    # Left leaf: 90 degrees clockwise from opposite side to open (toward -n)
-                    angle_open_left = angle_closed + math.pi / 2
-                    cr.arc(hinge1[0], hinge1[1], w_half, angle_closed + math.pi, angle_open_left)
-                    cr.stroke()
-                    # Right leaf: 90 degrees counter-clockwise from closed to open (toward -n)
-                    angle_open_right = angle_closed + math.pi / 2
-                    cr.new_path()
-                    cr.arc_negative(hinge2[0], hinge2[1], w_half, angle_closed, angle_open_right)
-                    cr.stroke()
+            
+            if door.orientation == "outswing":
+                # Left leaf: 90 degrees counter-clockwise from closed to open (toward n)
+                angle_open_left = angle_closed - math.pi / 2
+                cr.arc_negative(hinge1[0], hinge1[1], w_half, angle_closed, angle_open_left)
+                cr.stroke()
+                # Right leaf: 90 degrees clockwise from opposite side to open (toward n)
+                angle_open_right = angle_closed - math.pi / 2
+                cr.new_path()  # Reset path to avoid connecting arcs
+                cr.arc(hinge2[0], hinge2[1], w_half, angle_closed + math.pi, angle_open_right)
+                cr.stroke()
+            else:  # "outswing"
+                # Left leaf: 90 degrees clockwise from closed to open (toward -n)
+                angle_open_left = angle_closed + math.pi / 2
+                cr.arc(hinge1[0], hinge1[1], w_half, angle_closed, angle_open_left)
+                cr.stroke()
+                # Right leaf: 90 degrees counter-clockwise from opposite side to open (toward -n)
+                angle_open_right = angle_closed + math.pi / 2
+                cr.new_path()
+                cr.arc_negative(hinge2[0], hinge2[1], w_half, angle_closed + math.pi, angle_open_right)
+                cr.stroke()
             
             cr.set_dash([])  # Reset dash pattern
         
