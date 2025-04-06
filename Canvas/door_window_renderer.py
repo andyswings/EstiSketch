@@ -46,56 +46,82 @@ def draw_doors(self, cr, pixels_per_inch):
         cr.line_to(*P4)
         cr.close_path()
         cr.fill()
-        
+
         if door.door_type == "single":
-            # Hinge position
-            if door.swing == "left":
-                hinge = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Bottom-left corner
-            else:  # "right"
-                hinge = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])     # Top-right corner
-            
-            # Determine swing direction based on orientation
+
+            # 1. Determine current normal and offset vector based ONLY on orientation
+            #    This controls which side of the wall the door is drawn on.
             if door.orientation == "outswing":
-                swing_normal = n
+                current_normal = p
+                offset_vector = (t / 2 * p[0], t / 2 * p[1])
             else:  # "inswing"
-                swing_normal = (-n[0], -n[1])
+                current_normal = (-p[0], -p[1])
+                offset_vector = (t / 2 * current_normal[0], t / 2 * current_normal[1])
+
+            # 2. Determine base hinge point along wall centerline (depends on BOTH swing AND orientation)
+            #    This achieves the 180-degree rotation effect along the wall axis.
+            #    Case 1: Outswing-Left or Inswing-Right -> Hinge base near H_start
+            if (door.orientation == "outswing" and door.swing == "left") or \
+            (door.orientation == "inswing" and door.swing == "right"):
+                hinge_base = H_start
+            # Case 2: Outswing-Right or Inswing-Left -> Hinge base near H_end
+            else:
+                hinge_base = H_end
             
-            # Draw leaf in open position
-            F = (hinge[0] + w * swing_normal[0], hinge[1] + w * swing_normal[1])
-            cr.set_source_rgb(0, 0, 0)
+            # Determine the direction of the wall relative to the physical hinge side.
+            # Adjust hinge_wall_direction based on both swing and orientation.
+            if door.orientation == "outswing":
+                if door.swing == "left":
+                    hinge_wall_direction = d
+                else:  # "right"
+                    hinge_wall_direction = (-d[0], -d[1])
+            else:  # "outswing"
+                if door.swing == "left":
+                    hinge_wall_direction = (-d[0], -d[1])
+                else:  # "right"
+                    hinge_wall_direction = d
+
+            # 3. Calculate final hinge position by applying the orientation offset
+            hinge = (hinge_base[0] + offset_vector[0], hinge_base[1] + offset_vector[1])
+
+            # 4. Calculate open leaf end point ('w' distance away in 'current_normal' direction)
+            F = (hinge[0] + w * current_normal[0], hinge[1] + w * current_normal[1])
+
+            # 5. Draw the door leaf line
+            cr.set_source_rgb(0, 0, 0) # Black color
             cr.set_line_width(1.0 / zoom_transform)
             cr.move_to(*hinge)
             cr.line_to(*F)
             cr.stroke()
-            
-            # Draw swing arc from closed to open
-            angle_closed = math.atan2(d[1], d[0])  # Along wall direction
-            
-            # Reset the path to avoid connecting lines from leaf to arc
+
+            # 6. Draw the swing arc
+            #    Calculate the angle of the "closed" door (based on hinge_wall_direction)
+            angle_closed = math.atan2(hinge_wall_direction[1], hinge_wall_direction[0])
+            #    Calculate the angle towards which the door opens (based on current_normal)
+            angle_open_direction = math.atan2(current_normal[1], current_normal[0])
+
+            #    Calculate the angle difference to determine sweep direction (CW/CCW)
+            delta_angle = angle_open_direction - angle_closed
+            #    Normalize angle difference to the range (-pi, pi]
+            while delta_angle <= -math.pi: delta_angle += 2 * math.pi
+            while delta_angle > math.pi: delta_angle -= 2 * math.pi
+
+            #    Determine the 90-degree sweep angle, preserving the sign for direction
+            sweep_angle = math.copysign(math.pi / 2.0, delta_angle)
+            angle_open = angle_closed + sweep_angle
+
+            # Set up dashed line style for the arc
             cr.new_path()
-            
             cr.set_dash([4.0 / zoom_transform, 4.0 / zoom_transform])
-            if door.swing == "left":
-                if door.orientation == "outswing":
-                    # 90 degrees counter-clockwise from closed to open (toward n)
-                    angle_open = angle_closed - math.pi / 2
-                    cr.arc_negative(hinge[0], hinge[1], w, angle_closed, angle_open)
-                else:  # "outward"
-                    # 90 degrees clockwise from closed to open (toward -n)
-                    angle_open = angle_closed + math.pi / 2
-                    cr.arc(hinge[0], hinge[1], w, angle_closed, angle_open)
-            else:  # "right"
-                if door.orientation == "outswing":
-                    # 90 degrees clockwise from closed to open (toward n)
-                    angle_open = angle_closed - math.pi / 2
-                    cr.arc(hinge[0], hinge[1], w, angle_closed, angle_open)
-                else:  # "outward"
-                    # 90 degrees counter-clockwise from closed to open (toward -n)
-                    angle_open = angle_closed + math.pi / 2
-                    cr.arc_negative(hinge[0], hinge[1], w, angle_closed, angle_open)
-            
-            cr.stroke()
-            cr.set_dash([])  # Reset dash pattern
+
+            # Draw the arc using the correct direction (CW/CCW)
+            if sweep_angle > 0: # Positive sweep -> CCW
+                cr.arc(hinge[0], hinge[1], w, angle_closed, angle_open)
+            else: # Negative sweep -> CW
+                cr.arc_negative(hinge[0], hinge[1], w, angle_closed, angle_open)
+
+            cr.stroke() # Render the dashed arc
+            cr.set_dash([]) # Reset dash pattern
         
         if door.door_type == "double":
             # Hinge positions for double doors
