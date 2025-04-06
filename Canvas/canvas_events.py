@@ -154,9 +154,13 @@ class CanvasEventsMixin:
             door_button.connect("clicked", lambda btn: self.show_change_door_type_submenu(btn, selected_doors, parent_popover))
             box.append(door_button)
             
-            toggle_in_out_button = Gtk.Button(label="Toggle Inward/Outward Orientation")
+            toggle_in_out_button = Gtk.Button(label="Toggle Inswing/Outswing Orientation")
             toggle_in_out_button.connect("clicked", lambda btn: self.toggle_door_orientation(selected_doors, parent_popover))
             box.append(toggle_in_out_button)
+            
+            toggle_swing_button = Gtk.Button(label="Toggle Swing Direction")
+            toggle_swing_button.connect("clicked", lambda btn: self.toggle_door_swing(selected_doors, parent_popover))
+            box.append(toggle_swing_button)
         
         # Window-specific option
         if selected_windows:
@@ -895,5 +899,12 @@ class CanvasEventsMixin:
         for door_item in selected_doors:
             wall, door, ratio = door_item["object"]
             door.orientation = "inswing" if door.orientation == "outswing" else "outswing"
+        self.queue_draw()
+        popover.popdown()
+    
+    def toggle_door_swing(self, selected_doors, popover):
+        for door_item in selected_doors:
+            wall, door, ratio = door_item["object"]
+            door.swing = "left" if door.swing == "right" else "right"
         self.queue_draw()
         popover.popdown()
