@@ -20,15 +20,21 @@ class EstimatorApp(Gtk.Application):
     
     def do_startup(self):
         Gtk.Application.do_startup(self)
-        # Add an action for importing SH3D files.
-        import_action = Gio.SimpleAction.new("import_sh3d", None)
-        import_action.connect("activate", self.on_import_sh3d)
-        self.add_action(import_action)
         
         # Add an action to clear canvas and start a new drawing
         new_action = Gio.SimpleAction.new("new")
         new_action.connect("activate", self.on_new)
         self.add_action(new_action)
+        
+        # Add an action for importing SH3D files.
+        import_action = Gio.SimpleAction.new("import_sh3d", None)
+        import_action.connect("activate", self.on_import_sh3d)
+        self.add_action(import_action)
+        
+        # Add an action for opening opening settings dialog
+        settings_action = Gio.SimpleAction.new("settings")
+        settings_action.connect("activate", self.on_settings_clicked)
+        self.add_action(settings_action)
         # (Other actions like "open", "save", etc. are added similarly.)
 
     def do_activate(self):
@@ -280,7 +286,7 @@ class EstimatorApp(Gtk.Application):
     def on_zoom_reset_clicked(self, button):
         self.canvas.reset_zoom()
 
-    def on_settings_clicked(self, button):
+    def on_settings_clicked(self, button, *args):
         dialog = settings_ui.create_settings_dialog(self.window, self.config, self.canvas)
         dialog.connect("response", self.on_settings_response)
         dialog.present()
