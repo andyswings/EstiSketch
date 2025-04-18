@@ -12,6 +12,7 @@ from Dialogs import estimate_cost
 from Dialogs import help_dialog
 from file_menu import create_file_menu
 from sh3d_importer import import_sh3d
+from project_io import save_project, open_project
 
 class EstimatorApp(Gtk.Application):
     def __init__(self, config_constants):
@@ -35,6 +36,16 @@ class EstimatorApp(Gtk.Application):
         settings_action = Gio.SimpleAction.new("settings")
         settings_action.connect("activate", self.on_settings_clicked)
         self.add_action(settings_action)
+        
+        # Open project
+        open_action = Gio.SimpleAction.new("open", None)
+        open_action.connect("activate", lambda a, p: self.show_open_dialog())
+        self.add_action(open_action)
+
+        # Save project
+        save_action = Gio.SimpleAction.new("save", None)
+        save_action.connect("activate", lambda a, p: self.show_save_dialog())
+        self.add_action(save_action)
         # (Other actions like "open", "save", etc. are added similarly.)
 
     def do_activate(self):
@@ -149,8 +160,8 @@ class EstimatorApp(Gtk.Application):
         vbox.append(self.canvas)
 
         # Connect non-toggle button actions.
-        self.tool_buttons["save"].connect("clicked", lambda btn: print("Save action triggered"))
-        self.tool_buttons["open"].connect("clicked", lambda btn: print("Open action triggered"))
+        self.tool_buttons["save"].connect("clicked", lambda btn: self.show_save_dialog())
+        self.tool_buttons["open"].connect("clicked", lambda btn: self.show_open_dialog())
         self.tool_buttons["export"].connect("clicked", lambda btn: print("Export as PDF triggered"))
         self.tool_buttons["undo"].connect("clicked", lambda btn: self.canvas.undo())
         self.tool_buttons["redo"].connect("clicked", lambda btn: self.canvas.redo())
@@ -239,10 +250,10 @@ class EstimatorApp(Gtk.Application):
                 self.canvas.join_selected_walls()
                 return True
             elif keyname == "s":
-                print("Save action triggered")
+                self.show_save_dialog()
                 return True
             elif keyname == "o":
-                print("Open action triggered")
+                self.show_open_dialog()
                 return True
             elif keyname == "e":
                 print("Export as PDF triggered")
@@ -362,6 +373,61 @@ class EstimatorApp(Gtk.Application):
         self.canvas.windows.clear()
         # Request redraw of canvas
         self.canvas.queue_draw()
+
+    def show_save_dialog(self):
+        # Create GTK4 FileDialog (requires GTK >= 4.10)
+        dlg = Gtk.FileDialog.new()
+        dlg.set_title("Save Project")
+        dlg.set_modal(True)
+
+        # Set XML filter
+        xml_filter = Gtk.FileFilter()
+        xml_filter.set_name("Project Files (*.xml)")
+        xml_filter.add_pattern("*.xml")
+        filter_store = Gio.ListStore.new(Gtk.FileFilter)
+        filter_store.append(xml_filter)
+        dlg.set_filters(filter_store)
+        dlg.set_default_filter(xml_filter)
+
+        dlg.save(self.window, None, self.on_file_dialog_save_done, None)
+
+    def on_file_dialog_save_done(self, obj, result, user_data):
+        # Finish the async call and get a Gio.File
+        file = obj.save_finish(result)
+        if file:
+            path = file.get_path()
+            # Ensure .xml extension
+            if not path.lower().endswith(".xml"):
+                path += ".xml"
+            save_project(
+                self.canvas,
+                self.window.get_width(),
+                self.window.get_height(),
+                path
+            )
+
+    def show_open_dialog(self):
+        dlg = Gtk.FileDialog.new()
+        dlg.set_title("Open Project")
+        dlg.set_modal(True)
+
+        # Set XML filter
+        xml_filter = Gtk.FileFilter()
+        xml_filter.set_name("Project Files (*.xml)")
+        xml_filter.add_pattern("*.xml")
+        filter_store = Gio.ListStore.new(Gtk.FileFilter)
+        filter_store.append(xml_filter)
+        dlg.set_filters(filter_store)
+        dlg.set_default_filter(xml_filter)
+
+        dlg.open(self.window, None, self.on_file_dialog_open_done, None)
+
+    def on_file_dialog_open_done(self, obj, result, user_data):
+        file = obj.open_finish(result)
+        if file:
+            path = file.get_path()
+            open_project(self.canvas, path)
+            self.canvas.queue_draw()
 
 
 def main():
