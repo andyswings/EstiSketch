@@ -46,7 +46,7 @@ class EstimatorApp(Gtk.Application):
         save_action = Gio.SimpleAction.new("save", None)
         save_action.connect("activate", lambda a, p: self.show_save_dialog())
         self.add_action(save_action)
-        # (Other actions like "open", "save", etc. are added similarly.)
+        # (Other actions like "exit" etc. are added similarly.)
 
     def do_activate(self):
         self.window = Gtk.ApplicationWindow(
