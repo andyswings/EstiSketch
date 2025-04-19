@@ -823,7 +823,7 @@ class CanvasEventsMixin:
         popover.set_child(box)
         
         # Add a button for each door type
-        door_types = ["single", "double", "sliding", "pocket", "bi-fold", "double bi-fold", "garage"]
+        door_types = ["single", "double", "sliding", "frame", "pocket", "bi-fold", "double bi-fold", "garage"]
         for dt in door_types:
             btn = Gtk.Button(label=dt)
             btn.connect("clicked", lambda btn, dt=dt: self.on_change_door_type_selected(dt, selected_doors, popover, parent_popover))
