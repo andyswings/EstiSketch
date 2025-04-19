@@ -121,18 +121,18 @@ def import_sh3d(sh3d_file_path: str) -> dict:
 
             if element_type == "door":
                 if "frame" in name_attr:
-                    new_door = Door("frame", width, height, "left", "inward")
+                    new_door = Door("frame", width, height, "left", "inswing")
                 elif "pocket" in name_attr:
-                    new_door = Door("pocket", width, height, "left", "inward")
+                    new_door = Door("pocket", width, height, "left", "inswing")
                 elif "french" in name_attr:
-                    new_door = Door("double", width, height, "left", "inward")
+                    new_door = Door("double", width, height, "left", "inswing")
                 elif "sliding" in name_attr:
-                    new_door = Door("sliding", width, height, "left", "inward")
+                    new_door = Door("sliding", width, height, "left", "inswing")
                 elif "garage" in name_attr:
-                    new_door = Door("garage", width, height, "left", "inward")
+                    new_door = Door("garage", width, height, "left", "inswing")
                 else:
                     print(name_attr)
-                    new_door = Door("single", width, height, "left", "inward")
+                    new_door = Door("single", width, height, "left", "inswing")
                 doors.append((associated_wall, new_door, best_ratio))
             else:  # window
                 print(name_attr)
