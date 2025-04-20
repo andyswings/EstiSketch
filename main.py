@@ -18,6 +18,10 @@ class EstimatorApp(Gtk.Application):
     def __init__(self, config_constants):
         super().__init__(application_id="com.example.estimator")
         self.config = config_constants
+        # Remember where the current project is saved
+        self.current_filepath = None
+        # Track if the canvas is dirty (modified)
+        self.is_dirty = False
     
     def do_startup(self):
         Gtk.Application.do_startup(self)
@@ -46,7 +50,11 @@ class EstimatorApp(Gtk.Application):
         save_action = Gio.SimpleAction.new("save", None)
         save_action.connect("activate", lambda a, p: self.show_save_dialog())
         self.add_action(save_action)
-        # (Other actions like "exit" etc. are added similarly.)
+        
+        # Exit action
+        exit_action = Gio.SimpleAction.new("exit", None)
+        exit_action.connect("activate", self.on_exit())
+        self.add_action(exit_action)
 
     def do_activate(self):
         self.window = Gtk.ApplicationWindow(
@@ -186,6 +194,21 @@ class EstimatorApp(Gtk.Application):
         self.window.add_controller(key_controller)
 
         self.window.present()
+        
+        # ---- Dirty State Handling ----
+        # Connect the "changed" signal of the canvas to set the dirty state.
+        orig_save_state = self.canvas.save_state
+        def save_state_mark_dirty(*args, **kwargs):
+            orig_save_state(*args, **kwargs)
+            self.is_dirty = True
+        self.canvas.save_state = save_state_mark_dirty
+        
+        # Reset dirty state on save.
+        self.canvas.save_state()
+        self.is_dirty = False
+        
+        # Connect the "destroy" signal to check for unsaved changes.
+        self.window.connect("close-request", self.on_close_request)
 
     def on_key_pressed(self, controller, keyval, keycode, state):
         keyname = Gdk.keyval_name(keyval).lower()
@@ -371,10 +394,25 @@ class EstimatorApp(Gtk.Application):
         self.canvas.rooms.clear()
         self.canvas.doors.clear()
         self.canvas.windows.clear()
+        # Reset the current file path.
+        self.current_filepath = None
+        # Reset the dirty state (changes have been made after save).
+        self.is_dirty = False
         # Request redraw of canvas
         self.canvas.queue_draw()
 
     def show_save_dialog(self):
+        # Check if a file is already saved
+        # If a file is already saved, just save it.
+        # Otherwise, show the save dialog.
+        if self.current_filepath:
+            save_project(
+                self.canvas,
+                self.window.get_width(),
+                self.window.get_height(),
+                self.current_filepath
+            )
+            return
         # Create GTK4 FileDialog (requires GTK >= 4.10)
         dlg = Gtk.FileDialog.new()
         dlg.set_title("Save Project")
@@ -394,17 +432,21 @@ class EstimatorApp(Gtk.Application):
     def on_file_dialog_save_done(self, obj, result, user_data):
         # Finish the async call and get a Gio.File
         file = obj.save_finish(result)
-        if file:
-            path = file.get_path()
-            # Ensure .xml extension
-            if not path.lower().endswith(".xml"):
-                path += ".xml"
-            save_project(
-                self.canvas,
-                self.window.get_width(),
-                self.window.get_height(),
-                path
-            )
+        if not file:
+            return
+        path = file.get_path()
+        # Ensure .xml extension
+        if not path.lower().endswith(".xml"):
+            path += ".xml"
+        self.current_filepath = path
+        # Save the project 
+        save_project(
+            self.canvas,
+            self.window.get_width(),
+            self.window.get_height(),
+            path
+        )
+        self.is_dirty = False
 
     def show_open_dialog(self):
         dlg = Gtk.FileDialog.new()
@@ -424,11 +466,55 @@ class EstimatorApp(Gtk.Application):
 
     def on_file_dialog_open_done(self, obj, result, user_data):
         file = obj.open_finish(result)
-        if file:
-            path = file.get_path()
-            open_project(self.canvas, path)
-            self.canvas.queue_draw()
+        if not file:
+            return
+        path = file.get_path()
+        self.current_filepath = path
+        open_project(self.canvas, path)
+        self.canvas.queue_draw()
+        self.is_dirty = False
 
+    def on_exit(self, action, parameter):
+        self.window.emit("close-request")
+    
+    def on_close_request(self, window):
+        if not self.is_dirty:
+            return False
+        dlg = Gtk.MessageDialog(
+            transient_for=self.window,
+            modal=True,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.NONE,
+            text="You have unsaved changes. Do you want to save before exiting?"
+        )
+        dlg.add_buttons(
+            "Cancel",    Gtk.ResponseType.CANCEL,
+            "Save & Close", Gtk.ResponseType.YES,
+            "Discard", Gtk.ResponseType.NO
+        )
+        dlg.connect("response", self.on_quit_response, window)
+        dlg.present()
+        return True
+    
+    def on_quit_response(self, dialog, response, window):
+        dialog.destroy()
+        if response == Gtk.ResponseType.YES:
+            if self.current_filepath:
+                save_project(
+                    self.canvas,
+                    self.window.get_width(),
+                    self.window.get_height(),
+                    self.current_filepath
+                )
+                window.destroy()
+            else:
+                def after_save(_, __, ___):
+                    window.destroy()
+                self.show_save_dialog()
+        elif response == Gtk.ResponseType.NO:
+            window.destroy()
+        else:
+            pass
 
 def main():
     config_dict = config.load_config()
