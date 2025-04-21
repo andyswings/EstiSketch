@@ -62,7 +62,9 @@ DEFAULT_SETTINGS = {
     "ALLOW_CURVED_WALLS": False,
     "DEFAULT_INTERIOR_WALL_MATERIAL": "Drywall",
     "DEFAULT_EXTERIOR_WALL_MATERIAL": "Brick",
-    "PIXELS_PER_INCH": 2.0
+    "PIXELS_PER_INCH": 2.0,
+    "RECENT_FILES": [],
+    "MAX_RECENT_FILES": 6
 }
 
 def load_config():
