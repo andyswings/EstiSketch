@@ -22,6 +22,8 @@ class EstimatorApp(Gtk.Application):
         self.current_filepath = None
         # Track if the canvas is dirty (modified)
         self.is_dirty = False
+        # This is a list of recently opened files.
+        self.recent_files = getattr(self.config, 'RECENT_FILES', [])
     
     def do_startup(self):
         Gtk.Application.do_startup(self)
@@ -36,7 +38,7 @@ class EstimatorApp(Gtk.Application):
         import_action.connect("activate", self.on_import_sh3d)
         self.add_action(import_action)
         
-        # Add an action for opening opening settings dialog
+        # Add an action for opening settings dialog
         settings_action = Gio.SimpleAction.new("settings")
         settings_action.connect("activate", self.on_settings_clicked)
         self.add_action(settings_action)
@@ -45,15 +47,25 @@ class EstimatorApp(Gtk.Application):
         open_action = Gio.SimpleAction.new("open", None)
         open_action.connect("activate", lambda a, p: self.show_open_dialog())
         self.add_action(open_action)
+        
+        # Open recent project
+        recent_action = Gio.SimpleAction.new("open_recent", None)
+        recent_action.connect("activate", self.on_open_recent)
+        self.add_action(recent_action)
 
         # Save project
         save_action = Gio.SimpleAction.new("save", None)
         save_action.connect("activate", lambda a, p: self.show_save_dialog())
         self.add_action(save_action)
         
+        # Save project as
+        save_as = Gio.SimpleAction.new("save_as", None)
+        save_as.connect("activate", lambda a, p: self.show_save_as_dialog())
+        self.add_action(save_as)
+        
         # Exit action
         exit_action = Gio.SimpleAction.new("exit", None)
-        exit_action.connect("activate", self.on_exit())
+        exit_action.connect("activate", self.on_exit)
         self.add_action(exit_action)
 
     def do_activate(self):
@@ -69,6 +81,8 @@ class EstimatorApp(Gtk.Application):
         
         # Create the file menu button and add it at the top
         file_menu_button = create_file_menu(self)
+        # save a reference so we can anchor the recent‑files popover
+        self.file_menu_button = file_menu_button
         # Pack the menu button in a horizontal box to simulate a menu bar area.
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         header_box.append(file_menu_button)
@@ -269,6 +283,12 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "p":
                 print("Paste action triggered")
                 return True
+            elif keyname == "o":
+                self.show_open_dialog()
+                return True
+            elif keyname == "n":
+                self.on_new(None, None)
+                return True
             elif keyname == "j":
                 self.canvas.join_selected_walls()
                 return True
@@ -303,6 +323,9 @@ class EstimatorApp(Gtk.Application):
                 return True
             elif keyname == "c":
                 self.on_estimate_cost_clicked(None)
+                return True
+            elif keyname == "s":
+                self.show_save_as_dialog()
                 return True
 
         return False
@@ -388,34 +411,122 @@ class EstimatorApp(Gtk.Application):
         dialog.destroy()
     
     def on_new(self, action, parameter):
-        # Clear the current canvas content.
+        """Handle the 'New' action to start a new project."""
+        if self.is_dirty:
+            # Prompt user to save changes
+            dlg = Gtk.MessageDialog(
+                transient_for=self.window,
+                modal=True,
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.NONE,
+                text="You have unsaved changes. Do you want to save before starting a new drawing?"
+            )
+            dlg.add_buttons(
+                "Cancel",    Gtk.ResponseType.CANCEL,
+                "Save & New", Gtk.ResponseType.YES,
+                "Discard",   Gtk.ResponseType.NO
+            )
+            dlg.connect("response", self.on_new_response)
+            dlg.present()
+        else:
+            # If not dirty, clear the canvas immediately
+            self.clear_canvas_and_reset()
+    
+    def on_new_response(self, dialog, response):
+        """Handle the user's response from the save prompt dialog."""
+        dialog.destroy()
+        if response == Gtk.ResponseType.YES:
+            # User chose to save before starting anew
+            self.show_save_dialog(callback=self.clear_canvas_and_reset)
+        elif response == Gtk.ResponseType.NO:
+            # User chose to discard changes
+            self.clear_canvas_and_reset()
+        # If response is CANCEL, do nothing
+    
+    def clear_canvas_and_reset(self):
+        """Clear the canvas and reset the application state."""
+        # Clear all canvas content
         self.canvas.wall_sets.clear()
         self.canvas.walls.clear()
         self.canvas.rooms.clear()
         self.canvas.doors.clear()
         self.canvas.windows.clear()
-        # Reset the current file path.
+        # Reset the current file path
         self.current_filepath = None
-        # Reset the dirty state (changes have been made after save).
+        # Reset the dirty state
         self.is_dirty = False
-        # Request redraw of canvas
+        # Redraw the canvas
         self.canvas.queue_draw()
+    
+    def add_to_recent(self, path):
+        if path in self.recent_files:
+            self.recent_files.remove(path)
+        self.recent_files.insert(0, path)
+        if len(self.recent_files) > 6:
+            self.recent_files.pop()
 
-    def show_save_dialog(self):
-        # Check if a file is already saved
-        # If a file is already saved, just save it.
-        # Otherwise, show the save dialog.
+    def show_save_dialog(self, callback=None):
+        """Show a save dialog or save directly if a file path exists."""
         if self.current_filepath:
+            # Save directly if a file path is already set
             save_project(
                 self.canvas,
                 self.window.get_width(),
                 self.window.get_height(),
                 self.current_filepath
             )
+            self.is_dirty = False
+            if callback:
+                callback()
             return
-        # Create GTK4 FileDialog (requires GTK >= 4.10)
+        # Otherwise, show a file save dialog
         dlg = Gtk.FileDialog.new()
         dlg.set_title("Save Project")
+        dlg.set_modal(True)
+        xml_filter = Gtk.FileFilter()
+        xml_filter.set_name("Project Files (*.xml)")
+        xml_filter.add_pattern("*.xml")
+        filter_store = Gio.ListStore.new(Gtk.FileFilter)
+        filter_store.append(xml_filter)
+        dlg.set_filters(filter_store)
+        dlg.set_default_filter(xml_filter)
+        dlg.save(self.window, None, lambda obj, result, user_data: self.on_file_dialog_save_done(obj, result, user_data, callback), None)
+
+    def on_file_dialog_save_done(self, obj, result, user_data, callback):
+        """Handle the result of the save dialog."""
+        file = obj.save_finish(result)
+        if not file:
+            return
+        path = file.get_path()
+        if not path.lower().endswith(".xml"):
+            path += ".xml"
+        self.current_filepath = path
+        save_project(
+            self.canvas,
+            self.window.get_width(),
+            self.window.get_height(),
+            path
+        )
+        self.add_to_recent(path)
+        self.is_dirty = False
+        if callback:
+            callback()
+    
+    def show_save_as_dialog(self):
+        # Check if a file is already saved
+        # If a file is already saved, just save it.
+        # Otherwise, show the save dialog.
+        # if self.current_filepath:
+        #     save_project(
+        #         self.canvas,
+        #         self.window.get_width(),
+        #         self.window.get_height(),
+        #         self.current_filepath
+        #     )
+        #     return
+        # Create GTK4 FileDialog (requires GTK >= 4.10)
+        dlg = Gtk.FileDialog.new()
+        dlg.set_title("Save Project As")
         dlg.set_modal(True)
 
         # Set XML filter
@@ -427,9 +538,9 @@ class EstimatorApp(Gtk.Application):
         dlg.set_filters(filter_store)
         dlg.set_default_filter(xml_filter)
 
-        dlg.save(self.window, None, self.on_file_dialog_save_done, None)
+        dlg.save(self.window, None, self.on_file_dialog_save_as_done, None)
 
-    def on_file_dialog_save_done(self, obj, result, user_data):
+    def on_file_dialog_save_as_done(self, obj, result, user_data):
         # Finish the async call and get a Gio.File
         file = obj.save_finish(result)
         if not file:
@@ -469,17 +580,56 @@ class EstimatorApp(Gtk.Application):
         if not file:
             return
         path = file.get_path()
+        self.add_to_recent(path)
         self.current_filepath = path
         open_project(self.canvas, path)
         self.canvas.queue_draw()
         self.is_dirty = False
+    
+    def on_open_recent(self, action, parameter):
+        # Create a popover to serve as the sub-menu
+        popover = Gtk.Popover()
+        
+        # Create a vertical box to hold the menu items
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        popover.set_child(box)
+        
+        # Populate the popover with recent files or a message
+        if not self.recent_files:
+            lbl = Gtk.Label(label="No recent files")
+            box.append(lbl)
+        else:
+            for path in self.recent_files:
+                btn = Gtk.Button(label=Gio.File.new_for_path(path).get_basename())
+                def _on_click(button, p=path):
+                    open_project(self.canvas, p)
+                    self.canvas.queue_draw()
+                    self.is_dirty = False
+                    popover.popdown()  # Use local popover variable
+                btn.connect("clicked", _on_click)
+                box.append(btn)
+        
+        # Set the popover's parent to the file menu button
+        popover.set_parent(self.file_menu_button)
+        
+        # Position the popover below the button
+        popover.set_position(Gtk.PositionType.BOTTOM)
+        
+        # Show the popover
+        popover.popup()
 
     def on_exit(self, action, parameter):
         self.window.emit("close-request")
     
     def on_close_request(self, window):
         if not self.is_dirty:
-            return False
+            window.destroy()
+            return True
+        # Prompt user to save changes
         dlg = Gtk.MessageDialog(
             transient_for=self.window,
             modal=True,
@@ -515,6 +665,12 @@ class EstimatorApp(Gtk.Application):
             window.destroy()
         else:
             pass
+    
+    def do_shutdown(self):
+        # Save recent files to config before shutdown
+        self.config.RECENT_FILES = self.recent_files
+        config.save_config(self.config.__dict__)
+        Gtk.Application.do_shutdown(self)
 
 def main():
     config_dict = config.load_config()
