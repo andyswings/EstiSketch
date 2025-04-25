@@ -33,25 +33,25 @@ class EstimatorApp(Gtk.Application):
         new_action.connect("activate", self.on_new)
         self.add_action(new_action)
         
-        # Add an action for importing SH3D files.
-        import_action = Gio.SimpleAction.new("import_sh3d", None)
-        import_action.connect("activate", self.on_import_sh3d)
-        self.add_action(import_action)
+        # Open project
+        open_action = Gio.SimpleAction.new("open", None)
+        open_action.connect("activate", lambda a, p: self.show_open_dialog())
+        self.add_action(open_action)
         
         # Add an action for opening settings dialog
         settings_action = Gio.SimpleAction.new("settings")
         settings_action.connect("activate", self.on_settings_clicked)
         self.add_action(settings_action)
         
-        # Open project
-        open_action = Gio.SimpleAction.new("open", None)
-        open_action.connect("activate", lambda a, p: self.show_open_dialog())
-        self.add_action(open_action)
-        
         # Open recent project
         recent_action = Gio.SimpleAction.new("open_recent", None)
         recent_action.connect("activate", self.on_open_recent)
         self.add_action(recent_action)
+        
+        # Add an action for importing SH3D files.
+        import_action = Gio.SimpleAction.new("import_sh3d", None)
+        import_action.connect("activate", self.on_import_sh3d)
+        self.add_action(import_action)
 
         # Save project
         save_action = Gio.SimpleAction.new("save", None)
@@ -62,6 +62,11 @@ class EstimatorApp(Gtk.Application):
         save_as = Gio.SimpleAction.new("save_as", None)
         save_as.connect("activate", lambda a, p: self.show_save_as_dialog())
         self.add_action(save_as)
+        
+        # Add an action for opening settings dialog
+        export_action = Gio.SimpleAction.new("export")
+        export_action.connect("activate", self.on_export_clicked)
+        self.add_action(export_action)
         
         # Exit action
         exit_action = Gio.SimpleAction.new("exit", None)
@@ -201,7 +206,7 @@ class EstimatorApp(Gtk.Application):
         status_label = Gtk.Label(label="Status: Ready")
         vbox.append(status_label)
 
-        self.tool_buttons["draw_walls"].set_active(True)
+        self.tool_buttons["pointer"].set_active(True)
 
         key_controller = Gtk.EventControllerKey.new()
         key_controller.connect("key-pressed", self.on_key_pressed)
@@ -409,6 +414,11 @@ class EstimatorApp(Gtk.Application):
             except Exception as e:
                 print(f"Error importing SH3D file: {e}")
         dialog.destroy()
+    
+    def on_export_clicked(self, action, parameter):
+        print("Export Clicked")
+        # TODO Add export to Sweethome3D (sh3d) functionality
+        # TODO Add export to pdf functionality
     
     def on_new(self, action, parameter):
         """Handle the 'New' action to start a new project."""
