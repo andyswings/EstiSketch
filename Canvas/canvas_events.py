@@ -17,6 +17,18 @@ class CanvasEventsMixin:
             self._handle_window_click(n_press, x, y)
         elif self.tool_mode == "pointer":
             self._handle_pointer_click(gesture, n_press, x, y)
+        elif self.tool_mode == "add_polyline":
+            print("Polyline tool is not implemented yet.")
+            # TODO: Implement polyline tool
+        #     self._handle_polyline_click(n_press, x, y)
+        elif self.tool_mode == "add_dimension":
+            print("Dimension tool is not implemented yet.")
+            # TODO: Implement dimension tool
+        #     self._handle_dimension_click(n_press, x, y)
+        elif self.tool_mode == "add_text":
+            print("Text tool is not implemented yet.")
+            # TODO: Implement text tool
+        #     self._handle_text_click(n_press, x, y)
     
     def on_right_click(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
         """

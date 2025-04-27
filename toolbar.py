@@ -50,11 +50,12 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
 
     # Group 2: Tool buttons (centered)
     tool_buttons["pointer"] = create_icon_toggle_button("pointer", "Select (V)")
-    tool_buttons["panning"] = create_icon_toggle_button("panning", "Pan (P)")  # New panning button
+    tool_buttons["panning"] = create_icon_toggle_button("panning", "Pan (P)")
     tool_buttons["draw_walls"] = create_icon_toggle_button("draw_walls", f"{config_constants.DRAW_WALLS_LABEL} (W)")
     tool_buttons["draw_rooms"] = create_icon_toggle_button("draw_rooms", f"{config_constants.DRAW_ROOMS_LABEL} (R)")
     tool_buttons["add_doors"] = create_icon_toggle_button("add_doors", f"{config_constants.ADD_DOORS_LABEL} (D)")
     tool_buttons["add_windows"] = create_icon_toggle_button("add_windows", f"{config_constants.ADD_WINDOWS_LABEL} (A)")
+    tool_buttons["add_polyline"] = create_icon_toggle_button("add_polyline", f"Add Polyline (L)")
     tool_buttons["add_dimension"] = create_icon_toggle_button("add_dimension", f"{config_constants.ADD_DIMENSION_LABEL} (M)")
     tool_buttons["add_text"] = create_icon_toggle_button("add_text", f"{config_constants.ADD_TEXT_LABEL} (T)")
 
@@ -64,6 +65,7 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
     tool_buttons["draw_rooms"].set_group(tool_buttons["pointer"])
     tool_buttons["add_doors"].set_group(tool_buttons["pointer"])
     tool_buttons["add_windows"].set_group(tool_buttons["pointer"])
+    tool_buttons["add_polyline"].set_group(tool_buttons["pointer"])
     tool_buttons["add_dimension"].set_group(tool_buttons["pointer"])
     tool_buttons["add_text"].set_group(tool_buttons["pointer"])
 
@@ -74,6 +76,7 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
     tb.append(tool_buttons["draw_rooms"])
     tb.append(tool_buttons["add_doors"])
     tb.append(tool_buttons["add_windows"])
+    tb.append(tool_buttons["add_polyline"])
     tb.append(tool_buttons["add_dimension"])
     tb.append(tool_buttons["add_text"])
 
