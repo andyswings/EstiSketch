@@ -43,6 +43,14 @@ class CanvasArea(Gtk.DrawingArea,
         self.current_wall = None
         self.drawing_wall = False
         self.wall_sets = []
+        
+        # Polyline drawing state
+        self.polylines = []                # current segments (list of Polyline)
+        self.current_polyline_start = None # last click point
+        self.current_polyline_preview = None   # live endpoint while moving
+        self.drawing_polyline = False      # are we in the middle of drawing?
+        self.polyline_sets = []            # list of finished polyline lists
+
 
         # Room drawing state
         self.rooms = []                # Finalized Room objects

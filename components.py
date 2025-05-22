@@ -30,6 +30,15 @@ class Wall:
                 self.width == other.width and
                 self.height == other.height)
 
+
+@dataclass
+class Polyline:
+    def __init__(self, start, end):
+        self.start = start  # tuple of (x, y)
+        self.end = end      # tuple of (x, y) 
+        self.style = "solid"  # or "dashed"  
+                 
+
 @dataclass
 class Room:
     def __init__(self, points: List[Tuple[float, float]], height: float = 96.0):

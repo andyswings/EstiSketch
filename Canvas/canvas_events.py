@@ -1,7 +1,7 @@
 import math
 from gi.repository import Gtk, Gdk
 from typing import List
-from components import Wall, Door, Window
+from components import Wall, Door, Window, Polyline
 
 
 class CanvasEventsMixin:
@@ -18,9 +18,7 @@ class CanvasEventsMixin:
         elif self.tool_mode == "pointer":
             self._handle_pointer_click(gesture, n_press, x, y)
         elif self.tool_mode == "add_polyline":
-            print("Polyline tool is not implemented yet.")
-            # TODO: Implement polyline tool
-        #     self._handle_polyline_click(n_press, x, y)
+            self._handle_polyline_click(n_press, x, y)
         elif self.tool_mode == "add_dimension":
             print("Dimension tool is not implemented yet.")
             # TODO: Implement dimension tool
@@ -670,6 +668,24 @@ class CanvasEventsMixin:
             
             self.current_wall.end = (snapped_x, snapped_y)
             self.queue_draw()
+        
+        # Live preview for polylines
+        if self.tool_mode == "add_polyline" and self.drawing_polyline:
+            base_x, base_y = self.current_polyline_start
+            # reuse snapping against walls/rooms
+            candidates = self._get_candidate_points() + [(base_x, base_y)]
+            (sx, sy), _ = self.snap_manager.snap_point(
+                canvas_x, canvas_y,
+                base_x, base_y,
+                self.walls, self.rooms,
+                current_wall=None, last_wall=None,
+                in_progress_points=candidates,
+                canvas_width=self.get_allocation().width or self.config.WINDOW_WIDTH,
+                zoom=self.zoom
+            )
+            ax, ay, _ = self._apply_alignment_snapping(sx, sy)
+            self.current_polyline_preview = (ax, ay)
+            self.queue_draw()
 
         elif self.tool_mode == "draw_rooms":
             base_x = self.current_room_points[-1][0] if self.current_room_points else canvas_x
@@ -821,6 +837,51 @@ class CanvasEventsMixin:
                         break
                 self.snap_type = "none"
             self.queue_draw()
+    
+    def _handle_polyline_click(self, n_press: int, x: float, y: float) -> None:
+        # 1. Convert to model coords
+        ppi = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        mx, my = self.device_to_model(x, y, ppi)
+
+        # 2. Snap & align
+        last = self.current_polyline_start or (mx, my)
+        candidates = self._get_candidate_points() + [last]
+        (sx, sy), self.snap_type = self.snap_manager.snap_point(
+            mx, my,
+            last[0], last[1],
+            self.walls, self.rooms,
+            current_wall=None, last_wall=None,
+            in_progress_points=candidates,
+            canvas_width=self.get_allocation().width or self.config.WINDOW_WIDTH,
+            zoom=self.zoom
+        )
+        ax, ay, _ = self._apply_alignment_snapping(sx, sy)
+        snapped = (ax, ay)
+
+        if n_press == 1:
+            # start or extend
+            self.save_state()
+            if not self.drawing_polyline:
+                self.drawing_polyline = True
+                self.current_polyline_start = snapped
+                self.polylines = []
+            else:
+                seg = Polyline(self.current_polyline_start, snapped)
+                self.polylines.append(seg)
+                self.current_polyline_start = snapped
+            self.queue_draw()
+            self.current_polyline_preview = None
+
+        elif n_press == 2 and self.drawing_polyline:
+            # finalize
+            self.save_state()
+            if self.polylines:
+                self.polyline_sets.append(self.polylines.copy())
+            self.drawing_polyline = False
+            self.current_polyline_start = None
+            self.polylines = []
+            self.queue_draw()
+            self.current_polyline_preview = None
 
     def show_change_door_type_submenu(self, widget, selected_doors, parent_popover):
         # Create a popover to serve as the sub-menu

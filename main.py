@@ -345,6 +345,22 @@ class EstimatorApp(Gtk.Application):
                     self.canvas.save_state()
                     self.canvas.queue_draw()
                     return True
+                if self.canvas.tool_mode == "add_polyline" and self.canvas.drawing_polyline:
+                    print("Esc pressed: Finalizing polyline drawing")
+                    # snapshot for undo
+                    self.canvas.save_state()
+                    # commit any segments
+                    if self.canvas.polylines:
+                        self.canvas.polyline_sets.append(self.canvas.polylines.copy())
+                    # clear in-progress state
+                    self.canvas.drawing_polyline = False
+                    self.canvas.current_polyline_start   = None
+                    self.canvas.current_polyline_preview = None
+                    self.canvas.polylines                = []
+                    # another snapshot if you like
+                    self.canvas.save_state()
+                    self.canvas.queue_draw()
+                    return True
                 elif self.canvas.tool_mode == "draw_rooms" and self.canvas.current_room_points:
                     print("Esc pressed: Finalizing room drawing")
                     self.canvas.save_state()

@@ -77,6 +77,43 @@ class CanvasDrawMixin:
         # Draw windows
         dwr.draw_windows(self, cr, pixels_per_inch)
         
+        # Draw finished polylines
+        cr.save()
+        cr.set_source_rgb(0, 0, 0)             # solid black
+        cr.set_line_width(1.0 / self.zoom)     # 1px at current zoom
+        for poly_list in self.polyline_sets:
+            for pl in poly_list:
+                cr.move_to(pl.start[0], pl.start[1])
+                cr.line_to(pl.end[0],   pl.end[1])
+        cr.stroke()
+        cr.restore()
+
+        # Draw in-progress (fixed) segments
+        if self.polylines:
+            cr.save()
+            cr.set_source_rgb(0, 0, 0)             # solid black
+            cr.set_line_width(1.0 / self.zoom)     # 1px at current zoom
+            for pl in self.polylines:
+                cr.move_to(pl.start[0], pl.start[1])
+                cr.line_to(pl.end[0],   pl.end[1])
+            cr.stroke()
+            cr.restore()
+
+        # Draw the live “rubber-band” segment
+        if self.tool_mode == "add_polyline" and self.drawing_polyline and self.current_polyline_preview:
+            cr.save()
+            # TODO: make it possible to change the line style.
+            cr.set_dash([])                       # solid line
+            cr.set_source_rgb(0, 0, 0)            # pure black, no alpha
+            cr.set_line_width(1.0 / self.zoom)    # consistent visible width
+            # optional: cr.set_dash([4/self.zoom,4/self.zoom])
+            last_pt = self.current_polyline_start or self.polylines[-1].end
+            cr.move_to(last_pt[0], last_pt[1])
+            cr.line_to(self.current_polyline_preview[0], self.current_polyline_preview[1])
+            cr.stroke()
+            cr.restore()
+
+        
         # Draw live selection rectangle if box selecting is active.
         if self.tool_mode == "pointer" and self.box_selecting:
             cr.save()
