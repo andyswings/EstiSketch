@@ -65,6 +65,7 @@ def create_settings_dialog(parent, config_constants, canvas):
         ("Default Window Type", "DEFAULT_WINDOW_TYPE", ["sliding", "fixed", "double-hung"]),
         ("Default Interior Wall Material", "DEFAULT_INTERIOR_WALL_MATERIAL", ["Drywall", "T&G"]),
         ("Default Exterior Wall Material", "DEFAULT_EXTERIOR_WALL_MATERIAL", ["Brick", "LP Lap Siding", "Hardie", "Stucco", "Wood", "Stone"]),
+        ("Default Polyline Type", "POLYLINE_TYPE", ["solid", "dashed"]),
         ("Default File Format", "DEFAULT_FILE_FORMAT", ["json", "xml", "csv"])
     ]
     

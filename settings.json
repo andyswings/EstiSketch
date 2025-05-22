@@ -61,10 +61,7 @@
     "DEFAULT_DOOR_TYPE": "single",
     "DEFAULT_WINDOW_TYPE": "sliding",
     "PIXELS_PER_INCH": 2.0,
-    "RECENT_FILES": [
-        "/home/andrew/Documents/test3.xml",
-        "/home/andrew/Documents/Test2.xml",
-        "/home/andrew/Documents/Test1.xml"
-    ],
-    "MAX_RECENT_FILES": 6
+    "RECENT_FILES": [],
+    "MAX_RECENT_FILES": 6,
+    "POLYLINE_TYPE": "solid"
 }

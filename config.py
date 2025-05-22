@@ -64,7 +64,8 @@ DEFAULT_SETTINGS = {
     "DEFAULT_EXTERIOR_WALL_MATERIAL": "Brick",
     "PIXELS_PER_INCH": 2.0,
     "RECENT_FILES": [],
-    "MAX_RECENT_FILES": 6
+    "MAX_RECENT_FILES": 6,
+    "POLYLINE_TYPE": "solid"
 }
 
 def load_config():
