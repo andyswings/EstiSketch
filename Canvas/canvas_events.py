@@ -2,11 +2,11 @@ import math
 from gi.repository import Gtk, Gdk
 from typing import List
 from components import Wall, Door, Window, Polyline
+import config
 
 
 class CanvasEventsMixin:
     def on_click(self, gesture, n_press, x, y):
-        # print(f"Current tool_mode: {self.tool_mode}")
         if self.tool_mode == "draw_walls":
             self._handle_wall_click(n_press, x, y)
         elif self.tool_mode == "draw_rooms":
@@ -125,6 +125,7 @@ class CanvasEventsMixin:
         selected_walls = [item for item in self.selected_items if item.get("type") == "wall"]
         selected_doors = [item for item in self.selected_items if item.get("type") == "door"]
         selected_windows = [item for item in self.selected_items if item.get("type") == "window"]
+        selected_polylines = [item for item in self.selected_items if item.get("type") == "polyline"]
 
         # Create a popover to serve as the context menu
         parent_popover = Gtk.Popover()  # Renamed for clarity
@@ -184,6 +185,22 @@ class CanvasEventsMixin:
             window_button = Gtk.Button(label="Change Window Type")
             window_button.connect("clicked", lambda btn: self.show_change_window_type_submenu(btn, selected_windows, parent_popover))
             box.append(window_button)
+        
+        # Polyline-specific option
+        if selected_polylines:
+            polyline_button = Gtk.Button(label="Change Polyline Style")
+            polyline_button.connect("clicked", lambda btn: self.toggle_polyline_style(selected_polylines, style="toggle"))
+            box.append(polyline_button)
+            
+            if selected_polylines[0]["object"].style == "dashed":
+                polyline_solid_button = Gtk.Button(label="Change Polyline(s) to Solid")
+                polyline_solid_button.connect("clicked", lambda btn: self.toggle_polyline_style(selected_polylines, style="dashed"))
+                box.append(polyline_solid_button)
+            
+            if selected_polylines[0]["object"].style == "solid":
+                polyline_dashed_button = Gtk.Button(label="Change Polyline(s) to Dashed")
+                polyline_dashed_button.connect("clicked", lambda btn: self.toggle_polyline_style(selected_polylines, style="solid"))
+                box.append(polyline_dashed_button)
         
         # Position the popover at the click location
         rect = Gdk.Rectangle()
@@ -428,6 +445,17 @@ class CanvasEventsMixin:
                 # print("Window selected")
                 selected_item = {"type": "window", "object": window_item}
                 break
+        
+        for poly_list in self.polyline_sets:
+            for pl in poly_list:
+                # transform endpoints from model to widget coords
+                p1 = self.model_to_device(pl.start[0], pl.start[1], pixels_per_inch)
+                p2 = self.model_to_device(pl.end[0],   pl.end[1],   pixels_per_inch)
+                # distance from click to segment
+                if self.distance_point_to_segment(click_pt, p1, p2) < fixed_threshold:
+                    selected_item = {"type": "polyline", "object": pl}
+                    break
+            if selected_item: break
 
 
         event = gesture.get_current_event()
@@ -625,6 +653,11 @@ class CanvasEventsMixin:
                 window_max_y = max(P1[1], P2[1], P3[1], P4[1])
                 if window_max_x >= x1 and window_min_x <= x2 and window_max_y >= y1 and window_min_y <= y2:
                     new_selection.append({"type": "window", "object": window_item})
+            
+            for poly_list in self.polyline_sets:
+                for pl in poly_list:
+                    if self.line_intersects_rect(pl.start, pl.end, rect):
+                        new_selection.append({"type": "polyline", "object": pl})
             
             if hasattr(self, "box_select_extend") and self.box_select_extend:
                 for item in new_selection:
@@ -867,6 +900,12 @@ class CanvasEventsMixin:
                 self.polylines = []
             else:
                 seg = Polyline(self.current_polyline_start, snapped)
+                default_style = getattr(self.config, "POLYLINE_TYPE", "solid")
+                seg_style = default_style if default_style in ("solid", "dashed") else "solid"
+                if seg_style == "dashed":
+                    seg.style = "dashed"
+                else:
+                    seg.style = "solid" 
                 self.polylines.append(seg)
                 self.current_polyline_start = snapped
             self.queue_draw()
@@ -968,6 +1007,20 @@ class CanvasEventsMixin:
         self.queue_draw()
         popover.popdown()  # Hide the sub-menu popover
         parent_popover.popdown()  # Hide the parent right-click popover
+    
+    def toggle_polyline_style(self, selected_polylines, style, parent_popover):
+        if style == "dashed":
+            for polyline in selected_polylines:
+                polyline["object"].style = "solid"
+            self.queue_draw()
+        elif style == "solid":
+            for polyline in selected_polylines:
+                polyline["object"].style = "dashed"
+            self.queue_draw()
+        elif style == "toggle":
+            for polyline in selected_polylines:
+                polyline["object"].style = "dashed" if polyline["object"].style == "solid" else "solid"
+            self.queue_draw()
 
     def set_ext_int(self, selected_walls, state, popover):
             for wall in selected_walls:
