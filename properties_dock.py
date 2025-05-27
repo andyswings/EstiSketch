@@ -1,4 +1,4 @@
-import gi
+import gi, os
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
 
@@ -24,10 +24,30 @@ class PropertiesDock(Gtk.Box):
     def __init__(self):
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL)
 
+        icon_dir = os.path.join(os.path.dirname(__file__), "Icons")
+        
         # Icon bar (fixed width, icon-only buttons)
         self.icon_bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.icon_bar.set_margin_top(48)
         self.icon_bar.set_size_request(40, -1)
+        self.icon_bar.set_vexpand(True)
         self.append(self.icon_bar)
+        
+        self.wall_tab_btn = Gtk.Button()             # or Gtk.Button(), same thing
+        self.wall_tab_btn.add_css_class("flat")               # no button borders
+        self.wall_tab_btn.set_tooltip_text("Wall Properties")           # hover text
+
+        # 2) Give it an icon (use any icon name you like; "draw-wall-symbolic" is just an example)
+        # wall_img = Gtk.Image.new_from_icon_name("draw-wall-symbolic", Gtk.IconSize.BUTTON)
+        wall_img = Gtk.Image.new_from_file(os.path.join(icon_dir, "wall_properties.png"))
+        wall_img.set_pixel_size(24)
+        self.wall_tab_btn.set_child(wall_img)
+
+        # 3) Wire it to switch to your Wall-properties page
+        self.wall_tab_btn.connect("clicked", lambda btn: self.select_tab("wall"))
+
+        # 4) Finally, pack it into the icon bar
+        self.icon_bar.append(self.wall_tab_btn)
 
         # Content stack (hidden until needed)
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT,

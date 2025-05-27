@@ -95,6 +95,11 @@ class EstimatorApp(Gtk.Application):
         vbox.append(header_box)
         
         self.canvas = canvas_area.create_canvas_area(self.config)
+        
+        self.canvas.connect(
+            'selection-changed',
+            lambda canvas, selected: self.properties_dock.refresh_tabs(selected)
+        )
 
         # Define toggle callbacks.
         def on_pointer_toggled(toggle_button):
@@ -259,17 +264,15 @@ class EstimatorApp(Gtk.Application):
         vbox.append(toolbar_box)
         
         
-        self.properties_dock = PropertiesDock()
         main_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         main_hbox.append(self.canvas)
-        if self.config.SHOW_PROPERTIES_PANEL:
-            main_hbox.append(self.properties_dock)
-        vbox.append(main_hbox)
         
-        self.canvas.connect(
-            'selection-changed',
-            lambda canvas, selected: self.properties_dock.refresh_tabs(selected)
-        )
+        # Only show properties panel if enabled in config
+        if getattr(self.config, 'SHOW_PROPERTIES_PANEL', False):
+            self.properties_dock = PropertiesDock()
+            main_hbox.append(self.properties_dock)
+            
+        vbox.append(main_hbox)
 
         # Connect non-toggle button actions.
         self.tool_buttons["save"].connect("clicked", lambda btn: self.show_save_dialog())
