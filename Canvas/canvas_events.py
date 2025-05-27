@@ -233,8 +233,9 @@ class CanvasEventsMixin:
         # Set the popover's parent to the canvas (self)
         parent_popover.set_parent(self)
         
-        # Show the popover
-        parent_popover.popup()
+        # Show the popover only if there are selected items
+        if len(self.selected_items) > 0:
+            parent_popover.popup()
     
     def join_selected_walls(self, popover) -> None:
         """
