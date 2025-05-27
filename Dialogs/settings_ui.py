@@ -86,6 +86,7 @@ def create_settings_dialog(parent, config_constants, canvas):
     toggles = [
         ("Enable Snapping", "SNAP_ENABLED"),
         ("Show Grid", "SHOW_GRID"),
+        ("Show Properties Panel", "SHOW_PROPERTIES_PANEL"),
         ("Show Rulers", "SHOW_RULERS"),
         ("Enable Auto Save", "ENABLE_AUTO_SAVE"),
         ("Show Measurement Hints", "SHOW_MEASUREMENT_HINTS"),

@@ -496,6 +496,7 @@ class CanvasEventsMixin:
         else:
             if not shift_pressed:
                 self.selected_items = []
+        self.emit('selection-changed', self.selected_items)
         self.queue_draw()
 
 

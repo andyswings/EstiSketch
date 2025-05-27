@@ -10,6 +10,7 @@ from Dialogs import manage_materials
 from Dialogs import estimate_materials
 from Dialogs import estimate_cost
 from Dialogs import help_dialog
+from properties_dock import PropertiesDock
 from file_menu import create_file_menu
 from sh3d_importer import import_sh3d
 from project_io import save_project, open_project
@@ -92,7 +93,7 @@ class EstimatorApp(Gtk.Application):
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         header_box.append(file_menu_button)
         vbox.append(header_box)
-
+        
         self.canvas = canvas_area.create_canvas_area(self.config)
 
         # Define toggle callbacks.
@@ -256,7 +257,19 @@ class EstimatorApp(Gtk.Application):
         }
         toolbar_box, self.tool_buttons, extra_buttons = toolbar.create_toolbar(self.config, callbacks, self.canvas)
         vbox.append(toolbar_box)
-        vbox.append(self.canvas)
+        
+        
+        self.properties_dock = PropertiesDock()
+        main_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        main_hbox.append(self.canvas)
+        if self.config.SHOW_PROPERTIES_PANEL:
+            main_hbox.append(self.properties_dock)
+        vbox.append(main_hbox)
+        
+        self.canvas.connect(
+            'selection-changed',
+            lambda canvas, selected: self.properties_dock.refresh_tabs(selected)
+        )
 
         # Connect non-toggle button actions.
         self.tool_buttons["save"].connect("clicked", lambda btn: self.show_save_dialog())

@@ -65,7 +65,8 @@ DEFAULT_SETTINGS = {
     "PIXELS_PER_INCH": 2.0,
     "RECENT_FILES": [],
     "MAX_RECENT_FILES": 6,
-    "POLYLINE_TYPE": "solid"
+    "POLYLINE_TYPE": "solid",
+    "SHOW_PROPERTIES_PANEL": True
 }
 
 def load_config():

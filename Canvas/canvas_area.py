@@ -1,6 +1,6 @@
 import gi, copy, math
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gdk, cairo
+from gi.repository import Gtk, Gdk, cairo, GObject
 from typing import List
 
 from measurement_utils import MeasurementConverter
@@ -19,6 +19,13 @@ class CanvasArea(Gtk.DrawingArea,
                  CanvasStateMixin, 
                  CanvasGeometryMixin,
                  CanvasToolMixin):
+    
+    __gtype_name__ = 'CanvasArea'
+    __gsignals__ = {
+        # when selection changes, send the new list of selected items
+        'selection-changed': (GObject.SignalFlags.RUN_FIRST, None, (object,)),
+    }
+    
     def __init__(self, config_constants):
         super().__init__()
         self.config = config_constants
@@ -32,7 +39,6 @@ class CanvasArea(Gtk.DrawingArea,
 
         # Zoom and pan
         self.zoom = self.config.DEFAULT_ZOOM_LEVEL
-        print(f"Zoom level: {self.zoom}")
         self.ruler_offset = 80
         self.offset_x = self.ruler_offset
         self.offset_y = self.ruler_offset
