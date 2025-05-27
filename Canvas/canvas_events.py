@@ -128,7 +128,7 @@ class CanvasEventsMixin:
         selected_polylines = [item for item in self.selected_items if item.get("type") == "polyline"]
 
         # Create a popover to serve as the context menu
-        parent_popover = Gtk.Popover()  # Renamed for clarity
+        parent_popover = Gtk.Popover()
         
         # Create a vertical box to hold the menu item(s)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -141,7 +141,7 @@ class CanvasEventsMixin:
             if wall["object"].exterior_wall == False and use_ext_button == False:
                 use_ext_button = True
             elif wall["object"].exterior_wall == True and use_int_button == False:
-                use_int_button = True
+                use_int_button = True        
         
         if use_ext_button:
             ext_button = Gtk.Button(label="Set as Exterior")
@@ -152,6 +152,26 @@ class CanvasEventsMixin:
             int_button = Gtk.Button(label="Set as Interior")
             int_button.connect("clicked", lambda btn: self.set_ext_int(selected_walls, False, parent_popover))
             box.append(int_button)
+        
+        
+        use_add_footer_button = False
+        use_remove_footer_button = False
+        for wall in selected_walls:
+            if wall["object"].footer == False and use_add_footer_button == False:
+                use_add_footer_button = True
+            elif wall["object"].footer == True and use_remove_footer_button == False:
+                use_remove_footer_button = True
+        
+        if use_add_footer_button:
+            add_foot_btn = Gtk.Button(label="Add Footer")
+            add_foot_btn.connect("clicked", lambda btn: self.add_remove_footer(selected_walls, parent_popover, state=True))
+            box.append(add_foot_btn)
+        
+        if use_remove_footer_button:
+            remove_foot_btn = Gtk.Button(label="Remove Footer")
+            remove_foot_btn.connect("clicked", lambda btn: self.add_remove_footer(selected_walls, parent_popover, state=False))
+            box.append(remove_foot_btn)
+            
         
         # Create a button labeled "Join Walls"
         if len(selected_walls) >= 2:
@@ -189,17 +209,17 @@ class CanvasEventsMixin:
         # Polyline-specific option
         if selected_polylines:
             polyline_button = Gtk.Button(label="Change Polyline Style")
-            polyline_button.connect("clicked", lambda btn: self.toggle_polyline_style(selected_polylines, style="toggle"))
+            polyline_button.connect("clicked", lambda btn: self.toggle_polyline_style(selected_polylines, parent_popover, style="toggle"))
             box.append(polyline_button)
             
             if selected_polylines[0]["object"].style == "dashed":
                 polyline_solid_button = Gtk.Button(label="Change Polyline(s) to Solid")
-                polyline_solid_button.connect("clicked", lambda btn: self.toggle_polyline_style(selected_polylines, style="dashed"))
+                polyline_solid_button.connect("clicked", lambda btn: self.toggle_polyline_style(selected_polylines, parent_popover, style="dashed"))
                 box.append(polyline_solid_button)
             
             if selected_polylines[0]["object"].style == "solid":
                 polyline_dashed_button = Gtk.Button(label="Change Polyline(s) to Dashed")
-                polyline_dashed_button.connect("clicked", lambda btn: self.toggle_polyline_style(selected_polylines, style="solid"))
+                polyline_dashed_button.connect("clicked", lambda btn: self.toggle_polyline_style(selected_polylines, parent_popover, style="solid"))
                 box.append(polyline_dashed_button)
         
         # Position the popover at the click location
@@ -245,7 +265,7 @@ class CanvasEventsMixin:
                     
         # Check if there are at least two selected wall sets to join.
         if len(selected_sets) < 2:
-            print("Right-click: Need at least 2 selected walls to join.")
+            print("Right-click: Need at least 2 selected walls sets to join.")
             return
 
         if not selected_sets:
@@ -1008,25 +1028,36 @@ class CanvasEventsMixin:
         popover.popdown()  # Hide the sub-menu popover
         parent_popover.popdown()  # Hide the parent right-click popover
     
-    def toggle_polyline_style(self, selected_polylines, style, parent_popover):
+    def toggle_polyline_style(self, selected_polylines, popover, style):
         if style == "dashed":
             for polyline in selected_polylines:
                 polyline["object"].style = "solid"
             self.queue_draw()
+            popover.popdown()
         elif style == "solid":
             for polyline in selected_polylines:
                 polyline["object"].style = "dashed"
             self.queue_draw()
+            popover.popdown()
         elif style == "toggle":
             for polyline in selected_polylines:
                 polyline["object"].style = "dashed" if polyline["object"].style == "solid" else "solid"
             self.queue_draw()
+            popover.popdown()
 
     def set_ext_int(self, selected_walls, state, popover):
             for wall in selected_walls:
                 wall["object"].exterior_wall = state
             self.queue_draw()
             popover.popdown()
+    
+    def add_remove_footer(self, selected_walls, popover, state):
+        for wall in selected_walls:
+            wall["object"].footer = state
+        print(f"Footer state set to {state} for selected walls.")
+        # TODO : Implement footer rendering logic
+        self.queue_draw()
+        popover.popdown()
     
     def toggle_door_orientation(self, selected_doors, popover, inswing=False, outswing=False):
         for door_item in selected_doors:

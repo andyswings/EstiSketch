@@ -11,6 +11,7 @@ class Wall:
         self.width = width  # integer (inches)
         self.height = height  # integer (inches)
         self.exterior_wall = exterior_wall  # boolean
+        self.footer = False
         
         # Material properties
         self.material = "wood"
