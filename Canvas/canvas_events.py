@@ -121,6 +121,10 @@ class CanvasEventsMixin:
 
     
     def _handle_pointer_right_click(self, gesture, n_press, x, y):
+        if len(self.selected_items) == 0:
+            # If no items are selected, do nothing.
+            return
+        
         # Filter selected items
         selected_walls = [item for item in self.selected_items if item.get("type") == "wall"]
         selected_doors = [item for item in self.selected_items if item.get("type") == "door"]
@@ -233,9 +237,8 @@ class CanvasEventsMixin:
         # Set the popover's parent to the canvas (self)
         parent_popover.set_parent(self)
         
-        # Show the popover only if there are selected items
-        if len(self.selected_items) > 0:
-            parent_popover.popup()
+        # Show the popover
+        parent_popover.popup()
     
     def join_selected_walls(self, popover) -> None:
         """
