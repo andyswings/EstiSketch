@@ -11,7 +11,12 @@ class Wall:
         self.width = width  # integer (inches)
         self.height = height  # integer (inches)
         self.exterior_wall = exterior_wall  # boolean
+        
+        # Footer properties
         self.footer = False
+        self.footer_left_offset = 6.0
+        self.footer_right_offset = 6.0
+        self.footer_depth = 8.0
         
         # Material properties
         self.material = "wood"
