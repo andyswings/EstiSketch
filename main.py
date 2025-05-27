@@ -401,7 +401,7 @@ class EstimatorApp(Gtk.Application):
                 self.show_open_dialog()
                 return True
             elif keyname == "e":
-                print("Export as PDF triggered")
+                self.on_export_clicked()
                 return True
             elif keyname == "m":
                 self.on_manage_materials_clicked(None)
