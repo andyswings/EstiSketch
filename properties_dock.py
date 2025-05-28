@@ -32,24 +32,8 @@ class PropertiesDock(Gtk.Box):
         self.icon_bar.set_size_request(40, -1)
         self.icon_bar.set_vexpand(True)
         self.append(self.icon_bar)
-        
-        self.wall_tab_btn = Gtk.Button()             # or Gtk.Button(), same thing
-        self.wall_tab_btn.add_css_class("flat")               # no button borders
-        self.wall_tab_btn.set_tooltip_text("Wall Properties")           # hover text
 
-        # 2) Give it an icon (use any icon name you like; "draw-wall-symbolic" is just an example)
-        # wall_img = Gtk.Image.new_from_icon_name("draw-wall-symbolic", Gtk.IconSize.BUTTON)
-        wall_img = Gtk.Image.new_from_file(os.path.join(icon_dir, "wall_properties.png"))
-        wall_img.set_pixel_size(24)
-        self.wall_tab_btn.set_child(wall_img)
-
-        # 3) Wire it to switch to your Wall-properties page
-        self.wall_tab_btn.connect("clicked", lambda btn: self.select_tab("wall"))
-
-        # 4) Finally, pack it into the icon bar
-        self.icon_bar.append(self.wall_tab_btn)
-
-        # Content stack (hidden until needed)
+        # Content stack
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT,
                                transition_duration=200)
         self.append(self.stack)
@@ -60,13 +44,19 @@ class PropertiesDock(Gtk.Box):
 
         # Pre-create pages
         self.wall_page = WallPropertiesWidget()
-        self.stack.add_titled(self.wall_page, "wall", "Wall")
+        self.stack.add_titled(self.wall_page, "wall", "Wall Properties")
         self.foundation_page = FoundationPropertiesWidget()
         self.stack.add_titled(self.foundation_page, "foundation", "Foundation")
+        
+        wall_btn = self._make_tab_button("wall", icon_dir, "wall_properties") 
+        self.icon_bar.append(wall_btn)  
+        self.tabs["wall"] = wall_btn  
 
-    def _make_tab_button(self, name, icon_name):
+    def _make_tab_button(self, name, icon_dir, icon_name):
         btn = Gtk.ToggleButton()
-        image = Gtk.Image.new_from_icon_name(icon_name)
+        print(icon_name)
+        image = Gtk.Image.new_from_file(os.path.join(icon_dir, f"{icon_name}.png"))
+        
         btn.set_child(image)
         btn.set_tooltip_text(name.capitalize())
         btn.connect('toggled', lambda b: self._on_tab_toggled(b, name))
@@ -86,7 +76,7 @@ class PropertiesDock(Gtk.Box):
         wants_foundation = wants_wall and any(getattr(i, 'footer', False) for i in selected_items)
 
         # Show/hide icons
-        self._ensure_tab('wall', wants_wall, 'application-inspector')
+        self._ensure_tab('wall Properties', wants_wall, 'application-inspector')
         self._ensure_tab('foundation', wants_foundation, 'view-filter')
 
         # Hide stack if current page no longer valid
