@@ -62,9 +62,9 @@ class PropertiesDock(Gtk.Box):
         btn.connect('toggled', lambda b: self._on_tab_toggled(b, name))
         return btn
 
-    def _ensure_tab(self, name, should_show, icon_name):
+    def _ensure_tab(self, name, should_show, icon_name, icon_dir=os.path.join(os.path.dirname(__file__), "Icons")):
         if should_show and name not in self.tabs:
-            btn = self._make_tab_button(name, icon_name)
+            btn = self._make_tab_button(name, icon_dir, icon_name)
             self.icon_bar.append(btn)
             self.tabs[name] = btn
         elif not should_show and name in self.tabs:
@@ -72,16 +72,22 @@ class PropertiesDock(Gtk.Box):
             self.icon_bar.remove(btn)
 
     def refresh_tabs(self, selected_items):
-        wants_wall = any(isinstance(i, Wall) for i in selected_items)
-        wants_foundation = wants_wall and any(getattr(i, 'footer', False) for i in selected_items)
+        # 1) Detect walls by the "type" key, not by isinstance() on the dict
+        wants_wall = any(item.get("type") == "wall" for item in selected_items)
 
-        # Show/hide icons
-        self._ensure_tab('wall Properties', wants_wall, 'application-inspector')
-        self._ensure_tab('foundation', wants_foundation, 'view-filter')
+        # 2) If any selected wall has footer=True, show the foundation tab
+        wants_foundation = any(
+            item.get("type") == "wall" and getattr(item["object"], "footer", False)
+            for item in selected_items
+        )
 
-        # Hide stack if current page no longer valid
+        # 3) Show or hide the icons
+        self._ensure_tab("wall", wants_wall, "wall_properties")
+        self._ensure_tab("foundation", wants_foundation, "view-filter")
+
+        # 4) If the currently visible page is no longer valid, hide the stack
         current = self.stack.get_visible_child_name()
-        valid = {'wall': wants_wall, 'foundation': wants_foundation}
+        valid   = {"wall": wants_wall, "foundation": wants_foundation}
         if current and not valid.get(current, False):
             self.stack.set_visible(False)
 

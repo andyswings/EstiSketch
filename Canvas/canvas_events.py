@@ -691,6 +691,7 @@ class CanvasEventsMixin:
                         self.selected_items.append(item)
             else:
                 self.selected_items = new_selection
+            self.emit('selection-changed', self.selected_items)
             
             self.box_selecting = False
             self.queue_draw()

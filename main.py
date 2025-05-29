@@ -80,7 +80,6 @@ class EstimatorApp(Gtk.Application):
             title=self.config.WINDOW_TITLE
         )
         self.window.set_default_size(self.config.WINDOW_WIDTH, self.config.WINDOW_HEIGHT)
-        self.window.maximize()
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.window.set_child(vbox)
@@ -299,6 +298,8 @@ class EstimatorApp(Gtk.Application):
         key_controller = Gtk.EventControllerKey.new()
         key_controller.connect("key-pressed", self.on_key_pressed)
         self.window.add_controller(key_controller)
+        
+        self.properties_dock.refresh_tabs(self.canvas.selected_items)
 
         self.window.present()
         
