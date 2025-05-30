@@ -9,7 +9,7 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
   The basic wall drawing tool is mostly complete. You can draw walls with live snapping (to endpoints, angles, and grid points) and real‑time measurement labels that display both the wall’s length and its angle. Double click inside of an existing room to automatically draw walls around it.
 
 - **Room Creation:**  
-  Manual point-by-point room drawing is now supported, allowing precise control over room shapes.
+  Manual point-by-point room drawing is supported, allowing precise control over room shapes.
   Double-click inside a closed wall loop to automatically create a room, streamlining the process of defining enclosed spaces.
 
 - **Pointer Tool:**
@@ -18,11 +18,13 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
     2. Box selection or clicking and dragging to select multiple items at once.
   Selection can be extended by holding the shift key and selecting additional segments or vertices. 
 
+  Right click menu is implemented with more options planned in the future.
+
 - **Pan Tool:**  
   The pan tool works as expected, allowing you to smoothly move around your drawing.
 
 - **Zoom Controls:**  
-  Zoom in, zoom out, and reset zoom functions are fully implemented, including pinch to zoom on touch devices, giving you flexible control over your view.
+  Zoom in, zoom out, and reset zoom functions are fully implemented, including pinch to zoom on touchpads, giving you flexible control over your view.
 
 - **Snapping and Live Measurement Labels:**  
   Walls snap precisely to key points and angles, and as you draw, live measurement labels display the current segment’s length and angle. These labels stay parallel to the wall and automatically flip for readability when needed.
@@ -31,12 +33,13 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
 - **Customizable Settings:**  
   A dedicated settings dialog lets you adjust many parameters, including default wall dimensions, snapping thresholds, grid spacing, zoom level, and more. Changes are applied immediately to the drawing area.
 - **Toolbar and File Operations:**  
-  The toolbar provides access to key functions like Save, Open, and Export as PDF. (These operations currently trigger placeholder actions and will be enhanced in future releases.)
+  The toolbar provides access to key functions like Save, Open, and Export as well as drawing tools.
+
+- **Properties Dock:**
+  The properties dock is intended to allow tweaking of any selected items in the drawing canvas
 
 ## Planned Features
 
-- **Additional Drawing Tools:**  
-  Tools for drawing rooms, adding doors and windows, dimension lines, and text annotations are planned.
 - **Materials Management & Cost Estimation:**  
   Future updates will include comprehensive tools for managing materials, estimating quantities, and calculating detailed cost estimates.
 - **Advanced Editing:**  
