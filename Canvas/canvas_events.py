@@ -161,6 +161,8 @@ class CanvasEventsMixin:
         use_add_footer_button = False
         use_remove_footer_button = False
         for wall in selected_walls:
+            print(f"Wall {wall['object'].start} to {wall['object'].end} has footer: {wall['object'].footer} and footer depth: {wall['object'].footer_depth} and footer offsets: {wall['object'].footer_left_offset}, {wall['object'].footer_right_offset}")
+            print(f"Width: {wall['object'].width}, Height: {wall['object'].height}")
             if wall["object"].footer == False and use_add_footer_button == False:
                 use_add_footer_button = True
             elif wall["object"].footer == True and use_remove_footer_button == False:

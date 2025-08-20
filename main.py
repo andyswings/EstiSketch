@@ -268,7 +268,7 @@ class EstimatorApp(Gtk.Application):
         
         # Only show properties panel if enabled in config
         if getattr(self.config, 'SHOW_PROPERTIES_PANEL', False):
-            self.properties_dock = PropertiesDock()
+            self.properties_dock = PropertiesDock(self.canvas)
             main_hbox.append(self.properties_dock)
             
         vbox.append(main_hbox)
