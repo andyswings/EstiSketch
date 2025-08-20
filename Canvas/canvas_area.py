@@ -1,7 +1,6 @@
-import gi, copy, math
+import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gdk, cairo, GObject
-from typing import List
+from gi.repository import Gtk, Gdk, GObject
 
 from measurement_utils import MeasurementConverter
 from components import Wall, Room

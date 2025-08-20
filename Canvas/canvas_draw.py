@@ -1,5 +1,4 @@
 import math
-from gi.repository import cairo
 import Canvas.door_window_renderer as dwr
 import Canvas.wall_room_renderer as wr
 
@@ -192,7 +191,6 @@ class CanvasDrawMixin:
                         continue
                     d = (dx / length, dy / length)
                     p = (-d[1], d[0])
-                    n = (-p[0], -p[1]) if door.swing == "left" else (p[0], p[1])
                     w = door.width
                     t = self.config.DEFAULT_WALL_WIDTH
                     H_start = (H[0] - (w / 2) * d[0], H[1] - (w / 2) * d[1])
@@ -422,7 +420,6 @@ class CanvasDrawMixin:
 
         # Get the visible major grid positions.
         x_positions, y_positions = self.get_major_grid_positions(width, height, pixels_per_inch)
-        T = self.zoom * pixels_per_inch
 
         cr.set_source_rgb(0, 0, 0)
         cr.set_line_width(1)
