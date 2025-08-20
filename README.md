@@ -54,9 +54,26 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
    cd EstiSketch
 
 2. **Install Dependencies:**
-Ensure you have Python 3 and GTK4 installed.
+  Ensure you have Python 3 and GTK4 installed.
 
-3. **Run the Application:**
+  ```bash
+  sudo apt install libgirepository-2.0-dev gcc libcairo2-dev pkg-config python3-dev gir1.2-gtk-4.0 python3-pip
+
+
+3. **Create and Activate a Virtual Environment**
+  
+  ```bash
+  pip install uv
+  uv venv estisketch
+  source estisketch/bin/activate
+
+4. **Install Python Packages in the Venv**
+
+  ```bash
+  uv pip install pycairo
+  uv pip install PyGObject
+
+5. **Run the Application:**
 
     ```bash
     python main.py
