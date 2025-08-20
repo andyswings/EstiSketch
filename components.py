@@ -26,7 +26,7 @@ class Wall:
         # Construction details
         self.stud_spacing = 16
         self.insulation_type = "fiberglass"
-        self.fire_rating = "1hr"
+        self.fire_rating = "1"
 
     def __eq__(self, other):
         if not isinstance(other, Wall):
