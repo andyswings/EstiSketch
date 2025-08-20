@@ -40,7 +40,7 @@ class WallPropertiesWidget(Gtk.Box):
         height_row.append(Gtk.Label(label="Height:"))
         self.height_combo = Gtk.ComboBoxText()
         self.height_handler_id    = self.height_combo.connect("changed", self.on_height_changed)
-        for val in ["8'", "9'", "10'", "12'", "Custom (Coming in a future release)"]:
+        for val in ["8'", "9'", "10'", "12'", "Custom (Coming later)"]:
             self.height_combo.append_text(val)
         self.height_combo.set_active(0)  # default 8'
         height_row.append(self.height_combo)
@@ -457,7 +457,7 @@ class PropertiesDock(Gtk.Box):
             print(f"{selected_wall} Should be shown in properties dock")
             self.wall_page.set_wall(selected_wall)
             # # Also auto-open the tab (so the user sees it immediately)
-            # self.tabs["wall"].set_active(True)
+            self.stack.set_visible(True)
         else:
             # Optionally, hide the stack if there’s nothing to show
             self.stack.set_visible(False)
