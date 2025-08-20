@@ -58,6 +58,7 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
 
   ```bash
   sudo apt install libgirepository-2.0-dev gcc libcairo2-dev pkg-config python3-dev gir1.2-gtk-4.0 python3-pip
+  ```
 
 
 3. **Create and Activate a Virtual Environment**
