@@ -52,6 +52,7 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
    ```bash
    git clone https://github.com/andyswings/EstiSketch.git
    cd EstiSketch
+   ```
 
 2. **Install Dependencies:**
   Ensure you have Python 3 and GTK4 installed.
@@ -67,17 +68,20 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
   pip install uv
   uv venv estisketch
   source estisketch/bin/activate
+  ```
 
 4. **Install Python Packages in the Venv**
 
   ```bash
   uv pip install pycairo
   uv pip install PyGObject
+  ```
 
 5. **Run the Application:**
 
     ```bash
     python main.py
+    ```
 
 **Contributing**
 Contributions are welcome!
