@@ -1097,7 +1097,6 @@ class CanvasEventsMixin:
         if n_press == 1:
             self.save_state()
             self.current_room_points.append((snapped_x, snapped_y))
-            print(f"Added point to room: {snapped_x}, {snapped_y}")
             self.queue_draw()
         elif n_press == 2:
             self.save_state()
@@ -1106,7 +1105,6 @@ class CanvasEventsMixin:
                     self.current_room_points.append(self.current_room_points[0])
                 new_room = self.Room(self.current_room_points)
                 self.rooms.append(new_room)
-                print(f"Finalized manual room with points: {self.current_room_points}")
                 self.current_room_points = []
                 self.current_room_preview = None
             for wall_set in self.wall_sets:
@@ -1117,7 +1115,6 @@ class CanvasEventsMixin:
                     if self._point_in_polygon((snapped_x, snapped_y), poly):
                         new_room = self.Room(poly)
                         self.rooms.append(new_room)
-                        print(f"Created room from wall set: {poly}")
                         break
             self.queue_draw()
             
