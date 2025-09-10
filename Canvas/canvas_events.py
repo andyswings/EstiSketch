@@ -5,7 +5,6 @@ from components import Wall, Door, Window, Polyline
 import config
 import random
 import string
-from typing import Type
 
 class CanvasEventsMixin:
     def on_click(self, gesture: Gtk.Gesture, n_press: int, x: float, y:float) -> None:
