@@ -5,7 +5,8 @@ from gi.repository import Pango
 
 @dataclass(eq=False)
 class Wall:
-    def __init__(self, start, end, width, height, exterior_wall=False):
+    def __init__(self, start, end, width, height, exterior_wall=False, identifier=""):
+        self.identifier = identifier  # unique string identifier
         self.start = start  # tuple of (x, y)
         self.end = end      # tuple of (x, y)
         self.width = width  # integer (inches)
@@ -39,7 +40,8 @@ class Wall:
 
 @dataclass
 class Polyline:
-    def __init__(self, start, end):
+    def __init__(self, start, end, identifier=""):
+        self.identifier = identifier  # unique string identifier
         self.start = start  # tuple of (x, y)
         self.end = end      # tuple of (x, y) 
         self.style = "solid"  # or "dashed"  
@@ -47,7 +49,8 @@ class Polyline:
 
 @dataclass
 class Room:
-    def __init__(self, points: List[Tuple[float, float]], height: float = 96.0):
+    def __init__(self, points: List[Tuple[float, float]], height: float = 96.0, identifier=""):
+        self.identifier = identifier  # unique string identifier
         self.points = points  # List of (x, y) tuples defining the room vertices
         self.height = height  # Room height in inches
         self.floor_type = "default"
@@ -58,7 +61,8 @@ class Room:
 
 @dataclass
 class Door:
-    def __init__(self, door_type: str, width: float, height: float, swing: str, orientation: str):
+    def __init__(self, door_type: str, width: float, height: float, swing: str, orientation: str, identifier=""):
+        self.identifier = identifier  # unique string identifier
         self.door_type = door_type  # Type of door (e.g., "single", "double", "sliding", "pocket", "bi-fold", "double_bi-fold", "door_frame", "garage")
         self.width = width  # Door width in inches
         self.height = height    # Door height in inches
@@ -68,7 +72,8 @@ class Door:
 
 @dataclass
 class Window:
-    def __init__(self, width: float, height: float, window_type: str):
+    def __init__(self, width: float, height: float, window_type: str, identifier=""):
+        self.identifier = identifier  # unique string identifier
         self.width = width  # Window width in inches
         self.height = height  # Window height in inches
         self.window_type = window_type # Type of window (e.g.,"double-hung", "sliding", "fixed")

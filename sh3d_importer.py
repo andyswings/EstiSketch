@@ -5,8 +5,9 @@ import xml.etree.ElementTree as ET
 import math
 
 from components import Wall, Room, Door, Window
+from Canvas.canvas_area import CanvasArea
 
-def import_sh3d(sh3d_file_path: str) -> dict:
+def import_sh3d(sh3d_file_path: str, canvas_area: CanvasArea) -> dict:
     """
     Import a Sweet Home 3D (.sh3d) file and extract walls, rooms, doors, and windows.
     All measurements (in centimeters) are converted to inches.
@@ -28,6 +29,8 @@ def import_sh3d(sh3d_file_path: str) -> dict:
 
         # Conversion factor: 1 cm ≈ 0.3937 inches
         cm_to_in = 0.393700787
+        
+        identifiers = []
 
         wall_height = float(root.get('wallHeight', 243.84)) * cm_to_in
 
@@ -41,12 +44,14 @@ def import_sh3d(sh3d_file_path: str) -> dict:
                 y_end = float(wall_elem.get('yEnd', 0)) * cm_to_in
                 wall_elem_height = float(wall_elem.get('height', wall_height/cm_to_in)) * cm_to_in
                 thickness = float(wall_elem.get('thickness', 0)) * cm_to_in
+                identifier = wall_elem.get('id', '')
             except ValueError as e:
                 print(f"Error parsing wall element: {e}")
                 continue
 
             wall = Wall(start=(x_start, y_start), end=(x_end, y_end),
-                        width=thickness, height=wall_elem_height)
+                        width=thickness, height=wall_elem_height, identifier=identifier)
+            identifiers.append(identifier)
             walls.append(wall)
         print(f"Extracted {len(walls)} walls.")
 
@@ -91,6 +96,7 @@ def import_sh3d(sh3d_file_path: str) -> dict:
                 width = float(dw_elem.get('width', 0)) * cm_to_in
                 depth = float(dw_elem.get('depth', 0)) * cm_to_in
                 height = float(dw_elem.get('height', 0)) * cm_to_in
+                identifier = dw_elem.get('id', '')
             except ValueError as e:
                 print(f"Error parsing doorOrWindow element: {e}")
                 continue
@@ -121,22 +127,24 @@ def import_sh3d(sh3d_file_path: str) -> dict:
 
             if element_type == "door":
                 if "frame" in name_attr:
-                    new_door = Door("frame", width, height, "left", "inswing")
+                    new_door = Door("frame", width, height, "left", "inswing", identifier=identifier)
                 elif "pocket" in name_attr:
-                    new_door = Door("pocket", width, height, "left", "inswing")
+                    new_door = Door("pocket", width, height, "left", "inswing", identifier=identifier)
                 elif "french" in name_attr:
-                    new_door = Door("double", width, height, "left", "inswing")
+                    new_door = Door("double", width, height, "left", "inswing", identifier=identifier)
                 elif "sliding" in name_attr:
-                    new_door = Door("sliding", width, height, "left", "inswing")
+                    new_door = Door("sliding", width, height, "left", "inswing", identifier=identifier)
                 elif "garage" in name_attr:
-                    new_door = Door("garage", width, height, "left", "inswing")
+                    new_door = Door("garage", width, height, "left", "inswing", identifier=identifier)
                 else:
                     print(name_attr)
-                    new_door = Door("single", width, height, "left", "inswing")
+                    new_door = Door("single", width, height, "left", "inswing", identifier=identifier)
+                identifiers.append(identifier)
                 doors.append((associated_wall, new_door, best_ratio))
             else:  # window
                 print(name_attr)
-                new_window = Window(width, height, "sliding")
+                new_window = Window(width, height, "sliding", identifier=identifier)
+                identifiers.append(identifier)
                 windows.append((associated_wall, new_window, best_ratio))
 
-        return {"wall_sets": wall_sets, "rooms": rooms, "doors": doors, "windows": windows}
+        return {"wall_sets": wall_sets, "rooms": rooms, "doors": doors, "windows": windows, "identifiers": identifiers}

@@ -388,6 +388,12 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "f1":
                 self.on_help_clicked(None)
                 return True
+            elif keyname == "delete":
+                if self.canvas.selected_items:
+                    self.canvas.delete_selected()
+                    self.canvas.save_state()
+                    self.canvas.queue_draw()
+                    return True
 
         if ctrl_pressed and not shift_pressed:
             if keyname == "z":
@@ -513,7 +519,7 @@ class EstimatorApp(Gtk.Application):
             file = dialog.get_file()
             sh3d_file = file.get_path()
             try:
-                imported = import_sh3d(sh3d_file)
+                imported = import_sh3d(sh3d_file, self.canvas)
                 # Clear the current canvas content.
                 self.canvas.wall_sets.clear()
                 self.canvas.walls.clear()
@@ -523,6 +529,9 @@ class EstimatorApp(Gtk.Application):
                 self.canvas.rooms.extend(imported["rooms"])
                 self.canvas.doors.extend(imported["doors"])
                 self.canvas.windows.extend(imported["windows"])
+                self.canvas.existing_ids.extend(imported["identifiers"])
+                # Mark the canvas as dirty since it has new content.
+                self.is_dirty = True
                 # Request redraw of canvas
                 self.canvas.queue_draw()
             except Exception as e:

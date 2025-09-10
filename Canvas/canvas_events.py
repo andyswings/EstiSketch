@@ -3,7 +3,9 @@ from gi.repository import Gtk, Gdk
 from typing import List
 from components import Wall, Door, Window, Polyline
 import config
-
+import random
+import string
+from typing import Type
 
 class CanvasEventsMixin:
     def on_click(self, gesture, n_press, x, y):
@@ -27,6 +29,29 @@ class CanvasEventsMixin:
             print("Text tool is not implemented yet.")
             # TODO: Implement text tool
         #     self._handle_text_click(n_press, x, y)
+    
+    
+    def generate_identifier(self, component_type: str, existing_ids: List[str]) -> str:
+        ''' Generate a unique identifier for a component.
+    
+         The identifier format is: {component_type}-{8 chars}-{4 chars}-{4 chars}-{4 chars}-{12 chars}
+         
+         Example: wall-A1B2C3D4-E5F6-G7H8-I9J0-K1L2M3N4O5P6
+         
+         Parameters:
+             component_type (str): The type of component (e.g., "wall", "door").
+             existing_ids (List[str]): List of existing identifiers to ensure uniqueness.'''
+        characters = string.ascii_letters + string.digits
+        while True:
+            pt1 = ''.join(random.choices(characters, k=8))
+            pt2 = ''.join(random.choices(characters, k=4))
+            pt3 = ''.join(random.choices(characters, k=4))
+            pt4 = ''.join(random.choices(characters, k=4))
+            pt5 = ''.join(random.choices(characters, k=12))
+            identifier = f"{component_type}-{pt1}-{pt2}-{pt3}-{pt4}-{pt5}".lower()
+            if identifier not in existing_ids:
+                return identifier
+            
     
     def on_right_click(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
         """
@@ -75,12 +100,14 @@ class CanvasEventsMixin:
             print("No wall was found near the click for door addition.")
             return
         door_type = getattr(self.config, "DEFAULT_DOOR_TYPE", "single")
+        door_identifier = self.generate_identifier("door", self.existing_ids)
         if door_type == "garage":
-            new_door = Door(door_type, 96.0, 80.0, "left", "inswing")
+            new_door = Door(door_type, 96.0, 80.0, "left", "inswing", identifier=door_identifier)
         elif door_type == "double" or door_type == "sliding":
-            new_door = Door(door_type, 72.0, 80.0, "left", "inswing")
+            new_door = Door(door_type, 72.0, 80.0, "left", "inswing", identifier=door_identifier)
         else:
-            new_door = Door(door_type, 36.0, 80.0, "left", "inswing")
+            new_door = Door(door_type, 36.0, 80.0, "left", "inswing", identifier=door_identifier)
+        self.existing_ids.append(door_identifier)
         self.doors.append((selected_wall, new_door, selected_ratio))
         self.queue_draw()
     
@@ -115,7 +142,9 @@ class CanvasEventsMixin:
             return
         
         window_type = getattr(self.config, "DEFAULT_WINDOW_TYPE", "sliding")
-        new_window = Window(48.0, 36.0, window_type)
+        window_identifier = self.generate_identifier("window", self.existing_ids)
+        new_window = Window(48.0, 36.0, window_type, identifier=window_identifier)
+        self.existing_ids.append(window_identifier)
         self.windows.append((selected_wall, new_window, selected_ratio))
         self.queue_draw()
 
@@ -853,18 +882,26 @@ class CanvasEventsMixin:
         self.alignment_candidate = candidate
 
         if n_press == 1:
+            wall_instance = None
             if not self.drawing_wall:
                 self.drawing_wall = True
                 self.current_wall = self.Wall(
                     (snapped_x, snapped_y), (snapped_x, snapped_y),
-                    self.config.DEFAULT_WALL_WIDTH, self.config.DEFAULT_WALL_HEIGHT
+                    self.config.DEFAULT_WALL_WIDTH, self.config.DEFAULT_WALL_HEIGHT,
+                    identifier=self.generate_identifier("wall", self.existing_ids)
                 )
                 print(f"Drawing current wall of width: {self.config.DEFAULT_WALL_WIDTH}")
             else:
-                self.walls.append(self.Wall(self.current_wall.start, (snapped_x, snapped_y),
-                                            self.config.DEFAULT_WALL_WIDTH, self.config.DEFAULT_WALL_HEIGHT))
+                wall_instance = self.Wall(
+                    self.current_wall.start, (snapped_x, snapped_y),
+                    self.config.DEFAULT_WALL_WIDTH, self.config.DEFAULT_WALL_HEIGHT,
+                    identifier=self.generate_identifier("wall", self.existing_ids)
+                )
+            if wall_instance:
+                self.existing_ids.append(wall_instance.identifier)
+                self.walls.append(wall_instance)
                 self.current_wall.start = (snapped_x, snapped_y)
-            self.queue_draw()
+                self.queue_draw()
 
         elif n_press == 2:
             print(f"Double-click at ({snapped_x}, {snapped_y}), drawing_wall = {self.drawing_wall}")
@@ -927,7 +964,9 @@ class CanvasEventsMixin:
                 self.current_polyline_start = snapped
                 self.polylines = []
             else:
-                seg = Polyline(self.current_polyline_start, snapped)
+                polyline_identifier = self.generate_identifier("polyline", self.existing_ids)
+                seg = Polyline(self.current_polyline_start, snapped, identifier=polyline_identifier)
+                self.existing_ids.append(polyline_identifier)
                 default_style = getattr(self.config, "POLYLINE_TYPE", "solid")
                 seg_style = default_style if default_style in ("solid", "dashed") else "solid"
                 if seg_style == "dashed":

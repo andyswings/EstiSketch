@@ -65,12 +65,15 @@ class CanvasArea(Gtk.DrawingArea,
         self.doors = []  # List of door placements; each item is a tuple: (wall, door, position_ratio)
         self.windows = []  # List of window placements; each item is a tuple: (wall, window, position_ratio)
 
-        # For alignment snapping (used for walls and rooms)
+        # Alignment snapping (used for walls and rooms)
         self.alignment_candidate = None
         self.raw_current_end = None
 
         self.snap_type = "none"
         self.tool_mode = None  # "draw_walls" or "draw_rooms"
+        
+        # ID stack 
+        self.existing_ids = []
 
         # Undo/Redo stacks
         self.undo_stack = []
@@ -154,6 +157,45 @@ class CanvasArea(Gtk.DrawingArea,
         self.current_room_points = []
         self.current_room_preview = None
         self.queue_draw()
+    
+    def delete_selected(self):
+        """
+        Delete the currently selected object(s) from the canvas.
+        Supports walls, rooms, polylines, doors, and windows.
+        """
+        if not self.selected_items:
+            return
+
+        # Remove selected items from their respective lists
+        for item in list(self.selected_items):
+            # Walls: search and remove from wall_sets (which is a list of lists of walls)
+            for wall_list in self.wall_sets:
+                for wall in wall_list:
+                    if item == wall:
+                        wall_list.remove(wall)
+                        # If the wall list is empty after removal, remove the list itself
+                        if not wall_list:
+                            self.wall_sets.remove(wall_list)
+                        break
+            # Rooms
+            if item in self.rooms:
+                self.rooms.remove(item)
+            # Polylines: search and remove from polyline_sets (list of lists)
+            for poly_list in self.polyline_sets:
+                if item in poly_list:
+                    poly_list.remove(item)
+            # Doors
+            if item in self.doors:
+                self.doors.remove(item)
+            # Windows
+            if item in self.windows:
+                self.windows.remove(item)
+
+        self.selected_items.clear()
+        self.queue_draw()
+        self.emit('selection-changed', self.selected_items)
+        print(f"Current walls after deletion: {self.wall_sets}")
+
 
 def create_canvas_area(config_constants):
     return CanvasArea(config_constants)
