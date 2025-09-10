@@ -530,7 +530,6 @@ class CanvasEventsMixin:
                 dist_seg = self.distance_point_to_segment(click_pt, start_widget, end_widget)
                 if dist_seg < fixed_threshold and dist_seg < best_dist:
                     best_dist = dist_seg
-                    # print("Wall selected")
                     selected_item = {"type": "wall", "object": wall}
         
         for room in self.rooms:
@@ -543,7 +542,6 @@ class CanvasEventsMixin:
                                     click_pt[1] - pt_widget[1])
                 if dist_pt < vertex_threshold and dist_pt < best_dist:
                     best_dist = dist_pt
-                    # print("Vertex selected")
                     selected_item = {"type": "vertex", "object": (room, idx)}
 
         for door_item in self.doors:
