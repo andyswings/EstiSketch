@@ -8,7 +8,23 @@ import string
 from typing import Type
 
 class CanvasEventsMixin:
-    def on_click(self, gesture, n_press, x, y):
+    def on_click(self, gesture: Gtk.Gesture, n_press: int, x: float, y:float) -> None:
+        """
+        Handle click events on the canvas and dispatch to the appropriate tool handler.
+
+        This method is called when the user clicks on the canvas. It checks the current tool mode
+        and calls the corresponding handler for wall drawing, room drawing, door/window addition,
+        pointer selection, polyline drawing, or other tools. For unimplemented tools, it prints a message.
+
+        Args:
+            gesture: The gesture object for the click event (may be None for some tools).
+            n_press (int): The number of presses (usually 1 for a single click).
+            x (float): The x-coordinate of the click in widget coordinates.
+            y (float): The y-coordinate of the click in widget coordinates.
+
+        Returns:
+            None
+        """
         if self.tool_mode == "draw_walls":
             self._handle_wall_click(n_press, x, y)
         elif self.tool_mode == "draw_rooms":
@@ -68,8 +84,26 @@ class CanvasEventsMixin:
         """
         # Invoke the existing right-click handler.
         self._handle_pointer_right_click(gesture, n_press, x, y)
+        
     
     def _handle_door_click(self, n_press: int, x: float, y: float) -> None:
+        """
+        Handle the addition of a door to the nearest wall based on a click event.
+
+        This method is called when the user clicks on the canvas while the door tool is active.
+        It converts the click coordinates to model space, finds the nearest wall segment within a
+        tolerance, and attaches a new door object to that wall at the appropriate position ratio.
+        The door type and identifier are determined from configuration and generated uniquely.
+        The new door is added to the canvas and the display is updated.
+
+        Args:
+            n_press (int): The number of presses (usually 1 for a single click).
+            x (float): The x-coordinate of the click in widget coordinates.
+            y (float): The y-coordinate of the click in widget coordinates.
+
+        Returns:
+            None
+        """
         # Convert device (widget) coordinates to model coordinates using zoom and pixels-per-inch.
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         canvas_x = (x - self.offset_x) / (self.zoom * pixels_per_inch)
@@ -110,8 +144,26 @@ class CanvasEventsMixin:
         self.existing_ids.append(door_identifier)
         self.doors.append((selected_wall, new_door, selected_ratio))
         self.queue_draw()
+        
     
     def _handle_window_click(self, n_press: int, x: float, y: float) -> None:
+        """
+        Handle the addition of a window to the nearest wall based on a click event.
+
+        This method is called when the user clicks on the canvas while the window tool is active.
+        It converts the click coordinates to model space, finds the nearest wall segment within a
+        tolerance, and attaches a new window object to that wall at the appropriate position ratio.
+        The window type and identifier are determined from configuration and generated uniquely.
+        The new window is added to the canvas and the display is updated.
+
+        Args:
+            n_press (int): The number of presses (usually 1 for a single click).
+            x (float): The x-coordinate of the click in widget coordinates.
+            y (float): The y-coordinate of the click in widget coordinates.
+
+        Returns:
+            None
+        """
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         canvas_x = (x - self.offset_x) / (self.zoom * pixels_per_inch)
         canvas_y = (y - self.offset_y) / (self.zoom * pixels_per_inch)
@@ -149,7 +201,28 @@ class CanvasEventsMixin:
         self.queue_draw()
 
     
-    def _handle_pointer_right_click(self, gesture, n_press, x, y):
+    def _handle_pointer_right_click(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
+        """
+        Display a context menu (popover) at the pointer location for selected canvas items.
+
+        This method is called when the user right-clicks on the canvas while using the pointer tool.
+        It analyzes the current selection (walls, doors, windows, polylines) and dynamically builds
+        a popover menu with relevant actions, such as setting wall exterior/interior, adding/removing
+        footers, joining walls, changing door/window types, toggling door orientation/swing, and
+        changing polyline styles.
+
+        The popover is positioned at the click location and attached to the canvas. Selecting an action
+        from the menu will apply the change to the selected items and update the canvas display.
+
+        Args:
+            gesture (Gtk.GestureClick): The gesture object for the right-click event.
+            n_press (int): The number of presses (usually 1 for right-click).
+            x (float): The x-coordinate of the click in widget coordinates.
+            y (float): The y-coordinate of the click in widget coordinates.
+
+        Returns:
+            None
+        """
         if len(self.selected_items) == 0:
             # If no items are selected, do nothing.
             return
@@ -270,8 +343,9 @@ class CanvasEventsMixin:
         
         # Show the popover
         parent_popover.popup()
+        
     
-    def join_selected_walls(self, popover) -> None:
+    def join_selected_walls(self, popover: Gtk.Popover) -> None:
         """
         Join selected wall segments or wall sets into a single continuous wall set.
 
@@ -381,12 +455,45 @@ class CanvasEventsMixin:
         self.selected_items = []
         self.queue_draw()
         popover.popdown()
+        
             
     def on_click_pressed(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
+        """
+        Store the starting coordinates of a mouse click gesture.
+
+        This method is called when the user presses a mouse button on the canvas.
+        It records the initial click position, which can be used for subsequent
+        drag or selection operations.
+
+        Args:
+            gesture (Gtk.GestureClick): The gesture object for the click event.
+            n_press (int): The number of presses (usually 1 for a single click).
+            x (float): The x-coordinate of the click in widget coordinates.
+            y (float): The y-coordinate of the click in widget coordinates.
+
+        Returns:
+            None
+        """
         self.click_start = (x, y)
+        
     
     def _handle_pointer_click(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
-        # print(f"Pointer click: {n_press} press(es) at ({x}, {y})")
+        """
+        Handle pointer tool click events for selecting canvas items.
+
+        This method is called when the user clicks on the canvas while the pointer tool is active.
+        It determines if the click is near a wall, vertex, door, window, or polyline, and updates
+        the selection accordingly. Supports multi-selection when the Shift key is held.
+
+        Args:
+            gesture (Gtk.GestureClick): The gesture object for the click event.
+            n_press (int): The number of presses (usually 1 for a single click).
+            x (float): The x-coordinate of the click in widget coordinates.
+            y (float): The y-coordinate of the click in widget coordinates.
+
+        Returns:
+            None
+        """
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         if hasattr(self, "click_start"):
             dx = x - self.click_start[0]
@@ -531,7 +638,22 @@ class CanvasEventsMixin:
         self.queue_draw()
 
 
-    def distance_point_to_segment(self, P, A, B):
+    def distance_point_to_segment(self, P: tuple[float, float], A: tuple[float, float], B: tuple[float, float]) -> float:
+        """
+        Calculate the shortest distance from a point to a line segment.
+
+        Given a point P and a segment defined by endpoints A and B, this method computes
+        the minimum Euclidean distance from P to any point on the segment AB. If the segment
+        is degenerate (A and B are the same), it returns the distance from P to A.
+
+        Args:
+            P (tuple[float, float]): The point as (x, y).
+            A (tuple[float, float]): The start point of the segment as (x, y).
+            B (tuple[float, float]): The end point of the segment as (x, y).
+
+        Returns:
+            float: The shortest distance from P to the segment AB.
+        """
         px, py = P = P
         ax, ay = A
         bx, by = B
@@ -545,9 +667,24 @@ class CanvasEventsMixin:
         proj_y = ay + t * dy
         return math.hypot(px - proj_x, py - proj_y)
     
-    def line_intersects_rect(self, A, B, rect):
-        """Return True if line segment AB intersects the rectangle defined by rect = (rx1, ry1, rx2, ry2) 
-        (with rx1 < rx2 and ry1 < ry2)."""
+    
+    def line_intersects_rect(self, A: tuple[float, float], B: tuple[float, float], rect: tuple[float, float, float, float]) -> bool:
+        """
+        Determine if a line segment intersects a rectangle.
+
+        Checks whether the line segment defined by endpoints A and B crosses or touches
+        the rectangle specified by rect = (rx1, ry1, rx2, ry2), where (rx1, ry1) is the
+        top-left corner and (rx2, ry2) is the bottom-right corner. The function returns
+        True if the segment is inside the rectangle or intersects any of its edges.
+
+        Args:
+            A (tuple[float, float]): Start point of the line segment (x, y).
+            B (tuple[float, float]): End point of the line segment (x, y).
+            rect (tuple[float, float, float, float]): Rectangle as (rx1, ry1, rx2, ry2).
+
+        Returns:
+            bool: True if the segment intersects or is contained in the rectangle, False otherwise.
+        """
         rx1, ry1, rx2, ry2 = rect
 
         def point_in_rect(pt):
@@ -604,7 +741,23 @@ class CanvasEventsMixin:
         return False
 
 
-    def on_drag_begin(self, gesture, start_x, start_y):
+    def on_drag_begin(self, gesture: Gtk.Gesture, start_x: float, start_y: float) -> None:
+        """
+        Handle the beginning of a drag gesture on the canvas.
+
+        This method is called when the user starts dragging with the mouse or pointer.
+        It initializes state for either panning (moving the canvas view) or box selection
+        (selecting multiple items with a rectangular area), depending on the current tool mode.
+        For box selection, it also checks if the Shift key is held to extend the selection.
+
+        Args:
+            gesture (Gtk.Gesture): The gesture object for the drag event.
+            start_x (float): The x-coordinate where the drag started.
+            start_y (float): The y-coordinate where the drag started.
+
+        Returns:
+            None
+        """
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
         if self.tool_mode == "panning":
@@ -620,8 +773,25 @@ class CanvasEventsMixin:
             event = gesture.get_current_event()
             state = event.get_modifier_state() if hasattr(event, "get_modifier_state") else event.state
             self.box_select_extend = bool(state & Gdk.ModifierType.SHIFT_MASK)
+            
 
-    def on_drag_update(self, gesture, offset_x, offset_y):
+    def on_drag_update(self, gesture: Gtk.Gesture, offset_x: float, offset_y: float) -> None:
+        """
+        Handle updates during a drag gesture on the canvas.
+
+        This method is called repeatedly as the user drags the mouse or pointer.
+        If the tool mode is panning, it updates the canvas offset to move the view.
+        If the tool mode is pointer and box selection is active, it updates the
+        selection rectangle's end coordinates for live feedback.
+
+        Args:
+            gesture (Gtk.Gesture): The gesture object for the drag event.
+            offset_x (float): The horizontal offset from the drag start position.
+            offset_y (float): The vertical offset from the drag start position.
+
+        Returns:
+            None
+        """
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         if self.tool_mode == "panning":
             self.offset_x = self.last_offset_x + offset_x
@@ -632,8 +802,25 @@ class CanvasEventsMixin:
             current_y = self.box_select_start[1] + (offset_y / (self.zoom * pixels_per_inch))
             self.box_select_end = (current_x, current_y)
             self.queue_draw()
+            
 
-    def on_drag_end(self, gesture, offset_x, offset_y):
+    def on_drag_end(self, gesture: Gtk.Gesture, offset_x: float, offset_y: float) -> None:
+        """
+        Handle the end of a drag gesture on the canvas.
+
+        This method is called when the user releases the mouse or pointer after dragging.
+        If the pointer tool and box selection are active, it finalizes the selection rectangle,
+        determines which canvas items (walls, vertices, doors, windows, polylines) are within or intersect
+        the selection area, and updates the selection. Supports extending the selection with Shift.
+
+        Args:
+            gesture (Gtk.Gesture): The gesture object for the drag event.
+            offset_x (float): The horizontal offset from the drag start position.
+            offset_y (float): The vertical offset from the drag start position.
+
+        Returns:
+            None
+        """
         if self.tool_mode == "pointer" and self.box_selecting:
             x1 = min(self.box_select_start[0], self.box_select_end[0])
             y1 = min(self.box_select_start[1], self.box_select_end[1])
@@ -726,11 +913,38 @@ class CanvasEventsMixin:
             
             self.box_selecting = False
             self.queue_draw()
+            
     
-    def _get_candidate_points(self): # Helper function to get all candidate points from wall sets.
-            return [point for wall_set in self.wall_sets for wall in wall_set for point in (wall.start, wall.end)]
+    def _get_candidate_points(self) -> List[tuple[float, float]]:
+        """
+        Collect all candidate points for snapping and alignment.
+
+        This method gathers all wall endpoints from all wall sets on the canvas.
+        The returned list is used for snapping logic and alignment assistance when drawing
+        or editing walls, rooms, or polylines.
+
+        Returns:
+            List[Tuple[float, float]]: A list of (x, y) tuples representing wall endpoints.
+        """
+        return [point for wall_set in self.wall_sets for wall in wall_set for point in (wall.start, wall.end)]
+    
 
     def on_motion(self, controller: Gtk.EventControllerMotion, x: float, y: float) -> None:
+        """
+        Handle pointer motion events on the canvas.
+
+        This method is called when the pointer moves over the canvas. It updates the mouse coordinates,
+        converts them to model space, and provides live previews for wall, polyline, and room drawing
+        with snapping and alignment assistance.
+
+        Args:
+            controller (Gtk.EventControllerMotion): The motion event controller.
+            x (float): The x-coordinate of the pointer in widget coordinates.
+            y (float): The y-coordinate of the pointer in widget coordinates.
+
+        Returns:
+            None
+        """
         self.mouse_x = x
         self.mouse_y = y
         
@@ -796,27 +1010,75 @@ class CanvasEventsMixin:
             
             self.current_room_preview = (snapped_x, snapped_y)
             self.queue_draw()
+            
 
-    def on_zoom_changed(self, controller, scale):
+    def on_zoom_changed(self, controller: Gtk.GestureZoom, scale: float) -> None:
+        """
+        Handle zoom level changes on the canvas.
+
+        This method is called when the user adjusts the zoom (e.g., via pinch gesture or zoom control).
+        It calculates a new zoom factor based on the input scale and a sensitivity setting, then
+        updates the canvas zoom centered on the current view.
+
+        Args:
+            controller: The event controller for the zoom gesture.
+            scale (float): The zoom scale factor from the gesture.
+
+        Returns:
+            None
+        """
         sensitivity = 0.2
         factor = 1 + (scale - 1) * sensitivity
         allocation = self.get_allocation()
         center_x = allocation.width / 2
         center_y = allocation.height / 2
         self.adjust_zoom(factor, center_x, center_y)
+        
 
-    def on_scroll(self, controller, dx, dy):
+    def on_scroll(self, controller: Gtk.EventControllerScroll, dx: float, dy: float) -> bool:
+        """
+        Handle scroll events to zoom the canvas view.
+
+        This method is called when the user scrolls with the mouse wheel or touchpad.
+        It calculates a zoom factor based on the scroll delta and adjusts the canvas zoom,
+        centering the zoom on the current pointer position.
+
+        Args:
+            controller (Gtk.EventControllerScroll): The scroll event controller.
+            dx (float): The horizontal scroll delta.
+            dy (float): The vertical scroll delta.
+
+        Returns:
+            bool: True if the event was handled.
+        """
         pointer_x, pointer_y = self.get_pointer()
         center_x = pointer_x
         center_y = pointer_y
         zoom_factor = 1.0 + (-dy * 0.1)
         self.adjust_zoom(zoom_factor, center_x, center_y)
         return True
+    
 
-    def _handle_room_click(self, n_press, x, y):
+    def _handle_room_click(self, n_press: int, x: float, y: float) -> None:
+        """
+        Handle click events for drawing rooms on the canvas.
+
+        This method is called when the user clicks while the room drawing tool is active.
+        On a single click, it adds a snapped and aligned point to the current room outline.
+        On a double click, it finalizes the room by closing the polygon and creating a new room object,
+        or attempts to create a room from a closed wall set if the click is inside one.
+
+        Args:
+            n_press (int): The number of presses (1 for single click, 2 for double click).
+            x (float): The x-coordinate of the click in widget coordinates.
+            y (float): The y-coordinate of the click in widget coordinates.
+
+        Returns:
+            None
+        """
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         canvas_x, canvas_y = self.device_to_model(x, y, pixels_per_inch)
-        raw_point = (canvas_x, canvas_y)
+        # raw_point = (canvas_x, canvas_y)
         base_x = self.current_room_points[-1][0] if self.current_room_points else canvas_x
         base_y = self.current_room_points[-1][1] if self.current_room_points else canvas_y
         candidate_points = self._get_candidate_points()
@@ -859,8 +1121,25 @@ class CanvasEventsMixin:
                         print(f"Created room from wall set: {poly}")
                         break
             self.queue_draw()
+            
 
-    def _handle_wall_click(self, n_press, x, y):
+    def _handle_wall_click(self, n_press: int, x: float, y: float) -> None:
+        """
+        Handle click events for drawing walls on the canvas.
+
+        This method is called when the user clicks while the wall drawing tool is active.
+        On a single click, it starts or extends a wall segment, snapping and aligning the endpoint.
+        On a double click, it finalizes the wall chain, closes the wall set, and resets the drawing state.
+        If not currently drawing, a double click inside a room will auto-create walls along the room's outline.
+
+        Args:
+            n_press (int): The number of presses (1 for single click, 2 for double click).
+            x (float): The x-coordinate of the click in widget coordinates.
+            y (float): The y-coordinate of the click in widget coordinates.
+
+        Returns:
+            None
+        """
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         canvas_x, canvas_y = self.device_to_model(x, y, pixels_per_inch)
         raw_point = (canvas_x, canvas_y)
@@ -935,13 +1214,29 @@ class CanvasEventsMixin:
                         break
                 self.snap_type = "none"
             self.queue_draw()
+            
     
     def _handle_polyline_click(self, n_press: int, x: float, y: float) -> None:
-        # 1. Convert to model coords
+        """
+        Handle click events for drawing polylines on the canvas.
+
+        This method is called when the user clicks while the polyline drawing tool is active.
+        On a single click, it starts or extends a polyline segment, snapping and aligning the endpoint.
+        On a double click, it finalizes the polyline chain, closes the polyline set, and resets the drawing state.
+
+        Args:
+            n_press (int): The number of presses (1 for single click, 2 for double click).
+            x (float): The x-coordinate of the click in widget coordinates.
+            y (float): The y-coordinate of the click in widget coordinates.
+
+        Returns:
+            None
+        """
+        # Convert to model coords
         ppi = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         mx, my = self.device_to_model(x, y, ppi)
 
-        # 2. Snap & align
+        # Snap & align
         last = self.current_polyline_start or (mx, my)
         candidates = self._get_candidate_points() + [last]
         (sx, sy), self.snap_type = self.snap_manager.snap_point(
@@ -988,12 +1283,26 @@ class CanvasEventsMixin:
             self.polylines = []
             self.queue_draw()
             self.current_polyline_preview = None
+            
 
-    def show_change_door_type_submenu(self, widget, selected_doors, parent_popover):
-        # Create a popover to serve as the sub-menu
+    def show_change_door_type_submenu(self, widget: Gtk.Widget, selected_doors: list, parent_popover: Gtk.Popover) -> None:
+        """
+        Display a submenu popover for changing the type of selected doors.
+
+        This method creates a popover menu anchored to the provided widget, listing all available door types.
+        When a door type button is clicked, the selected doors are updated to the new type and both the submenu
+        and parent popover are closed.
+
+        Args:
+            widget: The Gtk widget to anchor the submenu popover to.
+            selected_doors: List of selected door items to update.
+            parent_popover: The parent popover to close after selection.
+
+        Returns:
+            None
+        """
         popover = Gtk.Popover()
         
-        # Create a vertical box to hold the menu items
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         box.set_margin_top(6)
         box.set_margin_bottom(6)
@@ -1023,8 +1332,23 @@ class CanvasEventsMixin:
         
         # Show the popover
         popover.popup()
+        
 
-    def on_change_door_type_selected(self, new_type, selected_doors, popover, parent_popover):
+    def on_change_door_type_selected(self, new_type: str, selected_doors: list, popover: Gtk.Popover, parent_popover: Gtk.Popover) -> None:
+        """
+        Handle selection of a new door type from the submenu.
+
+        Updates the door type for all selected doors, redraws the canvas, and closes both the submenu and parent popover.
+
+        Args:
+            new_type (str): The new door type to apply.
+            selected_doors (list): List of selected door items to update.
+            popover (Gtk.Popover): The submenu popover to close.
+            parent_popover (Gtk.Popover): The parent popover to close.
+
+        Returns:
+            None
+        """
         for door_item in selected_doors:
             wall, door, ratio = door_item["object"]
             door.door_type = new_type
@@ -1032,7 +1356,23 @@ class CanvasEventsMixin:
         popover.popdown()  # Hide the sub-menu popover
         parent_popover.popdown()  # Hide the parent right-click popover
         
-    def show_change_window_type_submenu(self, widget, selected_windows, parent_popover):
+        
+    def show_change_window_type_submenu(self, widget: Gtk.Widget, selected_windows: list, parent_popover: Gtk.Popover) -> None:
+        """
+        Display a submenu popover for changing the type of selected windows.
+
+        This method creates a popover menu anchored to the provided widget, listing all available window types.
+        When a window type button is clicked, the selected windows are updated to the new type and both the submenu
+        and parent popover are closed.
+
+        Args:
+            widget (Gtk.Widget): The widget to anchor the submenu popover to.
+            selected_windows (list): List of selected window items to update.
+            parent_popover (Gtk.Popover): The parent popover to close after selection.
+
+        Returns:
+            None
+        """
         # Create a popover to serve as the sub-menu
         popover = Gtk.Popover()
         
@@ -1066,16 +1406,47 @@ class CanvasEventsMixin:
         
         # Show the popover
         popover.popup()
+        
     
-    def on_change_window_type_selected(self, new_type, selected_windows, popover, parent_popover):
+    def on_change_window_type_selected(self, new_type: str, selected_windows: list, popover: Gtk.Popover, parent_popover: Gtk.Popover) -> None:
+        """
+        Handle selection of a new window type from the submenu.
+
+        Updates the window type for all selected windows, redraws the canvas, and closes both the submenu and parent popover.
+
+        Args:
+            new_type (str): The new window type to apply.
+            selected_windows (list): List of selected window items to update.
+            popover (Gtk.Popover): The submenu popover to close.
+            parent_popover (Gtk.Popover): The parent popover to close.
+
+        Returns:
+            None
+        """
         for window_item in selected_windows:
             wall, window, ratio = window_item["object"]
             window.window_type = new_type
         self.queue_draw()
         popover.popdown()  # Hide the sub-menu popover
         parent_popover.popdown()  # Hide the parent right-click popover
+        
     
-    def toggle_polyline_style(self, selected_polylines, popover, style):
+    def toggle_polyline_style(self, selected_polylines: list, popover: Gtk.Popover, style: str) -> None:
+        """
+        Toggle or set the style of selected polylines.
+
+        This method updates the style ("solid" or "dashed") of all selected polylines based on the given style argument.
+        If style is "toggle", it switches each polyline's style between "solid" and "dashed".
+        After updating, it redraws the canvas and closes the popover.
+
+        Args:
+            selected_polylines (list): List of selected polyline items to update.
+            popover (Gtk.Popover): The popover to close after the action.
+            style (str): The style to apply ("solid", "dashed", or "toggle").
+
+        Returns:
+            None
+        """
         if style == "dashed":
             for polyline in selected_polylines:
                 polyline["object"].style = "solid"
@@ -1091,22 +1462,69 @@ class CanvasEventsMixin:
                 polyline["object"].style = "dashed" if polyline["object"].style == "solid" else "solid"
             self.queue_draw()
             popover.popdown()
+            
 
-    def set_ext_int(self, selected_walls, state, popover):
-            for wall in selected_walls:
-                wall["object"].exterior_wall = state
-            self.queue_draw()
-            popover.popdown()
+    def set_ext_int(self, selected_walls: list, state: str, popover: Gtk.Popover) -> None:
+        """
+        Set the exterior or interior state of selected walls.
+
+        This method updates the 'exterior_wall' property of each selected wall to the given state (True for exterior, False for interior).
+        After updating, it redraws the canvas and closes the popover.
+
+        Args:
+            selected_walls (list): List of selected wall items to update.
+            state (str): The state to set ("True" for exterior, "False" for interior).
+            popover (Gtk.Popover): The popover to close after the action.
+
+        Returns:
+            None
+        """
+        for wall in selected_walls:
+            wall["object"].exterior_wall = state
+        self.queue_draw()
+        popover.popdown()
+        
     
-    def add_remove_footer(self, selected_walls, popover, state):
+    def add_remove_footer(self, selected_walls: list, popover: Gtk.Popover, state: bool) -> None:
+        """
+        Add or remove a footer for selected walls.
+
+        This method sets the 'footer' property of each selected wall to the given state (True to add, False to remove).
+        After updating, it redraws the canvas and closes the popover.
+
+        Args:
+            selected_walls (list): List of selected wall items to update.
+            popover (Gtk.Popover): The popover to close after the action.
+            state (bool): The footer state to set (True for add, False for remove).
+
+        Returns:
+            None
+        """
         for wall in selected_walls:
             wall["object"].footer = state
         print(f"Footer state set to {state} for selected walls.")
         # TODO : Implement footer rendering logic
         self.queue_draw()
         popover.popdown()
+        
     
-    def toggle_door_orientation(self, selected_doors, popover, inswing=False, outswing=False):
+    def toggle_door_orientation(self, selected_doors: list, popover: Gtk.Popover, inswing: bool = False, outswing: bool = False) -> None:
+        """
+        Toggle or set the orientation of selected doors.
+
+        This method updates the 'orientation' property of each selected door to "inswing" or "outswing"
+        based on the provided arguments. If neither argument is True, it toggles the orientation.
+        After updating, it redraws the canvas and closes the popover.
+
+        Args:
+            selected_doors (list): List of selected door items to update.
+            popover (Gtk.Popover): The popover to close after the action.
+            inswing (bool, optional): If True, set orientation to "inswing".
+            outswing (bool, optional): If True, set orientation to "outswing".
+
+        Returns:
+            None
+        """
         for door_item in selected_doors:
             wall, door, ratio = door_item["object"]
             if inswing == True:
@@ -1117,8 +1535,22 @@ class CanvasEventsMixin:
                 door.orientation = "inswing" if door.orientation == "outswing" else "outswing"
         self.queue_draw()
         popover.popdown()
+        
     
-    def toggle_door_swing(self, selected_doors, popover):
+    def toggle_door_swing(self, selected_doors: list, popover: Gtk.Popover) -> None:
+        """
+        Toggle the swing direction of selected doors.
+
+        This method switches the 'swing' property of each selected door between "left" and "right".
+        After updating, it redraws the canvas and closes the popover.
+
+        Args:
+            selected_doors (list): List of selected door items to update.
+            popover (Gtk.Popover): The popover to close after the action.
+
+        Returns:
+            None
+        """
         for door_item in selected_doors:
             wall, door, ratio = door_item["object"]
             door.swing = "left" if door.swing == "right" else "right"
