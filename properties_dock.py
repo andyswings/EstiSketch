@@ -224,7 +224,6 @@ class WallPropertiesWidget(Gtk.Box):
             if str(i) == current_thickness:
                 text = self.available_thicknesses.index(i)
                 combo.set_active(text)
-                print(f"Setting thickness to {i} inches")
                 break
         # Get the active text from the combo box
         text = combo.get_active_text()
@@ -335,7 +334,6 @@ class WallPropertiesWidget(Gtk.Box):
         # Combo Strings
         width_str = f"{wall.width:g}"
         height_str = f"{wall.height:g}"
-        print(f"Setting wall properties for {wall} with width {width_str} and height {height_str}")
         
         
         self.thickness_combo.handler_block(self.thickness_handler_id)
@@ -426,7 +424,6 @@ class PropertiesDock(Gtk.Box):
 
     def _make_tab_button(self, name, icon_dir, icon_name):
         btn = Gtk.ToggleButton()
-        print(icon_name)
         image = Gtk.Image.new_from_file(os.path.join(icon_dir, f"{icon_name}.png"))
         
         btn.set_child(image)
@@ -444,31 +441,29 @@ class PropertiesDock(Gtk.Box):
             self.icon_bar.remove(btn)
     
     def refresh_tabs(self, selected_items):
-        # 1) Do we have at least one wall selected?
+        # Do we have at least one wall selected?
         wall_items = [item for item in selected_items if item.get("type") == "wall"]
         wants_wall = bool(wall_items)
 
-        # 2) Show or hide the wall tab icon
+        # Show or hide the wall tab icon
         self._ensure_tab("wall", wants_wall, "wall_properties")
 
         if wants_wall:
             # Take the first selected wall and populate the UI
             selected_wall = wall_items[0]["object"]
-            print(f"{selected_wall} Should be shown in properties dock")
             self.wall_page.set_wall(selected_wall)
-            # # Also auto-open the tab (so the user sees it immediately)
+            # # Auto-open the tab (so the user sees it immediately)
             self.stack.set_visible(True)
         else:
-            # Optionally, hide the stack if there’s nothing to show
+            # Hide the stack if there’s nothing to show
             self.stack.set_visible(False)
 
-        # 3) (rest of your foundation-tab logic …)
         wants_foundation = any(
             item.get("type") == "wall" and getattr(item["object"], "footer", False)
             for item in selected_items
         )
 
-        # 4) If the currently visible child is no longer valid, hide the stack
+        # If the currently visible child is no longer valid, hide the stack
         current = self.stack.get_visible_child_name()
         valid   = {"wall": wants_wall, "foundation": wants_foundation}
         if current and not valid.get(current, False):
