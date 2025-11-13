@@ -8,7 +8,11 @@ class CanvasStateMixin:
             "current_wall": copy.deepcopy(self.current_wall) if self.current_wall else None,
             "drawing_wall": self.drawing_wall,
             "rooms": copy.deepcopy(self.rooms),
-            "current_room_points": copy.deepcopy(self.current_room_points)
+            "current_room_points": copy.deepcopy(self.current_room_points),
+            "polylines": copy.deepcopy(self.polylines),
+            "polyline_sets": copy.deepcopy(self.polyline_sets),
+            "doors": copy.deepcopy(self.doors),
+            "windows": copy.deepcopy(self.windows)
         }
         self.undo_stack.append(state)
         if len(self.undo_stack) > self.config.UNDO_REDO_LIMIT:
@@ -22,6 +26,10 @@ class CanvasStateMixin:
         self.drawing_wall = state["drawing_wall"]
         self.rooms = copy.deepcopy(state["rooms"])
         self.current_room_points = copy.deepcopy(state["current_room_points"])
+        self.polylines = copy.deepcopy(state["polylines"])
+        self.polyline_sets = copy.deepcopy(state["polyline_sets"])
+        self.doors = copy.deepcopy(state["doors"])
+        self.windows = copy.deepcopy(state["windows"])
         self.snap_type = "none"
         self.queue_draw()
         print(f"restore_state: {len(self.wall_sets)} wall sets, {len(self.walls)} walls, {len(self.rooms)} rooms")
