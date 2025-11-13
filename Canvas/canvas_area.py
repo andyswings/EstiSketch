@@ -209,15 +209,29 @@ class CanvasArea(Gtk.DrawingArea,
             # Polylines: search and remove from polyline_sets (list of lists)
             # TODO Fix. Does not work as expected
             if item["type"] == "polyline":
-                selected_id = item["object"].identifier
-                print(selected_id)
-                for line in self.polyline_sets:
-                    for segment in line:
-                        print(segment.identifier)
-                        if segment.identifier == selected_id:
-                            line.remove(segment)
-                if len(line) == 0:
-                    self.polyline_sets.remove(line)
+                # selection entries may come from click (object only) or box-select (object + identifier)
+                selected_obj = item.get("object")
+                selected_id = item.get("identifier") or getattr(selected_obj, "identifier", None)
+                sel_obj_id = item.get("_obj_id", id(selected_obj))
+                print(f"Requested delete: selected_id={selected_id!r}, selected_obj_id={sel_obj_id}, selected_obj={selected_obj}")
+                # list existing segments with ids for debugging
+                for i, poly_list in enumerate(self.polyline_sets):
+                    seg_info = ", ".join(f"{getattr(s,'identifier',None)!r}@{id(s)}" for s in poly_list)
+                    print(f" polyline_sets[{i}] contains: {seg_info}")
+                # iterate over a copy so removals are safe
+                for poly_list in list(self.polyline_sets):
+                    found_index = None
+                    # find the exact segment by identity or by identifier
+                    for idx, segment in enumerate(poly_list):
+                        if segment is selected_obj or (selected_id is not None and getattr(segment, "identifier", None) == selected_id):
+                            found_index = idx
+                            found_seg = segment
+                            break
+                    if found_index is not None:
+                        print(f"Removing segment {getattr(found_seg,'identifier',None)!r} @{id(found_seg)} from poly_list (by index {found_index})")
+                        del poly_list[found_index]
+                    if len(poly_list) == 0:
+                        self.polyline_sets.remove(poly_list)
             # Doors
             if item["type"] == "door":
                 ...

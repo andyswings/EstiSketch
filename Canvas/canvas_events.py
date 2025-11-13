@@ -612,7 +612,12 @@ class CanvasEventsMixin:
                 p2 = self.model_to_device(pl.end[0],   pl.end[1],   pixels_per_inch)
                 # distance from click to segment
                 if self.distance_point_to_segment(click_pt, p1, p2) < fixed_threshold:
-                    selected_item = {"type": "polyline", "object": pl}
+                    selected_item = {
+                        "type": "polyline", 
+                        "object": pl, 
+                        "identifier": getattr(pl, "identifier", None), 
+                        "_obj_id": id(pl)
+                    }
                     break
             if selected_item: break
 
@@ -897,7 +902,7 @@ class CanvasEventsMixin:
             for poly_list in self.polyline_sets:
                 for pl in poly_list:
                     if self.line_intersects_rect(pl.start, pl.end, rect):
-                        new_selection.append({"type": "polyline", "object": pl})
+                        new_selection.append({"type": "polyline", "object": pl, "identifier": pl.identifier})
             
             if hasattr(self, "box_select_extend") and self.box_select_extend:
                 for item in new_selection:
@@ -1268,6 +1273,7 @@ class CanvasEventsMixin:
                 else:
                     seg.style = "solid" 
                 self.polylines.append(seg)
+                print(f"{len(self.polylines)} polylines in current set.")
                 self.current_polyline_start = snapped
             self.queue_draw()
             self.current_polyline_preview = None
@@ -1279,6 +1285,7 @@ class CanvasEventsMixin:
                 self.polyline_sets.append(self.polylines.copy())
             self.drawing_polyline = False
             self.current_polyline_start = None
+            print(f"Finalized polyline set with {len(self.polylines)} segments.")
             self.polylines = []
             self.queue_draw()
             self.current_polyline_preview = None
