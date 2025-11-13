@@ -1172,13 +1172,10 @@ class CanvasEventsMixin:
             if wall_instance:
                 self.existing_ids.append(wall_instance.identifier)
                 self.walls.append(wall_instance)
-                print(f"Added wall from {wall_instance.start} to {wall_instance.end}")
-                print(f"{len(self.walls)} walls in current set.")
                 self.current_wall.start = (snapped_x, snapped_y)
                 self.queue_draw()
 
         elif n_press == 2:
-                print(f"Double-click at ({snapped_x}, {snapped_y}), drawing_wall = {self.drawing_wall}")
                 if self.drawing_wall and self.walls:
                     self.save_state()
                     self.current_wall.end = (snapped_x, snapped_y)
@@ -1189,13 +1186,10 @@ class CanvasEventsMixin:
                         )
                         if not duplicate:
                             self.walls.append(self.current_wall)
-                        else:
-                            print("Skipped appending duplicate closing wall.")
+                        
                     else:
-                        print("Skipped appending zero-length closing wall.")
                         self.wall_sets.append(self.walls.copy())
                         self.save_state()
-                        print(f"Finalized wall set with {len(self.walls)} walls.")
                         self.walls = []
                         self.current_wall = None
                         self.drawing_wall = False
@@ -1216,7 +1210,6 @@ class CanvasEventsMixin:
                                             height=self.config.DEFAULT_WALL_HEIGHT)
                         new_wall_set.append(new_wall)
                     self.wall_sets.append(new_wall_set)
-                    print(f"Auto-created walls for room with points: {room.points}")
                     break
             self.snap_type = "none"
         self.queue_draw()
