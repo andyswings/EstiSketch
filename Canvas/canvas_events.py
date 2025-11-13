@@ -1273,7 +1273,6 @@ class CanvasEventsMixin:
                 else:
                     seg.style = "solid" 
                 self.polylines.append(seg)
-                print(f"{len(self.polylines)} polylines in current set.")
                 self.current_polyline_start = snapped
             self.queue_draw()
             self.current_polyline_preview = None
@@ -1285,7 +1284,6 @@ class CanvasEventsMixin:
                 self.polyline_sets.append(self.polylines.copy())
             self.drawing_polyline = False
             self.current_polyline_start = None
-            print(f"Finalized polyline set with {len(self.polylines)} segments.")
             self.polylines = []
             self.queue_draw()
             self.current_polyline_preview = None
