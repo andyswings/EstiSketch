@@ -207,7 +207,6 @@ class CanvasArea(Gtk.DrawingArea,
                             pass
                     
             # Polylines: search and remove from polyline_sets (list of lists)
-            # TODO Fix. Does not work as expected
             if item["type"] == "polyline":
                 # selection entries may come from click (object only) or box-select (object + identifier)
                 selected_obj = item.get("object")
