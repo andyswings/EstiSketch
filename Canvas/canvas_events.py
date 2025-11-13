@@ -1163,7 +1163,6 @@ class CanvasEventsMixin:
                     self.config.DEFAULT_WALL_WIDTH, self.config.DEFAULT_WALL_HEIGHT,
                     identifier=self.generate_identifier("wall", self.existing_ids)
                 )
-                print(f"Drawing current wall of width: {self.config.DEFAULT_WALL_WIDTH}")
             else:
                 wall_instance = self.Wall(
                     self.current_wall.start, (snapped_x, snapped_y),
@@ -1173,41 +1172,54 @@ class CanvasEventsMixin:
             if wall_instance:
                 self.existing_ids.append(wall_instance.identifier)
                 self.walls.append(wall_instance)
+                print(f"Added wall from {wall_instance.start} to {wall_instance.end}")
+                print(f"{len(self.walls)} walls in current set.")
                 self.current_wall.start = (snapped_x, snapped_y)
                 self.queue_draw()
 
         elif n_press == 2:
-            print(f"Double-click at ({snapped_x}, {snapped_y}), drawing_wall = {self.drawing_wall}")
-            if self.drawing_wall and self.walls:
-                self.save_state()
-                self.current_wall.end = (snapped_x, snapped_y)
-                self.walls.append(self.current_wall)
-                self.wall_sets.append(self.walls.copy())
-                self.save_state()
-                self.walls = []
-                self.current_wall = None
-                self.drawing_wall = False
-                self.snap_type = "none"
-                self.alignment_candidate = None
-                self.raw_current_end = None
-            else:
-                test_point = (snapped_x, snapped_y)
-                for room in self.rooms:
-                    if len(room.points) < 3:
-                        continue
-                    if self._point_in_polygon(test_point, room.points):
-                        pts = room.points if room.points[0] == room.points[-1] else room.points + [room.points[0]]
-                        new_wall_set = []
-                        for i in range(len(pts) - 1):
-                            new_wall = self.Wall(pts[i], pts[i+1],
-                                                width=self.config.DEFAULT_WALL_WIDTH,
-                                                height=self.config.DEFAULT_WALL_HEIGHT)
-                            new_wall_set.append(new_wall)
-                        self.wall_sets.append(new_wall_set)
-                        print(f"Auto-created walls for room with points: {room.points}")
-                        break
-                self.snap_type = "none"
-            self.queue_draw()
+                print(f"Double-click at ({snapped_x}, {snapped_y}), drawing_wall = {self.drawing_wall}")
+                if self.drawing_wall and self.walls:
+                    self.save_state()
+                    self.current_wall.end = (snapped_x, snapped_y)
+                    if self.current_wall.start != self.current_wall.end:
+                        duplicate = any(
+                            w.start == self.current_wall.start and w.end == self.current_wall.end
+                            for w in self.walls
+                        )
+                        if not duplicate:
+                            self.walls.append(self.current_wall)
+                        else:
+                            print("Skipped appending duplicate closing wall.")
+                    else:
+                        print("Skipped appending zero-length closing wall.")
+                        self.wall_sets.append(self.walls.copy())
+                        self.save_state()
+                        print(f"Finalized wall set with {len(self.walls)} walls.")
+                        self.walls = []
+                        self.current_wall = None
+                        self.drawing_wall = False
+                        self.snap_type = "none"
+                        self.alignment_candidate = None
+                        self.raw_current_end = None
+        else:
+            test_point = (snapped_x, snapped_y)
+            for room in self.rooms:
+                if len(room.points) < 3:
+                    continue
+                if self._point_in_polygon(test_point, room.points):
+                    pts = room.points if room.points[0] == room.points[-1] else room.points + [room.points[0]]
+                    new_wall_set = []
+                    for i in range(len(pts) - 1):
+                        new_wall = self.Wall(pts[i], pts[i+1],
+                                            width=self.config.DEFAULT_WALL_WIDTH,
+                                            height=self.config.DEFAULT_WALL_HEIGHT)
+                        new_wall_set.append(new_wall)
+                    self.wall_sets.append(new_wall_set)
+                    print(f"Auto-created walls for room with points: {room.points}")
+                    break
+            self.snap_type = "none"
+        self.queue_draw()
             
     
     def _handle_polyline_click(self, n_press: int, x: float, y: float) -> None:
