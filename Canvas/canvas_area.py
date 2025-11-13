@@ -167,34 +167,67 @@ class CanvasArea(Gtk.DrawingArea,
             return
 
         # Remove selected items from their respective lists
+        print(len(self.wall_sets))
+        for i in self.wall_sets:
+            print(i)
+            for wall in i:
+                print(wall.start, wall.end)
+                
+                
         for item in list(self.selected_items):
-            # Walls: search and remove from wall_sets (which is a list of lists of walls)
-            for wall_list in self.wall_sets:
-                for wall in wall_list:
-                    if item == wall:
-                        wall_list.remove(wall)
-                        # If the wall list is empty after removal, remove the list itself
-                        if not wall_list:
-                            self.wall_sets.remove(wall_list)
-                        break
+            print(item)
+            
+            
+            # Walls
+            if item["type"] == "wall":
+                selected_id = item["object"].identifier
+                for wall_set in self.wall_sets:
+                    for wall in wall_set:
+                        if wall.identifier == selected_id:
+                            wall_set.remove(wall)
+                    
+                    # If wall set is empty remove it
+                    if len(wall_set) == 0:
+                        self.wall_sets.remove(wall_set)
+            
             # Rooms
-            if item in self.rooms:
-                self.rooms.remove(item)
+            if item["type"] == "vertex":
+                selected_id = item["object"][0].identifier
+                selected_index = item["object"][1]
+                for room in self.rooms:
+                    if room.identifier == selected_id:
+                        try:
+                            if len(room.points) > 3:
+                                room.points.remove(room.points[selected_index])
+                            else:
+                                self.rooms.remove(room)
+                        except IndexError:
+                            # TODO Look into this to see why we are triggering an IndexError. 
+                            # Seems to still be working anyway for now.
+                            pass
+                    
             # Polylines: search and remove from polyline_sets (list of lists)
-            for poly_list in self.polyline_sets:
-                if item in poly_list:
-                    poly_list.remove(item)
+            # TODO Fix. Does not work as expected
+            if item["type"] == "polyline":
+                selected_id = item["object"].identifier
+                print(selected_id)
+                for line in self.polyline_sets:
+                    for segment in line:
+                        print(segment.identifier)
+                        if segment.identifier == selected_id:
+                            line.remove(segment)
+                if len(line) == 0:
+                    self.polyline_sets.remove(line)
             # Doors
-            if item in self.doors:
-                self.doors.remove(item)
+            if item["type"] == "door":
+                ...
             # Windows
-            if item in self.windows:
-                self.windows.remove(item)
+            if item["type"] == "window":
+                ...
 
         self.selected_items.clear()
         self.queue_draw()
         self.emit('selection-changed', self.selected_items)
-        print(f"Current walls after deletion: {self.wall_sets}")
 
 
 def create_canvas_area(config_constants):
