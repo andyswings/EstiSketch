@@ -64,5 +64,6 @@
     "RECENT_FILES": [],
     "MAX_RECENT_FILES": 6,
     "POLYLINE_TYPE": "solid",
-    "SHOW_PROPERTIES_PANEL": true
+    "SHOW_PROPERTIES_PANEL": true,
+    "JOINT_SNAP_TOLERANCE": 1
 }

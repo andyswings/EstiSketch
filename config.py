@@ -66,7 +66,8 @@ DEFAULT_SETTINGS = {
     "RECENT_FILES": [],
     "MAX_RECENT_FILES": 6,
     "POLYLINE_TYPE": "solid",
-    "SHOW_PROPERTIES_PANEL": False
+    "SHOW_PROPERTIES_PANEL": False,
+    "JOINT_SNAP_TOLERANCE": 1
 }
 
 def load_config():

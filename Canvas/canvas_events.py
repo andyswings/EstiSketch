@@ -475,14 +475,70 @@ class CanvasEventsMixin:
         """
         self.click_start = (x, y)
         
+        # --- Detect wall-handle press so drag can edit endpoints ---
+        # If a selected wall handle was pressed, set editing state and record
+        # the model-space start point for the drag logic (box_select_start).
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        T = self.zoom * pixels_per_inch
+        # Ensure attributes exist
+        if not hasattr(self, "handle_radius"):
+            self.handle_radius = 10
+
+        for item in self.selected_items:
+            if item.get("type") == "wall":
+                wall = item.get("object")
+                for handle_name, pt in [("start", wall.start), ("end", wall.end)]:
+                    pt_widget = ((pt[0] * T) + self.offset_x, (pt[1] * T) + self.offset_y)
+                    dx = x - pt_widget[0]
+                    dy = y - pt_widget[1]
+                    if math.hypot(dx, dy) < self.handle_radius:
+                        # Begin editing this wall endpoint.
+                        self.editing_wall = wall
+                        self.editing_handle = handle_name
+
+                        # Original joint position in model space
+                        self.joint_drag_origin = pt
+
+                        # Find ALL endpoints that share this joint (within tolerance)
+                        connected = []
+                        tol = getattr(self.config, "JOINT_SNAP_TOLERANCE", 0.25)
+                        for wall_set in self.wall_sets:
+                            for w in wall_set:
+                                if self._points_close(w.start, pt, tol):
+                                    connected.append((w, "start"))
+                                if self._points_close(w.end, pt, tol):
+                                    connected.append((w, "end"))
+                        self.connected_endpoints = connected
+
+                        # You can still keep this for box-select if you like, but it's
+                        # no longer used for endpoint movement math:
+                        self.box_select_start = pt
+
+                        # Snapshot state for undo.
+                        try:
+                            self.save_state()
+                        except Exception:
+                            pass
+                        return
+        
+        # If no handle was pressed, proceed with normal click selection
+        self._handle_pointer_click(gesture, n_press, x, y)
+        
     
     def _handle_pointer_click(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
         """
-        Handle pointer tool click events for selecting canvas items.
+        Handle pointer-tool clicks to select canvas items or begin wall-handle editing.
 
-        This method is called when the user clicks on the canvas while the pointer tool is active.
-        It determines if the click is near a wall, vertex, door, window, or polyline, and updates
-        the selection accordingly. Supports multi-selection when the Shift key is held.
+        Summary:
+        - If the click is on a handle of an already-selected wall endpoint, start endpoint editing:
+          sets self.editing_wall and self.editing_handle ("start" or "end"). The selection entry for
+          this is {"type": "wall_handle", "object": (wall, handle_name)}.
+        - Otherwise detect and select the nearest canvas object (wall segment or endpoint, room vertex,
+          door, window, or polyline segment) using device-space thresholds and snapping-aware transforms.
+        - Polyline selection entries include "identifier" and "_obj_id" when available to allow robust
+          deletion/matching.
+        - Small pointer movement between press and click is ignored to avoid accidental drags.
+        - Supports multi-selection when Shift is held; without Shift selection is replaced.
 
         Args:
             gesture (Gtk.GestureClick): The gesture object for the click event.
@@ -505,8 +561,28 @@ class CanvasEventsMixin:
         vertex_threshold = 15     # device pixels for vertices
         best_dist = float('inf')
         selected_item = None
-
+        
+        # Check for wall handle clicks (for editing)
         T = self.zoom * pixels_per_inch
+        for item in self.selected_items:
+            if item["type"] == "wall":
+                wall = item["object"]
+                for handle_name, pt in [("start", wall.start), ("end", wall.end)]:
+                    pt_widget = (
+                        (pt[0] * T) + self.offset_x,
+                        (pt[1] * T) + self.offset_y
+                    )
+                    dist = math.hypot(click_pt[0] - pt_widget[0], click_pt[1] - pt_widget[1])
+                    if dist < self.handle_radius:
+                        # Start editing this wall's handle
+                        self.editing_wall = wall
+                        self.editing_handle = handle_name
+                        selected_item = {"type": "wall_handle", "object": (wall, handle_name)}
+                        break
+            if selected_item:
+                break
+
+        # T = self.zoom * pixels_per_inch
         for wall_set in self.wall_sets:
             for wall in wall_set:
                 start_widget = (
@@ -627,9 +703,8 @@ class CanvasEventsMixin:
         shift_pressed = bool(state & Gdk.ModifierType.SHIFT_MASK)
 
         if selected_item:
-            # print("Selected item:", selected_item)
             if shift_pressed:
-                if not any(existing["object"] == selected_item["object"] for existing in self.selected_items):
+                if not any(self.same_selection(existing["object"], selected_item["object"]) for existing in self.selected_items):
                     self.selected_items.append(selected_item)
             else:
                 self.selected_items = [selected_item]
@@ -762,6 +837,13 @@ class CanvasEventsMixin:
         """
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        
+        # If we already entered handle-editing on press, don't overwrite box_select_start.
+        if getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None):
+            # Keep box_select_start set by on_click_pressed (model coords of endpoint).
+            # No further initialization required for editing; on_drag_update will handle motion.
+            return
+        
         if self.tool_mode == "panning":
             self.drag_start_x = start_x
             self.drag_start_y = start_y
@@ -781,10 +863,16 @@ class CanvasEventsMixin:
         """
         Handle updates during a drag gesture on the canvas.
 
-        This method is called repeatedly as the user drags the mouse or pointer.
-        If the tool mode is panning, it updates the canvas offset to move the view.
-        If the tool mode is pointer and box selection is active, it updates the
-        selection rectangle's end coordinates for live feedback.
+        This method is invoked repeatedly while the user drags. It supports three behaviors:
+        - Wall endpoint editing: if a wall handle is active (self.editing_wall and self.editing_handle),
+          compute the new endpoint in model coordinates from the drag offsets, update the edited wall,
+          propagate the motion to any connected walls via _update_connected_walls(), and request a redraw.
+        - Panning: when the current tool is "panning", update canvas offsets to move the view.
+        - Box selection: when using the pointer tool and box selection is active, update the selection
+          rectangle end coordinates for live feedback and redraw.
+
+        The method converts drag offsets into model-space movement using the current zoom and
+        PIXELS_PER_INCH config, updates relevant state, and queues a redraw as needed.
 
         Args:
             gesture (Gtk.Gesture): The gesture object for the drag event.
@@ -795,6 +883,27 @@ class CanvasEventsMixin:
             None
         """
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        
+        # Handle wall endpoint editing
+        if getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None):
+            # Use the ORIGINAL joint position and the TOTAL drag offset
+            T = self.zoom * pixels_per_inch
+            origin = getattr(self, "joint_drag_origin", self.editing_wall.start)
+
+            new_x = origin[0] + (offset_x / T)
+            new_y = origin[1] + (offset_y / T)
+            new_point = (new_x, new_y)
+
+            # Move all connected endpoints to this joint position
+            for wall_obj, endpoint_name in getattr(self, "connected_endpoints", []):
+                if endpoint_name == "start":
+                    wall_obj.start = new_point
+                else:
+                    wall_obj.end = new_point
+
+            self.queue_draw()
+            return
+        
         if self.tool_mode == "panning":
             self.offset_x = self.last_offset_x + offset_x
             self.offset_y = self.last_offset_y + offset_y
@@ -823,6 +932,15 @@ class CanvasEventsMixin:
         Returns:
             None
         """
+        
+        # If we were editing a wall endpoint, just clear that state and stop.
+        if getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None):
+            self.editing_wall = None
+            self.editing_handle = None
+            self.connected_endpoints = []
+            self.joint_drag_origin = None
+            return
+        
         if self.tool_mode == "pointer" and self.box_selecting:
             x1 = min(self.box_select_start[0], self.box_select_end[0])
             y1 = min(self.box_select_start[1], self.box_select_end[1])
@@ -906,7 +1024,7 @@ class CanvasEventsMixin:
             
             if hasattr(self, "box_select_extend") and self.box_select_extend:
                 for item in new_selection:
-                    if not any(existing["type"] == item["type"] and existing["object"] == item["object"]
+                    if not any(existing["type"] == item["type"] and self.same_selection(existing["object"], item["object"])
                             for existing in self.selected_items):
                         self.selected_items.append(item)
             else:
@@ -914,6 +1032,8 @@ class CanvasEventsMixin:
             self.emit('selection-changed', self.selected_items)
             
             self.box_selecting = False
+            self.editing_wall = None
+            self.editing_handle = None
             self.queue_draw()
             
     
@@ -1560,3 +1680,61 @@ class CanvasEventsMixin:
             door.swing = "left" if door.swing == "right" else "right"
         self.queue_draw()
         popover.popdown()
+    
+    
+    def same_selection(self, a, b):
+                    # compare by identity first
+                    if a is b:
+                        return True
+                    # if either is a tuple (room, idx) compare by exact tuple equality
+                    if isinstance(a, tuple) and isinstance(b, tuple):
+                        return a == b
+                    # fall back to identifier match if available
+                    ida = getattr(a, "identifier", None)
+                    idb = getattr(b, "identifier", None)
+                    if ida and idb:
+                        return ida == idb
+                    return False
+    
+    
+    def _points_close(
+        self,
+        p1: tuple[float, float],
+        p2: tuple[float, float],
+        tol: float | None = None,
+    ) -> bool:
+        """
+        Return True if two model-space points are within a small tolerance.
+
+        Args:
+            p1, p2: Points in model space (inches).
+            tol: Optional override tolerance in inches. If None, uses
+                 config.JOINT_SNAP_TOLERANCE if present, otherwise 0.25".
+        """
+        if tol is None:
+            tol = getattr(self.config, "JOINT_SNAP_TOLERANCE", 0.25)
+        dx = p1[0] - p2[0]
+        dy = p1[1] - p2[1]
+        return dx * dx + dy * dy <= tol * tol
+
+
+    # def _update_connected_walls(
+    #     self,
+    #     old_point: tuple[float, float],
+    #     new_point: tuple[float, float],
+    #     tolerance: float | None = None,
+    # ) -> None:
+    #     """
+    #     Propagate an endpoint move to walls that are connected at a joint.
+
+    #     Args:
+    #         old_point: Joint coordinate *before* this drag step (model space).
+    #         new_point: Joint coordinate *after* this drag step (model space).
+    #     """
+    #     for wall_set in self.wall_sets:
+    #         for wall in wall_set:
+    #             # If an endpoint was at old_point, move it to new_point.
+    #             if self._points_close(wall.start, old_point, tolerance):
+    #                 wall.start = new_point
+    #             if self._points_close(wall.end, old_point, tolerance):
+    #                 wall.end = new_point

@@ -36,6 +36,7 @@ class CanvasArea(Gtk.DrawingArea,
         self.set_vexpand(True)
         self.set_draw_func(self.on_draw)
 
+
         # Zoom and pan
         self.zoom = self.config.DEFAULT_ZOOM_LEVEL
         self.ruler_offset = 80
@@ -48,6 +49,13 @@ class CanvasArea(Gtk.DrawingArea,
         self.current_wall = None
         self.drawing_wall = False
         self.wall_sets = []
+        
+        
+        # Wall editing state
+        self.editing_wall = None     # The wall being edited
+        self.editing_handle = None   # "start" or "end"
+        self.handle_radius = 10      # device pixels for hit detection
+        
         
         # Polyline drawing state
         self.polylines = []                # current segments (list of Polyline)
@@ -62,8 +70,10 @@ class CanvasArea(Gtk.DrawingArea,
         self.current_room_points = []  # Manual room drawing points
         self.current_room_preview = None  # Live preview point (snapped)
         
+        
         self.doors = []  # List of door placements; each item is a tuple: (wall, door, position_ratio)
         self.windows = []  # List of window placements; each item is a tuple: (wall, window, position_ratio)
+
 
         # Alignment snapping (used for walls and rooms)
         self.alignment_candidate = None

@@ -1,4 +1,6 @@
 import math
+import cairo
+from gi.repository import Gtk
 import Canvas.door_window_renderer as dwr
 import Canvas.wall_room_renderer as wr
 
@@ -47,7 +49,32 @@ class CanvasDrawMixin:
         inch = inches % 12
         return f"{feet}'-{inch:.0f}\""
 
-    def on_draw(self, widget, cr, width, height):
+    def on_draw(self, widget: Gtk.Widget, cr: "cairo.Context", width: int, height: int) -> None:
+        """
+        Render the entire canvas scene.
+
+        Responsibilities:
+        - Clear the device-background and set up the model->device transform using
+          self.zoom, self.offset_x/offset_y and PIXELS_PER_INCH from self.config.
+        - Draw the grid, walls, rooms, doors, windows.
+        - Draw finished and in-progress polylines, plus the live rubber-band preview.
+        - Draw selection indicators and wall endpoint handles for editing.
+        - Draw live measurements, alignment guide, and snap indicator.
+        - Restore device coordinates and draw rulers if enabled.
+
+        Notes:
+        - After the translate/scale transform, drawing is done in model units (inches).
+        - Line widths, dash lengths and handle sizes are adjusted for zoom.
+        - Uses configuration values: PIXELS_PER_INCH, DEFAULT_WALL_WIDTH, SHOW_RULERS, SHOW_GRID.
+        Args:
+            widget: the Gtk widget being drawn.
+            cr: the Cairo context.
+            width: device width in pixels.
+            height: device height in pixels.
+
+        Returns:
+            None
+        """
         # Clear background (device coordinates)
         cr.identity_matrix()
         cr.set_source_rgb(1, 1, 1)
@@ -151,11 +178,25 @@ class CanvasDrawMixin:
         # Draw selection indicators.
         if hasattr(self, "selected_items"):
             cr.save()
+            
+            handle_radius = (self.handle_radius - 2) / (self.zoom * pixels_per_inch)
+            
             # We’re still in model coordinates here.
             for item in self.selected_items:
                 if item["type"] == "wall":
                     # print("Wall selected")
                     wall = item["object"]
+                    
+                    for pt, pt_name in [(wall.start, "start"), (wall.end, "end")]:
+                        cr.set_source_rgba(1, 1, 0, 1.0)  # Yellow handles
+                        cr.arc(pt[0], pt[1], handle_radius, 0, 2 * 3.14159)
+                        cr.fill()
+                        # Draw a border
+                        cr.set_source_rgba(0, 0, 0, 1.0)
+                        cr.arc(pt[0], pt[1], handle_radius, 0, 2 * 3.14159)
+                        cr.set_line_width(1.0 / self.zoom)
+                        cr.stroke()
+                    
                     # Set a red color with some opacity.
                     cr.set_source_rgba(1, 0, 0, 1.0) # Opaque red.
                     # Save the original line width.
