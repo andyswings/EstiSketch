@@ -1716,25 +1716,3 @@ class CanvasEventsMixin:
         dx = p1[0] - p2[0]
         dy = p1[1] - p2[1]
         return dx * dx + dy * dy <= tol * tol
-
-
-    # def _update_connected_walls(
-    #     self,
-    #     old_point: tuple[float, float],
-    #     new_point: tuple[float, float],
-    #     tolerance: float | None = None,
-    # ) -> None:
-    #     """
-    #     Propagate an endpoint move to walls that are connected at a joint.
-
-    #     Args:
-    #         old_point: Joint coordinate *before* this drag step (model space).
-    #         new_point: Joint coordinate *after* this drag step (model space).
-    #     """
-    #     for wall_set in self.wall_sets:
-    #         for wall in wall_set:
-    #             # If an endpoint was at old_point, move it to new_point.
-    #             if self._points_close(wall.start, old_point, tolerance):
-    #                 wall.start = new_point
-    #             if self._points_close(wall.end, old_point, tolerance):
-    #                 wall.end = new_point
