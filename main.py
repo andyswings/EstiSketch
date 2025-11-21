@@ -484,7 +484,7 @@ class EstimatorApp(Gtk.Application):
         dialog.present()
 
     def on_estimate_materials_clicked(self, button):
-        dialog = estimate_materials.create_estimate_materials_dialog(self.window)
+        dialog = estimate_materials.create_estimate_materials_dialog(self.window, self.canvas)
         dialog.present()
 
     def on_estimate_cost_clicked(self, button):
