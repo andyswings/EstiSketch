@@ -1,4 +1,10 @@
 from Resources.framing import roughOpeningExtraStuds
+import config
+
+# Read runtime config (falls back to DEFAULT_SETTINGS if settings file missing)
+_cfg = config.load_config() if hasattr(config, "load_config") else getattr(config, "DEFAULT_SETTINGS", {})
+MAX_WALL_PLATE_INCHES = _cfg.get("MAX_WALL_PLATE_INCHES", getattr(config, "DEFAULT_SETTINGS", {}).get("MAX_WALL_PLATE_INCHES", 192))
+
 
 class FramingEstimator:
     """
@@ -85,8 +91,8 @@ class FramingEstimator:
 
         return {
             "studs": stud_count,
-            "top_plates": 2,  # Typically 2 top plates (single or doubled)
-            "bottom_plates": 1,
+            "top_plates": 2 * wall_length_inches / 12,  # Double top plate
+            "bottom_plates": wall_length_inches / 12,
             "wall_length_inches": wall_length_inches,
             "stud_spacing": getattr(wall, "stud_spacing", 16)
         }
@@ -136,10 +142,12 @@ class FramingEstimator:
                         "wall_id": wall.identifier,
                         "materials": materials
                     })
+                
+                print(f"Total top plates: {total_top_plates}")
 
         return {
             "total_studs": total_studs,
-            "total_top_plates": total_top_plates,
-            "total_bottom_plates": total_bottom_plates,
+            "total_top_plates": int(total_top_plates // MAX_WALL_PLATE_INCHES + 1),
+            "total_bottom_plates": int(total_bottom_plates // MAX_WALL_PLATE_INCHES + 1),
             "wall_details": wall_details
         }

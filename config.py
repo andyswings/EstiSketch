@@ -67,7 +67,8 @@ DEFAULT_SETTINGS = {
     "MAX_RECENT_FILES": 6,
     "POLYLINE_TYPE": "solid",
     "SHOW_PROPERTIES_PANEL": False,
-    "JOINT_SNAP_TOLERANCE": 1
+    "JOINT_SNAP_TOLERANCE": 1,
+    "MAX_WALL_PLATE_INCHES": 192
 }
 
 def load_config():

@@ -478,6 +478,10 @@ class CanvasEventsMixin:
         # --- Detect wall-handle press so drag can edit endpoints ---
         # If a selected wall handle was pressed, set editing state and record
         # the model-space start point for the drag logic (box_select_start).
+        
+        if self.tool_mode != "pointer":
+            return
+        
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         T = self.zoom * pixels_per_inch
         # Ensure attributes exist
