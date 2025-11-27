@@ -191,7 +191,6 @@ class WallPropertiesWidget(Gtk.Box):
         struct_box.append(fire_row)
         
         # ───── wire signals ─────
-        self.thickness_combo.connect("changed", self.on_thickness_changed)
         self.height_combo.connect("changed",    self.on_height_changed)
         self.exterior_switch.connect("state-set", self.on_exterior_toggled)
         self.footer_check.connect("toggled",    self.on_footer_toggled)
@@ -218,22 +217,24 @@ class WallPropertiesWidget(Gtk.Box):
     
     # ───── handlers ─────
     def on_thickness_changed(self, combo):
-        if self._block_updates or not self.current_wall: return
-        current_thickness = self.current_wall.width
-        for i in self.available_thicknesses:
-            if str(i) == current_thickness:
-                text = self.available_thicknesses.index(i)
-                combo.set_active(text)
-                break
-        # Get the active text from the combo box
-        text = combo.get_active_text()
-        if text is not None:
-            text = text.split()[0]
-        else:
+        if self._block_updates or not self.current_wall:
             return
-        if text.lower() != "custom":
-            self.current_wall.width = float(text.split('"')[0])
-        self.current_wall.width = float(text.split('"')[0])
+
+        text = combo.get_active_text()
+        if not text:
+            return
+
+        token = text.split()[0]
+
+        if token.lower().startswith("custom"):
+            return
+
+        try:
+            value = float(token.split('"')[0])
+        except ValueError:
+            return
+
+        self.current_wall.width = value
         self.emit_property_changed()
 
     def on_height_changed(self, combo):
@@ -329,30 +330,43 @@ class WallPropertiesWidget(Gtk.Box):
 
     # ───── populate UI from a Wall instance ─────
     def set_wall(self, wall):
+        # Block change handlers while we sync the UI to this wall
+        self._block_updates = True
         self.current_wall = wall
-        
-        # Combo Strings
-        width_str = f"{wall.width:g}"
-        height_str = f"{wall.height:g}"
-        
-        
-        self.thickness_combo.handler_block(self.thickness_handler_id)
-        
-        # SELECT the right one by ID:
-        self.thickness_combo.set_active_id(width_str)
 
-        # unblock signals if you were blocking them
+        #
+        # Thickness (wall.width is in inches, matches self.available_thicknesses)
+        #
+        thickness_index = 0  # fallback if no match
+        for i, val in enumerate(self.available_thicknesses):
+            if abs(val - float(wall.width)) < 1e-6:
+                thickness_index = i
+                break
+
+        self.thickness_combo.handler_block(self.thickness_handler_id)
+        self.thickness_combo.set_active(thickness_index)
         self.thickness_combo.handler_unblock(self.thickness_handler_id)
 
-        # Height
+        #  Height (wall.height is in feet, matches self.available_heights)
+        height_feet = float(wall.height) / 12.0 if wall.height is not None else 8.0
+        height_index = 0
+        for i, ft in enumerate(self.available_heights):
+            if abs(ft - height_feet) < 1e-6:
+                height_index = i
+                break
+
         self.height_combo.handler_block(self.height_handler_id)
-        self.height_combo.set_active_id(height_str)
+        self.height_combo.set_active(height_index)
         self.height_combo.handler_unblock(self.height_handler_id)
 
+        #
         # Exterior
+        #
         self.exterior_switch.set_active(wall.exterior_wall)
 
-        # Footer
+        #
+        # Footer fields
+        #
         self.footer_check.set_active(wall.footer)
         self.footer_left_combo.set_active(
             self._find_combo_index(self.footer_left_combo, f'{wall.footer_left_offset:.0f}"')
@@ -364,7 +378,9 @@ class WallPropertiesWidget(Gtk.Box):
             self._find_combo_index(self.footer_depth_combo, f'{wall.footer_depth:.0f}"')
         )
 
+        #
         # Materials & finishes
+        #
         self.material_combo.set_active(
             self._find_combo_index(self.material_combo, wall.material)
         )
@@ -375,7 +391,9 @@ class WallPropertiesWidget(Gtk.Box):
             self._find_combo_index(self.exterior_combo, wall.exterior_finish)
         )
 
+        #
         # Structural details
+        #
         self.stud_combo.set_active(
             self._find_combo_index(self.stud_combo, f'{int(wall.stud_spacing)}"')
         )
@@ -386,7 +404,10 @@ class WallPropertiesWidget(Gtk.Box):
             self._find_combo_index(self.fire_combo, f"{int(wall.fire_rating)}")
         )
 
+        # Done syncing, let change handlers run again
         self._block_updates = False
+
+
         
 
 class PropertiesDock(Gtk.Box):

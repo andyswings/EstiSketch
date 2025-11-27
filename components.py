@@ -29,14 +29,6 @@ class Wall:
         self.insulation_type = "fiberglass"
         self.fire_rating = "1"
 
-    def __eq__(self, other):
-        if not isinstance(other, Wall):
-            return False
-        return (self.start == other.start and
-                self.end == other.end and
-                self.width == other.width and
-                self.height == other.height)
-
 
 @dataclass
 class Polyline:

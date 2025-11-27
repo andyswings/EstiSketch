@@ -3,12 +3,6 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
 from Takeoff.framing_takeoff import FramingEstimator
 
-# import config
-
-# # Read runtime config (falls back to DEFAULT_SETTINGS if settings file missing)
-# _cfg = config.load_config() if hasattr(config, "load_config") else getattr(config, "DEFAULT_SETTINGS", {})
-# MAX_WALL_PLATE_INCHES = _cfg.get("MAX_WALL_PLATE_INCHES", getattr(config, "DEFAULT_SETTINGS", {}).get("MAX_WALL_PLATE_INCHES", 192))
-
 
 def create_estimate_materials_dialog(parent, canvas):
     """
@@ -49,20 +43,33 @@ def create_estimate_materials_dialog(parent, canvas):
 
     # Calculate estimates
     estimates = FramingEstimator.estimate_all_walls(canvas.wall_sets, walls_with_openings)
-    width = estimates['wall_details'][0]['materials']['wall_width']
-    if width == 3.5:
-        width = 4
-    elif width == 5.5:
-        width = 6
-    elif width == 7.25:
-        width = 8
+    
     label_string = """<b>Framing Material Estimate</b>"""
-    for i in estimates:
-        if estimates[i] != 0:
-            if "studs" in i:
-                label_string += f"\n{i}: {estimates[i]}"
-            elif "top_plates" in i or "bottom_plates" in i:
-                label_string += f"\n{i}: {int(estimates[i] // estimates['wall_plates_length']) + 1} --- 2 x {width}" + f" x {int(estimates['wall_plates_length'] / 12)}"
+    
+    for key, value in estimates.items():
+        if not value:
+            continue
+        if key in ["wall_details", "wall_plates_length"]:
+            continue
+        if "studs" in key:
+            label_string = f"{key}: {value}\n"
+        elif "top_plates" in key or "bottom_plates" in key:
+            if "2x4" in key:
+                nominal_width = 4
+            elif "2x6" in key:
+                nominal_width = 6
+            elif "2x8" in key:
+                nominal_width = 8
+            else:
+                nominal_width = 4  # Default to 2x4 if unknown
+            
+            pieces = int(value // estimates['wall_plates_length']) + 1
+            plate_length_feet = int(estimates['wall_plates_length'] / 12)
+            
+            label_string += (
+            f"\n{key}: {pieces} --- 2 x {nominal_width}"
+            f" x {plate_length_feet}"
+        )
 
     # Display results
     label = Gtk.Label()

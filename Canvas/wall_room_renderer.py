@@ -8,32 +8,23 @@ def draw_walls(self, cr):
     for wall_set in self.wall_sets:
         if not wall_set:
             continue
-        first_wall = wall_set[0]
-        line_width_user = first_wall.width / self.zoom
-        cr.set_line_width(line_width_user)
-
-        cr.move_to(wall_set[0].start[0], wall_set[0].start[1])
         for wall in wall_set:
+            line_width_user = wall.width / self.zoom
+            cr.set_line_width(line_width_user)
+            cr.move_to(wall.start[0], wall.start[1])
             cr.line_to(wall.end[0], wall.end[1])
-        if len(wall_set) > 2 and wall_set[-1].end == wall_set[0].start:
-            cr.close_path()
-        cr.stroke()
+            cr.stroke()
 
     if self.walls:
-        first_loose = self.walls[0]
-        line_width_user = first_loose.width / self.zoom
-        cr.set_line_width(line_width_user)
-
-        cr.move_to(self.walls[0].start[0], self.walls[0].start[1])
         for wall in self.walls:
+            line_width_user = wall.width / self.zoom
+            cr.set_line_width(line_width_user)
+            cr.move_to(wall.start[0], wall.start[1])
             cr.line_to(wall.end[0], wall.end[1])
-        if self.current_wall:
-            cr.line_to(self.current_wall.end[0], self.current_wall.end[1])
-        if not self.drawing_wall and len(self.walls) > 2 and self.walls[-1].end == self.walls[0].start:
-            cr.close_path()
-        cr.stroke()
-        
-    elif self.current_wall:
+            cr.stroke()
+
+    # Current in-progress wall (rubber-band)
+    if self.current_wall:
         line_width_user = self.current_wall.width / self.zoom
         cr.set_line_width(line_width_user)
         cr.move_to(self.current_wall.start[0], self.current_wall.start[1])
