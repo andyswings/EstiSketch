@@ -19,10 +19,11 @@
     "SETTINGS_LABEL": "Settings",
     "HELP_LABEL": "Help",
     "SETTINGS_TITLE": "Settings",
+    "MANAGE_MATERIALS_TITLE": "Manage Materials",
     "OK_LABEL": "OK",
     "CANCEL_LABEL": "Cancel",
     "DEFAULT_WALL_HEIGHT": 96.0,
-    "DEFAULT_WALL_WIDTH": 5.5,
+    "DEFAULT_WALL_WIDTH": 3.5,
     "UNITS": "feet_inches",
     "SNAP_ENABLED": true,
     "SNAP_THRESHOLD": 10.0,
@@ -68,5 +69,5 @@
     "POLYLINE_TYPE": "solid",
     "SHOW_PROPERTIES_PANEL": true,
     "JOINT_SNAP_TOLERANCE": 1,
-    "MAX_WALL_PLATE_INCHES": 192
+    "MAX_WALL_PLATE_INCHES": 144
 }

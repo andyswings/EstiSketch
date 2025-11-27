@@ -478,10 +478,27 @@ class EstimatorApp(Gtk.Application):
             print("Settings updated")
             config.save_config(self.config.__dict__)
         dialog.destroy()
-
-    def on_manage_materials_clicked(self, button):
-        dialog = manage_materials.create_manage_materials_dialog(self.window)
+        
+    def on_manage_materials_clicked(self, button, *args):
+        dialog = manage_materials.create_manage_materials_dialog(self.window, self.config, self.canvas)
+        dialog.connect("response", self.on_manage_materials_response)
         dialog.present()
+
+    def on_manage_materials_response(self, dialog, response):
+        if response == Gtk.ResponseType.OK:
+            print("Materials updated")
+            config.save_config(self.config.__dict__)
+        dialog.destroy()
+
+    # def on_manage_materials_clicked(self, button):
+    #     # Ensure a runtime config object exists and pass canvas so changes take effect immediately
+    #     if not hasattr(self, "config_constants"):
+    #         from types import SimpleNamespace
+    #         import config
+    #         cfg = config.load_config() or {}
+    #         self.config_constants = SimpleNamespace(**cfg)
+    #     dialog = manage_materials.create_manage_materials_dialog(self.window, self.config_constants, self.canvas)
+    #     dialog.present()
 
     def on_estimate_materials_clicked(self, button):
         dialog = estimate_materials.create_estimate_materials_dialog(self.window, self.canvas)

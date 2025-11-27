@@ -1,9 +1,4 @@
 from Resources.framing import roughOpeningExtraStuds
-import config
-
-# Read runtime config (falls back to DEFAULT_SETTINGS if settings file missing)
-_cfg = config.load_config() if hasattr(config, "load_config") else getattr(config, "DEFAULT_SETTINGS", {})
-MAX_WALL_PLATE_INCHES = _cfg.get("MAX_WALL_PLATE_INCHES", getattr(config, "DEFAULT_SETTINGS", {}).get("MAX_WALL_PLATE_INCHES", 192))
 
 
 class FramingEstimator:
@@ -87,14 +82,15 @@ class FramingEstimator:
         # Wall length in inches for plate calculations
         dx = wall.end[0] - wall.start[0]
         dy = wall.end[1] - wall.start[1]
-        wall_length_inches = ((dx ** 2 + dy ** 2) ** 0.5) * 12
+        wall_length_inches = ((dx ** 2 + dy ** 2) ** 0.5)
 
         return {
             "studs": stud_count,
-            "top_plates": 2 * wall_length_inches / 12,  # Double top plate
-            "bottom_plates": wall_length_inches / 12,
+            "top_plates": 2 * wall_length_inches,  # Double top plate
+            "bottom_plates": wall_length_inches,
             "wall_length_inches": wall_length_inches,
-            "stud_spacing": getattr(wall, "stud_spacing", 16)
+            "stud_spacing": getattr(wall, "stud_spacing", 16),
+            "wall_width": getattr(wall, "width", 5.5)
         }
 
     @staticmethod
@@ -109,12 +105,26 @@ class FramingEstimator:
         Returns:
             dict: Aggregated material counts.
         """
+        import config
+
+        # Read runtime config (falls back to DEFAULT_SETTINGS if settings file missing)
+        _cfg = config.load_config() if hasattr(config, "load_config") else getattr(config, "DEFAULT_SETTINGS", {})
+        MAX_WALL_PLATE_INCHES = _cfg.get("MAX_WALL_PLATE_INCHES", getattr(config, "DEFAULT_SETTINGS", {}).get("MAX_WALL_PLATE_INCHES", 192))
+        
+        
         if walls_with_openings is None:
             walls_with_openings = {}
-
-        total_studs = 0
-        total_top_plates = 0
-        total_bottom_plates = 0
+        
+        total_2x4_studs = 0
+        total_2x6_studs = 0
+        total_2x8_studs = 0
+        total_2x4_top_plates = 0
+        total_2x6_top_plates = 0
+        total_2x8_top_plates = 0
+        total_2x4_bottom_plates = 0
+        total_2x6_bottom_plates = 0
+        total_2x8_bottom_plates = 0
+        
         wall_details = []
 
         for wall_set in wall_sets:
@@ -135,19 +145,33 @@ class FramingEstimator:
                 )
 
                 if materials:
-                    total_studs += materials["studs"]
-                    total_top_plates += materials["top_plates"]
-                    total_bottom_plates += materials["bottom_plates"]
+                    if materials["wall_width"] == 3.5:
+                        total_2x4_studs += materials["studs"]
+                        total_2x4_top_plates += materials["top_plates"]
+                        total_2x4_bottom_plates += materials["bottom_plates"]
+                    elif materials["wall_width"] == 5.5:
+                        total_2x6_studs += materials["studs"]
+                        total_2x6_top_plates += materials["top_plates"]
+                        total_2x6_bottom_plates += materials["bottom_plates"]
+                    elif materials["wall_width"] == 7.25:
+                        total_2x8_studs += materials["studs"]
+                        total_2x8_top_plates += materials["top_plates"]
+                        total_2x8_bottom_plates += materials["bottom_plates"]
                     wall_details.append({
                         "wall_id": wall.identifier,
                         "materials": materials
                     })
-                
-                print(f"Total top plates: {total_top_plates}")
 
         return {
-            "total_studs": total_studs,
-            "total_top_plates": int(total_top_plates // MAX_WALL_PLATE_INCHES + 1),
-            "total_bottom_plates": int(total_bottom_plates // MAX_WALL_PLATE_INCHES + 1),
-            "wall_details": wall_details
+            "total_2x4_studs": total_2x4_studs,
+            "total_2x6_studs": total_2x6_studs,
+            "total_2x8_studs": total_2x8_studs,
+            "total_2x4_top_plates": total_2x4_top_plates,
+            "total_2x6_top_plates": total_2x6_top_plates,
+            "total_2x8_top_plates": total_2x8_top_plates,
+            "total_2x4_bottom_plates": total_2x4_bottom_plates,
+            "total_2x6_bottom_plates": total_2x6_bottom_plates,
+            "total_2x8_bottom_plates": total_2x8_bottom_plates,
+            "wall_details": wall_details,
+            "wall_plates_length": int(MAX_WALL_PLATE_INCHES)
         }

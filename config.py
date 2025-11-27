@@ -1,7 +1,7 @@
 import json
 import os
 
-CONFIG_FILE = "settings.json"
+CONFIG_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
 
 DEFAULT_SETTINGS = {
     "WINDOW_TITLE": "Estimator App",
@@ -86,5 +86,6 @@ def load_config():
     return settings
 
 def save_config(settings):
+    os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
     with open(CONFIG_FILE, "w") as f:
         json.dump(settings, f, indent=4)
