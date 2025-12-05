@@ -4,46 +4,42 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
 
 ## Current Features
 
-### Drawing Tools
-- **Wall Drawing:**  
-  The basic wall drawing tool is mostly complete. You can draw walls with live snapping (to endpoints, angles, and grid points) and real‑time measurement labels that display both the wall’s length and its angle. Double click inside of an existing room to automatically draw walls around it.
+### Essential Drawing Tools
+- **Pointer (V)**: Select walls, corners, or objects. Supports box select, shift-extend, and a rich right-click context menu.
+- **Pan (P)**: Smoothly navigate the canvas.
+- **Zoom**: Controls for Zoom In (Ctrl+=), Out (Ctrl+-), and Reset (Ctrl+0). Mouse wheel and pinch gestures supported.
+- **Undo/Redo**: Full undo history (Ctrl+Z / Ctrl+Y).
 
-- **Room Creation:**  
-  Manual point-by-point room drawing is supported, allowing precise control over room shapes.
-  Double-click inside a closed wall loop to automatically create a room, streamlining the process of defining enclosed spaces.
+### Wall & Room System
+- **Draw Walls (W)**: Rendered with high-quality mitered corners. Live snapping to grid/endpoints and real-time measurement labels.
+- **Draw Rooms (R)**: Click connection points or double-click a closed loop to auto-generate a room.
+- **Advanced Wall Properties**: Edit wall thickness, height, stud spacing, insulation type, fire rating, and finish materials via the **Properties Dock**.
+- **Foundations**: Toggle footers on walls and configure their depth/offsets.
+- **Smart Joining**:
+    - **Join Walls**: Strictly merge selected segments.
+    - **Join Connected Walls**: Automatically repair/merge all touching wall chains.
 
-- **Pointer Tool:**
-  The pointer tool currently supports two methods of selection. 
-    1. Selection of single wall segments or room vertices. 
-    2. Box selection or clicking and dragging to select multiple items at once.
-  Selection can be extended by holding the shift key and selecting additional segments or vertices. 
+### Openings & Attributes
+- **Add Doors (D) & Windows (A)**: Place openings on walls.
+- **Context Editing**: Right-click to change door types (Frame, Pocket, French, Sliding, Garage), toggle swing direction, or flip orientation.
 
-  Right click menu is implemented with more options planned in the future.
+### Annotations
+- **Add Polyline (L)**: Draw arbitrary shapes or lines for diagrams.
 
-- **Pan Tool:**  
-  The pan tool works as expected, allowing you to smoothly move around your drawing.
+### File Operations & Interoperability
+- **Save/Open**: Custom XML project format preserves all properties and relationships.
+- **Import Sweet Home 3D**: Import `.sh3d` files to migrate layouts into EstiSketch.
 
-- **Zoom Controls:**  
-  Zoom in, zoom out, and reset zoom functions are fully implemented, including pinch to zoom on touchpads, giving you flexible control over your view.
-
-- **Snapping and Live Measurement Labels:**  
-  Walls snap precisely to key points and angles, and as you draw, live measurement labels display the current segment’s length and angle. These labels stay parallel to the wall and automatically flip for readability when needed.
-
-### User Interface and Settings
-- **Customizable Settings:**  
-  A dedicated settings dialog lets you adjust many parameters, including default wall dimensions, snapping thresholds, grid spacing, zoom level, and more. Changes are applied immediately to the drawing area.
-- **Toolbar and File Operations:**  
-  The toolbar provides access to key functions like Save, Open, and Export as well as drawing tools.
-
-- **Properties Dock:**
-  The properties dock is intended to allow tweaking of any selected items in the drawing canvas
+### Estimation & Materials (Planned)
+- **Manage Materials (Ctrl+M)**: Configure library of available construction materials.
+- **Takeoffs**:
+    - **Estimate Materials (Ctrl+Shift+M)**: Generate material lists based on wall properties (studs, insulation, surfaces).
+    - **Estimate Cost (Ctrl+Shift+C)**: Calculate preliminary costs.
 
 ## Planned Features
+- **PDF Export**: Robust export to standard document formats.
+- **Custom Heights/Widths**: Support for arbitrary numeric input in properties.
 
-- **Materials Management & Cost Estimation:**  
-  Future updates will include comprehensive tools for managing materials, estimating quantities, and calculating detailed cost estimates.
-- **Advanced Editing:**  
-  More robust editing options and additional file export formats will be added as the application matures.
 
 ## Installation and Usage
 
