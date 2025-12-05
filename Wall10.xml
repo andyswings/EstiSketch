@@ -1,2 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<Project window_width="1120" window_height="900"><WallSets><WallSet><Wall><Start x="-0.5" y="0.0" /><End x="119.5" y="0.0" /><Width>5.5</Width><Height>96.0</Height><ExteriorWall>False</ExteriorWall><Material>wood</Material><InteriorFinish>drywall</InteriorFinish><ExteriorFinish>stucco</ExteriorFinish><StudSpacing>16</StudSpacing><InsulationType>fiberglass</InsulationType><FireRating>1</FireRating></Wall></WallSet></WallSets><Rooms /><Doors /><Windows /></Project>
