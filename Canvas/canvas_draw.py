@@ -341,9 +341,18 @@ class CanvasDrawMixin:
         cr.stroke()
 
     def draw_live_measurements(self, cr, pixels_per_inch):
+        walls_to_label = []
         if self.drawing_wall and self.current_wall:
-            start = self.current_wall.start
-            end = self.current_wall.end
+            walls_to_label.append(self.current_wall)
+        
+        if hasattr(self, "selected_items"):
+            for item in self.selected_items:
+                if item.get("type") == "wall":
+                    walls_to_label.append(item["object"])
+
+        for wall in walls_to_label:
+            start = wall.start
+            end = wall.end
             dx = end[0] - start[0]
             dy = end[1] - start[1]
             length = math.hypot(dx, dy)
