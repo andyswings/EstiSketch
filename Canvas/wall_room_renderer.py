@@ -5,30 +5,83 @@ def draw_walls(self, cr):
     cr.set_line_join(0) # 0 = miter join.
     cr.set_line_cap(0) # 0 = butt cap.
     cr.set_miter_limit(10.0)
+    # Draw wall sets (connected components)
     for wall_set in self.wall_sets:
         if not wall_set:
             continue
-        for wall in wall_set:
-            line_width_user = wall.width / self.zoom
-            cr.set_line_width(line_width_user)
-            cr.move_to(wall.start[0], wall.start[1])
-            cr.line_to(wall.end[0], wall.end[1])
-            cr.stroke()
+        
+        # We need to act like a single path for mitering to work on connected segments.
+        # Assumptions: 
+        # 1. Walls in a set are ordered (verified in canvas_events.py).
+        # 2. We only bundle them into one stroke if they share the same width.
+        
+        # Start the first path
+        current_width_user = wall_set[0].width / self.zoom
+        cr.set_line_width(current_width_user)
+        cr.move_to(wall_set[0].start[0], wall_set[0].start[1])
+        cr.line_to(wall_set[0].end[0], wall_set[0].end[1])
+        
+        for i in range(1, len(wall_set)):
+            wall = wall_set[i]
+            prev_wall = wall_set[i-1]
+            
+            # Check if connected
+            # We use a small epsilon for float comparison, though exact match is likely.
+            connected = (abs(prev_wall.end[0] - wall.start[0]) < 1e-6 and 
+                         abs(prev_wall.end[1] - wall.start[1]) < 1e-6)
+            
+            width_user = wall.width / self.zoom
+            
+            if connected and abs(width_user - current_width_user) < 1e-6:
+                # Continue the path
+                cr.line_to(wall.end[0], wall.end[1])
+            else:
+                # Stroke what we have and start new
+                cr.stroke()
+                
+                # Setup next
+                current_width_user = width_user
+                cr.set_line_width(current_width_user)
+                cr.move_to(wall.start[0], wall.start[1])
+                cr.line_to(wall.end[0], wall.end[1])
+        
+        # Stroke the final sequence
+        cr.stroke()
 
+    # Draw loose walls (temp/preview list usually empty or separate; just in case)
+    # Draw active drawing chain (self.walls + current_wall)
+    # We combine them temporarily to allow the rubber-band segment to miter with the last fixated segment.
+    active_chain = []
     if self.walls:
-        for wall in self.walls:
-            line_width_user = wall.width / self.zoom
-            cr.set_line_width(line_width_user)
-            cr.move_to(wall.start[0], wall.start[1])
-            cr.line_to(wall.end[0], wall.end[1])
-            cr.stroke()
-
-    # Current in-progress wall (rubber-band)
+        active_chain.extend(self.walls)
     if self.current_wall:
-        line_width_user = self.current_wall.width / self.zoom
-        cr.set_line_width(line_width_user)
-        cr.move_to(self.current_wall.start[0], self.current_wall.start[1])
-        cr.line_to(self.current_wall.end[0], self.current_wall.end[1])
+        active_chain.append(self.current_wall)
+    
+    if active_chain:
+        # Same logic as above for the active chain
+        current_width_user = active_chain[0].width / self.zoom
+        cr.set_line_width(current_width_user)
+        cr.move_to(active_chain[0].start[0], active_chain[0].start[1])
+        cr.line_to(active_chain[0].end[0], active_chain[0].end[1])
+        
+        for i in range(1, len(active_chain)):
+            wall = active_chain[i]
+            prev_wall = active_chain[i-1]
+            
+            connected = (abs(prev_wall.end[0] - wall.start[0]) < 1e-6 and 
+                         abs(prev_wall.end[1] - wall.start[1]) < 1e-6)
+            
+            width_user = wall.width / self.zoom
+            
+            if connected and abs(width_user - current_width_user) < 1e-6:
+                cr.line_to(wall.end[0], wall.end[1])
+            else:
+                cr.stroke()
+                current_width_user = width_user
+                cr.set_line_width(current_width_user)
+                cr.move_to(wall.start[0], wall.start[1])
+                cr.line_to(wall.end[0], wall.end[1])
+        
         cr.stroke()
 
 

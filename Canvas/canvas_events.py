@@ -222,8 +222,8 @@ class CanvasEventsMixin:
         Returns:
             None
         """
-        if len(self.selected_items) == 0:
-            # If no items are selected, do nothing.
+        if len(self.selected_items) == 0 and not self.wall_sets:
+            # If no items are selected AND no walls exist, do nothing.
             return
         
         # Filter selected items
@@ -285,6 +285,12 @@ class CanvasEventsMixin:
             join_button = Gtk.Button(label="Join Walls")
             join_button.connect("clicked", lambda btn: self.join_selected_walls(parent_popover))
             box.append(join_button)
+
+        # "Join Connected Walls" applies globally or to touched sets, so show it if any walls exist.
+        if self.wall_sets:
+            join_all_button = Gtk.Button(label="Join Connected Walls")
+            join_all_button.connect("clicked", lambda btn: self.join_all_connected_walls(parent_popover))
+            box.append(join_all_button)
         
         # Door-specific options
         if selected_doors:
@@ -346,114 +352,182 @@ class CanvasEventsMixin:
     
     def join_selected_walls(self, popover: Gtk.Popover) -> None:
         """
-        Join selected wall segments or wall sets into a single continuous wall set.
-
-        This method searches the current selection (stored in self.selected_items) for wall segments.
-        It then determines which wall sets contain any of these selected walls, removes those wall sets
-        from self.wall_sets, and merges their walls into a single chain. Walls are considered connected
-        if the distance between an endpoint of one wall and the start point of the next wall is within a
-        specified tolerance (typically based on a configuration value divided by the current zoom level).
-
-        If some selected walls are not contiguous with the main chain, they will not be merged and a warning
-        is printed. The resulting joined wall set preserves each wall segment’s original start and end coordinates.
-        Finally, the method clears the current selection and requests a redraw of the canvas.
-
-        Returns:
-            None
+        Join the wall sets that contain the selected walls.
+        This merges the entire chains that the selected walls belong to.
         """
-        # Gather all wall sets that contain at least one selected wall.
-        selected_sets: List[List[Wall]] = []
+        # 1. Gather distinct wall sets containing selected walls
+        sets_to_merge = []
         for item in self.selected_items:
             if item.get("type") == "wall":
-                # For each selected wall, find which wall set it belongs to.
+                wall = item["object"]
                 for ws in self.wall_sets:
-                    if item["object"] in ws and ws not in selected_sets:
-                        selected_sets.append(ws)
+                    if wall in ws and ws not in sets_to_merge:
+                        sets_to_merge.append(ws)
                         break
-                    
-        # Check if there are at least two selected wall sets to join.
-        if len(selected_sets) < 2:
-            print("Right-click: Need at least 2 selected walls sets to join.")
+        
+        if len(sets_to_merge) < 2:
+            print("Need at least 2 distinct wall sets selected to join.")
             return
 
-        if not selected_sets:
-            print("No wall segments selected for joining.")
-            return
-
-        # Remove the selected wall sets from the overall list.
-        for ws in selected_sets:
+        # 2. Remove old sets from self.wall_sets
+        for ws in sets_to_merge:
             if ws in self.wall_sets:
                 self.wall_sets.remove(ws)
+        
+        # 3. Flatten walls
+        walls_to_join = []
+        for ws in sets_to_merge:
+            walls_to_join.extend(ws)
+            
+        # 4. Merge into a new ordered set using greedy logic
+        new_set = self._order_walls_into_chain(walls_to_join)
+        
+        # 5. Add back
+        self.wall_sets.append(new_set)
+        
+        # Cleanup
+        self.selected_items = []
+        self.queue_draw()
+        popover.popdown()
 
-        # Flatten all selected walls into a single list.
-        all_walls: List[Wall] = []
-        for ws in selected_sets:
+    def join_all_connected_walls(self, popover: Gtk.Popover) -> None:
+        """
+        Globally scan all wall sets and merge any that are connected.
+        This effectively reconstructs the wall_sets based on geometric connectivity.
+        """
+        # 1. Flatten ALL walls
+        all_walls = []
+        for ws in self.wall_sets:
             all_walls.extend(ws)
+        
+        # 2. Clear existing sets
+        self.wall_sets = []
+        
+        # 3. Rebuild sets based on connectivity
+        remaining = all_walls.copy()
+        
+        while remaining:
+            # Start a new component
+            component_walls = [remaining.pop(0)]
+            
+            # Iteratively grow this component using the helper
+            # But the helper usually takes a list and orders it. 
+            # Here we need to grab *anything* from 'remaining' that touches the component.
+            # Actually, standard connected components algorithm is better here, 
+            # but we also want them ordered. 
+            # Strategy: greedy grow from ends of the current chain.
+            
+            # Simple implementation: 
+            # Treat 'component_walls' as the growing chain.
+            # Repeatedly scan 'remaining' for walls that attach to head or tail.
+            
+            changed = True
+            while changed:
+                changed = False
+                tol = (getattr(self.config, "WALL_JOIN_TOLERANCE", 5.0)) / self.zoom
+                
+                # Check neighbors for head
+                head_pt = component_walls[0].start
+                for w in remaining:
+                    if self._points_close(w.start, head_pt, tol):
+                        # w starts at head -> flip w, insert at front
+                        w.start, w.end = w.end, w.start
+                        component_walls.insert(0, w)
+                        remaining.remove(w)
+                        changed = True
+                        break
+                    elif self._points_close(w.end, head_pt, tol):
+                        # w ends at head -> insert at front
+                        component_walls.insert(0, w)
+                        remaining.remove(w)
+                        changed = True
+                        break
+                
+                if changed: continue
+                
+                # Check neighbors for tail
+                tail_pt = component_walls[-1].end
+                for w in remaining:
+                    if self._points_close(w.start, tail_pt, tol):
+                        # w starts at tail -> append
+                        component_walls.append(w)
+                        remaining.remove(w)
+                        changed = True
+                        break
+                    elif self._points_close(w.end, tail_pt, tol):
+                        # w ends at tail -> flip w, append
+                        w.start, w.end = w.end, w.start
+                        component_walls.append(w)
+                        remaining.remove(w)
+                        changed = True
+                        break
+            
+            self.wall_sets.append(component_walls)
 
-        # Define a helper function to compute Euclidean distance.
-        def distance(p, q):
-            return math.hypot(p[0] - q[0], p[1] - q[1])
+        self.selected_items = []
+        self.queue_draw()
+        popover.popdown()
+        
+    def _points_close(self, p1, p2, tol):
+        return math.hypot(p1[0] - p2[0], p1[1] - p2[1]) < tol
 
-        # Use a tolerance for determining connectivity.
-        # Use the config's WALL_JOIN_TOLERANCE (if defined) divided by zoom, or default to 5.
+    def _order_walls_into_chain(self, walls: List[Wall]) -> List[Wall]:
+        """
+        Helper to greedily order a list of walls into a contiguous chain.
+        """
+        if not walls:
+            return []
+            
         tol = (getattr(self.config, "WALL_JOIN_TOLERANCE", 5.0)) / self.zoom
-
-        # Greedily order the walls into a continuous chain.
-        remaining: List[Wall] = all_walls.copy()
-        joined: List[Wall] = []
-        if not remaining:
-            return
-
-        # Start with an arbitrary wall.
-        current = remaining.pop(0)
-        joined.append(current)
-
-        # Extend forward from the end of the chain.
+        remaining = walls.copy()
+        joined = [remaining.pop(0)]
+        
         extended = True
         while extended and remaining:
             extended = False
             last_point = joined[-1].end
             for wall in remaining:
-                if distance(wall.start, last_point) < tol:
+                if self._points_close(wall.start, last_point, tol):
                     joined.append(wall)
                     remaining.remove(wall)
                     extended = True
                     break
-                elif distance(wall.end, last_point) < tol:
-                    # Reverse the wall so its start becomes the connecting endpoint.
+                elif self._points_close(wall.end, last_point, tol):
                     wall.start, wall.end = wall.end, wall.start
                     joined.append(wall)
                     remaining.remove(wall)
                     extended = True
                     break
-
-        # Extend backward from the beginning of the chain.
+        
         extended = True
         while extended and remaining:
             extended = False
             first_point = joined[0].start
             for wall in remaining:
-                if distance(wall.end, first_point) < tol:
+                if self._points_close(wall.end, first_point, tol):
                     joined.insert(0, wall)
                     remaining.remove(wall)
                     extended = True
                     break
-                elif distance(wall.start, first_point) < tol:
+                elif self._points_close(wall.start, first_point, tol):
                     wall.start, wall.end = wall.end, wall.start
                     joined.insert(0, wall)
                     remaining.remove(wall)
                     extended = True
                     break
-
+                    
+        # Any remaining walls are disjoint from the main chain we found.
+        # We'll just append them (butt joins likely) to avoid losing data.
         if remaining:
-            print("Warning: Not all selected walls are contiguous; only contiguous segments have been joined.")
+            print(f"Warning: {len(remaining)} walls could not be linked to the main chain.")
+            joined.extend(remaining)
+            
+        return joined
 
-        # Append the new, joined wall set to the canvas.
-        self.wall_sets.append(joined)
-        # Clear selection and request a redraw.
-        self.selected_items = []
-        self.queue_draw()
-        popover.popdown()
+
+
+
+
         
             
     def on_click_pressed(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
