@@ -46,6 +46,9 @@ def draw_walls(self, cr):
                 cr.line_to(wall.end[0], wall.end[1])
         
         # Stroke the final sequence
+        # Check if closed loop
+        if len(wall_set) > 1 and abs(wall_set[-1].end[0] - wall_set[0].start[0]) < 1e-6 and abs(wall_set[-1].end[1] - wall_set[0].start[1]) < 1e-6:
+             cr.close_path()
         cr.stroke()
 
     # Draw loose walls (temp/preview list usually empty or separate; just in case)

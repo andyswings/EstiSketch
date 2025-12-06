@@ -556,11 +556,13 @@ class CanvasEventsMixin:
                 for w in remaining:
                     if self._points_close(w.start, head_pt, tol):
                         w.start, w.end = w.end, w.start
+                        w.end = head_pt  # Snap to exact point
                         component_walls.insert(0, w)
                         remaining.remove(w)
                         changed = True
                         break
                     elif self._points_close(w.end, head_pt, tol):
+                        w.end = head_pt # Snap to exact point
                         component_walls.insert(0, w)
                         remaining.remove(w)
                         changed = True
@@ -572,12 +574,14 @@ class CanvasEventsMixin:
                 tail_pt = component_walls[-1].end
                 for w in remaining:
                     if self._points_close(w.start, tail_pt, tol):
+                        w.start = tail_pt # Snap to exact point
                         component_walls.append(w)
                         remaining.remove(w)
                         changed = True
                         break
                     elif self._points_close(w.end, tail_pt, tol):
                         w.start, w.end = w.end, w.start
+                        w.start = tail_pt # Snap to exact point
                         component_walls.append(w)
                         remaining.remove(w)
                         changed = True
