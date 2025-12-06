@@ -970,7 +970,23 @@ class CanvasEventsMixin:
 
             new_x = origin[0] + (offset_x / T)
             new_y = origin[1] + (offset_y / T)
-            new_point = (new_x, new_y)
+            
+            # --- Angle Snapping Logic ---
+            best_snap = (new_x, new_y)
+            
+            # Check against anchors of all connected walls
+            for wall_obj, endpoint_name in getattr(self, "connected_endpoints", []):
+                # The anchor is the OTHER end of the wall
+                anchor = wall_obj.end if endpoint_name == "start" else wall_obj.start
+                
+                # Try snapping to angle relative to this anchor
+                snap_pt, snap_type = self.snap_manager.snap_to_angle(new_x, new_y, anchor[0], anchor[1])
+                
+                if snap_type != "none":
+                    best_snap = snap_pt
+                    break # Snap to the first valid alignment we find
+            
+            new_point = best_snap
 
             # Move all connected endpoints to this joint position
             for wall_obj, endpoint_name in getattr(self, "connected_endpoints", []):
