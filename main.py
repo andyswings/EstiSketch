@@ -49,6 +49,11 @@ class EstimatorApp(Gtk.Application):
         recent_action.connect("activate", self.on_open_recent)
         self.add_action(recent_action)
         
+        # Clear recent files
+        clear_recent_action = Gio.SimpleAction.new("clear_recent", None)
+        clear_recent_action.connect("activate", self.on_clear_recent)
+        self.add_action(clear_recent_action)
+        
         # Add an action for importing SH3D files.
         import_action = Gio.SimpleAction.new("import_sh3d", None)
         import_action.connect("activate", self.on_import_sh3d)
@@ -731,6 +736,10 @@ class EstimatorApp(Gtk.Application):
         self.is_dirty = False
     
     def on_open_recent(self, action, parameter):
+        # Automatically remove files that no longer exist
+        import os
+        self.recent_files = [path for path in self.recent_files if os.path.exists(path)]
+        
         # Create a popover to serve as the sub-menu
         popover = Gtk.Popover()
         
@@ -756,6 +765,17 @@ class EstimatorApp(Gtk.Application):
                     popover.popdown()  # Use local popover variable
                 btn.connect("clicked", _on_click)
                 box.append(btn)
+            
+            # Add a separator and clear button
+            separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            box.append(separator)
+            
+            clear_btn = Gtk.Button(label="Clear Recent Files")
+            def _on_clear_click(button):
+                self.on_clear_recent(None, None)
+                popover.popdown()
+            clear_btn.connect("clicked", _on_clear_click)
+            box.append(clear_btn)
         
         # Set the popover's parent to the file menu button
         popover.set_parent(self.file_menu_button)
@@ -765,6 +785,12 @@ class EstimatorApp(Gtk.Application):
         
         # Show the popover
         popover.popup()
+    
+    def on_clear_recent(self, action, parameter):
+        """Clear the recent files list."""
+        self.recent_files = []
+        self.config.RECENT_FILES = self.recent_files
+        config.save_config(self.config.__dict__)
 
     def on_exit(self, action, parameter):
         self.window.emit("close-request")

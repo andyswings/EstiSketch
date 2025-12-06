@@ -62,9 +62,7 @@
     "DEFAULT_DOOR_TYPE": "single",
     "DEFAULT_WINDOW_TYPE": "sliding",
     "PIXELS_PER_INCH": 2.0,
-    "RECENT_FILES": [
-        "/home/andrew/Documents/Building_App/EstiSketch/Wall10.xml"
-    ],
+    "RECENT_FILES": [],
     "MAX_RECENT_FILES": 6,
     "POLYLINE_TYPE": "solid",
     "SHOW_PROPERTIES_PANEL": true,
