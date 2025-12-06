@@ -346,14 +346,6 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["add_polyline"].set_active(True)
                 return True
             elif keyname == "t":
-                #TODO: Implement text tool. 
-                # Functionality:
-                # 1. Click and drag to create a text box.
-                # 2. Click to finalize. At this point, box should have focus and the user can start typing.
-                # 3. Text tools should appear next to the text box. (Font, Size, Bold, Italic, Underline, etc.)
-                # 4. Box can be resized.
-                # 5. Box can be moved.
-                
                 self.tool_buttons["add_text"].set_active(True)
                 return True
             elif keyname == "m":

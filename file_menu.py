@@ -9,6 +9,8 @@ def create_file_menu(app):
     menu_model.append("New", "app.new")
     menu_model.append("Open", "app.open")
     menu_model.append("Open Recent Project", "app.open_recent")
+    #TODO: Add a button at the bottom of the recent files list to clear the list.
+    #TODO: Automatically remove files from the recent files list that no longer exist.
     menu_model.append("Import SH3D", "app.import_sh3d")
     # Separator
     menu_model.append_section("", Gio.Menu())

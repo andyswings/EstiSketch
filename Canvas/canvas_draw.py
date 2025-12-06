@@ -538,7 +538,17 @@ class CanvasDrawMixin:
             layout = PangoCairo.create_layout(cr)
             layout.set_text(text.content, -1)
             desc = Pango.FontDescription(f"{text.font_family} {text.font_size}")
+            if text.bold:
+                desc.set_weight(Pango.Weight.BOLD)
+            if text.italic:
+                desc.set_style(Pango.Style.ITALIC)
             layout.set_font_description(desc)
+            
+            attr_list = Pango.AttrList()
+            if text.underline:
+                attr = Pango.attr_underline_new(Pango.Underline.SINGLE)
+                attr_list.insert(attr)
+            layout.set_attributes(attr_list)
             
             cr.set_source_rgb(0, 0, 0) # Black text
             PangoCairo.show_layout(cr, layout)

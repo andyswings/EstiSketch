@@ -64,6 +64,26 @@ def verify_text_tool():
     assert loaded_t != t2
     print("Identity check: OK")
     
+    # 6. Styles Check
+    t3 = Text(100, 100, "Styled", 100, 50, "text-style")
+    t3.bold = True
+    t3.italic = True
+    t3.underline = True
+    t3.font_family = "Serif"
+    canvas.texts.append(t3)
+    
+    save_project(canvas, 800, 600, filepath)
+    
+    canvas2 = CanvasArea(Config())
+    open_project(canvas2, filepath)
+    
+    loaded_t3 = canvas2.texts[2] # 0, 1 (t2), 2 (t3)
+    assert loaded_t3.bold == True
+    assert loaded_t3.italic == True
+    assert loaded_t3.underline == True
+    assert loaded_t3.font_family == "Serif"
+    print("Style persistence: OK")
+    
     # Clean up
     if os.path.exists(filepath):
         os.remove(filepath)

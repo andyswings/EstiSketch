@@ -443,6 +443,32 @@ class TextPropertiesWidget(Gtk.Box):
         row.append(self.size_spin)
         box.append(row)
         
+        # Font Family
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Font:"))
+        self.font_combo = Gtk.ComboBoxText()
+        for font in ["Sans", "Serif", "Monospace", "Arial", "Times New Roman", "Courier New"]:
+            self.font_combo.append_text(font)
+        self.font_combo.connect("changed", self.on_font_changed)
+        row.append(self.font_combo)
+        box.append(row)
+        
+        # Styles
+        style_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.bold_check = Gtk.CheckButton(label="Bold")
+        self.bold_check.connect("toggled", self.on_style_toggled)
+        style_box.append(self.bold_check)
+        
+        self.italic_check = Gtk.CheckButton(label="Italic")
+        self.italic_check.connect("toggled", self.on_style_toggled)
+        style_box.append(self.italic_check)
+        
+        self.underline_check = Gtk.CheckButton(label="Underline")
+        self.underline_check.connect("toggled", self.on_style_toggled)
+        style_box.append(self.underline_check)
+        
+        box.append(style_box)
+        
     def on_content_changed(self, entry):
         if self._block_updates or not self.current_text: return
         self.current_text.content = entry.get_text()
@@ -451,6 +477,18 @@ class TextPropertiesWidget(Gtk.Box):
     def on_size_changed(self, spin):
         if self._block_updates or not self.current_text: return
         self.current_text.font_size = spin.get_value()
+        self.emit_property_changed()
+
+    def on_font_changed(self, combo):
+        if self._block_updates or not self.current_text: return
+        self.current_text.font_family = combo.get_active_text()
+        self.emit_property_changed()
+
+    def on_style_toggled(self, check):
+        if self._block_updates or not self.current_text: return
+        self.current_text.bold = self.bold_check.get_active()
+        self.current_text.italic = self.italic_check.get_active()
+        self.current_text.underline = self.underline_check.get_active()
         self.emit_property_changed()
     
     def emit_property_changed(self):
@@ -461,7 +499,41 @@ class TextPropertiesWidget(Gtk.Box):
         self._block_updates = True
         self.current_text = text_obj
         self.content_entry.set_text(text_obj.content)
+        self.content_entry.set_text(text_obj.content)
         self.size_spin.set_value(text_obj.font_size)
+        
+        # Font
+        # Find font in combo or default to 0
+        idx = 0
+        model = self.font_combo.get_model()
+        for i, row in enumerate(model):
+            if row[0] == text_obj.font_family:
+                idx = i
+                break
+        self.font_combo.set_active(idx)
+        
+        # Styles
+        self.bold_check.set_active(text_obj.bold)
+        self.italic_check.set_active(text_obj.italic)
+        self.underline_check.set_active(text_obj.underline)
+        
+        self._block_updates = False
+        
+        # Font
+        # Find font in combo or default to 0
+        idx = 0
+        model = self.font_combo.get_model()
+        for i, row in enumerate(model):
+            if row[0] == text_obj.font_family:
+                idx = i
+                break
+        self.font_combo.set_active(idx)
+        
+        # Styles
+        self.bold_check.set_active(text_obj.bold)
+        self.italic_check.set_active(text_obj.italic)
+        self.underline_check.set_active(text_obj.underline)
+        
         self._block_updates = False
 
 class PropertiesDock(Gtk.Box):
