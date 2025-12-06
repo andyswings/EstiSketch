@@ -40,9 +40,43 @@ class CanvasEventsMixin:
         elif self.tool_mode == "add_dimension":
             print("Dimension tool is not implemented yet.")
         elif self.tool_mode == "add_text":
-            print("Text tool is not implemented yet.")
+            self._handle_text_click(n_press, x, y)
     
-    
+    def _handle_text_click(self, n_press: int, x: float, y: float) -> None:
+        """
+        Handle simple click to create a default text box if no drag occurred.
+        """
+        # If we dragged, on_drag_end would have handled it. 
+        # But commonly on_click (released) fires even after drag? 
+        # Check if we have a significant drag.
+        if hasattr(self, "drag_active") and self.drag_active:
+             self.drag_active = False 
+             return
+             
+        # Guard against duplicate if drag_start_x still exists (dirty state)
+        if hasattr(self, "drag_start_x"):
+            del self.drag_start_x
+            return
+
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        canvas_x = (x - self.offset_x) / (self.zoom * pixels_per_inch)
+        canvas_y = (y - self.offset_y) / (self.zoom * pixels_per_inch)
+        
+        # Create default text
+        text_id = self.generate_identifier("text", self.existing_ids)
+        new_text = self.Text(canvas_x, canvas_y, content="Text", width=48.0, height=24.0, identifier=text_id)
+        self.texts.append(new_text)
+        self.existing_ids.append(text_id)
+        
+        # Select it
+        self.selected_items = [{"type": "text", "object": new_text}]
+        self.emit('selection-changed', self.selected_items)
+        self.queue_draw()
+        
+        # Switch to pointer mode? Or stay in text mode?
+        # Usually standard behavior is to stay, or switch. Let's stay.
+
+
     def generate_identifier(self, component_type: str, existing_ids: List[str]) -> str:
         ''' Generate a unique identifier for a component.
     
@@ -228,6 +262,7 @@ class CanvasEventsMixin:
         selected_doors = [item for item in self.selected_items if item.get("type") == "door"]
         selected_windows = [item for item in self.selected_items if item.get("type") == "window"]
         selected_polylines = [item for item in self.selected_items if item.get("type") == "polyline"]
+        selected_texts = [item for item in self.selected_items if item.get("type") == "text"]
 
         # Create a popover to serve as the context menu
         parent_popover = Gtk.Popover()
@@ -235,6 +270,16 @@ class CanvasEventsMixin:
         # Create a vertical box to hold the menu item(s)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         parent_popover.set_child(box)
+        
+        # Text options
+        if selected_texts:
+            # For brevity, let's just allow changing font size or something basic or just "Properties" (which opens dock)
+            # Actually we can add "Edit Text" to open a dialog.
+            edit_text_btn = Gtk.Button(label="Edit Text Content")
+            edit_text_btn.connect("clicked", lambda btn: self.show_edit_text_dialog(selected_texts[0]["object"], parent_popover))
+            box.append(edit_text_btn)
+            
+            # Additional text options can go here
         
         # Decide whether or not to create "Set as Exterior" or "Set as Interior" buttons
         use_ext_button = False
@@ -668,6 +713,9 @@ class CanvasEventsMixin:
         self.grab_focus()
         self.click_start = (x, y)
         
+        # Reset drag active state on new press
+        self.drag_active = False
+        
         # --- Detect wall-handle press so drag can edit endpoints ---
         # If a selected wall handle was pressed, set editing state and record
         # the model-space start point for the drag logic (box_select_start).
@@ -720,8 +768,54 @@ class CanvasEventsMixin:
         
         # If no handle was pressed, proceed with normal click selection
         self._handle_pointer_click(gesture, n_press, x, y)
+
+        # Check if we clicked on a text object for potential dragging
+        # (Since _handle_pointer_click should have selected it)
+        if hasattr(self, "selected_items"):
+             for item in self.selected_items:
+                 if item["type"] == "text":
+                     # Check if click was actually on this text (it should be if selected, 
+                     # but we double check or just assume if it's the only selection?)
+                     # Let's assume the selection logic worked.
+                     # We only move if we are in pointer mode? Yes, guarded above.
+                     self.moving_text = item["object"]
+                     self.moving_text_start_pos = (self.moving_text.x, self.moving_text.y)
+                     return
         
     
+    def show_edit_text_dialog(self, text_obj, popover: Gtk.Popover):
+        # Create a simple dialog to edit text
+        popover.popdown()
+        
+        # Use Gtk.Window or simple Dialog? Gtk4 Dialog is different.
+        # Let's create a temporary window.
+        
+        dialog = Gtk.Dialog(title="Edit Text")
+        dialog.set_transient_for(self.get_native())
+        dialog.set_modal(True)
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("OK", Gtk.ResponseType.OK)
+        
+        content_area = dialog.get_content_area()
+        entry = Gtk.Entry()
+        entry.set_text(text_obj.content)
+        entry.set_hexpand(True)
+        content_area.append(entry)
+        
+        # We need to present it
+        dialog.show()
+        
+        def on_response(d, response):
+            if response == Gtk.ResponseType.OK:
+                text_obj.content = entry.get_text()
+                self.queue_draw()
+                # Also update properties dock if open?
+                # The dock listens to selection change, but maybe not content change on same object?
+                # It's fine for now.
+            d.destroy()
+            
+        dialog.connect("response", on_response)
+
     def _handle_pointer_click(self, gesture: Gtk.GestureClick, n_press: int, x: float, y: float) -> None:
         """
         Handle pointer-tool clicks to select canvas items or begin wall-handle editing.
@@ -892,7 +986,24 @@ class CanvasEventsMixin:
                         "_obj_id": id(pl)
                     }
                     break
+                    break
             if selected_item: break
+            
+        # Check Texts
+        if selected_item is None:
+            for text in self.texts:
+                # Text hit test: check if click is within bounding box
+                # text.x, text.y is top-left in model space
+                # text.width, text.height are dimensions in model space (inches)
+                
+                x_dev, y_dev = self.model_to_device(text.x, text.y, pixels_per_inch)
+                w_dev = text.width * T
+                h_dev = text.height * T
+                
+                # Simple AABB check
+                if (x_dev <= click_pt[0] <= x_dev + w_dev) and (y_dev <= click_pt[1] <= y_dev + h_dev):
+                    selected_item = {"type": "text", "object": text}
+                    break
 
 
         event = gesture.get_current_event()
@@ -1053,7 +1164,18 @@ class CanvasEventsMixin:
             self.box_select_end = self.box_select_start
             event = gesture.get_current_event()
             state = event.get_modifier_state() if hasattr(event, "get_modifier_state") else event.state
+            self.box_select_end = self.box_select_start
+            event = gesture.get_current_event()
+            state = event.get_modifier_state() if hasattr(event, "get_modifier_state") else event.state
             self.box_select_extend = bool(state & Gdk.ModifierType.SHIFT_MASK)
+            
+            # If we are moving text, cancel box selection
+            if getattr(self, "moving_text", None):
+                self.box_selecting = False
+        elif self.tool_mode == "add_text":
+            self.drag_start_x = start_x
+            self.drag_start_y = start_y
+            # self.drag_active = True # Don't set here, set in update to distinguish click from drag
             
 
     def on_drag_update(self, gesture: Gtk.Gesture, offset_x: float, offset_y: float) -> None:
@@ -1117,6 +1239,21 @@ class CanvasEventsMixin:
             self.queue_draw()
             return
         
+        if getattr(self, "moving_text", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            T = self.zoom * pixels_per_inch
+            
+            # offset in model units
+            dx = offset_x / T
+            dy = offset_y / T
+            
+            start_x, start_y = self.moving_text_start_pos
+            self.moving_text.x = start_x + dx
+            self.moving_text.y = start_y + dy
+            
+            self.queue_draw()
+            return
+            
         if self.tool_mode == "panning":
             self.offset_x = self.last_offset_x + offset_x
             self.offset_y = self.last_offset_y + offset_y
@@ -1125,6 +1262,24 @@ class CanvasEventsMixin:
             current_x = self.box_select_start[0] + (offset_x / (self.zoom * pixels_per_inch))
             current_y = self.box_select_start[1] + (offset_y / (self.zoom * pixels_per_inch))
             self.box_select_end = (current_x, current_y)
+            self.queue_draw()
+        elif self.tool_mode == "add_text" and hasattr(self, "drag_start_x"):
+            self.drag_active = True # user is dragging
+            # Calculate rect
+            current_x = self.drag_start_x + offset_x
+            current_y = self.drag_start_y + offset_y
+            
+            # Convert to model
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            start_m_x, start_m_y = self.device_to_model(self.drag_start_x, self.drag_start_y, pixels_per_inch)
+            curr_m_x, curr_m_y = self.device_to_model(current_x, current_y, pixels_per_inch)
+            
+            w = abs(curr_m_x - start_m_x)
+            h = abs(curr_m_y - start_m_y)
+            x = min(start_m_x, curr_m_x)
+            y = min(start_m_y, curr_m_y)
+            
+            self.current_text_preview = (x, y, w, h)
             self.queue_draw()
             
 
@@ -1151,7 +1306,12 @@ class CanvasEventsMixin:
             self.editing_wall = None
             self.editing_handle = None
             self.connected_endpoints = []
+            self.connected_endpoints = []
             self.joint_drag_origin = None
+            return
+
+        if getattr(self, "moving_text", None):
+            self.moving_text = None
             return
         
         if self.tool_mode == "pointer" and self.box_selecting:
@@ -1235,6 +1395,21 @@ class CanvasEventsMixin:
                     if self.line_intersects_rect(pl.start, pl.end, rect):
                         new_selection.append({"type": "polyline", "object": pl, "identifier": pl.identifier})
             
+            for poly_list in self.polyline_sets:
+                for pl in poly_list:
+                    if self.line_intersects_rect(pl.start, pl.end, rect):
+                        new_selection.append({"type": "polyline", "object": pl, "identifier": pl.identifier})
+            
+            for text in self.texts:
+                tx1 = text.x
+                ty1 = text.y
+                tx2 = text.x + text.width
+                ty2 = text.y + text.height
+                
+                # Check intersection (if NOT disjoint)
+                if not (tx2 < x1 or tx1 > x2 or ty2 < y1 or ty1 > y2):
+                    new_selection.append({"type": "text", "object": text})
+
             if hasattr(self, "box_select_extend") and self.box_select_extend:
                 for item in new_selection:
                     if not any(existing["type"] == item["type"] and self.same_selection(existing["object"], item["object"])
@@ -1244,6 +1419,27 @@ class CanvasEventsMixin:
                 self.selected_items = new_selection
             self.emit('selection-changed', self.selected_items)
             
+            self.box_selecting = False
+            self.editing_wall = None
+            self.editing_handle = None
+            self.queue_draw()
+        elif self.tool_mode == "add_text" and hasattr(self, "drag_start_x"):
+            if hasattr(self, "current_text_preview"):
+                x, y, w, h = self.current_text_preview
+                # Ensure minimum size
+                if w > 1 and h > 1:
+                    text_id = self.generate_identifier("text", self.existing_ids)
+                    new_text = self.Text(x, y, content="Text", width=w, height=h, identifier=text_id)
+                    self.texts.append(new_text)
+                    self.existing_ids.append(text_id)
+                    self.selected_items = [{"type": "text", "object": new_text}]
+                    self.emit('selection-changed', self.selected_items)
+                
+                del self.current_text_preview
+            if hasattr(self, "drag_start_x"):
+                del self.drag_start_x
+            # self.drag_active = False # REMOVED: Do not reset here, wait for click release to check it
+            self.queue_draw()
             self.box_selecting = False
             self.editing_wall = None
             self.editing_handle = None

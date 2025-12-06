@@ -3,7 +3,7 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GObject
 
 from measurement_utils import MeasurementConverter
-from components import Wall, Room
+from components import Wall, Room, Text
 from snapping_manager import SnappingManager
 
 from Canvas.canvas_draw import CanvasDrawMixin
@@ -76,7 +76,7 @@ class CanvasArea(Gtk.DrawingArea,
         
         self.doors = []  # List of door placements; each item is a tuple: (wall, door, position_ratio)
         self.windows = []  # List of window placements; each item is a tuple: (wall, window, position_ratio)
-
+        self.texts = [] # List of Text objects
 
         # Alignment snapping (used for walls and rooms)
         self.alignment_candidate = None
@@ -102,7 +102,7 @@ class CanvasArea(Gtk.DrawingArea,
         # Expose Wall and Room for mixins
         self.Wall = Wall
         self.Room = Room
-
+        self.Text = Text
         # Initialize snapping manager
         self.snap_manager = SnappingManager(
             snap_enabled=self.config.SNAP_ENABLED,
@@ -226,6 +226,12 @@ class CanvasArea(Gtk.DrawingArea,
             # Windows
             if item["type"] == "window":
                 ...
+
+            # Text
+            if item["type"] == "text":
+                text_obj = item["object"]
+                if text_obj in self.texts:
+                    self.texts.remove(text_obj)
 
         # Process room vertex deletions
         for room_id, indices in room_vertices_to_delete.items():

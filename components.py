@@ -69,3 +69,18 @@ class Window:
         self.width = width  # Window width in inches
         self.height = height  # Window height in inches
         self.window_type = window_type # Type of window (e.g.,"double-hung", "sliding", "fixed")
+
+
+@dataclass(eq=False)
+class Text:
+    x: float
+    y: float
+    content: str = "Text"
+    width: float = 100.0
+    height: float = 50.0
+    identifier: str = ""
+    font_size: float = 12.0
+    font_family: str = "Sans"
+    bold: bool = False
+    italic: bool = False
+    underline: bool = False

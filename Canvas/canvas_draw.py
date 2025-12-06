@@ -1,6 +1,6 @@
 import math
 import cairo
-from gi.repository import Gtk
+from gi.repository import Gtk, Pango, PangoCairo
 import Canvas.door_window_renderer as dwr
 import Canvas.wall_room_renderer as wr
 
@@ -102,6 +102,20 @@ class CanvasDrawMixin:
         
         # Draw windows
         dwr.draw_windows(self, cr, pixels_per_inch)
+
+        # Draw texts
+        self.draw_texts(cr)
+        
+        # Draw text preview
+        if self.tool_mode == "add_text" and hasattr(self, "current_text_preview"):
+             x, y, w, h = self.current_text_preview
+             cr.set_source_rgba(0, 0, 1, 0.3)
+             cr.rectangle(x, y, w, h)
+             cr.fill()
+             cr.set_source_rgb(0, 0, 1)
+             cr.rectangle(x, y, w, h)
+             cr.set_line_width(1.0 / zoom_transform)
+             cr.stroke()
         
         # Draw finished polylines
         cr.save()
@@ -501,3 +515,46 @@ class CanvasDrawMixin:
                 cr.move_to(2, device_y - 2)
                 cr.show_text(f"{feet} ft")
         cr.restore()
+
+    def draw_texts(self, cr):
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        
+        for text in self.texts:
+            # Check if selected to draw frame/handles
+            is_selected = any(item["type"] == "text" and item["object"] == text for item in self.selected_items)
+            
+            # Using model space drawing for positioning, but text rendering often needs careful scaling
+            # Strategy: Render text at projected device location for sharpness, scaled by zoom
+            
+            # Calculate device bounds
+            device_x, device_y = self.model_to_device(text.x, text.y, pixels_per_inch)
+            zoom_transform = self.zoom * pixels_per_inch
+            
+            cr.save()
+            cr.identity_matrix() # Reset to device pixels
+            cr.translate(device_x, device_y)
+            cr.scale(self.zoom, self.zoom) # Scale text with zoom
+            
+            layout = PangoCairo.create_layout(cr)
+            layout.set_text(text.content, -1)
+            desc = Pango.FontDescription(f"{text.font_family} {text.font_size}")
+            layout.set_font_description(desc)
+            
+            cr.set_source_rgb(0, 0, 0) # Black text
+            PangoCairo.show_layout(cr, layout)
+            
+            # Measure layout for selection box
+            if is_selected:
+                # Get logical extents
+                ink_rect, logical_rect = layout.get_extents()
+                w = logical_rect.width / Pango.SCALE
+                h = logical_rect.height / Pango.SCALE
+                
+                # Draw selection border
+                cr.set_source_rgb(0, 0, 1)
+                cr.set_line_width(1.0)
+                cr.set_dash([4.0, 2.0])
+                cr.rectangle(0, 0, w, h)
+                cr.stroke()
+            
+            cr.restore()

@@ -611,6 +611,7 @@ class EstimatorApp(Gtk.Application):
         self.canvas.rooms.clear()
         self.canvas.doors.clear()
         self.canvas.windows.clear()
+        self.canvas.texts.clear()
         # Reset the current file path
         self.current_filepath = None
         # Reset the dirty state
@@ -676,15 +677,6 @@ class EstimatorApp(Gtk.Application):
         # Check if a file is already saved
         # If a file is already saved, just save it.
         # Otherwise, show the save dialog.
-        # if self.current_filepath:
-        #     save_project(
-        #         self.canvas,
-        #         self.window.get_width(),
-        #         self.window.get_height(),
-        #         self.current_filepath
-        #     )
-        #     return
-        # Create GTK4 FileDialog (requires GTK >= 4.10)
         dlg = Gtk.FileDialog.new()
         dlg.set_title("Save Project As")
         dlg.set_modal(True)

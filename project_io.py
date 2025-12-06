@@ -1,5 +1,5 @@
 import xml.etree.ElementTree as ET
-from components import Wall, Room, Door, Window
+from components import Wall, Room, Door, Window, Text
 
 def save_project(canvas, window_width, window_height, filepath): 
     """ Save the entire project state to an XML file.
@@ -99,6 +99,22 @@ def save_project(canvas, window_width, window_height, filepath):
             wall_ref_elem.set("set_index", "-1")
             wall_ref_elem.set("wall_index", "-1")
 
+    # Save texts
+    texts_elem = ET.SubElement(root, "Texts")
+    for text in canvas.texts:
+        t_elem = ET.SubElement(texts_elem, "Text")
+        t_elem.set("x", str(text.x))
+        t_elem.set("y", str(text.y))
+        t_elem.set("width", str(text.width))
+        t_elem.set("height", str(text.height))
+        t_elem.set("content", text.content)
+        t_elem.set("font_size", str(text.font_size))
+        t_elem.set("font_family", text.font_family)
+        t_elem.set("bold", str(text.bold))
+        t_elem.set("italic", str(text.italic))
+        t_elem.set("underline", str(text.underline))
+        t_elem.set("identifier", text.identifier)
+
     # Write out the XML to the given file (with declaration and proper encoding).
     tree = ET.ElementTree(root)
     tree.write(filepath, encoding="utf-8", xml_declaration=True)
@@ -132,6 +148,7 @@ def open_project(canvas, filepath):
     canvas.rooms.clear()
     canvas.doors.clear()
     canvas.windows.clear()
+    canvas.texts.clear()
 
     # --- Restore Wall Sets ---
     walls_elem = root.find("WallSets")
@@ -223,6 +240,26 @@ def open_project(canvas, filepath):
                     if wall_index < len(wall_set):
                         attached_wall = wall_set[wall_index]
             canvas.windows.append((attached_wall, window_obj, ratio))
+
+    # --- Restore Texts ---
+    texts_elem = root.find("Texts")
+    if texts_elem is not None:
+        for t_elem in texts_elem.findall("Text"):
+            x = float(t_elem.get("x"))
+            y = float(t_elem.get("y"))
+            width = float(t_elem.get("width"))
+            height = float(t_elem.get("height"))
+            content = t_elem.get("content", "Text")
+            identifier = t_elem.get("identifier", "")
+            
+            text_obj = Text(x, y, content, width, height, identifier)
+            text_obj.font_size = float(t_elem.get("font_size", "12.0"))
+            text_obj.font_family = t_elem.get("font_family", "Sans")
+            text_obj.bold = t_elem.get("bold", "False") == "True"
+            text_obj.italic = t_elem.get("italic", "False") == "True"
+            text_obj.underline = t_elem.get("underline", "False") == "True"
+            
+            canvas.texts.append(text_obj)
 
     # Return the saved window size.
     return window_width, window_height
