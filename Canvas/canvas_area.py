@@ -179,18 +179,9 @@ class CanvasArea(Gtk.DrawingArea,
         if not self.selected_items:
             return
 
-        # Remove selected items from their respective lists
-        print(len(self.wall_sets))
-        for i in self.wall_sets:
-            print(i)
-            for wall in i:
-                print(wall.start, wall.end)
-                
-                
-        for item in list(self.selected_items):
-            print(item)
-            
-            
+        room_vertices_to_delete = {}  # room_identifier -> list of indices
+
+        for item in list(self.selected_items):            
             # Walls
             if item["type"] == "wall":
                 selected_id = item["object"].identifier
@@ -205,19 +196,12 @@ class CanvasArea(Gtk.DrawingArea,
             
             # Rooms
             if item["type"] == "vertex":
-                selected_id = item["object"][0].identifier
-                selected_index = item["object"][1]
-                for room in self.rooms:
-                    if room.identifier == selected_id:
-                        try:
-                            if len(room.points) > 3:
-                                room.points.remove(room.points[selected_index])
-                            else:
-                                self.rooms.remove(room)
-                        except IndexError:
-                            # TODO Look into this to see why we are triggering an IndexError. 
-                            # Seems to still be working anyway for now.
-                            pass
+                # item["object"] is (room, index)
+                room = item["object"][0]
+                index = item["object"][1]
+                if room.identifier not in room_vertices_to_delete:
+                    room_vertices_to_delete[room.identifier] = []
+                room_vertices_to_delete[room.identifier].append(index)
                     
             # Polylines: search and remove from polyline_sets (list of lists)
             if item["type"] == "polyline":
@@ -242,6 +226,30 @@ class CanvasArea(Gtk.DrawingArea,
             # Windows
             if item["type"] == "window":
                 ...
+
+        # Process room vertex deletions
+        for room_id, indices in room_vertices_to_delete.items():
+            # Find the actual room object in self.rooms
+            target_room = next((r for r in self.rooms if r.identifier == room_id), None)
+            if not target_room:
+                continue
+
+            # Sort indices in descending order so earlier indices remain valid
+            indices.sort(reverse=True)
+            
+            for idx in indices:
+                # If room has enough points to stay a polygon (needs > 3 to remove one and still have >=3)
+                # Wait, if it has 3 points, removing one makes it 2 (line), effectively destroying the room?
+                # The logic says: if len > 3, remove point. Else remove room.
+                if len(target_room.points) > 3:
+                    if 0 <= idx < len(target_room.points):
+                        del target_room.points[idx]
+                else:
+                    # Not enough points to sustain a room
+                    if target_room in self.rooms:
+                        self.rooms.remove(target_room)
+                    # Once room is removed, stop processing its vertices
+                    break
 
         self.selected_items.clear()
         self.queue_draw()

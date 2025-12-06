@@ -346,9 +346,26 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["add_polyline"].set_active(True)
                 return True
             elif keyname == "t":
+                #TODO: Implement text tool. 
+                # Functionality:
+                # 1. Click and drag to create a text box.
+                # 2. Click to finalize. At this point, box should have focus and the user can start typing.
+                # 3. Text tools should appear next to the text box. (Font, Size, Bold, Italic, Underline, etc.)
+                # 4. Box can be resized.
+                # 5. Box can be moved.
+                
                 self.tool_buttons["add_text"].set_active(True)
                 return True
             elif keyname == "m":
+                #TODO: Implement dimension tool.
+                # Functionality:
+                # 1. Click at dimension start point.
+                # 2. Click at dimension end point.
+                # 3. Click at dimension offset point. At this point, dimension should finalize.
+                # 4. Dimension tools should appear next to the dimension. (Text, Line style, etc.)
+                # 5. Dimension text can be resized.
+                # 6. Dimension end points can be moved.
+                
                 self.tool_buttons["add_dimension"].set_active(True)
                 return True
             elif keyname == "escape":
@@ -492,16 +509,6 @@ class EstimatorApp(Gtk.Application):
             print("Materials updated")
             config.save_config(self.config.__dict__)
         dialog.destroy()
-
-    # def on_manage_materials_clicked(self, button):
-    #     # Ensure a runtime config object exists and pass canvas so changes take effect immediately
-    #     if not hasattr(self, "config_constants"):
-    #         from types import SimpleNamespace
-    #         import config
-    #         cfg = config.load_config() or {}
-    #         self.config_constants = SimpleNamespace(**cfg)
-    #     dialog = manage_materials.create_manage_materials_dialog(self.window, self.config_constants, self.canvas)
-    #     dialog.present()
 
     def on_estimate_materials_clicked(self, button):
         dialog = estimate_materials.create_estimate_materials_dialog(self.window, self.canvas)
