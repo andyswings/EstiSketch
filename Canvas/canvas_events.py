@@ -1,10 +1,11 @@
 import math
-from gi.repository import Gtk, Gdk
+from gi.repository import Gtk, Gdk, GLib
 from typing import List
 from components import Wall, Door, Window, Polyline
 import config
 import random
 import string
+from Dialogs.length_input_dialog import create_length_input_dialog
 
 class CanvasEventsMixin:
     def on_click(self, gesture: Gtk.Gesture, n_press: int, x: float, y:float) -> None:
@@ -664,6 +665,7 @@ class CanvasEventsMixin:
         Returns:
             None
         """
+        self.grab_focus()
         self.click_start = (x, y)
         
         # --- Detect wall-handle press so drag can edit endpoints ---
@@ -1453,6 +1455,75 @@ class CanvasEventsMixin:
             self.queue_draw()
             
 
+    def enter_wall_length(self):
+        """Open a dialog to enter precise wall length."""
+        if self.tool_mode != "draw_walls" or not self.drawing_wall or not self.current_wall:
+            return
+
+        dialog = create_length_input_dialog(self.get_root())
+        dialog.connect("response", self.on_length_input_response)
+        dialog.present()
+
+    def on_length_input_response(self, dialog, response_id):
+        if response_id == Gtk.ResponseType.OK:
+            text = dialog.get_length()
+            try:
+                length = self.converter.parse_measurement(text)
+                self.apply_wall_length(length)
+                
+                self.auto_dimension_mode = True
+                GLib.idle_add(self.enter_wall_length)
+                
+            except ValueError:
+                print("Invalid length entered")
+        else:
+            self.auto_dimension_mode = False
+            
+        dialog.destroy()
+
+    def apply_wall_length(self, length):
+        if not self.current_wall: return
+
+        start_x, start_y = self.current_wall.start
+        
+        # Determine angle
+        if self.auto_dimension_mode and self.last_wall_angle is not None:
+             angle = self.last_wall_angle + (math.pi / 2)
+        else:
+             pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+             if hasattr(self, "mouse_x") and hasattr(self, "mouse_y"):
+                 mx, my = self.device_to_model(self.mouse_x, self.mouse_y, pixels_per_inch)
+             else:
+                 # Fallback if mouse hasn't moved yet? uses current end
+                 mx, my = self.current_wall.end
+                 
+             dx = mx - start_x
+             dy = my - start_y
+             if dx == 0 and dy == 0:
+                 angle = 0
+             else:
+                 angle = math.atan2(dy, dx)
+        
+        end_x = start_x + length * math.cos(angle)
+        end_y = start_y + length * math.sin(angle)
+        
+        # Create the wall segment
+        wall_instance = self.Wall(
+            (start_x, start_y), (end_x, end_y),
+            self.config.DEFAULT_WALL_WIDTH, self.config.DEFAULT_WALL_HEIGHT,
+            identifier=self.generate_identifier("wall", self.existing_ids)
+        )
+        
+        self.existing_ids.append(wall_instance.identifier)
+        self.walls.append(wall_instance)
+        
+        # Update state for next segment
+        self.current_wall.start = (end_x, end_y)
+        self.current_wall.end = (end_x, end_y)
+        self.last_wall_angle = angle
+        
+        self.queue_draw()
+
     def _handle_wall_click(self, n_press: int, x: float, y: float) -> None:
         """
         Handle click events for drawing walls on the canvas.
@@ -1491,6 +1562,7 @@ class CanvasEventsMixin:
         self.alignment_candidate = candidate
 
         if n_press == 1:
+            self.auto_dimension_mode = False
             wall_instance = None
             if not self.drawing_wall:
                 self.drawing_wall = True
@@ -1508,6 +1580,12 @@ class CanvasEventsMixin:
             if wall_instance:
                 self.existing_ids.append(wall_instance.identifier)
                 self.walls.append(wall_instance)
+                
+                # Update angle
+                dx = wall_instance.end[0] - wall_instance.start[0]
+                dy = wall_instance.end[1] - wall_instance.start[1]
+                self.last_wall_angle = math.atan2(dy, dx)
+                
                 self.current_wall.start = (snapped_x, snapped_y)
                 self.queue_draw()
 

@@ -50,6 +50,9 @@ class CanvasArea(Gtk.DrawingArea,
         self.drawing_wall = False
         self.wall_sets = []
         
+        self.auto_dimension_mode = False
+        self.last_wall_angle = None
+        
         
         # Wall editing state
         self.editing_wall = None     # The wall being edited

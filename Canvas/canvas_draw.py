@@ -360,7 +360,7 @@ class CanvasDrawMixin:
             deg = math.degrees(angle)
             mid_x = (start[0] + end[0]) / 2
             mid_y = (start[1] + end[1]) / 2
-            measurement_str = self.converter.format_measurement(self, length, use_fraction=False)
+            measurement_str = self.converter.format_measurement(length, use_fraction=False)
             text = f'{measurement_str} @ {deg:.1f}°'
             cr.save()
             cr.translate(mid_x, mid_y)

@@ -394,6 +394,9 @@ class EstimatorApp(Gtk.Application):
                     self.canvas.save_state()
                     self.canvas.queue_draw()
                     return True
+            elif keyname == "return":
+                self.canvas.enter_wall_length()
+                return True
 
         if ctrl_pressed and not shift_pressed:
             if keyname == "z":

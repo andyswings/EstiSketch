@@ -2,7 +2,7 @@ import re
 
 class MeasurementConverter:
     @staticmethod
-    def parse_measurement(self, input_val):
+    def parse_measurement(input_val):
         if isinstance(input_val, (int, float)):
             return float(input_val)
         if isinstance(input_val, str):
@@ -29,7 +29,7 @@ class MeasurementConverter:
         raise ValueError("Unsupported measurement input type.")
 
     @staticmethod
-    def format_measurement(self, inches, use_fraction=False):
+    def format_measurement(inches, use_fraction=False):
         feet = int(inches // 12)
         remaining_inches = inches - (feet * 12)
         if use_fraction:
