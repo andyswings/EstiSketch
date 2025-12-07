@@ -24,6 +24,7 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
+- [ ] Changing wall height from properties dock is not persistent
 
 ## 💡 Ideas / Maybe someday
 - Themes?
