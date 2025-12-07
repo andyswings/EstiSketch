@@ -562,7 +562,6 @@ class CanvasEventsMixin:
                 
                 # Update any doors/windows on this wall?
                 # This is complex. For now, drop openings on the split wall or try to reassign.
-                # User request didn't specify. Safest is to remove them or warn.
                 # Moving forward without complex opening logic for now.
                 found = True
                 break
