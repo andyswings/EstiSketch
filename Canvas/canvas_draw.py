@@ -554,8 +554,10 @@ class CanvasDrawMixin:
                 attr = Pango.attr_underline_new(Pango.Underline.SINGLE)
                 attr_list.insert(attr)
             layout.set_attributes(attr_list)
-            
-            cr.set_source_rgb(0, 0, 0) # Black text
+        
+            # Use text color if available, otherwise default to black
+            color = getattr(text, 'color', (0.0, 0.0, 0.0))
+            cr.set_source_rgb(*color)
             PangoCairo.show_layout(cr, layout)
             
             # Measure layout for selection box

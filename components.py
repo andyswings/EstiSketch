@@ -85,3 +85,4 @@ class Text:
     italic: bool = False
     underline: bool = False
     rotation: float = 0.0  # Rotation angle in degrees
+    color: tuple = (0.0, 0.0, 0.0)  # RGB color as tuple (r, g, b) where each value is 0.0-1.0

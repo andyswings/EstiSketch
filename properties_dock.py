@@ -453,6 +453,14 @@ class TextPropertiesWidget(Gtk.Box):
         row.append(self.font_combo)
         box.append(row)
         
+        # Color
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Color:"))
+        self.color_button = Gtk.ColorButton()
+        self.color_button.connect("color-set", self.on_color_changed)
+        row.append(self.color_button)
+        box.append(row)
+        
         # Rotation
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         row.append(Gtk.Label(label="Rotation (°):"))
@@ -496,6 +504,13 @@ class TextPropertiesWidget(Gtk.Box):
         if self._block_updates or not self.current_text: return
         self.current_text.rotation = spin.get_value()
         self.emit_property_changed()
+    
+    def on_color_changed(self, color_button):
+        if self._block_updates or not self.current_text: return
+        rgba = color_button.get_rgba()
+        # Convert RGBA to RGB tuple (0.0-1.0 range)
+        self.current_text.color = (rgba.red, rgba.green, rgba.blue)
+        self.emit_property_changed()
 
     def on_style_toggled(self, check):
         if self._block_updates or not self.current_text: return
@@ -523,6 +538,13 @@ class TextPropertiesWidget(Gtk.Box):
                 idx = i
                 break
         self.font_combo.set_active(idx)
+        
+        # Color
+        color = getattr(text_obj, 'color', (0.0, 0.0, 0.0))
+        from gi.repository import Gdk
+        rgba = Gdk.RGBA()
+        rgba.red, rgba.green, rgba.blue, rgba.alpha = color[0], color[1], color[2], 1.0
+        self.color_button.set_rgba(rgba)
         
         # Rotation
         self.rotation_spin.set_value(text_obj.rotation)
