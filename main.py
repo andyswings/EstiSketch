@@ -275,6 +275,8 @@ class EstimatorApp(Gtk.Application):
         if getattr(self.config, 'SHOW_PROPERTIES_PANEL', False):
             self.properties_dock = PropertiesDock(self.canvas)
             main_hbox.append(self.properties_dock)
+            # Give canvas a reference to properties dock so it can update sidebar values
+            self.canvas.properties_dock = self.properties_dock
             
         vbox.append(main_hbox)
 

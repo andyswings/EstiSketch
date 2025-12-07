@@ -84,3 +84,4 @@ class Text:
     bold: bool = False
     italic: bool = False
     underline: bool = False
+    rotation: float = 0.0  # Rotation angle in degrees

@@ -768,16 +768,57 @@ class CanvasEventsMixin:
         # If no handle was pressed, proceed with normal click selection
         self._handle_pointer_click(gesture, n_press, x, y)
 
-        # Check if we clicked on a text object for potential dragging
+        # Check if we clicked on a text object's rotation handle or for potential dragging
         # (Since _handle_pointer_click should have selected it)
         if hasattr(self, "selected_items"):
              for item in self.selected_items:
                  if item["type"] == "text":
-                     # Check if click was actually on this text (it should be if selected, 
-                     # but we double check or just assume if it's the only selection?)
-                     # Let's assume the selection logic worked.
-                     # We only move if we are in pointer mode? Yes, guarded above.
-                     self.moving_text = item["object"]
+                     text = item["object"]
+                     # Check if click was on rotation handle (small circle at top-right)
+                     # First calculate handle position in device coordinates
+                     from gi.repository import Pango, PangoCairo
+                     import cairo
+                     
+                     # Create temporary surface to measure text
+                     temp_surface = cairo.ImageSurface(cairo.Format.ARGB32, 1, 1)
+                     temp_cr = cairo.Context(temp_surface)
+                     layout = PangoCairo.create_layout(temp_cr)
+                     layout.set_text(text.content, -1)
+                     desc = Pango.FontDescription(f"{text.font_family} {text.font_size}")
+                     if text.bold:
+                         desc.set_weight(Pango.Weight.BOLD)
+                     if text.italic:
+                         desc.set_style(Pango.Style.ITALIC)
+                     layout.set_font_description(desc)
+                     ink_rect, logical_rect = layout.get_extents()
+                     text_width = (logical_rect.width / Pango.SCALE) * self.zoom
+                     
+                     # Get text position in device coords
+                     text_x_dev, text_y_dev = self.model_to_device(text.x, text.y, pixels_per_inch)
+                     
+                     # Rotation handle is at top-right of text, rotated with text
+                     rotation_radians = math.radians(text.rotation)
+                     # Handle position relative to text origin
+                     handle_rel_x = text_width * math.cos(rotation_radians)
+                     handle_rel_y = text_width * math.sin(rotation_radians)
+                     handle_x = text_x_dev + handle_rel_x
+                     handle_y = text_y_dev + handle_rel_y
+                     
+                     handle_radius = 8.0  # Slightly larger hit area than visual radius
+                     dx = x - handle_x
+                     dy = y - handle_y
+                     
+                     if math.hypot(dx, dy) < handle_radius:
+                         # User clicked on rotation handle, start rotation
+                         self.rotating_text = text
+                         self.rotation_start_angle = text.rotation
+                         self.rotation_center = (text_x_dev, text_y_dev)
+                         # Calculate initial angle from center to mouse
+                         self.rotation_start_mouse_angle = math.degrees(math.atan2(y - text_y_dev, x - text_x_dev))
+                         return
+                     
+                     # Otherwise, start moving the text
+                     self.moving_text = text
                      self.moving_text_start_pos = (self.moving_text.x, self.moving_text.y)
                      return
         
@@ -1168,8 +1209,8 @@ class CanvasEventsMixin:
             state = event.get_modifier_state() if hasattr(event, "get_modifier_state") else event.state
             self.box_select_extend = bool(state & Gdk.ModifierType.SHIFT_MASK)
             
-            # If we are moving text, cancel box selection
-            if getattr(self, "moving_text", None):
+            # If we are moving or rotating text, cancel box selection
+            if getattr(self, "moving_text", None) or getattr(self, "rotating_text", None):
                 self.box_selecting = False
         elif self.tool_mode == "add_text":
             self.drag_start_x = start_x
@@ -1235,6 +1276,49 @@ class CanvasEventsMixin:
                 else:
                     wall_obj.end = new_point
 
+            self.queue_draw()
+            return
+        
+        # Handle text rotation
+        if getattr(self, "rotating_text", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            
+            # Current mouse position in device coords
+            # Use click_start which was set in on_click_pressed
+            if not hasattr(self, "click_start"):
+                return
+            
+            start_x, start_y = self.click_start
+            current_x = start_x + offset_x
+            current_y = start_y + offset_y
+            
+            # Calculate current angle from center to mouse
+            center_x, center_y = self.rotation_center
+            current_mouse_angle = math.degrees(math.atan2(current_y - center_y, current_x - center_x))
+            
+            # Calculate rotation delta
+            angle_delta = current_mouse_angle - self.rotation_start_mouse_angle
+            
+            # Update text rotation
+            new_rotation = self.rotation_start_angle + angle_delta
+            
+            # Normalize to -180 to 180 range
+            while new_rotation > 180:
+                new_rotation -= 360
+            while new_rotation < -180:
+                new_rotation += 360
+            
+            self.rotating_text.rotation = new_rotation
+            
+            # Update sidebar rotation spinner if properties dock is available
+            if hasattr(self, "properties_dock") and self.properties_dock:
+                text_page = self.properties_dock.text_page
+                if text_page.current_text == self.rotating_text:
+                    # Block the handler to prevent feedback loop
+                    text_page._block_updates = True
+                    text_page.rotation_spin.set_value(new_rotation)
+                    text_page._block_updates = False
+            
             self.queue_draw()
             return
         
@@ -1307,6 +1391,13 @@ class CanvasEventsMixin:
             self.connected_endpoints = []
             self.connected_endpoints = []
             self.joint_drag_origin = None
+            return
+
+        if getattr(self, "rotating_text", None):
+            self.rotating_text = None
+            self.rotation_start_angle = None
+            self.rotation_center = None
+            self.rotation_start_mouse_angle = None
             return
 
         if getattr(self, "moving_text", None):

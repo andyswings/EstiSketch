@@ -453,6 +453,14 @@ class TextPropertiesWidget(Gtk.Box):
         row.append(self.font_combo)
         box.append(row)
         
+        # Rotation
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Rotation (°):"))
+        self.rotation_spin = Gtk.SpinButton.new_with_range(-180, 180, 1)
+        self.rotation_spin.connect("value-changed", self.on_rotation_changed)
+        row.append(self.rotation_spin)
+        box.append(row)
+        
         # Styles
         style_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.bold_check = Gtk.CheckButton(label="Bold")
@@ -483,6 +491,11 @@ class TextPropertiesWidget(Gtk.Box):
         if self._block_updates or not self.current_text: return
         self.current_text.font_family = combo.get_active_text()
         self.emit_property_changed()
+    
+    def on_rotation_changed(self, spin):
+        if self._block_updates or not self.current_text: return
+        self.current_text.rotation = spin.get_value()
+        self.emit_property_changed()
 
     def on_style_toggled(self, check):
         if self._block_updates or not self.current_text: return
@@ -499,7 +512,6 @@ class TextPropertiesWidget(Gtk.Box):
         self._block_updates = True
         self.current_text = text_obj
         self.content_entry.set_text(text_obj.content)
-        self.content_entry.set_text(text_obj.content)
         self.size_spin.set_value(text_obj.font_size)
         
         # Font
@@ -512,22 +524,8 @@ class TextPropertiesWidget(Gtk.Box):
                 break
         self.font_combo.set_active(idx)
         
-        # Styles
-        self.bold_check.set_active(text_obj.bold)
-        self.italic_check.set_active(text_obj.italic)
-        self.underline_check.set_active(text_obj.underline)
-        
-        self._block_updates = False
-        
-        # Font
-        # Find font in combo or default to 0
-        idx = 0
-        model = self.font_combo.get_model()
-        for i, row in enumerate(model):
-            if row[0] == text_obj.font_family:
-                idx = i
-                break
-        self.font_combo.set_active(idx)
+        # Rotation
+        self.rotation_spin.set_value(text_obj.rotation)
         
         # Styles
         self.bold_check.set_active(text_obj.bold)

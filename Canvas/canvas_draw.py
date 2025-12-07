@@ -533,6 +533,11 @@ class CanvasDrawMixin:
             cr.save()
             cr.identity_matrix() # Reset to device pixels
             cr.translate(device_x, device_y)
+            
+            # Apply rotation (convert degrees to radians)
+            rotation_radians = math.radians(text.rotation)
+            cr.rotate(rotation_radians)
+            
             cr.scale(self.zoom, self.zoom) # Scale text with zoom
             
             layout = PangoCairo.create_layout(cr)
@@ -565,6 +570,17 @@ class CanvasDrawMixin:
                 cr.set_line_width(1.0)
                 cr.set_dash([4.0, 2.0])
                 cr.rectangle(0, 0, w, h)
+                cr.stroke()
+                
+                # Draw rotation handle (small circle at top-right corner)
+                handle_radius = 4.0
+                cr.set_source_rgb(0, 0.5, 1)
+                cr.set_dash([])
+                cr.arc(w, 0, handle_radius, 0, 2 * math.pi)
+                cr.fill()
+                cr.set_source_rgb(0, 0, 0)
+                cr.arc(w, 0, handle_radius, 0, 2 * math.pi)
+                cr.set_line_width(1.0)
                 cr.stroke()
             
             cr.restore()
