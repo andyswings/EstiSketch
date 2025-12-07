@@ -1,7 +1,6 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Implement Multi-Text object editing (with properties dock)
 
 ## ✨ Features (planned)
 ### Short-term (next 1-3 months)
@@ -30,6 +29,7 @@
 - Themes?
 
 ## Done ✅ (latest first)
+- [x] Implement Multi-Text object editing (with properties dock) (2025-12-07)
 - [x] Enable changing text color (2025-12-07)
 
 

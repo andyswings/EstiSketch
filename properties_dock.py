@@ -414,7 +414,7 @@ class WallPropertiesWidget(Gtk.Box):
 class TextPropertiesWidget(Gtk.Box):
     def __init__(self):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        self.current_text = None
+        self.current_texts = []  # Changed to list to support multi-editing
         self._block_updates = False
         
         # Geometry
@@ -486,73 +486,124 @@ class TextPropertiesWidget(Gtk.Box):
         box.append(style_box)
         
     def on_content_changed(self, entry):
-        if self._block_updates or not self.current_text: return
-        self.current_text.content = entry.get_text()
+        if self._block_updates or not self.current_texts: return
+        for text in self.current_texts:
+            text.content = entry.get_text()
         self.emit_property_changed()
         
     def on_size_changed(self, spin):
-        if self._block_updates or not self.current_text: return
-        self.current_text.font_size = spin.get_value()
+        if self._block_updates or not self.current_texts: return
+        for text in self.current_texts:
+            text.font_size = spin.get_value()
         self.emit_property_changed()
 
     def on_font_changed(self, combo):
-        if self._block_updates or not self.current_text: return
-        self.current_text.font_family = combo.get_active_text()
+        if self._block_updates or not self.current_texts: return
+        font_family = combo.get_active_text()
+        for text in self.current_texts:
+            text.font_family = font_family
         self.emit_property_changed()
     
     def on_rotation_changed(self, spin):
-        if self._block_updates or not self.current_text: return
-        self.current_text.rotation = spin.get_value()
+        if self._block_updates or not self.current_texts: return
+        rotation = spin.get_value()
+        for text in self.current_texts:
+            text.rotation = rotation
         self.emit_property_changed()
     
     def on_color_changed(self, color_button):
-        if self._block_updates or not self.current_text: return
+        if self._block_updates or not self.current_texts: return
         rgba = color_button.get_rgba()
         # Convert RGBA to RGB tuple (0.0-1.0 range)
-        self.current_text.color = (rgba.red, rgba.green, rgba.blue)
+        color = (rgba.red, rgba.green, rgba.blue)
+        for text in self.current_texts:
+            text.color = color
         self.emit_property_changed()
 
     def on_style_toggled(self, check):
-        if self._block_updates or not self.current_text: return
-        self.current_text.bold = self.bold_check.get_active()
-        self.current_text.italic = self.italic_check.get_active()
-        self.current_text.underline = self.underline_check.get_active()
+        if self._block_updates or not self.current_texts: return
+        bold = self.bold_check.get_active()
+        italic = self.italic_check.get_active()
+        underline = self.underline_check.get_active()
+        for text in self.current_texts:
+            text.bold = bold
+            text.italic = italic
+            text.underline = underline
         self.emit_property_changed()
     
     def emit_property_changed(self):
         if hasattr(self, "canvas") and self.canvas:
             self.canvas.queue_draw()
         
-    def set_text(self, text_obj):
+    def set_text(self, text_objs):
+        """Set text properties. Accepts either a single text object or a list of text objects."""
         self._block_updates = True
-        self.current_text = text_obj
-        self.content_entry.set_text(text_obj.content)
-        self.size_spin.set_value(text_obj.font_size)
         
-        # Font
-        # Find font in combo or default to 0
+        # Normalize to list
+        if not isinstance(text_objs, list):
+            text_objs = [text_objs]
+        
+        self.current_texts = text_objs
+        
+        if not text_objs:
+            self._block_updates = False
+            return
+        
+        # Use first text as reference for displaying values
+        first_text = text_objs[0]
+        
+        # For multi-selection, check if all values are the same
+        # If not, show placeholder or first value
+        
+        # Content - show first text's content (or could show "<Multiple>" if different)
+        all_same_content = all(t.content == first_text.content for t in text_objs)
+        if all_same_content:
+            self.content_entry.set_text(first_text.content)
+        else:
+            self.content_entry.set_text("<Multiple>")
+        
+        # Font Size
+        all_same_size = all(t.font_size == first_text.font_size for t in text_objs)
+        if all_same_size:
+            self.size_spin.set_value(first_text.font_size)
+        else:
+            self.size_spin.set_value(first_text.font_size)  # Show first value
+        
+        # Font Family
+        all_same_font = all(t.font_family == first_text.font_family for t in text_objs)
         idx = 0
         model = self.font_combo.get_model()
         for i, row in enumerate(model):
-            if row[0] == text_obj.font_family:
+            if row[0] == first_text.font_family:
                 idx = i
                 break
         self.font_combo.set_active(idx)
         
         # Color
-        color = getattr(text_obj, 'color', (0.0, 0.0, 0.0))
+        color = getattr(first_text, 'color', (0.0, 0.0, 0.0))
         from gi.repository import Gdk
         rgba = Gdk.RGBA()
         rgba.red, rgba.green, rgba.blue, rgba.alpha = color[0], color[1], color[2], 1.0
         self.color_button.set_rgba(rgba)
         
         # Rotation
-        self.rotation_spin.set_value(text_obj.rotation)
+        all_same_rotation = all(t.rotation == first_text.rotation for t in text_objs)
+        if all_same_rotation:
+            self.rotation_spin.set_value(first_text.rotation)
+        else:
+            self.rotation_spin.set_value(first_text.rotation)  # Show first value
         
         # Styles
-        self.bold_check.set_active(text_obj.bold)
-        self.italic_check.set_active(text_obj.italic)
-        self.underline_check.set_active(text_obj.underline)
+        all_same_bold = all(t.bold == first_text.bold for t in text_objs)
+        all_same_italic = all(t.italic == first_text.italic for t in text_objs)
+        all_same_underline = all(t.underline == first_text.underline for t in text_objs)
+        
+        self.bold_check.set_active(first_text.bold)
+        self.italic_check.set_active(first_text.italic)
+        self.underline_check.set_active(first_text.underline)
+        
+        # Note: For checkboxes, GTK4 doesn't have an "inconsistent" state by default
+        # We show the first item's value for now
         
         self._block_updates = False
 
@@ -666,9 +717,9 @@ class PropertiesDock(Gtk.Box):
             # Check if we're already showing the text tab (to avoid animation)
             already_on_text = self.stack.get_visible_child_name() == "text"
             
-            # Populate text properties with first selected text
-            selected_text = text_items[0]["object"]
-            self.text_page.set_text(selected_text)
+            # Populate text properties with ALL selected texts (not just first)
+            selected_texts = [item["object"] for item in text_items]
+            self.text_page.set_text(selected_texts)
             
             # If not already on text tab, switch to it with animation
             if not already_on_text:
