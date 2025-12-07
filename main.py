@@ -361,12 +361,12 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "escape":
                 if self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall:
                     print("Esc pressed: Finalizing wall drawing")
-                    self.canvas.save_state()
+                    # Removed duplicate save_state here
                     self.canvas.wall_sets.append(self.canvas.walls.copy())
                     self.canvas.walls = []
                     self.canvas.current_wall = None
                     self.canvas.drawing_wall = False
-                    self.canvas.save_state()
+                    self.canvas.save_state()  # Only save once when complete
                     self.canvas.queue_draw()
                     return True
                 if self.canvas.tool_mode == "add_polyline" and self.canvas.drawing_polyline:

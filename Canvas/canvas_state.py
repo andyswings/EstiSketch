@@ -19,6 +19,10 @@ class CanvasStateMixin:
         self.undo_stack.append(state)
         if len(self.undo_stack) > self.config.UNDO_REDO_LIMIT:
             self.undo_stack.pop(0)
+        import traceback
+        stack = traceback.extract_stack()
+        caller = stack[-2]
+        print(f"save_state called from {caller.filename}:{caller.lineno} in {caller.name}")
         print(f"save_state: {len(state['wall_sets'])} wall sets, {len(state['walls'])} walls, {len(state['rooms'])} rooms")
 
     def restore_state(self, state):
@@ -39,45 +43,33 @@ class CanvasStateMixin:
         print(f"restore_state: {len(self.wall_sets)} wall sets, {len(self.walls)} walls, {len(self.rooms)} rooms")
 
     def undo(self):
-        if not self.undo_stack:
+        # We need at least 2 states: current state (to save) and previous state (to restore)
+        if len(self.undo_stack) < 2:
             print("Nothing to undo.")
             return
-        current_state = {
-            "wall_sets": copy.deepcopy(self.wall_sets),
-            "walls": copy.deepcopy(self.walls),
-            "current_wall": copy.deepcopy(self.current_wall) if self.current_wall else None,
-            "drawing_wall": self.drawing_wall,
-            "rooms": copy.deepcopy(self.rooms),
-            "current_room_points": copy.deepcopy(self.current_room_points),
-            "polylines": copy.deepcopy(self.polylines),
-            "polyline_sets": copy.deepcopy(self.polyline_sets),
-            "doors": copy.deepcopy(self.doors),
-            "windows": copy.deepcopy(self.windows),
-            "texts": copy.deepcopy(self.texts),
-            "dimensions": copy.deepcopy(self.dimensions)
-        }
+
+        # 1. Pop the current state (which represents the canvas NOW)
+        current_state = self.undo_stack.pop()
+        
+        # 2. Move it to the redo stack so we can go back
         self.redo_stack.append(current_state)
-        state = self.undo_stack.pop()
-        self.restore_state(state)
+        
+        # 3. Peek at the *new* top of the undo stack (the PREVIOUS state)
+        previous_state = self.undo_stack[-1]
+        
+        # 4. Restore that previous state
+        self.restore_state(previous_state)
 
     def redo(self):
         if not self.redo_stack:
             print("Nothing to redo.")
             return
-        current_state = {
-            "wall_sets": copy.deepcopy(self.wall_sets),
-            "walls": copy.deepcopy(self.walls),
-            "current_wall": copy.deepcopy(self.current_wall) if self.current_wall else None,
-            "drawing_wall": self.drawing_wall,
-            "rooms": copy.deepcopy(self.rooms),
-            "current_room_points": copy.deepcopy(self.current_room_points),
-            "polylines": copy.deepcopy(self.polylines),
-            "polyline_sets": copy.deepcopy(self.polyline_sets),
-            "doors": copy.deepcopy(self.doors),
-            "windows": copy.deepcopy(self.windows),
-            "texts": copy.deepcopy(self.texts),
-            "dimensions": copy.deepcopy(self.dimensions)
-        }
-        self.undo_stack.append(current_state)
-        state = self.redo_stack.pop()
-        self.restore_state(state)
+
+        # 1. Pop the next state from the redo stack
+        next_state = self.redo_stack.pop()
+        
+        # 2. Push it back onto the undo stack (it becomes the current state)
+        self.undo_stack.append(next_state)
+        
+        # 3. Restore it
+        self.restore_state(next_state)

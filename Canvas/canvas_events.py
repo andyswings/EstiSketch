@@ -140,6 +140,13 @@ class CanvasEventsMixin:
         """
         Auto-create a dimension for a wall near the double-click point.
         """
+        # Immediately reset any manual dimension state from the first click
+        # (GTK fires single-click before double-click)
+        self.drawing_dimension = False
+        self.dimension_start = None
+        self.dimension_end = None
+        self.dimension_offset_preview = None
+        
         click_pt = (canvas_x, canvas_y)
         tolerance = 10 / (self.zoom * pixels_per_inch)
         
@@ -172,12 +179,6 @@ class CanvasEventsMixin:
         )
         self.dimensions.append(new_dimension)
         self.existing_ids.append(dim_id)
-        
-        # Reset any in-progress manual dimension
-        self.drawing_dimension = False
-        self.dimension_start = None
-        self.dimension_end = None
-        self.dimension_offset_preview = None
         
         print(f"Auto-dimension created for wall from {selected_wall.start} to {selected_wall.end}")
         self.save_state()
@@ -1904,11 +1905,11 @@ class CanvasEventsMixin:
         snapped_x, snapped_y = aligned_x, aligned_y
 
         if n_press == 1:
-            self.save_state()
+            # Removed save_state here - only save when room is complete
             self.current_room_points.append((snapped_x, snapped_y))
             self.queue_draw()
         elif n_press == 2:
-            self.save_state()
+            # Only save when finalizing the room
             if self.current_room_points and len(self.current_room_points) > 2:
                 if self.current_room_points[0] != self.current_room_points[-1]:
                     self.current_room_points.append(self.current_room_points[0])
@@ -2064,7 +2065,7 @@ class CanvasEventsMixin:
 
         elif n_press == 2:
                 if self.drawing_wall and self.walls:
-                    self.save_state()
+                    # Removed save_state here - only save when wall set is finalized
                     self.current_wall.end = (snapped_x, snapped_y)
                     if self.current_wall.start != self.current_wall.end:
                         duplicate = any(
@@ -2076,13 +2077,13 @@ class CanvasEventsMixin:
                         
                     else:
                         self.wall_sets.append(self.walls.copy())
-                        self.save_state()
                         self.walls = []
                         self.current_wall = None
                         self.drawing_wall = False
                         self.snap_type = "none"
                         self.alignment_candidate = None
                         self.raw_current_end = None
+                        self.save_state()  # Save after cleanup to avoid state duplication
         else:
             test_point = (snapped_x, snapped_y)
             for room in self.rooms:
@@ -2138,8 +2139,7 @@ class CanvasEventsMixin:
         snapped = (ax, ay)
 
         if n_press == 1:
-            # start or extend
-            self.save_state()
+            # start or extend - removed save_state here
             if not self.drawing_polyline:
                 self.drawing_polyline = True
                 self.current_polyline_start = snapped
@@ -2160,7 +2160,7 @@ class CanvasEventsMixin:
             self.current_polyline_preview = None
 
         elif n_press == 2 and self.drawing_polyline:
-            # finalize
+            # finalize - only save here when complete
             self.save_state()
             if self.polylines:
                 self.polyline_sets.append(self.polylines.copy())
