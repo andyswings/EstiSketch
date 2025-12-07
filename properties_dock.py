@@ -549,6 +549,19 @@ class PropertiesDock(Gtk.Box):
         self.icon_bar.set_size_request(40, -1)
         self.icon_bar.set_vexpand(True)
         self.append(self.icon_bar)
+        
+        # Add toggle button at the top
+        self.toggle_button = Gtk.Button()
+        self.toggle_open_image = Gtk.Image.new_from_file(os.path.join(icon_dir, "right_panel_open.png"))
+        self.toggle_close_image = Gtk.Image.new_from_file(os.path.join(icon_dir, "right_panel_close.png"))
+        self.toggle_button.set_child(self.toggle_close_image)  # Start with close icon
+        self.toggle_button.set_tooltip_text("Toggle Sidebar")
+        self.toggle_button.connect('clicked', self._on_toggle_sidebar)
+        self.icon_bar.append(self.toggle_button)
+        
+        # Add a separator after the toggle button
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        self.icon_bar.append(separator)
 
         # Content stack
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT,
@@ -556,10 +569,16 @@ class PropertiesDock(Gtk.Box):
         self.append(self.stack)
         self.stack.set_visible(False)
 
-        # Track added tabs
+        # Track tabs
         self.tabs = {}
 
-        # Pre-create pages
+        # Add blank/default page for when nothing is selected
+        blank_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        blank_label = Gtk.Label(label="")
+        blank_page.append(blank_label)
+        self.stack.add_titled(blank_page, "blank", "No Selection")
+
+        # Pre-create all pages and tabs upfront
         self.wall_page = WallPropertiesWidget()
         self.wall_page.canvas = canvas
         self.stack.add_titled(self.wall_page, "wall", "Wall Properties")
@@ -571,6 +590,10 @@ class PropertiesDock(Gtk.Box):
         self.text_page = TextPropertiesWidget()
         self.text_page.canvas = canvas
         self.stack.add_titled(self.text_page, "text", "Text Properties")
+        
+        text_btn = self._make_tab_button("text", icon_dir, "add_text")
+        self.icon_bar.append(text_btn)
+        self.tabs["text"] = text_btn
 
     def _make_tab_button(self, name, icon_dir, icon_name):
         btn = Gtk.ToggleButton()
@@ -578,75 +601,115 @@ class PropertiesDock(Gtk.Box):
         
         btn.set_child(image)
         btn.set_tooltip_text(name.capitalize())
-        btn.connect('toggled', lambda b: self._on_tab_toggled(b, name))
+        handler_id = btn.connect('toggled', lambda b: self._on_tab_toggled(b, name))
+        # Store handler ID so we can block it when setting active programmatically
+        btn.handler_id = handler_id
         return btn
 
-    def _ensure_tab(self, name, should_show, icon_name, icon_dir=os.path.join(os.path.dirname(__file__), "Icons")):
-        if should_show and name not in self.tabs:
-            btn = self._make_tab_button(name, icon_dir, icon_name)
-            self.icon_bar.append(btn)
-            self.tabs[name] = btn
-        elif not should_show and name in self.tabs:
-            btn = self.tabs.pop(name)
-            self.icon_bar.remove(btn)
+
     
     def refresh_tabs(self, selected_items):
-        # Do we have at least one wall selected?
+        # Check what types of items are selected
         wall_items = [item for item in selected_items if item.get("type") == "wall"]
+        text_items = [item for item in selected_items if item.get("type") == "text"]
+        
         wants_wall = bool(wall_items)
-
-        # Show or hide the wall tab icon
-        self._ensure_tab("wall", wants_wall, "wall_properties")
-
+        wants_text = bool(text_items)
+        
+        # Enable/disable tabs based on selection
+        self.tabs["wall"].set_sensitive(wants_wall)
+        self.tabs["text"].set_sensitive(wants_text)
+        
+        # Update content and activate appropriate tab
         if wants_wall:
-            # Take the first selected wall and populate the UI
+            # Check if we're already showing the wall tab (to avoid animation)
+            already_on_wall = self.stack.get_visible_child_name() == "wall"
+            
+            # Populate wall properties with first selected wall
             selected_wall = wall_items[0]["object"]
             self.wall_page.set_wall(selected_wall)
-            # # Auto-open the tab (so the user sees it immediately)
-            self.stack.set_visible(True)
-            # Hide the stack if there’s nothing to show
-            self.stack.set_visible(False)
             
-        # Text Tab
-        text_items = [item for item in selected_items if item.get("type") == "text"]
-        wants_text = bool(text_items)
-        wants_text = bool(text_items)
-        self._ensure_tab("text", wants_text, "add_text") 
-        # Plan didn't specify icon. I'll check icon availability later or just use "edit" or similar if text_tool missing.
-        # But wait, make_tab_button loads png. If file missing, it might crash or show broken image.
-        # I'll assumet 'text_tool' exists or use a safe one.
-        # Actually I don't know if 'text_tool.png' exists. 'wall_properties.png' exists.
-        # I will use 'wall_properties' for now if I am unsure, or 'edit-paste' if available?
-        # Let's try 'text_properties' if I can create it, but I can't.
-        # I'll check icons dir content? No time. I'll use 'wall_properties' as placeholder if needed?
-        # Or better, just don't crash.
-        
-        # If I use "text_tool", and it doesn't exist, GtkImage might be empty.
-        
-        if wants_text:
+            # If not already on wall tab, switch to it with animation
+            if not already_on_wall:
+                self.stack.set_visible_child_name("wall")
+            
+            # Only set visible if not already visible (to avoid double animation)
+            if not self.stack.get_visible():
+                self.stack.set_visible(True)
+                self.toggle_button.set_child(self.toggle_open_image)
+            # Only set active tab if it's not already active
+            if not self.tabs["wall"].get_active():
+                self._set_active_tab("wall")
+        elif wants_text:
+            # Check if we're already showing the text tab (to avoid animation)
+            already_on_text = self.stack.get_visible_child_name() == "text"
+            
+            # Populate text properties with first selected text
             selected_text = text_items[0]["object"]
             self.text_page.set_text(selected_text)
-            self.stack.set_visible(True)
+            
+            # If not already on text tab, switch to it with animation
+            if not already_on_text:
+                self.stack.set_visible_child_name("text")
+            
+            # Only set visible if not already visible (to avoid double animation)
+            if not self.stack.get_visible():
+                self.stack.set_visible(True)
+                self.toggle_button.set_child(self.toggle_open_image)
+            # Only set active tab if it's not already active
+            if not self.tabs["text"].get_active():
+                self._set_active_tab("text")
+        else:
+            # Nothing selected - but don't immediately switch to blank if we're on a content tab
+            # This prevents animation flicker during selection changes
+            current_child = self.stack.get_visible_child_name()
+            if current_child not in ["wall", "text"]:
+                # Only switch to blank if we're not currently showing a content tab
+                # (avoids flicker when selection is briefly cleared during click)
+                self.stack.set_visible_child_name("blank")
+            # Deactivate all tabs
+            for name, tab_btn in self.tabs.items():
+                tab_btn.handler_block(tab_btn.handler_id)
+                tab_btn.set_active(False)
+                tab_btn.handler_unblock(tab_btn.handler_id)
 
-        wants_foundation = any(
-            item.get("type") == "wall" and getattr(item["object"], "footer", False)
-            for item in selected_items
-        )
-
-        # If the currently visible child is no longer valid, hide the stack
-        current = self.stack.get_visible_child_name()
-        valid   = {"wall": wants_wall, "foundation": wants_foundation}
-        if current and not valid.get(current, False):
-            self.stack.set_visible(False)
-
+    def _set_active_tab(self, active_name):
+        """Set the active tab while blocking signal handlers to prevent recursion."""
+        for name, tab_btn in self.tabs.items():
+            tab_btn.handler_block(tab_btn.handler_id)
+            tab_btn.set_active(name == active_name)
+            tab_btn.handler_unblock(tab_btn.handler_id)
+    
     def _on_tab_toggled(self, button, name):
         if button.get_active():
             self.stack.set_visible_child_name(name)
             self.stack.set_visible(True)
-            # untoggle others
+            # Update toggle button icon when opening sidebar
+            self.toggle_button.set_child(self.toggle_open_image)
+            # Untoggle others using signal blocking
             for n, b in self.tabs.items():
                 if n != name:
+                    b.handler_block(b.handler_id)
                     b.set_active(False)
+                    b.handler_unblock(b.handler_id)
         else:
-            # clicking active icon hides panel
-            self.stack.set_visible(False)
+            # Clicking an active tab should re-activate it (no toggle off)
+            button.handler_block(button.handler_id)
+            button.set_active(True)
+            button.handler_unblock(button.handler_id)
+    
+    def _on_toggle_sidebar(self, button):
+        """Toggle the visibility of the sidebar content."""
+        is_visible = self.stack.get_visible()
+        self.stack.set_visible(not is_visible)
+        
+        # Update the icon based on the new state
+        if not is_visible:
+            # Sidebar is now open
+            self.toggle_button.set_child(self.toggle_open_image)
+        else:
+            # Sidebar is now closed
+            self.toggle_button.set_child(self.toggle_close_image)
+            # Untoggle all tab buttons when closing
+            for n, b in self.tabs.items():
+                b.set_active(False)

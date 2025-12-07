@@ -849,9 +849,14 @@ class CanvasEventsMixin:
             if response == Gtk.ResponseType.OK:
                 text_obj.content = entry.get_text()
                 self.queue_draw()
-                # Also update properties dock if open?
-                # The dock listens to selection change, but maybe not content change on same object?
-                # It's fine for now.
+                # Update properties dock by emitting selection-changed
+                # Find this text in selected_items and re-emit the signal
+                if hasattr(self, 'selected_items'):
+                    for item in self.selected_items:
+                        if item.get("type") == "text" and item.get("object") == text_obj:
+                            # Re-emit selection-changed to update sidebar
+                            self.emit('selection-changed', self.selected_items)
+                            break
             d.destroy()
             
         dialog.connect("response", on_response)
