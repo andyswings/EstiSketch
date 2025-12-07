@@ -355,16 +355,7 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "t":
                 self.tool_buttons["add_text"].set_active(True)
                 return True
-            elif keyname == "m":
-                #TODO: Implement dimension tool.
-                # Functionality:
-                # 1. Click at dimension start point.
-                # 2. Click at dimension end point.
-                # 3. Click at dimension offset point. At this point, dimension should finalize.
-                # 4. Dimension tools should appear next to the dimension. (Text, Line style, etc.)
-                # 5. Dimension text can be resized.
-                # 6. Dimension end points can be moved.
-                
+            elif keyname == "m":                
                 self.tool_buttons["add_dimension"].set_active(True)
                 return True
             elif keyname == "escape":

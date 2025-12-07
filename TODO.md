@@ -1,7 +1,6 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Implement Dimension Tool (with auto-dimensioning)
 - [ ] Implement Window size editing
 - [ ] Implement Door size editing
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped)
@@ -175,6 +174,7 @@
 - [ ] Implement Multi-Wall object editing (with properties dock)
 
 ## Done ✅ (latest first)
+- [x] Implement Dimension Tool (with auto-dimensioning) (2025-12-07)
 - [x] Implement Multi-Text object editing (with properties dock) (2025-12-07)
 - [x] Enable changing text color (2025-12-07)
 

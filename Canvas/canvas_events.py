@@ -38,7 +38,7 @@ class CanvasEventsMixin:
         elif self.tool_mode == "add_polyline":
             self._handle_polyline_click(n_press, x, y)
         elif self.tool_mode == "add_dimension":
-            print("Dimension tool is not implemented yet.")
+            self._handle_dimension_click(n_press, x, y)
         elif self.tool_mode == "add_text":
             self._handle_text_click(n_press, x, y)
     
@@ -46,8 +46,6 @@ class CanvasEventsMixin:
         """
         Handle simple click to create a default text box if no drag occurred.
         """
-        # If we dragged, on_drag_end would have handled it. 
-        # But commonly on_click (released) fires even after drag? 
         # Check if we have a significant drag.
         if hasattr(self, "drag_active") and self.drag_active:
              self.drag_active = False 
@@ -73,9 +71,144 @@ class CanvasEventsMixin:
         self.emit('selection-changed', self.selected_items)
         self.queue_draw()
         
-        # Switch to pointer mode? Or stay in text mode?
-        # Usually standard behavior is to stay, or switch. Let's stay.
 
+    def _handle_dimension_click(self, n_press: int, x: float, y: float) -> None:
+        """
+        Handle dimension tool clicks with three-click workflow or auto-dimension on double-click.
+        
+        Workflow:
+        1. Single click: Set start point
+        2. Single click: Set end point
+        3. Single click: Set offset and finalize
+        
+        Auto-dimension:
+        - Double-click on wall: Auto-create dimension for that wall
+        """
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        canvas_x = (x - self.offset_x) / (self.zoom * pixels_per_inch)
+        canvas_y = (y - self.offset_y) / (self.zoom * pixels_per_inch)
+        
+        # Check for double-click (n_press == 2)
+        if n_press == 2:
+            self._handle_auto_dimension(canvas_x, canvas_y, pixels_per_inch)
+            return
+        
+        # Three-click workflow for manual dimensioning
+        if not self.drawing_dimension:
+            # First click - set start point
+            self.dimension_start = (canvas_x, canvas_y)
+            self.drawing_dimension = True
+            self.dimension_end = None
+            self.dimension_offset_preview = None
+            print(f"Dimension start set at {self.dimension_start}")
+            self.queue_draw()
+        elif self.dimension_end is None:
+            # Second click - set end point
+            self.dimension_end = (canvas_x, canvas_y)
+            print(f"Dimension end set at {self.dimension_end}")
+            self.queue_draw()
+        else:
+            # Third click - finalize with offset
+            offset = self._calculate_dimension_offset(
+                self.dimension_start, 
+                self.dimension_end, 
+                (canvas_x, canvas_y)
+            )
+            
+            # Create dimension object
+            dim_id = self.generate_identifier("dimension", self.existing_ids)
+            new_dimension = self.Dimension(
+                start=self.dimension_start,
+                end=self.dimension_end,
+                offset=offset,
+                identifier=dim_id
+            )
+            self.dimensions.append(new_dimension)
+            self.existing_ids.append(dim_id)
+            
+            # Reset state
+            self.drawing_dimension = False
+            self.dimension_start = None
+            self.dimension_end = None
+            self.dimension_offset_preview = None
+            
+            print(f"Dimension created with offset {offset}")
+            self.save_state()
+            self.queue_draw()
+    
+    def _handle_auto_dimension(self, canvas_x: float, canvas_y: float, pixels_per_inch: float) -> None:
+        """
+        Auto-create a dimension for a wall near the double-click point.
+        """
+        click_pt = (canvas_x, canvas_y)
+        tolerance = 10 / (self.zoom * pixels_per_inch)
+        
+        # Find nearest wall
+        best_dist = float('inf')
+        selected_wall = None
+        
+        for wall_set in self.wall_sets:
+            for wall in wall_set:
+                dist = self.distance_point_to_segment(click_pt, wall.start, wall.end)
+                if dist < tolerance and dist < best_dist:
+                    best_dist = dist
+                    selected_wall = wall
+        
+        if selected_wall is None:
+            print("No wall found near double-click for auto-dimensioning")
+            return
+        
+        # Calculate automatic offset (perpendicular distance from wall)
+        # Use 12 inches as default offset
+        default_offset = 12.0 # TODO: Make this configurable
+        
+        # Create dimension object
+        dim_id = self.generate_identifier("dimension", self.existing_ids)
+        new_dimension = self.Dimension(
+            start=selected_wall.start,
+            end=selected_wall.end,
+            offset=default_offset,
+            identifier=dim_id
+        )
+        self.dimensions.append(new_dimension)
+        self.existing_ids.append(dim_id)
+        
+        # Reset any in-progress manual dimension
+        self.drawing_dimension = False
+        self.dimension_start = None
+        self.dimension_end = None
+        self.dimension_offset_preview = None
+        
+        print(f"Auto-dimension created for wall from {selected_wall.start} to {selected_wall.end}")
+        self.save_state()
+        self.queue_draw()
+    
+    def _calculate_dimension_offset(self, start: tuple, end: tuple, mouse_pos: tuple) -> float:
+        """
+        Calculate the perpendicular distance from the line (start to end) to mouse_pos.
+        Returns a signed offset (positive on one side, negative on the other).
+        """
+        # Vector from start to end
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        length = math.hypot(dx, dy)
+        
+        if length == 0:
+            return 0.0
+        
+        # Unit vector along the line
+        ux = dx / length
+        uy = dy / length
+        
+        # Vector from start to mouse
+        mx = mouse_pos[0] - start[0]
+        my = mouse_pos[1] - start[1]
+        
+        # Perpendicular distance (cross product gives signed area, divide by length)
+        # Using 2D cross product: ux * my - uy * mx
+        offset = ux * my - uy * mx
+        
+        return offset
 
     def generate_identifier(self, component_type: str, existing_ids: List[str]) -> str:
         ''' Generate a unique identifier for a component.
@@ -1049,6 +1182,42 @@ class CanvasEventsMixin:
                 if (x_dev <= click_pt[0] <= x_dev + w_dev) and (y_dev <= click_pt[1] <= y_dev + h_dev):
                     selected_item = {"type": "text", "object": text}
                     break
+        
+        # Check Dimensions
+        if selected_item is None:
+            for dimension in self.dimensions:
+                # Check if click is near the dimension line
+                # Calculate dimension line position
+                start = dimension.start
+                end = dimension.end
+                offset = dimension.offset
+                
+                dx = end[0] - start[0]
+                dy = end[1] - start[1]
+                length = math.hypot(dx, dy)
+                
+                if length == 0:
+                    continue
+                
+                # Perpendicular unit vector
+                ux = dx / length
+                uy = dy / length
+                px = -uy
+                py = ux
+                
+                # Dimension line endpoints
+                dim_start = (start[0] + offset * px, start[1] + offset * py)
+                dim_end = (end[0] + offset * px, end[1] + offset * py)
+                
+                # Convert to device coordinates
+                dim_start_dev = self.model_to_device(dim_start[0], dim_start[1], pixels_per_inch)
+                dim_end_dev = self.model_to_device(dim_end[0], dim_end[1], pixels_per_inch)
+                
+                # Check distance to dimension line
+                dist = self.distance_point_to_segment(click_pt, dim_start_dev, dim_end_dev)
+                if dist < fixed_threshold:
+                    selected_item = {"type": "dimension", "object": dimension}
+                    break
 
 
         event = gesture.get_current_event()
@@ -1577,6 +1746,19 @@ class CanvasEventsMixin:
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         canvas_x, canvas_y = self.device_to_model(x, y, pixels_per_inch)
         raw_point = (canvas_x, canvas_y)
+        
+        # Store last mouse position for dimension preview
+        self._last_mouse_pos = (canvas_x, canvas_y)
+        
+        # Update dimension preview if in dimension drawing mode
+        if self.tool_mode == "add_dimension" and self.drawing_dimension:
+            if self.dimension_end:
+                # After second click - update offset preview
+                self.dimension_offset_preview = (canvas_x, canvas_y)
+                self.queue_draw()
+            # After first click, preview line is drawn using _last_mouse_pos
+            elif self.dimension_start:
+                self.queue_draw()
 
         if self.tool_mode == "draw_walls" and self.drawing_wall and self.current_wall:
             last_wall = self.walls[-1] if self.walls else None

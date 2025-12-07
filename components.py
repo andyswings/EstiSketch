@@ -86,3 +86,15 @@ class Text:
     underline: bool = False
     rotation: float = 0.0  # Rotation angle in degrees
     color: tuple = (0.0, 0.0, 0.0)  # RGB color as tuple (r, g, b) where each value is 0.0-1.0
+
+
+@dataclass(eq=False)
+class Dimension:
+    start: tuple  # (x, y) start point in inches
+    end: tuple  # (x, y) end point in inches
+    offset: float  # Perpendicular distance from measured line (in inches)
+    identifier: str = ""
+    text_size: float = 12.0  # Font size for dimension text
+    show_arrows: bool = True  # Whether to show extension arrows
+    line_style: str = "solid"  # "solid" or "dashed"
+    color: tuple = (0.0, 0.0, 0.0)  # RGB color (r, g, b) where each value is 0.0-1.0

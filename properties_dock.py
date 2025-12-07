@@ -607,6 +607,131 @@ class TextPropertiesWidget(Gtk.Box):
         
         self._block_updates = False
 
+
+class DimensionPropertiesWidget(Gtk.Box):
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.current_dimension = None
+        self._block_updates = False
+        
+        # Properties frame
+        frame = Gtk.Frame(label="Dimension Properties")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        frame.set_child(box)
+        self.append(frame)
+        
+        # Measurement display (read-only)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Measurement:"))
+        self.measurement_label = Gtk.Label(label="0' 0\"")
+        self.measurement_label.set_halign(Gtk.Align.START)
+        row.append(self.measurement_label)
+        box.append(row)
+        
+        # Text Size
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Text Size:"))
+        self.text_size_spin = Gtk.SpinButton.new_with_range(6, 72, 1)
+        self.text_size_spin.connect("value-changed", self.on_text_size_changed)
+        row.append(self.text_size_spin)
+        box.append(row)
+        
+        # Line Style
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Line Style:"))
+        self.line_style_combo = Gtk.ComboBoxText()
+        self.line_style_combo.append_text("solid")
+        self.line_style_combo.append_text("dashed")
+        self.line_style_combo.connect("changed", self.on_line_style_changed)
+        row.append(self.line_style_combo)
+        box.append(row)
+        
+        # Color
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Color:"))
+        self.color_button = Gtk.ColorButton()
+        self.color_button.connect("color-set", self.on_color_changed)
+        row.append(self.color_button)
+        box.append(row)
+        
+        # Show Arrows
+        self.show_arrows_check = Gtk.CheckButton(label="Show Arrows")
+        self.show_arrows_check.connect("toggled", self.on_show_arrows_toggled)
+        box.append(self.show_arrows_check)
+    
+    def on_text_size_changed(self, spin):
+        if self._block_updates or not self.current_dimension: return
+        self.current_dimension.text_size = spin.get_value()
+        self.emit_property_changed()
+    
+    def on_line_style_changed(self, combo):
+        if self._block_updates or not self.current_dimension: return
+        self.current_dimension.line_style = combo.get_active_text()
+        self.emit_property_changed()
+    
+    def on_color_changed(self, color_button):
+        if self._block_updates or not self.current_dimension: return
+        rgba = color_button.get_rgba()
+        color = (rgba.red, rgba.green, rgba.blue)
+        self.current_dimension.color = color
+        self.emit_property_changed()
+    
+    def on_show_arrows_toggled(self, check):
+        if self._block_updates or not self.current_dimension: return
+        self.current_dimension.show_arrows = check.get_active()
+        self.emit_property_changed()
+    
+    def emit_property_changed(self):
+        if hasattr(self, "canvas") and self.canvas:
+            self.canvas.queue_draw()
+    
+    def set_dimension(self, dimension):
+        """Set dimension to edit"""
+        self._block_updates = True
+        self.current_dimension = dimension
+        
+        if not dimension:
+            self._block_updates = False
+            return
+        
+        # Calculate and display measurement
+        import math
+        length = math.hypot(
+            dimension.end[0] - dimension.start[0],
+            dimension.end[1] - dimension.start[1]
+        )
+        if hasattr(self, "canvas") and hasattr(self.canvas, "converter"):
+            measurement_str = self.canvas.converter.format_measurement(length, use_fraction=False)
+        else:
+            measurement_str = f"{length:.2f}\""
+        self.measurement_label.set_text(measurement_str)
+        
+        # Text size
+        self.text_size_spin.set_value(dimension.text_size)
+        
+        # Line style
+        if dimension.line_style == "solid":
+            self.line_style_combo.set_active(0)
+        else:
+            self.line_style_combo.set_active(1)
+        
+        # Color
+        color = getattr(dimension, 'color', (0.0, 0.0, 0.0))
+        from gi.repository import Gdk
+        rgba = Gdk.RGBA()
+        rgba.red, rgba.green, rgba.blue, rgba.alpha = color[0], color[1], color[2], 1.0
+        self.color_button.set_rgba(rgba)
+        
+        # Show arrows
+        self.show_arrows_check.set_active(dimension.show_arrows)
+        
+        self._block_updates = False
+
+
 class PropertiesDock(Gtk.Box):
 
     def __init__(self, canvas):
@@ -667,6 +792,15 @@ class PropertiesDock(Gtk.Box):
         text_btn = self._make_tab_button("text", icon_dir, "add_text")
         self.icon_bar.append(text_btn)
         self.tabs["text"] = text_btn
+        
+        self.dimension_page = DimensionPropertiesWidget()
+        self.dimension_page.canvas = canvas
+        self.stack.add_titled(self.dimension_page, "dimension", "Dimension Properties")
+        
+        dimension_btn = self._make_tab_button("dimension", icon_dir, "add_dimension")
+        self.icon_bar.append(dimension_btn)
+        self.tabs["dimension"] = dimension_btn
+
 
     def _make_tab_button(self, name, icon_dir, icon_name):
         btn = Gtk.ToggleButton()
@@ -682,16 +816,19 @@ class PropertiesDock(Gtk.Box):
 
     
     def refresh_tabs(self, selected_items):
-        # Check what types of items are selected
+        # Detect what types are selected
         wall_items = [item for item in selected_items if item.get("type") == "wall"]
         text_items = [item for item in selected_items if item.get("type") == "text"]
+        dimension_items = [item for item in selected_items if item.get("type") == "dimension"]
         
-        wants_wall = bool(wall_items)
-        wants_text = bool(text_items)
+        wants_wall = len(wall_items) > 0 and len(text_items) == 0 and len(dimension_items) == 0
+        wants_text = len(text_items) > 0 and len(wall_items) == 0 and len(dimension_items) == 0
+        wants_dimension = len(dimension_items) > 0 and len(wall_items) == 0 and len(text_items) == 0
         
         # Enable/disable tabs based on selection
         self.tabs["wall"].set_sensitive(wants_wall)
         self.tabs["text"].set_sensitive(wants_text)
+        self.tabs["dimension"].set_sensitive(wants_dimension)
         
         # Update content and activate appropriate tab
         if wants_wall:
@@ -732,11 +869,30 @@ class PropertiesDock(Gtk.Box):
             # Only set active tab if it's not already active
             if not self.tabs["text"].get_active():
                 self._set_active_tab("text")
+        elif wants_dimension:
+            # Check if we're already showing the dimension tab (to avoid animation)
+            already_on_dimension = self.stack.get_visible_child_name() == "dimension"
+            
+            # Populate dimension properties with first selected dimension
+            selected_dimension = dimension_items[0]["object"]
+            self.dimension_page.set_dimension(selected_dimension)
+            
+            # If not already on dimension tab, switch to it with animation
+            if not already_on_dimension:
+                self.stack.set_visible_child_name("dimension")
+            
+            # Only set visible if not already visible (to avoid double animation)
+            if not self.stack.get_visible():
+                self.stack.set_visible(True)
+                self.toggle_button.set_child(self.toggle_open_image)
+            # Only set active tab if it's not already active
+            if not self.tabs["dimension"].get_active():
+                self._set_active_tab("dimension")
         else:
             # Nothing selected - but don't immediately switch to blank if we're on a content tab
             # This prevents animation flicker during selection changes
             current_child = self.stack.get_visible_child_name()
-            if current_child not in ["wall", "text"]:
+            if current_child not in ["wall", "text", "dimension"]:
                 # Only switch to blank if we're not currently showing a content tab
                 # (avoids flicker when selection is briefly cleared during click)
                 self.stack.set_visible_child_name("blank")

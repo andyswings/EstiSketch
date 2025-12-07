@@ -3,7 +3,7 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, GObject
 
 from measurement_utils import MeasurementConverter
-from components import Wall, Room, Text
+from components import Wall, Room, Text, Dimension
 from snapping_manager import SnappingManager
 
 from Canvas.canvas_draw import CanvasDrawMixin
@@ -77,6 +77,13 @@ class CanvasArea(Gtk.DrawingArea,
         self.doors = []  # List of door placements; each item is a tuple: (wall, door, position_ratio)
         self.windows = []  # List of window placements; each item is a tuple: (wall, window, position_ratio)
         self.texts = [] # List of Text objects
+        
+        # Dimension drawing state
+        self.dimensions = []  # List of finalized Dimension objects
+        self.drawing_dimension = False  # Flag for dimension mode
+        self.dimension_start = None  # First click point (x, y)
+        self.dimension_end = None  # Second click point (x, y)
+        self.dimension_offset_preview = None  # Mouse position for offset preview
 
         # Alignment snapping (used for walls and rooms)
         self.alignment_candidate = None
@@ -103,6 +110,7 @@ class CanvasArea(Gtk.DrawingArea,
         self.Wall = Wall
         self.Room = Room
         self.Text = Text
+        self.Dimension = Dimension
         # Initialize snapping manager
         self.snap_manager = SnappingManager(
             snap_enabled=self.config.SNAP_ENABLED,
@@ -232,6 +240,13 @@ class CanvasArea(Gtk.DrawingArea,
                 text_obj = item["object"]
                 if text_obj in self.texts:
                     self.texts.remove(text_obj)
+            
+            # Dimension
+            if item["type"] == "dimension":
+                dim_obj = item["object"]
+                if dim_obj in self.dimensions:
+                    self.dimensions.remove(dim_obj)
+
 
         # Process room vertex deletions
         for room_id, indices in room_vertices_to_delete.items():

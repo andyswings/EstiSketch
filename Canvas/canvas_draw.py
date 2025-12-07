@@ -106,6 +106,9 @@ class CanvasDrawMixin:
         # Draw texts
         self.draw_texts(cr)
         
+        # Draw dimensions
+        self.draw_dimensions(cr)
+        
         # Draw text preview
         if self.tool_mode == "add_text" and hasattr(self, "current_text_preview"):
              x, y, w, h = self.current_text_preview
@@ -586,3 +589,210 @@ class CanvasDrawMixin:
                 cr.stroke()
             
             cr.restore()
+    
+    def draw_dimensions(self, cr):
+        """Draw all dimension objects with extension lines, dimension lines, arrows, and measurement text."""
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        
+        # Draw finalized dimensions
+        for dimension in self.dimensions:
+            self._draw_single_dimension(cr, dimension, pixels_per_inch, is_preview=False)
+        
+        # Draw dimension preview during creation
+        if self.drawing_dimension and self.dimension_start:
+            if self.dimension_end:
+                # After second click - show preview with current mouse position
+                if self.dimension_offset_preview:
+                    # Create temporary dimension for preview
+                    offset = self._calculate_dimension_offset(
+                        self.dimension_start,
+                        self.dimension_end,
+                        self.dimension_offset_preview
+                    )
+                    temp_dim = self.Dimension(
+                        start=self.dimension_start,
+                        end=self.dimension_end,
+                        offset=offset,
+                        text_size=12.0
+                    )
+                    self._draw_single_dimension(cr, temp_dim, pixels_per_inch, is_preview=True)
+            else:
+                # After first click - show line from start to current mouse
+                if hasattr(self, "_last_mouse_pos"):
+                    cr.save()
+                    cr.set_source_rgb(0.5, 0.5, 0.5)
+                    cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+                    cr.set_dash([4.0 / (self.zoom * pixels_per_inch), 4.0 / (self.zoom * pixels_per_inch)])
+                    cr.move_to(self.dimension_start[0], self.dimension_start[1])
+                    cr.line_to(self._last_mouse_pos[0], self._last_mouse_pos[1])
+                    cr.stroke()
+                    cr.restore()
+    
+    def _draw_single_dimension(self, cr, dimension, pixels_per_inch, is_preview=False):
+        """Draw a single dimension with all its components."""
+        start = dimension.start
+        end = dimension.end
+        offset = dimension.offset
+        
+        # Calculate dimension line position (parallel to measured line, offset perpendicularly)
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        length = math.hypot(dx, dy)
+        
+        if length == 0:
+            return
+        
+        # Unit vector along the line
+        ux = dx / length
+        uy = dy / length
+        
+        # Perpendicular unit vector (rotate 90 degrees)
+        px = -uy
+        py = ux
+        
+        # Dimension line endpoints (offset from measured line)
+        dim_start = (start[0] + offset * px, start[1] + offset * py)
+        dim_end = (end[0] + offset * px, end[1] + offset * py)
+        
+        cr.save()
+        
+        # Check if this dimension is selected
+        is_selected = any(
+            item.get("type") == "dimension" and item.get("object") is dimension
+            for item in self.selected_items
+        )
+        
+        # Set color
+        color = getattr(dimension, 'color', (0.0, 0.0, 0.0))
+        if is_preview:
+            cr.set_source_rgba(color[0], color[1], color[2], 0.5)  # Semi-transparent for preview
+        else:
+            if is_selected:
+                cr.set_source_rgb(0.0, 0.4, 0.8)  # Blue for selected
+            else:
+                cr.set_source_rgb(*color)
+        
+        line_width = 1.0 / (self.zoom * pixels_per_inch)
+        if is_selected:
+            line_width *= 2.5  # Thicker line for selected dimensions
+        cr.set_line_width(line_width)
+        
+        # Set line style
+        line_style = getattr(dimension, 'line_style', 'solid')
+        if line_style == "dashed":
+            cr.set_dash([4.0 / (self.zoom * pixels_per_inch), 4.0 / (self.zoom * pixels_per_inch)])
+        else:
+            cr.set_dash([])
+        
+        # Draw extension lines (from measured points to dimension line)
+        # Extension lines go slightly beyond the dimension line
+        extension_overhang = 2.0  # inches
+        
+        # Extension line at start
+        ext_start_pt = (start[0] + (offset + extension_overhang) * px, start[1] + (offset + extension_overhang) * py)
+        cr.move_to(start[0], start[1])
+        cr.line_to(ext_start_pt[0], ext_start_pt[1])
+        cr.stroke()
+        
+        # Extension line at end
+        ext_end_pt = (end[0] + (offset + extension_overhang) * px, end[1] + (offset + extension_overhang) * py)
+        cr.move_to(end[0], end[1])
+        cr.line_to(ext_end_pt[0], ext_end_pt[1])
+        cr.stroke()
+        
+        # Draw dimension line
+        cr.move_to(dim_start[0], dim_start[1])
+        cr.line_to(dim_end[0], dim_end[1])
+        cr.stroke()
+        
+        # Draw arrows if enabled
+        show_arrows = getattr(dimension, 'show_arrows', True)
+        if show_arrows:
+            arrow_len = 3.0  # inches
+            arrow_angle = math.radians(20)  # 20 degree arrow angle
+            
+            # Arrow at start (pointing towards start point)
+            arrow_dir_x = -ux
+            arrow_dir_y = -uy
+            
+            # Arrow line 1
+            a1x = dim_start[0] + arrow_len * (arrow_dir_x * math.cos(arrow_angle) - arrow_dir_y * math.sin(arrow_angle))
+            a1y = dim_start[1] + arrow_len * (arrow_dir_x * math.sin(arrow_angle) + arrow_dir_y * math.cos(arrow_angle))
+            cr.move_to(dim_start[0], dim_start[1])
+            cr.line_to(a1x, a1y)
+            cr.stroke()
+            
+            # Arrow line 2
+            a2x = dim_start[0] + arrow_len * (arrow_dir_x * math.cos(-arrow_angle) - arrow_dir_y * math.sin(-arrow_angle))
+            a2y = dim_start[1] + arrow_len * (arrow_dir_x * math.sin(-arrow_angle) + arrow_dir_y * math.cos(-arrow_angle))
+            cr.move_to(dim_start[0], dim_start[1])
+            cr.line_to(a2x, a2y)
+            cr.stroke()
+            
+            # Arrow at end (pointing towards end point)
+            arrow_dir_x = ux
+            arrow_dir_y = uy
+            
+            # Arrow line 1
+            a1x = dim_end[0] + arrow_len * (arrow_dir_x * math.cos(arrow_angle) - arrow_dir_y * math.sin(arrow_angle))
+            a1y = dim_end[1] + arrow_len * (arrow_dir_x * math.sin(arrow_angle) + arrow_dir_y * math.cos(arrow_angle))
+            cr.move_to(dim_end[0], dim_end[1])
+            cr.line_to(a1x, a1y)
+            cr.stroke()
+            
+            # Arrow line 2
+            a2x = dim_end[0] + arrow_len * (arrow_dir_x * math.cos(-arrow_angle) - arrow_dir_y * math.sin(-arrow_angle))
+            a2y = dim_end[1] + arrow_len * (arrow_dir_x * math.sin(-arrow_angle) + arrow_dir_y * math.cos(-arrow_angle))
+            cr.move_to(dim_end[0], dim_end[1])
+            cr.line_to(a2x, a2y)
+            cr.stroke()
+        
+        # Draw measurement text at midpoint
+        mid_x = (dim_start[0] + dim_end[0]) / 2
+        mid_y = (dim_start[1] + dim_end[1]) / 2
+        
+        # Format measurement
+        measurement_str = self.converter.format_measurement(length, use_fraction=False)
+        
+        # Calculate text angle (parallel to dimension line)
+        text_angle = math.atan2(dy, dx)
+        
+        # Flip text if upside down
+        if text_angle > math.pi / 2 or text_angle < -math.pi / 2:
+            text_angle += math.pi
+        
+        cr.save()
+        cr.translate(mid_x, mid_y)
+        cr.rotate(text_angle)
+        
+        # Set font
+        text_size = getattr(dimension, 'text_size', 12.0) / (self.zoom * pixels_per_inch)
+        cr.set_font_size(text_size)
+        cr.select_font_face("Sans", 0, 0)
+        
+        # Get text extents for background
+        extents = cr.text_extents(measurement_str)
+        text_width = extents.width
+        text_height = extents.height
+        
+        # Draw white background for text
+        padding = 2.0 / (self.zoom * pixels_per_inch)
+        cr.set_source_rgb(1, 1, 1)
+        cr.rectangle(
+            -text_width / 2 - padding,
+            -text_height - padding,
+            text_width + 2 * padding,
+            text_height + 2 * padding
+        )
+        cr.fill()
+        
+        # Draw text
+        if is_preview:
+            cr.set_source_rgba(color[0], color[1], color[2], 0.5)
+        else:
+            cr.set_source_rgb(*color)
+        cr.move_to(-text_width / 2, 0)
+        cr.show_text(measurement_str)
+        
+        cr.restore()
+        cr.restore()

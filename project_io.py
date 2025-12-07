@@ -1,5 +1,5 @@
 import xml.etree.ElementTree as ET
-from components import Wall, Room, Door, Window, Text
+from components import Wall, Room, Door, Window, Text, Dimension
 
 def save_project(canvas, window_width, window_height, filepath): 
     """ Save the entire project state to an XML file.
@@ -114,6 +114,24 @@ def save_project(canvas, window_width, window_height, filepath):
         t_elem.set("italic", str(text.italic))
         t_elem.set("underline", str(text.underline))
         t_elem.set("identifier", text.identifier)
+    
+    # Save dimensions
+    dimensions_elem = ET.SubElement(root, "Dimensions")
+    for dimension in canvas.dimensions:
+        d_elem = ET.SubElement(dimensions_elem, "Dimension")
+        d_elem.set("start_x", str(dimension.start[0]))
+        d_elem.set("start_y", str(dimension.start[1]))
+        d_elem.set("end_x", str(dimension.end[0]))
+        d_elem.set("end_y", str(dimension.end[1]))
+        d_elem.set("offset", str(dimension.offset))
+        d_elem.set("identifier", dimension.identifier)
+        d_elem.set("text_size", str(dimension.text_size))
+        d_elem.set("show_arrows", str(dimension.show_arrows))
+        d_elem.set("line_style", dimension.line_style)
+        color = getattr(dimension, 'color', (0.0, 0.0, 0.0))
+        d_elem.set("color_r", str(color[0]))
+        d_elem.set("color_g", str(color[1]))
+        d_elem.set("color_b", str(color[2]))
 
     # Write out the XML to the given file (with declaration and proper encoding).
     tree = ET.ElementTree(root)
@@ -149,6 +167,7 @@ def open_project(canvas, filepath):
     canvas.doors.clear()
     canvas.windows.clear()
     canvas.texts.clear()
+    canvas.dimensions.clear()
 
     # --- Restore Wall Sets ---
     walls_elem = root.find("WallSets")
@@ -260,6 +279,33 @@ def open_project(canvas, filepath):
             text_obj.underline = t_elem.get("underline", "False") == "True"
             
             canvas.texts.append(text_obj)
+    
+    # --- Restore Dimensions ---
+    dimensions_elem = root.find("Dimensions")
+    if dimensions_elem is not None:
+        for d_elem in dimensions_elem.findall("Dimension"):
+            start_x = float(d_elem.get("start_x"))
+            start_y = float(d_elem.get("start_y"))
+            end_x = float(d_elem.get("end_x"))
+            end_y = float(d_elem.get("end_y"))
+            offset = float(d_elem.get("offset"))
+            identifier = d_elem.get("identifier", "")
+            
+            dimension_obj = Dimension(
+                start=(start_x, start_y),
+                end=(end_x, end_y),
+                offset=offset,
+                identifier=identifier
+            )
+            dimension_obj.text_size = float(d_elem.get("text_size", "12.0"))
+            dimension_obj.show_arrows = d_elem.get("show_arrows", "True") == "True"
+            dimension_obj.line_style = d_elem.get("line_style", "solid")
+            color_r = float(d_elem.get("color_r", "0.0"))
+            color_g = float(d_elem.get("color_g", "0.0"))
+            color_b = float(d_elem.get("color_b", "0.0"))
+            dimension_obj.color = (color_r, color_g, color_b)
+            
+            canvas.dimensions.append(dimension_obj)
 
     # Return the saved window size.
     return window_width, window_height
