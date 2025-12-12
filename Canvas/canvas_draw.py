@@ -91,12 +91,12 @@ class CanvasDrawMixin:
         # Draw grid, walls, rooms, etc. in model coordinates.
         self.draw_grid(cr)
         
-        # Draw walls
-        wr.draw_walls(self, cr)
-
-        # Draw rooms
+        # Draw rooms first (under walls)
         wr.draw_rooms(self, cr, zoom_transform)
             
+        # Draw walls on top of rooms
+        wr.draw_walls(self, cr)
+
         # Draw doors
         dwr.draw_doors(self, cr, pixels_per_inch)
         
@@ -177,6 +177,8 @@ class CanvasDrawMixin:
             zoom_transform = self.zoom * pixels_per_inch
             dash_length = 4 / zoom_transform  # adjust dash length based on zoom
             cr.set_dash([dash_length, dash_length])
+            # Set thin line width for box selection rectangle (1 pixel in model space)
+            cr.set_line_width(1.0 / zoom_transform)
             cr.set_source_rgba(0, 0, 1, 0.6)  # blue with 60% opacity
 
             # Compute the rectangle bounds using the model coordinates for box_select_start and box_select_end.
@@ -216,17 +218,12 @@ class CanvasDrawMixin:
                     
                     # Set a red color with some opacity.
                     cr.set_source_rgba(1, 0, 0, 1.0) # Opaque red.
-                    # Save the original line width.
-                    original_line_width = cr.get_line_width()
-                    # Set a thicker line width for the selection indicator.
-                    # Adjust this value as needed; here we double the default wall width.
-                    cr.set_line_width((self.config.DEFAULT_WALL_WIDTH) / self.zoom)
+                    # Set line width same as wall width for selection indicator.
+                    cr.set_line_width(wall.width / self.zoom)
                     # Draw the wall from start to end.
                     cr.move_to(wall.start[0], wall.start[1])
                     cr.line_to(wall.end[0], wall.end[1])
                     cr.stroke()
-                    # Restore the original line width.
-                    cr.set_line_width(original_line_width)
                 elif item["type"] == "vertex":
                     # print("Vertex selected")
                     room, idx = item["object"]

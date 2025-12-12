@@ -889,13 +889,10 @@ class PropertiesDock(Gtk.Box):
             if not self.tabs["dimension"].get_active():
                 self._set_active_tab("dimension")
         else:
-            # Nothing selected - but don't immediately switch to blank if we're on a content tab
-            # This prevents animation flicker during selection changes
-            current_child = self.stack.get_visible_child_name()
-            if current_child not in ["wall", "text", "dimension"]:
-                # Only switch to blank if we're not currently showing a content tab
-                # (avoids flicker when selection is briefly cleared during click)
-                self.stack.set_visible_child_name("blank")
+        # Nothing selected - show blank and hide panel
+            self.stack.set_visible_child_name("blank")
+            self.stack.set_visible(False)
+            self.toggle_button.set_child(self.toggle_close_image)
             # Deactivate all tabs
             for name, tab_btn in self.tabs.items():
                 tab_btn.handler_block(tab_btn.handler_id)

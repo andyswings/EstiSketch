@@ -1910,6 +1910,7 @@ class CanvasEventsMixin:
             self.queue_draw()
         elif n_press == 2:
             # Only save when finalizing the room
+            room_created = False
             if self.current_room_points and len(self.current_room_points) > 2:
                 if self.current_room_points[0] != self.current_room_points[-1]:
                     self.current_room_points.append(self.current_room_points[0])
@@ -1917,6 +1918,7 @@ class CanvasEventsMixin:
                 self.rooms.append(new_room)
                 self.current_room_points = []
                 self.current_room_preview = None
+                room_created = True
             for wall_set in self.wall_sets:
                 if len(wall_set) < 3:
                     continue
@@ -1925,7 +1927,13 @@ class CanvasEventsMixin:
                     if self._point_in_polygon((snapped_x, snapped_y), poly):
                         new_room = self.Room(poly)
                         self.rooms.append(new_room)
+                        # Reset room drawing state after creating room from closed loop
+                        self.current_room_points = []
+                        self.current_room_preview = None
+                        room_created = True
                         break
+            if room_created:
+                self.save_state()
             self.queue_draw()
             
 
@@ -2064,42 +2072,59 @@ class CanvasEventsMixin:
                 self.queue_draw()
 
         elif n_press == 2:
-                if self.drawing_wall and self.walls:
-                    # Removed save_state here - only save when wall set is finalized
-                    self.current_wall.end = (snapped_x, snapped_y)
-                    if self.current_wall.start != self.current_wall.end:
-                        duplicate = any(
-                            w.start == self.current_wall.start and w.end == self.current_wall.end
-                            for w in self.walls
-                        )
-                        if not duplicate:
-                            self.walls.append(self.current_wall)
-                        
-                    else:
-                        self.wall_sets.append(self.walls.copy())
-                        self.walls = []
-                        self.current_wall = None
-                        self.drawing_wall = False
-                        self.snap_type = "none"
-                        self.alignment_candidate = None
-                        self.raw_current_end = None
-                        self.save_state()  # Save after cleanup to avoid state duplication
-        else:
-            test_point = (snapped_x, snapped_y)
-            for room in self.rooms:
-                if len(room.points) < 3:
-                    continue
-                if self._point_in_polygon(test_point, room.points):
-                    pts = room.points if room.points[0] == room.points[-1] else room.points + [room.points[0]]
-                    new_wall_set = []
-                    for i in range(len(pts) - 1):
-                        new_wall = self.Wall(pts[i], pts[i+1],
-                                            width=self.config.DEFAULT_WALL_WIDTH,
-                                            height=self.config.DEFAULT_WALL_HEIGHT)
-                        new_wall_set.append(new_wall)
-                    self.wall_sets.append(new_wall_set)
-                    break
-            self.snap_type = "none"
+            if self.drawing_wall and self.walls:
+                # Removed save_state here - only save when wall set is finalized
+                self.current_wall.end = (snapped_x, snapped_y)
+                if self.current_wall.start != self.current_wall.end:
+                    duplicate = any(
+                        w.start == self.current_wall.start and w.end == self.current_wall.end
+                        for w in self.walls
+                    )
+                    if not duplicate:
+                        self.walls.append(self.current_wall)
+                    
+                else:
+                    self.wall_sets.append(self.walls.copy())
+                    self.walls = []
+                    self.current_wall = None
+                    self.drawing_wall = False
+                    self.snap_type = "none"
+                    self.alignment_candidate = None
+                    self.raw_current_end = None
+                    self.save_state()  # Save after cleanup to avoid state duplication
+            else:
+                # Double-click when NOT drawing walls: create walls from room
+                test_point = (snapped_x, snapped_y)
+                wall_created = False
+                for room in self.rooms:
+                    if len(room.points) < 3:
+                        continue
+                    if self._point_in_polygon(test_point, room.points):
+                        pts = room.points if room.points[0] == room.points[-1] else room.points + [room.points[0]]
+                        new_wall_set = []
+                        for i in range(len(pts) - 1):
+                            wall_id = self.generate_identifier("wall", self.existing_ids)
+                            new_wall = self.Wall(pts[i], pts[i+1],
+                                                width=self.config.DEFAULT_WALL_WIDTH,
+                                                height=self.config.DEFAULT_WALL_HEIGHT,
+                                                identifier=wall_id)
+                            self.existing_ids.append(wall_id)
+                            new_wall_set.append(new_wall)
+                        self.wall_sets.append(new_wall_set)
+                        wall_created = True
+                        break
+                
+                if wall_created:
+                    # Reset wall drawing state after creating walls from room
+                    self.drawing_wall = False
+                    self.current_wall = None
+                    self.walls = []
+                    self.snap_type = "none"
+                    self.alignment_candidate = None
+                    self.raw_current_end = None
+                    self.save_state()
+                else:
+                    self.snap_type = "none"
         self.queue_draw()
             
     
