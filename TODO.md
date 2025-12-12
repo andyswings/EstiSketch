@@ -2,7 +2,6 @@
 
 ## 🚀 High Priority (do next)
 - [ ] Add Header sizes and controls (for window/door header calculations)
-- [ ] Implement Door size editing
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped)
 - [ ] Implement Layers system
 - [ ] Add Circles/Arcs drawing tool
@@ -174,6 +173,7 @@
 - [ ] Implement Multi-Wall object editing (with properties dock)
 
 ## Done ✅ (latest first)
+- [x] Implement multi-door object editing (with properties dock) (2025-12-11)
 - [x] Implement multi-window object editing (with properties dock) (2025-12-11)
 - [x] Implement multi-wall object editing (with properties dock) (2025-12-11)
 - [x] Implement Dimension Tool (with auto-dimensioning) (2025-12-07)

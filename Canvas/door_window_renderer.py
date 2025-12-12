@@ -113,18 +113,22 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.set_dash([]) # Reset dash pattern
         
         if door.door_type == "double":
+            # Double doors always treated as "left" swing since they open both ways
+            # Override n to always use left swing direction
+            n_override = (-p[0], -p[1])  # Same as left swing
+            
             # Hinge positions for double doors
-            hinge1 = (H_start[0] + (t / 2) * n[0], H_start[1] + (t / 2) * n[1])  # Left hinge
-            hinge2 = (H_end[0] + (t / 2) * n[0], H_end[1] + (t / 2) * n[1])      # Right hinge
+            hinge1 = (H_start[0] + (t / 2) * n_override[0], H_start[1] + (t / 2) * n_override[1])  # Left hinge
+            hinge2 = (H_end[0] + (t / 2) * n_override[0], H_end[1] + (t / 2) * n_override[1])      # Right hinge
             
             # Calculate open leaf positions (90-degree swing from wall)
             w_half = w / 2  # Half width for each leaf
             
             # Determine swing direction based on orientation
             if door.orientation == "outswing":
-                swing_normal = n 
+                swing_normal = n_override
             else:  # "inswing"
-                swing_normal = (-n[0], -n[1])
+                swing_normal = (-n_override[0], -n_override[1])
             
             # Leaf positions based on swing direction
             F1 = (hinge1[0] + w_half * swing_normal[0], hinge1[1] + w_half * swing_normal[1])  # Left leaf

@@ -230,10 +230,16 @@ class CanvasArea(Gtk.DrawingArea,
                         self.polyline_sets.remove(poly_list)
             # Doors
             if item["type"] == "door":
-                ...
+                # item["object"] is (wall, door, ratio) tuple
+                door_tuple = item["object"]
+                if door_tuple in self.doors:
+                    self.doors.remove(door_tuple)
             # Windows
             if item["type"] == "window":
-                ...
+                # item["object"] is (wall, window, ratio) tuple
+                window_tuple = item["object"]
+                if window_tuple in self.windows:
+                    self.windows.remove(window_tuple)
 
             # Text
             if item["type"] == "text":
