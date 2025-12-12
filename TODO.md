@@ -9,6 +9,7 @@
 - [ ] Add Circles/Arcs drawing tool
 - [ ] Create Furniture & Fixture library
 - [ ] Add automatic room area calculations
+- [ ] Copy/Paste functionality
 
 ## ✨ Core Features (essential functionality)
 
@@ -22,7 +23,6 @@
 - [ ] Array/Pattern tools (grid/circular)
 - [ ] Scale tool
 - [ ] Align/Distribute tools
-- [ ] Copy/Paste functionality
 - [ ] Hatching/Fill patterns
 
 ### Architectural Elements
