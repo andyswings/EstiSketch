@@ -933,6 +933,182 @@ class WindowPropertiesWidget(Gtk.Box):
         self._block_updates = False
 
 
+class DoorPropertiesWidget(Gtk.Box):
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.current_doors = []  # List of (wall, door, ratio) tuples for multi-editing
+        self._block_updates = False
+        
+        # Load door sizes from config file
+        config_path = os.path.join(os.path.dirname(__file__), 'Resources', 'window_door_sizes.json')
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        
+        # Properties frame
+        frame = Gtk.Frame(label="Door Properties")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        frame.set_child(box)
+        self.append(frame)
+        
+        # Door Type
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Type:"))
+        self.type_combo = Gtk.ComboBoxText()
+        for door_type in config.get('door_types', ["single", "double", "sliding"]):
+            self.type_combo.append_text(door_type)
+        self.type_combo.connect("changed", self.on_type_changed)
+        row.append(self.type_combo)
+        box.append(row)
+        
+        # Width
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Width:"))
+        self.width_combo = Gtk.ComboBoxText()
+        for width in config.get('door_widths', ['30"', '32"', '36"', 'Custom']):
+            self.width_combo.append_text(width)
+        self.width_combo.connect("changed", self.on_width_changed)
+        row.append(self.width_combo)
+        box.append(row)
+        
+        # Height
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Height:"))
+        self.height_combo = Gtk.ComboBoxText()
+        for height in config.get('door_heights', ['78"', '80"', '84"', 'Custom']):
+            self.height_combo.append_text(height)
+        self.height_combo.connect("changed", self.on_height_changed)
+        row.append(self.height_combo)
+        box.append(row)
+        
+        # Swing
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Swing:"))
+        self.swing_combo = Gtk.ComboBoxText()
+        for swing in ["left", "right"]:
+            self.swing_combo.append_text(swing)
+        self.swing_combo.connect("changed", self.on_swing_changed)
+        row.append(self.swing_combo)
+        box.append(row)
+        
+        # Orientation
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Orientation:"))
+        self.orientation_combo = Gtk.ComboBoxText()
+        for orientation in ["inswing", "outswing"]:
+            self.orientation_combo.append_text(orientation)
+        self.orientation_combo.connect("changed", self.on_orientation_changed)
+        row.append(self.orientation_combo)
+        box.append(row)
+    
+    def on_type_changed(self, combo):
+        if self._block_updates or not self.current_doors: return
+        door_type = combo.get_active_text()
+        if door_type:
+            for wall, door, ratio in self.current_doors:
+                door.door_type = door_type
+        self.emit_property_changed()
+    
+    def on_width_changed(self, combo):
+        if self._block_updates or not self.current_doors: return
+        text = combo.get_active_text()
+        if not text or text.lower() == "custom": return
+        
+        try:
+            width = float(text.strip('"'))
+            for wall, door, ratio in self.current_doors:
+                door.width = width
+            self.emit_property_changed()
+        except ValueError:
+            pass
+    
+    def on_height_changed(self, combo):
+        if self._block_updates or not self.current_doors: return
+        text = combo.get_active_text()
+        if not text or text.lower() == "custom": return
+        
+        try:
+            height = float(text.strip('"'))
+            for wall, door, ratio in self.current_doors:
+                door.height = height
+            self.emit_property_changed()
+        except ValueError:
+            pass
+    
+    def on_swing_changed(self, combo):
+        if self._block_updates or not self.current_doors: return
+        swing = combo.get_active_text()
+        if swing:
+            for wall, door, ratio in self.current_doors:
+                door.swing = swing
+        self.emit_property_changed()
+    
+    def on_orientation_changed(self, combo):
+        if self._block_updates or not self.current_doors: return
+        orientation = combo.get_active_text()
+        if orientation:
+            for wall, door, ratio in self.current_doors:
+                door.orientation = orientation
+        self.emit_property_changed()
+    
+    def emit_property_changed(self):
+        if hasattr(self, "canvas") and self.canvas:
+            self.canvas.queue_draw()
+            self.canvas.save_state()
+    
+    def _find_combo_index(self, combo, value):
+        """Find index of value in combo box"""
+        model = combo.get_model()
+        for i, row in enumerate(model):
+            if row[0] == value:
+                return i
+        return 0
+    
+    def set_door(self, door_items):
+        """Set door properties. Accepts either a single (wall, door, ratio) tuple or a list of them."""
+        self._block_updates = True
+        
+        # Normalize to list
+        if not isinstance(door_items, list):
+            door_items = [door_items]
+        
+        self.current_doors = door_items
+        
+        if not door_items:
+            self._block_updates = False
+            return
+        
+        # Use first door as reference for displaying values
+        wall, first_door, ratio = door_items[0]
+        
+        # Door Type
+        idx = self._find_combo_index(self.type_combo, first_door.door_type)
+        self.type_combo.set_active(idx)
+        
+        # Width
+        width_str = f'{int(first_door.width)}"'
+        idx = self._find_combo_index(self.width_combo, width_str)
+        self.width_combo.set_active(idx if idx > 0 else 0)
+        
+        # Height
+        height_str = f'{int(first_door.height)}"'
+        idx = self._find_combo_index(self.height_combo, height_str)
+        self.height_combo.set_active(idx if idx > 0 else 0)
+        
+        # Swing
+        idx = self._find_combo_index(self.swing_combo, first_door.swing)
+        self.swing_combo.set_active(idx)
+        
+        # Orientation
+        idx = self._find_combo_index(self.orientation_combo, first_door.orientation)
+        self.orientation_combo.set_active(idx)
+        
+        self._block_updates = False
+
+
 class PropertiesDock(Gtk.Box):
 
     def __init__(self, canvas):
@@ -1009,6 +1185,14 @@ class PropertiesDock(Gtk.Box):
         window_btn = self._make_tab_button("window", icon_dir, "add_windows")
         self.icon_bar.append(window_btn)
         self.tabs["window"] = window_btn
+        
+        self.door_page = DoorPropertiesWidget()
+        self.door_page.canvas = canvas
+        self.stack.add_titled(self.door_page, "door", "Door Properties")
+        
+        door_btn = self._make_tab_button("door", icon_dir, "add_doors")
+        self.icon_bar.append(door_btn)
+        self.tabs["door"] = door_btn
 
 
     def _make_tab_button(self, name, icon_dir, icon_name):
@@ -1030,17 +1214,20 @@ class PropertiesDock(Gtk.Box):
         text_items = [item for item in selected_items if item.get("type") == "text"]
         dimension_items = [item for item in selected_items if item.get("type") == "dimension"]
         window_items = [item for item in selected_items if item.get("type") == "window"]
+        door_items = [item for item in selected_items if item.get("type") == "door"]
         
-        wants_wall = len(wall_items) > 0 and len(text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0
-        wants_text = len(text_items) > 0 and len(wall_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0
-        wants_dimension = len(dimension_items) > 0 and len(wall_items) == 0 and len(text_items) == 0 and len(window_items) == 0
-        wants_window = len(window_items) > 0 and len(wall_items) == 0 and len(text_items) == 0 and len(dimension_items) == 0
+        wants_wall = len(wall_items) > 0 and len(text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0
+        wants_text = len(text_items) > 0 and len(wall_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0
+        wants_dimension = len(dimension_items) > 0 and len(wall_items) == 0 and len(text_items) == 0 and len(window_items) == 0 and len(door_items) == 0
+        wants_window = len(window_items) > 0 and len(wall_items) == 0 and len(text_items) == 0 and len(dimension_items) == 0 and len(door_items) == 0
+        wants_door = len(door_items) > 0 and len(wall_items) == 0 and len(text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0
         
         # Enable/disable tabs based on selection
         self.tabs["wall"].set_sensitive(wants_wall)
         self.tabs["text"].set_sensitive(wants_text)
         self.tabs["dimension"].set_sensitive(wants_dimension)
         self.tabs["window"].set_sensitive(wants_window)
+        self.tabs["door"].set_sensitive(wants_door)
         
         # Update content and activate appropriate tab
         if wants_wall:
@@ -1120,6 +1307,26 @@ class PropertiesDock(Gtk.Box):
             # Only set active tab if it's not already active
             if not self.tabs["window"].get_active():
                 self._set_active_tab("window")
+        elif wants_door:
+            # Check if we're already showing the door tab (to avoid animation)
+            already_on_door = self.stack.get_visible_child_name() == "door"
+            
+            # Populate door properties with ALL selected doors (as tuples)
+            # door_items contain {"type": "door", "object": (wall, door, ratio)}
+            selected_doors = [item["object"] for item in door_items]
+            self.door_page.set_door(selected_doors)
+            
+            # If not already on door tab, switch to it with animation
+            if not already_on_door:
+                self.stack.set_visible_child_name("door")
+            
+            # Only set visible if not already visible (to avoid double animation)
+            if not self.stack.get_visible():
+                self.stack.set_visible(True)
+                self.toggle_button.set_child(self.toggle_open_image)
+            # Only set active tab if it's not already active
+            if not self.tabs["door"].get_active():
+                self._set_active_tab("door")
         else:
         # Nothing selected - show blank and hide panel
             self.stack.set_visible_child_name("blank")
