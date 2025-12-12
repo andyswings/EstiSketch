@@ -1,8 +1,7 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Implement multi-wall object editing (with properties dock)
-- [ ] Implement Window size editing
+- [ ] Add Header sizes and controls (for window/door header calculations)
 - [ ] Implement Door size editing
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped)
 - [ ] Implement Layers system
@@ -175,9 +174,11 @@
 - [ ] Implement Multi-Wall object editing (with properties dock)
 
 ## Done ✅ (latest first)
+- [x] Implement multi-window object editing (with properties dock) (2025-12-11)
+- [x] Implement multi-wall object editing (with properties dock) (2025-12-11)
 - [x] Implement Dimension Tool (with auto-dimensioning) (2025-12-07)
 - [x] Implement Multi-Text object editing (with properties dock) (2025-12-07)
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2025-12-07_
+_Last updated: 2025-12-11_

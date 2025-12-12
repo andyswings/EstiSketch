@@ -1,5 +1,6 @@
 import gi
 import os
+import json
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
 
@@ -768,6 +769,170 @@ class DimensionPropertiesWidget(Gtk.Box):
         self._block_updates = False
 
 
+class WindowPropertiesWidget(Gtk.Box):
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.current_windows = []  # List of (wall, window, ratio) tuples for multi-editing
+        self._block_updates = False
+        
+        # Load window sizes from config file
+        config_path = os.path.join(os.path.dirname(__file__), 'Resources', 'window_door_sizes.json')
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        
+        # Properties frame
+        frame = Gtk.Frame(label="Window Properties")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        frame.set_child(box)
+        self.append(frame)
+        
+        # Window Type
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Type:"))
+        self.type_combo = Gtk.ComboBoxText()
+        for window_type in config.get('window_types', ["double-hung", "sliding", "fixed"]):
+            self.type_combo.append_text(window_type)
+        self.type_combo.connect("changed", self.on_type_changed)
+        row.append(self.type_combo)
+        box.append(row)
+        
+        # Width
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Width:"))
+        self.width_combo = Gtk.ComboBoxText()
+        for width in config.get('window_widths', ['24"', '30"', '36"', 'Custom']):
+            self.width_combo.append_text(width)
+        self.width_combo.connect("changed", self.on_width_changed)
+        row.append(self.width_combo)
+        box.append(row)
+        
+        # Height
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Height:"))
+        self.height_combo = Gtk.ComboBoxText()
+        for height in config.get('window_heights', ['36"', '48"', '60"', 'Custom']):
+            self.height_combo.append_text(height)
+        self.height_combo.connect("changed", self.on_height_changed)
+        row.append(self.height_combo)
+        box.append(row)
+        
+        # Elevation (height above floor)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Elevation:"))
+        self.elevation_spin = Gtk.SpinButton.new_with_range(0, 120, 1)
+        self.elevation_spin.set_digits(1)
+        self.elevation_spin.connect("value-changed", self.on_elevation_changed)
+        row.append(self.elevation_spin)
+        label = Gtk.Label(label='inches')
+        row.append(label)
+        box.append(row)
+    
+    def on_type_changed(self, combo):
+        if self._block_updates or not self.current_windows: return
+        window_type = combo.get_active_text()
+        if window_type:
+            for wall, window, ratio in self.current_windows:
+                window.window_type = window_type
+        self.emit_property_changed()
+    
+    def on_width_changed(self, combo):
+        if self._block_updates or not self.current_windows: return
+        text = combo.get_active_text()
+        if not text or text.lower() == "custom": return
+        
+        try:
+            width = float(text.strip('"'))
+            for wall, window, ratio in self.current_windows:
+                window.width = width
+            self.emit_property_changed()
+        except ValueError:
+            pass
+    
+    def on_height_changed(self, combo):
+        if self._block_updates or not self.current_windows: return
+        text = combo.get_active_text()
+        if not text or text.lower() == "custom": return
+        
+        try:
+            height = float(text.strip('"'))
+            for wall, window, ratio in self.current_windows:
+                window.height = height
+            self.emit_property_changed()
+        except ValueError:
+            pass
+    
+    def on_elevation_changed(self, spin):
+        if self._block_updates or not self.current_windows: return
+        elevation = spin.get_value()
+        for wall, window, ratio in self.current_windows:
+            # Store elevation on window object
+            window.elevation = elevation
+        self.emit_property_changed()
+    
+    def emit_property_changed(self):
+        if hasattr(self, "canvas") and self.canvas:
+            self.canvas.queue_draw()
+            self.canvas.save_state()
+    
+    def _find_combo_index(self, combo, value):
+        """Find index of value in combo box"""
+        model = combo.get_model()
+        for i, row in enumerate(model):
+            if row[0] == value:
+                return i
+        return 0
+    
+    def set_window(self, window_items):
+        """Set window properties. Accepts either a single (wall, window, ratio) tuple or a list of them."""
+        self._block_updates = True
+        
+        # Normalize to list
+        if not isinstance(window_items, list):
+            window_items = [window_items]
+        
+        self.current_windows = window_items
+        
+        if not window_items:
+            self._block_updates = False
+            return
+        
+        # Use first window as reference for displaying values
+        wall, first_window, ratio = window_items[0]
+        
+        # Window Type
+        idx = self._find_combo_index(self.type_combo, first_window.window_type)
+        self.type_combo.set_active(idx)
+        
+        # Width
+        width_str = f'{int(first_window.width)}"'
+        idx = self._find_combo_index(self.width_combo, width_str)
+        self.width_combo.set_active(idx if idx > 0 else 0)
+        
+        # Height
+        height_str = f'{int(first_window.height)}"'
+        idx = self._find_combo_index(self.height_combo, height_str)
+        self.height_combo.set_active(idx if idx > 0 else 0)
+        
+        # Elevation
+        # Calculate default elevation if not set
+        elevation = getattr(first_window, 'elevation', None)
+        if elevation is None:
+            # Default: wall_height - header_height - window_height
+            # Assuming 8' wall and 12" header for now
+            wall_height = 96.0  # 8 feet in inches
+            header_height = 12.0  # 12 inches
+            elevation = wall_height - header_height - first_window.height
+            first_window.elevation = elevation
+        
+        self.elevation_spin.set_value(elevation)
+        
+        self._block_updates = False
+
+
 class PropertiesDock(Gtk.Box):
 
     def __init__(self, canvas):
@@ -836,6 +1001,14 @@ class PropertiesDock(Gtk.Box):
         dimension_btn = self._make_tab_button("dimension", icon_dir, "add_dimension")
         self.icon_bar.append(dimension_btn)
         self.tabs["dimension"] = dimension_btn
+        
+        self.window_page = WindowPropertiesWidget()
+        self.window_page.canvas = canvas
+        self.stack.add_titled(self.window_page, "window", "Window Properties")
+        
+        window_btn = self._make_tab_button("window", icon_dir, "add_windows")
+        self.icon_bar.append(window_btn)
+        self.tabs["window"] = window_btn
 
 
     def _make_tab_button(self, name, icon_dir, icon_name):
@@ -856,15 +1029,18 @@ class PropertiesDock(Gtk.Box):
         wall_items = [item for item in selected_items if item.get("type") == "wall"]
         text_items = [item for item in selected_items if item.get("type") == "text"]
         dimension_items = [item for item in selected_items if item.get("type") == "dimension"]
+        window_items = [item for item in selected_items if item.get("type") == "window"]
         
-        wants_wall = len(wall_items) > 0 and len(text_items) == 0 and len(dimension_items) == 0
-        wants_text = len(text_items) > 0 and len(wall_items) == 0 and len(dimension_items) == 0
-        wants_dimension = len(dimension_items) > 0 and len(wall_items) == 0 and len(text_items) == 0
+        wants_wall = len(wall_items) > 0 and len(text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0
+        wants_text = len(text_items) > 0 and len(wall_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0
+        wants_dimension = len(dimension_items) > 0 and len(wall_items) == 0 and len(text_items) == 0 and len(window_items) == 0
+        wants_window = len(window_items) > 0 and len(wall_items) == 0 and len(text_items) == 0 and len(dimension_items) == 0
         
         # Enable/disable tabs based on selection
         self.tabs["wall"].set_sensitive(wants_wall)
         self.tabs["text"].set_sensitive(wants_text)
         self.tabs["dimension"].set_sensitive(wants_dimension)
+        self.tabs["window"].set_sensitive(wants_window)
         
         # Update content and activate appropriate tab
         if wants_wall:
@@ -924,6 +1100,26 @@ class PropertiesDock(Gtk.Box):
             # Only set active tab if it's not already active
             if not self.tabs["dimension"].get_active():
                 self._set_active_tab("dimension")
+        elif wants_window:
+            # Check if we're already showing the window tab (to avoid animation)
+            already_on_window = self.stack.get_visible_child_name() == "window"
+            
+            # Populate window properties with ALL selected windows (as tuples)
+            # window_items contain {"type": "window", "object": (wall, window, ratio)}
+            selected_windows = [item["object"] for item in window_items]
+            self.window_page.set_window(selected_windows)
+            
+            # If not already on window tab, switch to it with animation
+            if not already_on_window:
+                self.stack.set_visible_child_name("window")
+            
+            # Only set visible if not already visible (to avoid double animation)
+            if not self.stack.get_visible():
+                self.stack.set_visible(True)
+                self.toggle_button.set_child(self.toggle_open_image)
+            # Only set active tab if it's not already active
+            if not self.tabs["window"].get_active():
+                self._set_active_tab("window")
         else:
         # Nothing selected - show blank and hide panel
             self.stack.set_visible_child_name("blank")

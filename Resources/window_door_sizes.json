@@ -1,0 +1,60 @@
+{
+    "window_widths": [
+        "24\"",
+        "30\"",
+        "32\"",
+        "36\"",
+        "42\"",
+        "48\"",
+        "60\"",
+        "66\"",
+        "72\"",
+        "Custom"
+    ],
+    "window_heights": [
+        "12\"",
+        "18\"",
+        "24\"",
+        "30\"",
+        "36\"",
+        "42\"",
+        "48\"",
+        "54\"",
+        "60\"",
+        "66\"",
+        "72\"",
+        "Custom"
+    ],
+    "window_types": [
+        "double-hung",
+        "sliding",
+        "fixed",
+        "casement",
+        "awning"
+    ],
+    "door_widths": [
+        "24\"",
+        "28\"",
+        "30\"",
+        "32\"",
+        "36\"",
+        "Custom"
+    ],
+    "door_heights": [
+        "78\"",
+        "80\"",
+        "84\"",
+        "96\"",
+        "Custom"
+    ],
+    "door_types": [
+        "single",
+        "double",
+        "sliding",
+        "pocket",
+        "bi-fold",
+        "double_bi-fold",
+        "door_frame",
+        "garage"
+    ]
+}
