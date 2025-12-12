@@ -1,6 +1,7 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
+- [ ] Implement multi-wall object editing (with properties dock)
 - [ ] Implement Window size editing
 - [ ] Implement Door size editing
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped)
