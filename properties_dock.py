@@ -9,7 +9,7 @@ class WallPropertiesWidget(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         
         # ─── Initialize state fields ───
-        self.current_wall = None
+        self.current_walls = []  # Changed to list for multi-editing
         self._block_updates = False
 
         # ─────────── Geometry ───────────
@@ -217,7 +217,7 @@ class WallPropertiesWidget(Gtk.Box):
     
     # ───── handlers ─────
     def on_thickness_changed(self, combo):
-        if self._block_updates or not self.current_wall:
+        if self._block_updates or not self.current_walls:
             return
 
         text = combo.get_active_text()
@@ -234,93 +234,116 @@ class WallPropertiesWidget(Gtk.Box):
         except ValueError:
             return
 
-        self.current_wall.width = value
+        # Apply to all selected walls
+        for wall in self.current_walls:
+            wall.width = value
         self.emit_property_changed()
 
     def on_height_changed(self, combo):
-        if self._block_updates or not self.current_wall: return
+        if self._block_updates or not self.current_walls: return
         txt = combo.get_active_text()
         if txt is not None:
             txt = txt.split()[0]
         else:
             return
         if txt.lower() != "custom":
-            self.current_wall.height = float(txt.split("'")[0])
+            height_feet = float(txt.split("'")[0])
+            # Wall.height is stored in inches, UI shows feet, so convert
+            height_inches = height_feet * 12.0
+            for wall in self.current_walls:
+                wall.height = height_inches
         self.emit_property_changed()
 
     def on_exterior_toggled(self, switch, gparam):
-        if self._block_updates or not self.current_wall: return
-        self.current_wall.exterior_wall = switch.get_active()
+        if self._block_updates or not self.current_walls: return
+        is_exterior = switch.get_active()
+        for wall in self.current_walls:
+            wall.exterior_wall = is_exterior
         self.emit_property_changed()
 
     def on_footer_toggled(self, button):
-        if self._block_updates or not self.current_wall: return
-        self.current_wall.footer = button.get_active()
+        if self._block_updates or not self.current_walls: return
+        has_footer = button.get_active()
+        for wall in self.current_walls:
+            wall.footer = has_footer
         self.emit_property_changed()
     
     def on_footer_left_changed(self, combo):
-        if self._block_updates or not self.current_wall: return
+        if self._block_updates or not self.current_walls: return
         text = combo.get_active_text().strip('"')
         if text.lower() != "custom":
-            self.current_wall.footer_left_offset = float(text)
+            offset = float(text)
+            for wall in self.current_walls:
+                wall.footer_left_offset = offset
         self.emit_property_changed()
     
     def on_footer_right_changed(self, combo):
-        if self._block_updates or not self.current_wall: return
+        if self._block_updates or not self.current_walls: return
         text = combo.get_active_text().strip('"')
         if text.lower() != "custom":
-            self.current_wall.footer_right_offset = float(text)
+            offset = float(text)
+            for wall in self.current_walls:
+                wall.footer_right_offset = offset
         self.emit_property_changed()
     
     def on_footer_depth_changed(self, combo):
-        if self._block_updates or not self.current_wall: return
+        if self._block_updates or not self.current_walls: return
         text = combo.get_active_text().strip('"')
         if text.lower() != "custom":
-            self.current_wall.footer_depth = float(text)
+            depth = float(text)
+            for wall in self.current_walls:
+                wall.footer_depth = depth
         self.emit_property_changed()
     
     def on_material_changed(self, combo):
-        if self._block_updates or not self.current_wall: return
+        if self._block_updates or not self.current_walls: return
         text = combo.get_active_text()
         if text:
-            self.current_wall.material = text
+            for wall in self.current_walls:
+                wall.material = text
         self.emit_property_changed()
     
     def on_interior_changed(self, combo):
-        if self._block_updates or not self.current_wall: return
+        if self._block_updates or not self.current_walls: return
         text = combo.get_active_text()
         if text:
-            self.current_wall.interior_finish = text
+            for wall in self.current_walls:
+                wall.interior_finish = text
         self.emit_property_changed()
     
     def on_ext_finish_changed(self, combo):
-        if self._block_updates or not self.current_wall: return
+        if self._block_updates or not self.current_walls: return
         text = combo.get_active_text()
         if text:
-            self.current_wall.exterior_finish = text
+            for wall in self.current_walls:
+                wall.exterior_finish = text
         self.emit_property_changed()
     
     def on_stud_spacing_changed(self, combo):
-        if self._block_updates or not self.current_wall: return
+        if self._block_updates or not self.current_walls: return
         text = combo.get_active_text().strip('"')
         if text.lower() != "custom":
-            self.current_wall.stud_spacing = float(text)
+            spacing = float(text)
+            for wall in self.current_walls:
+                wall.stud_spacing = spacing
         self.emit_property_changed()
     
     def on_insulation_changed(self, combo):
-        if self._block_updates or not self.current_wall: return
+        if self._block_updates or not self.current_walls: return
         text = combo.get_active_text()
         if text:
-            self.current_wall.insulation_type = text
+            for wall in self.current_walls:
+                wall.insulation_type = text
         self.emit_property_changed()
     
     def on_fire_rating_changed(self, combo):
-        if self._block_updates or not self.current_wall: return
+        if self._block_updates or not self.current_walls: return
         text = combo.get_active_text()
         if text.lower() != "custom":
             # Extract the numeric part and convert to float
             rating = float(text.split()[0])
-            self.current_wall.fire_rating = rating
+            for wall in self.current_walls:
+                wall.fire_rating = rating
         self.emit_property_changed()
 
     def emit_property_changed(self):
@@ -329,17 +352,30 @@ class WallPropertiesWidget(Gtk.Box):
         self.canvas.queue_draw()
 
     # ───── populate UI from a Wall instance ─────
-    def set_wall(self, wall):
-        # Block change handlers while we sync the UI to this wall
+    def set_wall(self, wall_objs):
+        """Set wall properties. Accepts either a single wall or a list of walls."""
+        # Block change handlers while we sync the UI
         self._block_updates = True
-        self.current_wall = wall
+        
+        # Normalize to list
+        if not isinstance(wall_objs, list):
+            wall_objs = [wall_objs]
+        
+        self.current_walls = wall_objs
+        
+        if not wall_objs:
+            self._block_updates = False
+            return
+        
+        # Use first wall as reference for displaying values
+        first_wall = wall_objs[0]
 
         #
         # Thickness (wall.width is in inches, matches self.available_thicknesses)
         #
         thickness_index = 0  # fallback if no match
         for i, val in enumerate(self.available_thicknesses):
-            if abs(val - float(wall.width)) < 1e-6:
+            if abs(val - float(first_wall.width)) < 1e-6:
                 thickness_index = i
                 break
 
@@ -348,7 +384,7 @@ class WallPropertiesWidget(Gtk.Box):
         self.thickness_combo.handler_unblock(self.thickness_handler_id)
 
         #  Height (wall.height is in feet, matches self.available_heights)
-        height_feet = float(wall.height) / 12.0 if wall.height is not None else 8.0
+        height_feet = float(first_wall.height) / 12.0 if first_wall.height is not None else 8.0
         height_index = 0
         for i, ft in enumerate(self.available_heights):
             if abs(ft - height_feet) < 1e-6:
@@ -362,46 +398,46 @@ class WallPropertiesWidget(Gtk.Box):
         #
         # Exterior
         #
-        self.exterior_switch.set_active(wall.exterior_wall)
+        self.exterior_switch.set_active(first_wall.exterior_wall)
 
         #
         # Footer fields
         #
-        self.footer_check.set_active(wall.footer)
+        self.footer_check.set_active(first_wall.footer)
         self.footer_left_combo.set_active(
-            self._find_combo_index(self.footer_left_combo, f'{wall.footer_left_offset:.0f}"')
+            self._find_combo_index(self.footer_left_combo, f'{first_wall.footer_left_offset:.0f}"')
         )
         self.footer_right_combo.set_active(
-            self._find_combo_index(self.footer_right_combo, f'{wall.footer_right_offset:.0f}"')
+            self._find_combo_index(self.footer_right_combo, f'{first_wall.footer_right_offset:.0f}"')
         )
         self.footer_depth_combo.set_active(
-            self._find_combo_index(self.footer_depth_combo, f'{wall.footer_depth:.0f}"')
+            self._find_combo_index(self.footer_depth_combo, f'{first_wall.footer_depth:.0f}"')
         )
 
         #
         # Materials & finishes
         #
         self.material_combo.set_active(
-            self._find_combo_index(self.material_combo, wall.material)
+            self._find_combo_index(self.material_combo, first_wall.material)
         )
         self.interior_combo.set_active(
-            self._find_combo_index(self.interior_combo, wall.interior_finish)
+            self._find_combo_index(self.interior_combo, first_wall.interior_finish)
         )
         self.exterior_combo.set_active(
-            self._find_combo_index(self.exterior_combo, wall.exterior_finish)
+            self._find_combo_index(self.exterior_combo, first_wall.exterior_finish)
         )
 
         #
         # Structural details
         #
         self.stud_combo.set_active(
-            self._find_combo_index(self.stud_combo, f'{int(wall.stud_spacing)}"')
+            self._find_combo_index(self.stud_combo, f'{int(first_wall.stud_spacing)}"')
         )
         self.insulation_combo.set_active(
-            self._find_combo_index(self.insulation_combo, wall.insulation_type)
+            self._find_combo_index(self.insulation_combo, first_wall.insulation_type)
         )
         self.fire_combo.set_active(
-            self._find_combo_index(self.fire_combo, f"{int(wall.fire_rating)}")
+            self._find_combo_index(self.fire_combo, f"{int(first_wall.fire_rating)}")
         )
 
         # Done syncing, let change handlers run again
@@ -835,9 +871,9 @@ class PropertiesDock(Gtk.Box):
             # Check if we're already showing the wall tab (to avoid animation)
             already_on_wall = self.stack.get_visible_child_name() == "wall"
             
-            # Populate wall properties with first selected wall
-            selected_wall = wall_items[0]["object"]
-            self.wall_page.set_wall(selected_wall)
+            # Populate wall properties with ALL selected walls (not just first)
+            selected_walls = [item["object"] for item in wall_items]
+            self.wall_page.set_wall(selected_walls)
             
             # If not already on wall tab, switch to it with animation
             if not already_on_wall:
