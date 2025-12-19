@@ -7,7 +7,6 @@
 - [ ] Add Circles/Arcs drawing tool
 - [ ] Create Furniture & Fixture library
 - [ ] Add automatic room area calculations
-- [ ] Copy/Paste functionality
 
 ## ✨ Core Features (essential functionality)
 
@@ -164,15 +163,16 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Changing wall height from properties dock is not persistent
+- [ ] Walls are not draggable
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
 - [ ] Build Cost Estimator
 - [ ] Implement Footer rendering
-- [ ] Implement Multi-Wall object editing (with properties dock)
 
 ## Done ✅ (latest first)
+- [x] Cut, Copy, Paste functionality (2025-12-18)
+- [x] Changing wall height from properties dock is not persistent (2025-12-11)
 - [x] Implement multi-door object editing (with properties dock) (2025-12-11)
 - [x] Implement multi-window object editing (with properties dock) (2025-12-11)
 - [x] Implement multi-wall object editing (with properties dock) (2025-12-11)

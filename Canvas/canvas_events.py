@@ -1092,6 +1092,11 @@ class CanvasEventsMixin:
 
         for door_item in self.doors:
             wall, door, ratio = door_item
+            
+            # Skip invalid entries
+            if wall is None:
+                continue
+
             A = wall.start
             B = wall.end
             H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
@@ -1119,10 +1124,15 @@ class CanvasEventsMixin:
             if self._point_in_polygon(click_pt, door_poly):
                 # print("Door selected")
                 selected_item = {"type": "door", "object": door_item}
-                break  # Exit loop if door is selected
-
+                break  # Exit loop
+        # Check windows
         for window_item in self.windows:
             wall, window, ratio = window_item
+            
+            # Skip invalid entries
+            if wall is None:
+                continue
+            
             A = wall.start
             B = wall.end
             H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
@@ -1387,6 +1397,36 @@ class CanvasEventsMixin:
             # If we are moving or rotating text, cancel box selection
             if getattr(self, "moving_text", None) or getattr(self, "rotating_text", None):
                 self.box_selecting = False
+                
+            # Check for door/window dragging
+            if len(self.selected_items) > 0:
+                # Handle single selection drag for doors/windows
+                item = self.selected_items[0]
+                if item["type"] in ["door", "window"]:
+                    wall, obj, ratio = item["object"]
+                    if wall is not None:  # Only drag if on a wall
+                        self.dragging_door_window = item
+                        self.dragging_door_window_start_ratio = ratio
+                        
+                        # Store drag start coordinates (device space) explicitly
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        
+                        # Calculate the cursor position in model coords at drag start
+                        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                        start_model_x, start_model_y = self.device_to_model(start_x, start_y, pixels_per_inch)
+                        
+                        # Calculate current window center position
+                        A = wall.start
+                        B = wall.end
+                        window_center_x = A[0] + ratio * (B[0] - A[0])
+                        window_center_y = A[1] + ratio * (B[1] - A[1])
+                        
+                        # Store offset from click to window center
+                        self.drag_offset_x = window_center_x - start_model_x
+                        self.drag_offset_y = window_center_y - start_model_y
+                        
+                        self.box_selecting = False
         elif self.tool_mode == "add_text":
             self.drag_start_x = start_x
             self.drag_start_y = start_y
@@ -1509,6 +1549,81 @@ class CanvasEventsMixin:
             self.moving_text.x = start_x + dx
             self.moving_text.y = start_y + dy
             
+        # Handle door/window dragging  
+        if getattr(self, "dragging_door_window", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            
+            # Calculate current device position using stored start pos + offset (delta)
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            
+            # Convert to model coords using the helper function
+            cursor_x, cursor_y = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            
+            # Apply the offset stored at drag start to get target position
+            target_x = cursor_x + getattr(self, "drag_offset_x", 0)
+            target_y = cursor_y + getattr(self, "drag_offset_y", 0)
+            
+            item = self.dragging_door_window
+            wall, obj, ratio = item["object"]
+            
+            # Find nearest wall (could be current or different wall)
+            best_wall = None
+            best_ratio = 0.0
+            best_dist = float('inf')
+            snap_threshold = 24.0  # 24 inches for switching to different wall
+            
+            # Check all walls (iterate through wall_sets)
+            for i, wall_set in enumerate(self.wall_sets):
+                for j, check_wall in enumerate(wall_set):
+                    dist = self.distance_point_to_segment((target_x, target_y), check_wall.start, check_wall.end)
+                    
+                    # Qualification check: Current wall is always valid, others must be within threshold
+                    is_current_wall = (check_wall is wall)
+                    is_valid_candidate = is_current_wall or (dist < snap_threshold)
+                    
+                    if is_valid_candidate:
+                        # Optimization check: Is this strictly closer than the best we've found so far?
+                        if dist < best_dist:
+                            best_dist = dist
+                            best_wall = check_wall
+                            
+                            # Calculate ratio on this wall
+                            wx = check_wall.end[0] - check_wall.start[0]
+                            wy = check_wall.end[1] - check_wall.start[1]
+                            wall_len_sq = wx*wx + wy*wy
+                            if wall_len_sq > 0:
+                                dot = (target_x - check_wall.start[0]) * wx + (target_y - check_wall.start[1]) * wy
+                                best_ratio = max(0.05, min(0.95, dot / wall_len_sq))  # Clamp to keep on wall
+                            else:
+                                best_ratio = 0.5
+            
+            # Update the object's wall and ratio
+            if best_wall:
+                # Update the tuple in the list
+                if item["type"] == "door":
+                    for i, door_tuple in enumerate(self.doors):
+                        if door_tuple[1] is obj:
+                            new_tuple = (best_wall, obj, best_ratio)
+                            self.doors[i] = new_tuple
+                            item["object"] = new_tuple
+                            # Update selected_items to reference new tuple
+                            for sel_item in self.selected_items:
+                                if sel_item["type"] == "door" and sel_item["object"][1] is obj:
+                                    sel_item["object"] = new_tuple
+                            break
+                elif item["type"] == "window":
+                    for i, window_tuple in enumerate(self.windows):
+                        if window_tuple[1] is obj:
+                            new_tuple = (best_wall, obj, best_ratio)
+                            self.windows[i] = new_tuple
+                            item["object"] = new_tuple
+                            # Update selected_items to reference new tuple
+                            for sel_item in self.selected_items:
+                                if sel_item["type"] == "window" and sel_item["object"][1] is obj:
+                                    sel_item["object"] = new_tuple
+                            break
+            
             self.queue_draw()
             return
             
@@ -1573,10 +1688,23 @@ class CanvasEventsMixin:
             self.rotation_start_angle = None
             self.rotation_center = None
             self.rotation_start_mouse_angle = None
+            self.save_state()
             return
 
         if getattr(self, "moving_text", None):
             self.moving_text = None
+            self.moving_text_start_pos = None
+            self.save_state()
+            return
+        if getattr(self, "dragging_door_window", None):
+            # Finalize door/window drag and clear selection
+            self.selected_items = []
+            self.dragging_door_window = None
+            self.dragging_door_window_start_ratio = None
+            self.drag_offset_x = 0
+            self.drag_offset_y = 0
+            self.save_state()
+            self.queue_draw()
             return
         
         if self.tool_mode == "pointer" and self.box_selecting:
@@ -1598,8 +1726,14 @@ class CanvasEventsMixin:
                     if (x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2):
                         new_selection.append({"type": "vertex", "object": (room, idx)})
             
+            # Check doors
             for door_item in self.doors:
                 wall, door, ratio = door_item
+                
+                # Skip doors without a wall
+                if wall is None:
+                    continue
+                
                 A = wall.start
                 B = wall.end
                 H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
@@ -1630,6 +1764,11 @@ class CanvasEventsMixin:
 
             for window_item in self.windows:
                 wall, window, ratio = window_item
+                
+                # Skip windows without a wall
+                if wall is None:
+                    continue
+                
                 A = wall.start
                 B = wall.end
                 H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))

@@ -1210,11 +1210,29 @@ class PropertiesDock(Gtk.Box):
     
     def refresh_tabs(self, selected_items):
         # Detect what types are selected
-        wall_items = [item for item in selected_items if item.get("type") == "wall"]
-        text_items = [item for item in selected_items if item.get("type") == "text"]
-        dimension_items = [item for item in selected_items if item.get("type") == "dimension"]
-        window_items = [item for item in selected_items if item.get("type") == "window"]
-        door_items = [item for item in selected_items if item.get("type") == "door"]
+        wall_items = []
+        text_items = []
+        dimension_items = []
+        window_items = []
+        door_items = []
+
+        for item in selected_items:
+            item_type = item["type"]
+            
+            if item_type == "wall":
+                wall_items.append(item)
+            elif item_type == "text":
+                text_items.append(item)
+            elif item_type == "dimension":
+                dimension_items.append(item)
+            elif item_type == "door":
+                # Extract door object (works for both wall-attached and floating)
+                wall, door, ratio = item["object"]
+                door_items.append(item)  # Keep the full tuple for callbacks
+            elif item_type == "window":
+                # Extract window object (works for both wall-attached and floating)
+                wall, window, ratio = item["object"]
+                window_items.append(item)  # Keep the full tuple for callbacks
         
         wants_wall = len(wall_items) > 0 and len(text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0
         wants_text = len(text_items) > 0 and len(wall_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0

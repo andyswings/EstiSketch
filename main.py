@@ -413,9 +413,15 @@ class EstimatorApp(Gtk.Application):
                 self.canvas.redo()
                 return True
             elif keyname == "c":
+                self.canvas.copy_selected()
                 print("Copy action triggered")
                 return True
-            elif keyname == "p":
+            elif keyname == "x":
+                self.canvas.cut_selected()
+                print("Cut action triggered")
+                return True
+            elif keyname == "v":
+                self.canvas.paste()
                 print("Paste action triggered")
                 return True
             elif keyname == "o":

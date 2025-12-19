@@ -236,6 +236,10 @@ class CanvasDrawMixin:
                 elif item["type"] == "door":
                     # print("Door selected")
                     wall, door, ratio = item["object"]
+                    
+                    if wall is None:
+                        continue
+                        
                     A = wall.start
                     B = wall.end
                     H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
@@ -266,6 +270,10 @@ class CanvasDrawMixin:
                 elif item["type"] == "window":
                     # print("Window selected")
                     wall, window, ratio = item["object"]
+                    
+                    if wall is None:
+                        continue
+                        
                     A = wall.start
                     B = wall.end
                     H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))

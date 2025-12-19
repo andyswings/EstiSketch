@@ -59,7 +59,9 @@ class Door:
         self.width = width  # Door width in inches
         self.height = height    # Door height in inches
         self.swing = swing  # Door swing direction (e.g., "left", "right")
+        self.swing = swing  # Door swing direction (e.g., "left", "right")
         self.orientation = orientation  # Orientation of the door (e.g., "inswing", "outswing")
+        self.floating_pos = None  # (x, y) tuple for independent doors (not on a wall)
 
 
 @dataclass
@@ -69,6 +71,7 @@ class Window:
         self.width = width  # Window width in inches
         self.height = height  # Window height in inches
         self.window_type = window_type # Type of window (e.g.,"double-hung", "sliding", "fixed")
+        self.floating_pos = None  # (x, y) tuple for independent windows (not on a wall)
 
 
 @dataclass(eq=False)

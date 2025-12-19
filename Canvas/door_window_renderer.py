@@ -7,6 +7,11 @@ def draw_doors(self, cr, pixels_per_inch):
 
     for door_item in self.doors:
         wall, door, ratio = door_item
+        
+        # Skip invalid entries
+        if wall is None:
+            continue
+            
         A = wall.start
         B = wall.end
         H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1])) # Center of door opening
@@ -555,6 +560,11 @@ def draw_windows(self, cr, pixels_per_inch):
     # Draw windows
     for window_item in self.windows: # window_item = (wall, window, ratio)
         wall, window, ratio = window_item # wall is a Wall object, window is a Window object, ratio is a float
+        
+        # Skip invalid entries
+        if wall is None:
+            continue
+            
         A = wall.start # wall.start and wall.end are tuples (x, y)
         B = wall.end
         H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1])) # H is the center of the window opening
