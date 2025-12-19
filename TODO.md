@@ -7,6 +7,7 @@
 - [ ] Add Circles/Arcs drawing tool
 - [ ] Create Furniture & Fixture library
 - [ ] Add automatic room area calculations
+- [ ] Add Copy / Cut / Paste to the right click menu
 
 ## ✨ Core Features (essential functionality)
 
