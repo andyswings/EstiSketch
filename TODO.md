@@ -7,7 +7,6 @@
 - [ ] Add Circles/Arcs drawing tool
 - [ ] Create Furniture & Fixture library
 - [ ] Add automatic room area calculations
-- [ ] Add Copy / Cut / Paste to the right click menu
 
 ## ✨ Core Features (essential functionality)
 
@@ -172,6 +171,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Add Copy / Cut / Paste to the right click menu (2025-12-18)
 - [x] Cut, Copy, Paste functionality (2025-12-18)
 - [x] Changing wall height from properties dock is not persistent (2025-12-11)
 - [x] Implement multi-door object editing (with properties dock) (2025-12-11)
@@ -182,4 +182,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2025-12-11_
+_Last updated: 2025-12-18_

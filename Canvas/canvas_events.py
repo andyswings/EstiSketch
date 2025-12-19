@@ -404,6 +404,27 @@ class CanvasEventsMixin:
         # Create a vertical box to hold the menu item(s)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         parent_popover.set_child(box)
+
+        # Standard Edit Operations (Copy/Cut/Paste)
+        # Paste - Available if clipboard has content
+        if self.clipboard:
+            paste_btn = Gtk.Button(label="Paste")
+            paste_btn.connect("clicked", lambda btn: (self.paste(), parent_popover.popdown()))
+            box.append(paste_btn)
+            
+        # Copy/Cut - Available if items are selected
+        if self.selected_items:
+            copy_btn = Gtk.Button(label="Copy")
+            copy_btn.connect("clicked", lambda btn: (self.copy_selected(), parent_popover.popdown()))
+            box.append(copy_btn)
+            
+            cut_btn = Gtk.Button(label="Cut")
+            cut_btn.connect("clicked", lambda btn: (self.cut_selected(), parent_popover.popdown()))
+            box.append(cut_btn)
+            
+            # Add a separator if we have other options coming up
+            separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            box.append(separator)
         
         # Text options
         if selected_texts:
