@@ -1820,10 +1820,32 @@ class CanvasEventsMixin:
                     if self.line_intersects_rect(pl.start, pl.end, rect):
                         new_selection.append({"type": "polyline", "object": pl, "identifier": pl.identifier})
             
-            for poly_list in self.polyline_sets:
-                for pl in poly_list:
-                    if self.line_intersects_rect(pl.start, pl.end, rect):
-                        new_selection.append({"type": "polyline", "object": pl, "identifier": pl.identifier})
+            for dimension in self.dimensions:
+                # Calculate dimension line position
+                start = dimension.start
+                end = dimension.end
+                offset = dimension.offset
+                
+                dx = end[0] - start[0]
+                dy = end[1] - start[1]
+                length = math.hypot(dx, dy)
+                
+                if length == 0:
+                    continue
+                
+                # Perpendicular unit vector
+                ux = dx / length
+                uy = dy / length
+                px = -uy
+                py = ux
+                
+                # Dimension line endpoints
+                dim_start = (start[0] + offset * px, start[1] + offset * py)
+                dim_end = (end[0] + offset * px, end[1] + offset * py)
+                
+                if self.line_intersects_rect(dim_start, dim_end, rect):
+                    new_selection.append({"type": "dimension", "object": dimension})
+
             
             for text in self.texts:
                 tx1 = text.x

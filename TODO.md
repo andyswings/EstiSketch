@@ -1,7 +1,6 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add Header sizes and controls (for window/door header calculations)
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped)
 - [ ] Implement Layers system
 - [ ] Add Circles/Arcs drawing tool
@@ -58,6 +57,7 @@
 ## 📊 Analysis & Documentation
 
 ### Calculations
+- [ ] Header sizes and controls autocalculation based on loads (for window/door header calculations)
 - [ ] Volume calculations (concrete, excavation)
 - [ ] Live dimension updates
 - [ ] Energy analysis (heating/cooling loads)
