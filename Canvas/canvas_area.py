@@ -11,13 +11,28 @@ from Canvas.canvas_events import CanvasEventsMixin
 from Canvas.canvas_state import CanvasStateMixin
 from Canvas.canvas_geometry import CanvasGeometryMixin
 from Canvas.canvas_tool import CanvasToolMixin
+from Canvas.events_selection import CanvasSelectionMixin
+from Canvas.events_wall import CanvasWallMixin
+from Canvas.events_room import CanvasRoomMixin
+from Canvas.events_tools import CanvasToolsMixin
+from Canvas.events_edit import EditEventsMixin
+from Canvas.utils import UtilsMixin
+from Canvas.events_helpers import EventsHelpersMixin
+
 
 class CanvasArea(Gtk.DrawingArea, 
                  CanvasDrawMixin, 
                  CanvasEventsMixin, 
                  CanvasStateMixin, 
                  CanvasGeometryMixin,
-                 CanvasToolMixin):
+                 CanvasToolMixin,
+                 CanvasSelectionMixin,
+                 CanvasWallMixin,
+                 CanvasRoomMixin,
+                 CanvasToolsMixin,
+                 EditEventsMixin,
+                 UtilsMixin,
+                 EventsHelpersMixin):
     
     __gtype_name__ = 'CanvasArea'
     __gsignals__ = {
@@ -166,20 +181,6 @@ class CanvasArea(Gtk.DrawingArea,
         self.zoom = 1.0
         self.offset_x = 0
         self.offset_y = 0
-        self.queue_draw()
-
-    def finalize_room(self):
-        # Only finalize if there are enough points to form a room
-        if self.current_room_points and len(self.current_room_points) >= 3:
-            # Ensure the room is closed by appending the first point if necessary
-            if self.current_room_points[0] != self.current_room_points[-1]:
-                self.current_room_points.append(self.current_room_points[0])
-            new_room = self.Room(self.current_room_points)
-            self.rooms.append(new_room)
-            print(f"Finalized room with points: {self.current_room_points}")
-        # Clear the temporary room points and preview
-        self.current_room_points = []
-        self.current_room_preview = None
         self.queue_draw()
     
     def delete_selected(self):
