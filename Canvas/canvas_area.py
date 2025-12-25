@@ -268,19 +268,17 @@ class CanvasArea(Gtk.DrawingArea,
             # Sort indices in descending order so earlier indices remain valid
             indices.sort(reverse=True)
             
+            # Delete all requested vertices
             for idx in indices:
-                # If room has enough points to stay a polygon (needs > 3 to remove one and still have >=3)
-                # Wait, if it has 3 points, removing one makes it 2 (line), effectively destroying the room?
-                # The logic says: if len > 3, remove point. Else remove room.
-                if len(target_room.points) > 3:
-                    if 0 <= idx < len(target_room.points):
-                        del target_room.points[idx]
-                else:
-                    # Not enough points to sustain a room
-                    if target_room in self.rooms:
-                        self.rooms.remove(target_room)
-                    # Once room is removed, stop processing its vertices
-                    break
+                if 0 <= idx < len(target_room.points):
+                    del target_room.points[idx]
+            
+            # After all deletions, check if room still has enough points
+            # Rooms are closed polygons: first point is repeated at end
+            # Need at least 4 points for a valid triangle (A, B, C, A) = 3 unique corners
+            if len(target_room.points) < 4:
+                if target_room in self.rooms:
+                    self.rooms.remove(target_room)
 
         self.selected_items.clear()
         self.queue_draw()
