@@ -1,9 +1,9 @@
 import math
 
 class SnappingManager:
-    def __init__(self, snap_enabled=True, snap_threshold=75, config=None, zoom=1.0):
+    def __init__(self, snap_enabled=True, snap_threshold=4, config=None, zoom=1.0):
         self.snap_enabled = snap_enabled
-        self.snap_threshold = snap_threshold  # This value is updated by canvas_area with zoom multiplication.
+        self.snap_threshold = snap_threshold  # Distance in model units (inches) for snap detection
         self.config = config
         self.allowed_angles = [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180, 202.5, 225, 247.5, 270, 292.5, 315, 337.5]
         self.angle_tolerance = 10  # Increased from 5 to 10

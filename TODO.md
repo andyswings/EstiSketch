@@ -167,7 +167,7 @@
 - [ ] Room points cannot be moved (dragged)
 - [ ] Dimensions cannot be edited (moved, ends repositioned)
 - [ ] Polylines are not editable (segments moved, vertices repositioned)
-- [ ] Snapping is too course (the snapping "band" is too large)
+- [ ] Snapping should work in multiple directions at the same time (e.g. horizontal and vertical) also, end points should snap to other end points of lines and when directly above/below or left of right of any other point
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -175,7 +175,8 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
-- [x] FixedWalls etc. use snapping even when it is disabled in the settings (2025-12-25)
+- [x] Improved snapping is too course (the snapping "band" is too large) (2025-12-25)
+- [x] Fixed Walls etc. use snapping even when it is disabled in the settings (2025-12-25)
 - [x] Right click menu should not show anything when no object is selected unless the clipboard is not empty (and then it should show "Paste" option for now) (2025-12-25)
 - [x] Fixed text object rendering bug caused by Cairo context corruption (2025-12-24)
 - [x] Fixed "Separate Walls" - now separates selected walls into individual sets (2025-12-24)

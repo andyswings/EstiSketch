@@ -29,7 +29,7 @@ DEFAULT_SETTINGS = {
     "DEFAULT_WALL_WIDTH": 5.5,
     "UNITS": "feet_inches",
     "SNAP_ENABLED": True,
-    "SNAP_THRESHOLD": 10,
+    "SNAP_THRESHOLD": 4,
     "SHOW_GRID": True,
     "FONT": "Sans 10",
     "SHOW_RULERS": True,
