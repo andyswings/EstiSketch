@@ -165,7 +165,6 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Snapping should work in multiple directions at the same time (e.g. horizontal and vertical) also, end points should snap to other end points of lines and when directly above/below or left of right of any other point
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -173,6 +172,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Fixed snapping to work in multiple directions at the same time (e.g. horizontal and vertical) also, end points should snap to other end points of lines and when directly above/below or left or right of any other point (2025-12-25)
 - [x] Polylines are now editable (segments moved, endpoints repositioned) (2025-12-25)
 - [x] Rooms no longer closed with duplicate point - only unique vertices stored (2025-12-25)
 - [x] Add Ctrl+A to select all objects (2025-12-25)

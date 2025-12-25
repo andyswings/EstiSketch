@@ -52,6 +52,44 @@ class SnappingManager:
             # print(f"Snapped to horizontal axis: ({x}, {base_y})")
             return (x, base_y), "axis"
         return (x, y), "none"
+    
+    def snap_to_alignment(self, x, y, points):
+        """
+        Snap to alignment with any point of interest.
+        Returns the point snapped to vertical and/or horizontal alignment.
+        If aligned with multiple points, prioritizes the closest alignment.
+        Can snap to both axes simultaneously if aligned with 2+ different points.
+        """
+        vertical_snap_x = None
+        vertical_dist = float('inf')
+        horizontal_snap_y = None
+        horizontal_dist = float('inf')
+        
+        for px, py in points:
+            # Check vertical alignment (same X - point directly above/below)
+            x_diff = abs(x - px)
+            if x_diff < self.snap_threshold and x_diff < vertical_dist:
+                vertical_snap_x = px
+                vertical_dist = x_diff
+            
+            # Check horizontal alignment (same Y - point directly left/right)
+            y_diff = abs(y - py)
+            if y_diff < self.snap_threshold and y_diff < horizontal_dist:
+                horizontal_snap_y = py
+                horizontal_dist = y_diff
+        
+        # Apply both snaps if both found (intersection snap)
+        if vertical_snap_x is not None and horizontal_snap_y is not None:
+            print(f"Alignment snap: cross ({vertical_snap_x}, {horizontal_snap_y})")
+            return (vertical_snap_x, horizontal_snap_y), "alignment_cross"
+        elif vertical_snap_x is not None:
+            print(f"Alignment snap: vertical x={vertical_snap_x}")
+            return (vertical_snap_x, y), "alignment_vertical"
+        elif horizontal_snap_y is not None:
+            print(f"Alignment snap: horizontal y={horizontal_snap_y}")
+            return (x, horizontal_snap_y), "alignment_horizontal"
+        
+        return (x, y), "none"
 
     def snap_to_angle(self, x, y, base_x, base_y):
         dx, dy = x - base_x, y - base_y
@@ -159,6 +197,7 @@ class SnappingManager:
         points = self.collect_points_of_interest(walls, rooms, current_wall, in_progress_points, polylines)
         candidates = [
             self.snap_to_points(x, y, points, walls),  # Endpoint/midpoint
+            self.snap_to_alignment(x, y, points),  # Multi-direction alignment with any point
             self.snap_to_angle(x, y, base_x, base_y),    # Angle
             self.snap_to_axis(x, y, base_x, base_y),
             self.snap_to_perpendicular(x, y, base_x, base_y, last_wall),
@@ -171,12 +210,15 @@ class SnappingManager:
         priority_map = {
             "endpoint": 1,
             "midpoint": 1,
-            "angle": 2,
-            "axis": 3,
-            "perpendicular": 4,
-            "grid": 5,
-            "distance": 6,
-            "tangent": 7,
+            "alignment_cross": 2,  # Snapped to both H and V alignment with points
+            "alignment_vertical": 3,
+            "alignment_horizontal": 3,
+            "angle": 4,
+            "axis": 5,
+            "perpendicular": 6,
+            "grid": 7,
+            "distance": 8,
+            "tangent": 9,
             "none": 100
         }
         valid_candidates = []

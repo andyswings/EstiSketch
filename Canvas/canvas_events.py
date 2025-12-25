@@ -209,13 +209,15 @@ class CanvasEventsMixin:
             canvas_width = self.get_allocation().width or self.config.WINDOW_WIDTH
             candidate_points = self._get_candidate_points()
             
+            polylines = [pl for poly_set in self.polyline_sets for pl in poly_set]
             (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
                 canvas_x, canvas_y,
                 self.current_wall.start[0], self.current_wall.start[1],
                 self.walls, self.rooms,
                 current_wall=self.current_wall, last_wall=last_wall,
                 in_progress_points=candidate_points,
-                canvas_width=canvas_width, zoom=self.zoom
+                canvas_width=canvas_width, zoom=self.zoom,
+                polylines=polylines
             )
             self.raw_current_end = raw_point
             aligned_x, aligned_y, candidate = self._apply_alignment_snapping(canvas_x, canvas_y)
@@ -230,6 +232,7 @@ class CanvasEventsMixin:
             base_x, base_y = self.current_polyline_start
             # reuse snapping against walls/rooms
             candidates = self._get_candidate_points() + [(base_x, base_y)]
+            polylines = [pl for poly_set in self.polyline_sets for pl in poly_set]
             (sx, sy), _ = self.snap_manager.snap_point(
                 canvas_x, canvas_y,
                 base_x, base_y,
@@ -237,7 +240,8 @@ class CanvasEventsMixin:
                 current_wall=None, last_wall=None,
                 in_progress_points=candidates,
                 canvas_width=self.get_allocation().width or self.config.WINDOW_WIDTH,
-                zoom=self.zoom
+                zoom=self.zoom,
+                polylines=polylines
             )
             ax, ay, _ = self._apply_alignment_snapping(sx, sy)
             self.current_polyline_preview = (ax, ay)
@@ -249,13 +253,15 @@ class CanvasEventsMixin:
             candidate_points = self._get_candidate_points()
             candidate_points.extend(self.current_room_points)
             
+            polylines = [pl for poly_set in self.polyline_sets for pl in poly_set]
             (snapped_x, snapped_y), _ = self.snap_manager.snap_point(
                 canvas_x, canvas_y, base_x, base_y,
                 self.walls, self.rooms,
                 current_wall=None, last_wall=None,
                 in_progress_points=candidate_points,
                 canvas_width=self.get_allocation().width or self.config.WINDOW_WIDTH,
-                zoom=self.zoom
+                zoom=self.zoom,
+                polylines=polylines
             )
             aligned_x, aligned_y, _ = self._apply_alignment_snapping(canvas_x, canvas_y)
             snapped_x, snapped_y = aligned_x, aligned_y
