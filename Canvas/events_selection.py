@@ -643,8 +643,8 @@ class CanvasSelectionMixin:
         Returns:
             None
         """
-        if len(self.selected_items) == 0 and not self.wall_sets:
-            # If no items are selected AND no walls exist, do nothing.
+        # If nothing is selected and clipboard is empty, don't show any menu
+        if len(self.selected_items) == 0 and not self.clipboard:
             return
         
         # Filter selected items
@@ -667,20 +667,32 @@ class CanvasSelectionMixin:
             paste_btn = Gtk.Button(label="Paste")
             paste_btn.connect("clicked", lambda btn: (self.paste(), parent_popover.popdown()))
             box.append(paste_btn)
+        
+        # If nothing is selected, only show Paste (if clipboard has content) and exit
+        if len(self.selected_items) == 0:
+            # Position and show the popover with only Paste option
+            rect = Gdk.Rectangle()
+            rect.x = int(x)
+            rect.y = int(y)
+            rect.width = 1
+            rect.height = 1
+            parent_popover.set_pointing_to(rect)
+            parent_popover.set_parent(self)
+            parent_popover.popup()
+            return
             
         # Copy/Cut - Available if items are selected
-        if self.selected_items:
-            copy_btn = Gtk.Button(label="Copy")
-            copy_btn.connect("clicked", lambda btn: (self.copy_selected(), parent_popover.popdown()))
-            box.append(copy_btn)
-            
-            cut_btn = Gtk.Button(label="Cut")
-            cut_btn.connect("clicked", lambda btn: (self.cut_selected(), parent_popover.popdown()))
-            box.append(cut_btn)
-            
-            # Add a separator if we have other options coming up
-            separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-            box.append(separator)
+        copy_btn = Gtk.Button(label="Copy")
+        copy_btn.connect("clicked", lambda btn: (self.copy_selected(), parent_popover.popdown()))
+        box.append(copy_btn)
+        
+        cut_btn = Gtk.Button(label="Cut")
+        cut_btn.connect("clicked", lambda btn: (self.cut_selected(), parent_popover.popdown()))
+        box.append(cut_btn)
+        
+        # Add a separator if we have other options coming up
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        box.append(separator)
         
         # Text options
         if selected_texts:

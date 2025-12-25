@@ -169,6 +169,7 @@
 - [ ] Polylines are not editable (segments moved, vertices repositioned)
 - [ ] Right click menu should not show anything when no object is selected unless the clipboard is not empty (and then it should show "Paste" option for now)
 - [ ] Walls etc. use snapping even when it is disabled in the settings
+- [ ] Snapping is too course (the snapping "band" is too large)
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
