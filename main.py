@@ -457,6 +457,9 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "0":
                 self.on_zoom_reset_clicked(None)
                 return True
+            elif keyname == "a":
+                self.canvas.select_all()
+                return True
 
         if ctrl_pressed and shift_pressed:
             if keyname == "m":

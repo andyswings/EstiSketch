@@ -284,6 +284,45 @@ class CanvasArea(Gtk.DrawingArea,
         self.queue_draw()
         self.emit('selection-changed', self.selected_items)
     
+    def select_all(self):
+        """Select all objects on the canvas"""
+        self.selected_items.clear()
+        
+        # Select all walls
+        for wall_set in self.wall_sets:
+            for wall in wall_set:
+                self.selected_items.append({"type": "wall", "object": wall})
+        
+        # Select all room vertices
+        for room in self.rooms:
+            for idx in range(len(room.points)):
+                self.selected_items.append({"type": "vertex", "object": (room, idx)})
+        
+        # Select all doors
+        for door_item in self.doors:
+            self.selected_items.append({"type": "door", "object": door_item})
+        
+        # Select all windows
+        for window_item in self.windows:
+            self.selected_items.append({"type": "window", "object": window_item})
+        
+        # Select all text objects
+        for text in self.texts:
+            self.selected_items.append({"type": "text", "object": text})
+        
+        # Select all dimensions
+        for dim in self.dimensions:
+            self.selected_items.append({"type": "dimension", "object": dim})
+        
+        # Select all polylines
+        for polyline_set in self.polyline_sets:
+            for polyline in polyline_set:
+                self.selected_items.append({"type": "polyline", "object": polyline})
+        
+        self.queue_draw()
+        self.emit('selection-changed', self.selected_items)
+        print(f"Selected {len(self.selected_items)} objects")
+    
     def copy_selected(self):
         """Copy selected items to clipboard"""
         import copy as copy_module

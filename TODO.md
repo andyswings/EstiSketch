@@ -1,7 +1,6 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add Ctrl+A to select all objects
 - [ ] Allow adding points to an existing room
 - [ ] Allow moving an entire room (dragging from inside the room)
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped)
@@ -175,6 +174,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Add Ctrl+A to select all objects (2025-12-25)
 - [x] Dimensions can now be moved and edited - implemented dimension dragging and editing (2025-12-25)
 - [x] Room points can now be moved (dragged) - implemented vertex dragging (2025-12-25)
 - [x] Improved snapping is too course (the snapping "band" is too large) (2025-12-25)
