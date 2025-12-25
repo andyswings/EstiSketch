@@ -120,6 +120,12 @@ def create_settings_dialog(parent, config_constants, canvas):
         
         for key, switch in switches.items():
             setattr(config_constants, key, switch.get_active())
+        
+        # Sync snap_enabled to the snap_manager so it takes effect immediately
+        if hasattr(canvas, 'snap_manager'):
+            canvas.snap_manager.snap_enabled = config_constants.SNAP_ENABLED
+            canvas.snap_manager.snap_threshold = config_constants.SNAP_THRESHOLD
+        
         canvas.queue_draw()
     
     dialog.connect("response", lambda d, response: update_config() if response == Gtk.ResponseType.OK else None)

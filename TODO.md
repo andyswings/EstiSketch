@@ -167,8 +167,6 @@
 - [ ] Room points cannot be moved (dragged)
 - [ ] Dimensions cannot be edited (moved, ends repositioned)
 - [ ] Polylines are not editable (segments moved, vertices repositioned)
-- [ ] Right click menu should not show anything when no object is selected unless the clipboard is not empty (and then it should show "Paste" option for now)
-- [ ] Walls etc. use snapping even when it is disabled in the settings
 - [ ] Snapping is too course (the snapping "band" is too large)
 
 ## 💡 Currently Working On
@@ -177,14 +175,16 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] FixedWalls etc. use snapping even when it is disabled in the settings (2025-12-25)
+- [x] Right click menu should not show anything when no object is selected unless the clipboard is not empty (and then it should show "Paste" option for now) (2025-12-25)
 - [x] Fixed text object rendering bug caused by Cairo context corruption (2025-12-24)
 - [x] Fixed "Separate Walls" - now separates selected walls into individual sets (2025-12-24)
 - [x] Fixed box selection interference when moving text objects (2025-12-24)
 - [x] Walls are now draggable with connected walls moving together (2025-12-24)
 - [x] Refactor the Canvas to a more modular structure (2025-12-24)
 - [x] Add Copy / Cut / Paste to the right click menu (2025-12-18)
-- [x] Cut, Copy, Paste functionality (2025-12-18)
-- [x] Changing wall height from properties dock is not persistent (2025-12-11)
+- [x] Added Cut, Copy, Paste functionality (2025-12-18)
+- [x] Fixed changing wall height from properties dock is not persistent (2025-12-11)
 - [x] Implement multi-door object editing (with properties dock) (2025-12-11)
 - [x] Implement multi-window object editing (with properties dock) (2025-12-11)
 - [x] Implement multi-wall object editing (with properties dock) (2025-12-11)
@@ -193,4 +193,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2025-12-24_
+_Last updated: 2025-12-25_
