@@ -80,13 +80,10 @@ class SnappingManager:
         
         # Apply both snaps if both found (intersection snap)
         if vertical_snap_x is not None and horizontal_snap_y is not None:
-            print(f"Alignment snap: cross ({vertical_snap_x}, {horizontal_snap_y})")
             return (vertical_snap_x, horizontal_snap_y), "alignment_cross"
         elif vertical_snap_x is not None:
-            print(f"Alignment snap: vertical x={vertical_snap_x}")
             return (vertical_snap_x, y), "alignment_vertical"
         elif horizontal_snap_y is not None:
-            print(f"Alignment snap: horizontal y={horizontal_snap_y}")
             return (x, horizontal_snap_y), "alignment_horizontal"
         
         return (x, y), "none"
