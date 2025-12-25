@@ -44,9 +44,8 @@ class CanvasRoomMixin:
         elif n_press == 2:
             # Only save when finalizing the room
             room_created = False
-            if self.current_room_points and len(self.current_room_points) > 2:
-                if self.current_room_points[0] != self.current_room_points[-1]:
-                    self.current_room_points.append(self.current_room_points[0])
+            if self.current_room_points and len(self.current_room_points) >= 3:
+                # Room stores only unique vertices - rendering uses close_path() to close polygon
                 new_room = self.Room(self.current_room_points)
                 self.rooms.append(new_room)
                 self.current_room_points = []
@@ -72,9 +71,7 @@ class CanvasRoomMixin:
     def finalize_room(self):
         # Only finalize if there are enough points to form a room
         if self.current_room_points and len(self.current_room_points) >= 3:
-            # Ensure the room is closed by appending the first point if necessary
-            if self.current_room_points[0] != self.current_room_points[-1]:
-                self.current_room_points.append(self.current_room_points[0])
+            # Room stores only unique vertices - rendering uses close_path() to close polygon
             new_room = self.Room(self.current_room_points)
             self.rooms.append(new_room)
             print(f"Finalized room with points: {self.current_room_points}")

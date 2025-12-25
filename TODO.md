@@ -166,7 +166,6 @@
 
 ## 🐛 Known Bugs / FIXMEs
 - [ ] Snapping should work in multiple directions at the same time (e.g. horizontal and vertical) also, end points should snap to other end points of lines and when directly above/below or left of right of any other point
-- [ ] Rooms should not be closed with a "closing point" (the first point should be used to close the room) this means that we will need to go back to checking for 3 points or less instead of 4 points or less when deleting points from a room.
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -175,6 +174,7 @@
 
 ## Done ✅ (latest first)
 - [x] Polylines are now editable (segments moved, endpoints repositioned) (2025-12-25)
+- [x] Rooms no longer closed with duplicate point - only unique vertices stored (2025-12-25)
 - [x] Add Ctrl+A to select all objects (2025-12-25)
 - [x] Dimensions can now be moved and edited - implemented dimension dragging and editing (2025-12-25)
 - [x] Room points can now be moved (dragged) - implemented vertex dragging (2025-12-25)

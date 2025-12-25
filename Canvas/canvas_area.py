@@ -274,9 +274,9 @@ class CanvasArea(Gtk.DrawingArea,
                     del target_room.points[idx]
             
             # After all deletions, check if room still has enough points
-            # Rooms are closed polygons: first point is repeated at end
-            # Need at least 4 points for a valid triangle (A, B, C, A) = 3 unique corners
-            if len(target_room.points) < 4:
+            # Rooms now store only unique vertices (no closing point)
+            # Need at least 3 points for a valid polygon
+            if len(target_room.points) < 3:
                 if target_room in self.rooms:
                     self.rooms.remove(target_room)
 
