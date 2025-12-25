@@ -44,6 +44,8 @@ class CanvasSelectionMixin:
         for item in self.selected_items:
             if item["type"] == "wall":
                 wall = item["object"]
+                if self.is_object_on_locked_layer(wall):
+                    continue
                 for handle_name, pt in [("start", wall.start), ("end", wall.end)]:
                     pt_widget = (
                         (pt[0] * T) + self.offset_x,
@@ -64,6 +66,8 @@ class CanvasSelectionMixin:
             for item in self.selected_items:
                 if item["type"] == "dimension":
                     dim = item["object"]
+                    if self.is_object_on_locked_layer(dim):
+                        continue
                     offset = dim.offset
                     
                     # Calculate perpendicular offset
@@ -102,6 +106,8 @@ class CanvasSelectionMixin:
             for item in self.selected_items:
                 if item["type"] == "polyline":
                     poly = item["object"]
+                    if self.is_object_on_locked_layer(poly):
+                        continue
                     
                     for handle_name, pt in [("start", poly.start), ("end", poly.end)]:
                         pt_widget = (
@@ -121,6 +127,8 @@ class CanvasSelectionMixin:
         # T = self.zoom * pixels_per_inch
         for wall_set in self.wall_sets:
             for wall in wall_set:
+                if self.is_object_on_locked_layer(wall) or not self.is_object_on_visible_layer(wall):
+                    continue
                 start_widget = (
                     (wall.start[0] * T) + self.offset_x,
                     (wall.start[1] * T) + self.offset_y
@@ -145,6 +153,8 @@ class CanvasSelectionMixin:
                     selected_item = {"type": "wall", "object": wall}
         
         for room in self.rooms:
+            if self.is_object_on_locked_layer(room) or not self.is_object_on_visible_layer(room):
+                continue
             for idx, pt in enumerate(room.points):
                 pt_widget = (
                     (pt[0] * T) + self.offset_x,
@@ -160,6 +170,8 @@ class CanvasSelectionMixin:
         edge_threshold = 10  # device pixels for edge detection
         if n_press == 2 and selected_item is None:  # Only on double-click, and if not clicking on a vertex
             for room in self.rooms:
+                if self.is_object_on_locked_layer(room) or not self.is_object_on_visible_layer(room):
+                    continue
                 num_pts = len(room.points)
                 for i in range(num_pts):
                     # Get edge from point i to point (i+1) % num_pts (closed polygon)
@@ -192,6 +204,8 @@ class CanvasSelectionMixin:
         # Check for click inside room (for whole-room dragging)
         if selected_item is None:
             for room in self.rooms:
+                if self.is_object_on_locked_layer(room) or not self.is_object_on_visible_layer(room):
+                    continue
                 # Convert room points to widget coordinates
                 poly_widget = [
                     ((pt[0] * T) + self.offset_x, (pt[1] * T) + self.offset_y)
@@ -204,8 +218,10 @@ class CanvasSelectionMixin:
         for door_item in self.doors:
             wall, door, ratio = door_item
             
-            # Skip invalid entries
+            # Skip invalid entries or restricted layers
             if wall is None:
+                continue
+            if self.is_object_on_locked_layer(door) or not self.is_object_on_visible_layer(door):
                 continue
 
             A = wall.start
@@ -240,8 +256,10 @@ class CanvasSelectionMixin:
         for window_item in self.windows:
             wall, window, ratio = window_item
             
-            # Skip invalid entries
+            # Skip invalid entries or restricted layers
             if wall is None:
+                continue
+            if self.is_object_on_locked_layer(window) or not self.is_object_on_visible_layer(window):
                 continue
             
             A = wall.start
@@ -274,6 +292,8 @@ class CanvasSelectionMixin:
         
         for poly_list in self.polyline_sets:
             for pl in poly_list:
+                if self.is_object_on_locked_layer(pl) or not self.is_object_on_visible_layer(pl):
+                    continue
                 # transform endpoints from model to widget coords
                 p1 = self.model_to_device(pl.start[0], pl.start[1], pixels_per_inch)
                 p2 = self.model_to_device(pl.end[0],   pl.end[1],   pixels_per_inch)
@@ -292,6 +312,8 @@ class CanvasSelectionMixin:
         # Check Texts
         if selected_item is None:
             for text in self.texts:
+                if self.is_object_on_locked_layer(text) or not self.is_object_on_visible_layer(text):
+                    continue
                 # Text hit test: check if click is within bounding box
                 # text.x, text.y is top-left in model space
                 # text.width, text.height are dimensions in model space (inches)
@@ -308,6 +330,8 @@ class CanvasSelectionMixin:
         # Check Dimensions
         if selected_item is None:
             for dimension in self.dimensions:
+                if self.is_object_on_locked_layer(dimension) or not self.is_object_on_visible_layer(dimension):
+                    continue
                 # Check if click is near the dimension line
                 # Calculate dimension line position
                 start = dimension.start
@@ -699,10 +723,14 @@ class CanvasSelectionMixin:
             
             for wall_set in self.wall_sets:
                 for wall in wall_set:
+                    if self.is_object_on_locked_layer(wall) or not self.is_object_on_visible_layer(wall):
+                        continue
                     if self.line_intersects_rect(wall.start, wall.end, rect):
                         new_selection.append({"type": "wall", "object": wall})
             
             for room in self.rooms:
+                if self.is_object_on_locked_layer(room) or not self.is_object_on_visible_layer(room):
+                    continue
                 for idx, pt in enumerate(room.points):
                     if (x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2):
                         new_selection.append({"type": "vertex", "object": (room, idx)})
@@ -711,9 +739,11 @@ class CanvasSelectionMixin:
             for door_item in self.doors:
                 wall, door, ratio = door_item
                 
-                # Skip doors without a wall
+                # Skip doors without a wall, or restricted layers
                 if wall is None:
                     continue
+                if self.is_object_on_locked_layer(door) or not self.is_object_on_visible_layer(door):
+                     continue
                 
                 A = wall.start
                 B = wall.end
@@ -746,8 +776,10 @@ class CanvasSelectionMixin:
             for window_item in self.windows:
                 wall, window, ratio = window_item
                 
-                # Skip windows without a wall
+                # Skip windows without a wall or restricted layers
                 if wall is None:
+                    continue
+                if self.is_object_on_locked_layer(window) or not self.is_object_on_visible_layer(window):
                     continue
                 
                 A = wall.start
@@ -777,10 +809,14 @@ class CanvasSelectionMixin:
             
             for poly_list in self.polyline_sets:
                 for pl in poly_list:
+                    if self.is_object_on_locked_layer(pl) or not self.is_object_on_visible_layer(pl):
+                        continue
                     if self.line_intersects_rect(pl.start, pl.end, rect):
                         new_selection.append({"type": "polyline", "object": pl, "identifier": pl.identifier})
             
             for dimension in self.dimensions:
+                if self.is_object_on_locked_layer(dimension) or not self.is_object_on_visible_layer(dimension):
+                    continue
                 # Calculate dimension line position
                 start = dimension.start
                 end = dimension.end
@@ -808,6 +844,8 @@ class CanvasSelectionMixin:
 
             
             for text in self.texts:
+                if self.is_object_on_locked_layer(text) or not self.is_object_on_visible_layer(text):
+                    continue
                 tx1 = text.x
                 ty1 = text.y
                 tx2 = text.x + text.width
@@ -941,6 +979,15 @@ class CanvasSelectionMixin:
         # Add a separator if we have other options coming up
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         box.append(separator)
+
+        # Move to Layer
+        if len(self.selected_items) > 0:
+            move_layer_btn = Gtk.Button(label="Move to Layer...")
+            move_layer_btn.connect("clicked", lambda btn: self.show_move_to_layer_submenu(btn, parent_popover))
+            box.append(move_layer_btn)
+            
+            separator_layer = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            box.append(separator_layer)
         
         # Text options
         if selected_texts:
@@ -1267,6 +1314,61 @@ class CanvasSelectionMixin:
                 polyline["object"].style = "dashed" if polyline["object"].style == "solid" else "solid"
             self.queue_draw()
             popover.popdown()
+            
+    
+    def show_move_to_layer_submenu(self, widget, parent_popover):
+        """Show submenu to move selected objects to a different layer."""
+        popover = Gtk.Popover()
+        popover.set_parent(widget)
+        
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        popover.set_child(box)
+        
+        label = Gtk.Label(label="<b>Select Layer</b>", use_markup=True)
+        box.append(label)
+        
+        # Sort layers by ID or name? 
+        # Using existing order in self.layers
+        for layer in self.layers:
+            layer_name = layer.name
+            if layer.id == self.active_layer_id:
+                layer_name += " (Active)"
+            
+            btn = Gtk.Button(label=layer_name)
+            btn.connect("clicked", lambda b, lid=layer.id: self.on_move_to_layer_selected(lid, popover, parent_popover))
+            box.append(btn)
+            
+        popover.popup()
+
+    def on_move_to_layer_selected(self, layer_id, popover, parent_popover):
+        """Handle layer selection from submenu."""
+        changed = False
+        for item in self.selected_items:
+            otype = item.get("type")
+            obj = item["object"]
+            
+            real_obj = obj
+            if otype in ("door", "window"):
+                if isinstance(obj, tuple) and len(obj) >= 2:
+                    real_obj = obj[1]
+            elif otype == "vertex":
+                if isinstance(obj, tuple) and len(obj) >= 1:
+                    real_obj = obj[0] # The room
+            elif otype in ("wall_handle", "polyline_handle", "dimension_handle"):
+                if isinstance(obj, tuple) and len(obj) >= 1:
+                     real_obj = obj[0]
+            
+            if hasattr(real_obj, 'layer_id'):
+                if real_obj.layer_id != layer_id:
+                    real_obj.layer_id = layer_id
+                    changed = True
+        
+        if changed:
+            self.save_state()
+            self.queue_draw()
+            
+        popover.popdown()
+        parent_popover.popdown()
             
     def set_ext_int(self, selected_walls: list, state: str, popover: Gtk.Popover) -> None:
         """

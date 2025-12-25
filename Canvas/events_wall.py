@@ -49,13 +49,15 @@ class CanvasWallMixin:
                 self.current_wall = self.Wall(
                     (snapped_x, snapped_y), (snapped_x, snapped_y),
                     self.config.DEFAULT_WALL_WIDTH, self.config.DEFAULT_WALL_HEIGHT,
-                    identifier=self.generate_identifier("wall", self.existing_ids)
+                    identifier=self.generate_identifier("wall", self.existing_ids),
+                    layer_id=self.active_layer_id
                 )
             else:
                 wall_instance = self.Wall(
                     self.current_wall.start, (snapped_x, snapped_y),
                     self.config.DEFAULT_WALL_WIDTH, self.config.DEFAULT_WALL_HEIGHT,
-                    identifier=self.generate_identifier("wall", self.existing_ids)
+                    identifier=self.generate_identifier("wall", self.existing_ids),
+                    layer_id=self.active_layer_id
                 )
             if wall_instance:
                 self.existing_ids.append(wall_instance.identifier)
@@ -105,7 +107,8 @@ class CanvasWallMixin:
                             new_wall = self.Wall(pts[i], pts[i+1],
                                                 width=self.config.DEFAULT_WALL_WIDTH,
                                                 height=self.config.DEFAULT_WALL_HEIGHT,
-                                                identifier=wall_id)
+                                                identifier=wall_id,
+                                                layer_id=self.active_layer_id)
                             self.existing_ids.append(wall_id)
                             new_wall_set.append(new_wall)
                         self.wall_sets.append(new_wall_set)
@@ -181,7 +184,8 @@ class CanvasWallMixin:
         wall_instance = self.Wall(
             (start_x, start_y), (end_x, end_y),
             self.config.DEFAULT_WALL_WIDTH, self.config.DEFAULT_WALL_HEIGHT,
-            identifier=self.generate_identifier("wall", self.existing_ids)
+            identifier=self.generate_identifier("wall", self.existing_ids),
+            layer_id=self.active_layer_id
         )
         
         self.existing_ids.append(wall_instance.identifier)

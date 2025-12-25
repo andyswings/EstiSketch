@@ -2,7 +2,7 @@ import gi
 import os
 import json
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk
+from gi.repository import Gtk, GObject
 
 # Stub widgets—you can flesh these out with real controls
 class WallPropertiesWidget(Gtk.Box):
@@ -776,7 +776,8 @@ class WindowPropertiesWidget(Gtk.Box):
         self._block_updates = False
         
         # Load window sizes from config file
-        config_path = os.path.join(os.path.dirname(__file__), 'Resources', 'window_door_sizes.json')
+        # Go up one level from Dialogs to root, then into Resources
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Resources', 'window_door_sizes.json')
         with open(config_path, 'r') as f:
             config = json.load(f)
         
@@ -940,7 +941,8 @@ class DoorPropertiesWidget(Gtk.Box):
         self._block_updates = False
         
         # Load door sizes from config file
-        config_path = os.path.join(os.path.dirname(__file__), 'Resources', 'window_door_sizes.json')
+        # Go up one level from Dialogs to root, then into Resources
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Resources', 'window_door_sizes.json')
         with open(config_path, 'r') as f:
             config = json.load(f)
         
@@ -1111,12 +1113,17 @@ class DoorPropertiesWidget(Gtk.Box):
 
 class PropertiesDock(Gtk.Box):
 
+    __gsignals__ = {
+        'sidebar-toggled': (GObject.SignalFlags.RUN_FIRST, None, (bool,)),
+    }
+
     def __init__(self, canvas):
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL)
         
         self.canvas = canvas
 
-        icon_dir = os.path.join(os.path.dirname(__file__), "Icons")
+        # Go up one level from Dialogs to root, then into Icons
+        icon_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Icons")
         
         # Icon bar (fixed width, icon-only buttons)
         self.icon_bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -1396,3 +1403,5 @@ class PropertiesDock(Gtk.Box):
             # Untoggle all tab buttons when closing
             for n, b in self.tabs.items():
                 b.set_active(False)
+        
+        self.emit('sidebar-toggled', not is_visible)

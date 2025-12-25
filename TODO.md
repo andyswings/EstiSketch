@@ -2,7 +2,6 @@
 
 ## 🚀 High Priority (do next)
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped)
-- [ ] Implement Layers system
 - [ ] Add Circles/Arcs drawing tool
 - [ ] Create Furniture & Fixture library
 - [ ] Add automatic room area calculations
@@ -24,7 +23,7 @@
 ### Architectural Elements
 - [ ] Roof design (gable, hip, flat, custom pitches)
 - [ ] Roof components (trusses, rafters, ridges, valleys)
-- [ ] Multi-story/Floor levels support
+- [ ] Modify layers system to support Multi-story/Floor levels (each floor is a different layer) (layers should preserve elevation data)
 - [ ] Columns/Posts
 - [ ] Beams
 - [ ] Foundations (slab, crawlspace, basement)
@@ -163,6 +162,7 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
+- [ ] Side panel is too needy (pops out when anything is selected event when we've clicked on the toggle to hide it)
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -170,6 +170,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Implemented a basic Layers system (2025-12-25)
 - [x] Add right click menu option to mirror offset of dimension to other side of dimension line (2025-12-25)
 - [x] Allow adding points to an existing room - double-click on edge to insert (2025-12-25)
 - [x] Allow moving an entire room (dragging from inside the room) (2025-12-25)

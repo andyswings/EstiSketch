@@ -46,7 +46,7 @@ class CanvasRoomMixin:
             room_created = False
             if self.current_room_points and len(self.current_room_points) >= 3:
                 # Room stores only unique vertices - rendering uses close_path() to close polygon
-                new_room = self.Room(self.current_room_points)
+                new_room = self.Room(self.current_room_points, layer_id=self.active_layer_id)
                 self.rooms.append(new_room)
                 self.current_room_points = []
                 self.current_room_preview = None
@@ -57,7 +57,7 @@ class CanvasRoomMixin:
                 if self._is_closed_polygon(wall_set):
                     poly = [w.start for w in wall_set]
                     if self._point_in_polygon((snapped_x, snapped_y), poly):
-                        new_room = self.Room(poly)
+                        new_room = self.Room(poly, layer_id=self.active_layer_id)
                         self.rooms.append(new_room)
                         # Reset room drawing state after creating room from closed loop
                         self.current_room_points = []
@@ -72,7 +72,7 @@ class CanvasRoomMixin:
         # Only finalize if there are enough points to form a room
         if self.current_room_points and len(self.current_room_points) >= 3:
             # Room stores only unique vertices - rendering uses close_path() to close polygon
-            new_room = self.Room(self.current_room_points)
+            new_room = self.Room(self.current_room_points, layer_id=self.active_layer_id)
             self.rooms.append(new_room)
             print(f"Finalized room with points: {self.current_room_points}")
         # Clear the temporary room points and preview

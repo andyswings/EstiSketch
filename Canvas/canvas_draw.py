@@ -87,6 +87,9 @@ class CanvasDrawMixin:
         # Transformation: device = model * zoom_transform + self.offset
         cr.translate(self.offset_x, self.offset_y)
         cr.scale(zoom_transform, zoom_transform)
+        
+        # Get visible layer IDs for filtering - objects with no layer_id are always visible
+        visible_layer_ids = self.get_visible_layer_ids() if hasattr(self, 'get_visible_layer_ids') else set()
 
         # Draw grid, walls, rooms, etc. in model coordinates.
         self.draw_grid(cr)
@@ -122,10 +125,19 @@ class CanvasDrawMixin:
         
         # Draw finished polylines
         cr.save()
-        cr.set_source_rgb(0, 0, 0)
         cr.set_line_width(1.0 / self.zoom)
         for poly_list in self.polyline_sets:
             for pl in poly_list:
+                # Skip if polyline is on hidden layer
+                if not self.is_object_on_visible_layer(pl):
+                    continue
+                
+                opacity = 1.0
+                if hasattr(self, 'get_object_opacity'):
+                    opacity = self.get_object_opacity(pl)
+
+                cr.set_source_rgba(0, 0, 0, opacity)
+                
                 if pl.style == "dashed":
                     cr.set_dash([4/self.zoom, 4/self.zoom])
                 else:
@@ -138,9 +150,14 @@ class CanvasDrawMixin:
         # Draw in-progress (fixed) segments
         if self.polylines:
             cr.save()
-            cr.set_source_rgb(0, 0, 0)
             cr.set_line_width(1.0 / self.zoom)
             for pl in self.polylines:
+                opacity = 1.0
+                if hasattr(self, 'get_object_opacity'):
+                    opacity = self.get_object_opacity(pl)
+                
+                cr.set_source_rgba(0, 0, 0, opacity)
+                
                 if pl.style == "dashed":
                     cr.set_dash([4/self.zoom, 4/self.zoom])
                 else:
@@ -540,7 +557,16 @@ class CanvasDrawMixin:
     def draw_texts(self, cr):
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         
+        # Helper to check visibility
+        def is_visible(obj):
+            if hasattr(self, 'is_object_on_visible_layer'):
+                return self.is_object_on_visible_layer(obj)
+            return True
+
         for text in self.texts:
+            if not is_visible(text):
+                continue
+
             # Check if selected to draw frame/handles
             is_selected = any(item["type"] == "text" and item["object"] == text for item in self.selected_items)
             
@@ -557,7 +583,9 @@ class CanvasDrawMixin:
             cr.translate(device_x, device_y)
             
             # Apply rotation (convert degrees to radians)
-            rotation_radians = math.radians(text.rotation)
+            # Ensure rotation is a valid number
+            rot = getattr(text, 'rotation', 0)
+            rotation_radians = math.radians(rot)
             cr.rotate(rotation_radians)
             
             cr.scale(self.zoom, self.zoom) # Scale text with zoom
@@ -579,7 +607,11 @@ class CanvasDrawMixin:
         
             # Use text color if available, otherwise default to black
             color = getattr(text, 'color', (0.0, 0.0, 0.0))
-            cr.set_source_rgb(*color)
+            # Apply layer opacity
+            opacity = 1.0
+            if hasattr(self, 'get_object_opacity'):
+                opacity = self.get_object_opacity(text)
+            cr.set_source_rgba(color[0], color[1], color[2], opacity)
             PangoCairo.show_layout(cr, layout)
             
             # Measure layout for selection box
@@ -608,14 +640,24 @@ class CanvasDrawMixin:
                 cr.stroke()
             
             cr.restore()
+
     
     def draw_dimensions(self, cr):
         """Draw all dimension objects with extension lines, dimension lines, arrows, and measurement text."""
-        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        pixels_per_inch = self.config.PIXELS_PER_INCH
         
-        # Draw finalized dimensions
-        for dimension in self.dimensions:
-            self._draw_single_dimension(cr, dimension, pixels_per_inch, is_preview=False)
+        # Helper to check visibility
+        def is_visible(obj):
+            if hasattr(self, 'is_object_on_visible_layer'):
+                return self.is_object_on_visible_layer(obj)
+            return True
+
+        for dim in self.dimensions:
+            if not is_visible(dim):
+                continue
+            self._draw_single_dimension(cr, dim, pixels_per_inch)
+            
+
         
         # Draw dimension preview during creation
         if self.drawing_dimension and self.dimension_start:
@@ -687,9 +729,12 @@ class CanvasDrawMixin:
             cr.set_source_rgba(color[0], color[1], color[2], 0.5)  # Semi-transparent for preview
         else:
             if is_selected:
-                cr.set_source_rgb(0.0, 0.4, 0.8)  # Blue for selected
+                cr.set_source_rgb(0.0, 0.4, 0.8)  # Blue for selected (keep opaque)
             else:
-                cr.set_source_rgb(*color)
+                opacity = 1.0
+                if hasattr(self, 'get_object_opacity'):
+                    opacity = self.get_object_opacity(dimension)
+                cr.set_source_rgba(color[0], color[1], color[2], opacity)
         
         line_width = 1.0 / (self.zoom * pixels_per_inch)
         if is_selected:
@@ -796,7 +841,12 @@ class CanvasDrawMixin:
         
         # Draw white background for text
         padding = 2.0 / (self.zoom * pixels_per_inch)
-        cr.set_source_rgb(1, 1, 1)
+        # Background should also obey opacity
+        opacity = 1.0
+        if hasattr(self, 'get_object_opacity'):
+            opacity = self.get_object_opacity(dimension)
+            
+        cr.set_source_rgba(1, 1, 1, opacity)
         cr.rectangle(
             -text_width / 2 - padding,
             -text_height - padding,

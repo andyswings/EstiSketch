@@ -53,11 +53,11 @@ class CanvasToolsMixin:
         door_type = getattr(self.config, "DEFAULT_DOOR_TYPE", "single")
         door_identifier = self.generate_identifier("door", self.existing_ids)
         if door_type == "garage":
-            new_door = Door(door_type, 96.0, 80.0, "left", "inswing", identifier=door_identifier)
+            new_door = Door(door_type, 96.0, 80.0, "left", "inswing", identifier=door_identifier, layer_id=self.active_layer_id)
         elif door_type == "double" or door_type == "sliding":
-            new_door = Door(door_type, 72.0, 80.0, "left", "inswing", identifier=door_identifier)
+            new_door = Door(door_type, 72.0, 80.0, "left", "inswing", identifier=door_identifier, layer_id=self.active_layer_id)
         else:
-            new_door = Door(door_type, 36.0, 80.0, "left", "inswing", identifier=door_identifier)
+            new_door = Door(door_type, 36.0, 80.0, "left", "inswing", identifier=door_identifier, layer_id=self.active_layer_id)
         self.existing_ids.append(door_identifier)
         self.doors.append((selected_wall, new_door, selected_ratio))
         self.queue_draw()
@@ -112,7 +112,7 @@ class CanvasToolsMixin:
         
         window_type = getattr(self.config, "DEFAULT_WINDOW_TYPE", "sliding")
         window_identifier = self.generate_identifier("window", self.existing_ids)
-        new_window = Window(48.0, 36.0, window_type, identifier=window_identifier)
+        new_window = Window(48.0, 36.0, window_type, identifier=window_identifier, layer_id=self.active_layer_id)
         self.existing_ids.append(window_identifier)
         self.windows.append((selected_wall, new_window, selected_ratio))
         self.queue_draw()
@@ -161,7 +161,7 @@ class CanvasToolsMixin:
                 self.polylines = []
             else:
                 polyline_identifier = self.generate_identifier("polyline", self.existing_ids)
-                seg = Polyline(self.current_polyline_start, snapped, identifier=polyline_identifier)
+                seg = Polyline(self.current_polyline_start, snapped, identifier=polyline_identifier, layer_id=self.active_layer_id)
                 self.existing_ids.append(polyline_identifier)
                 default_style = getattr(self.config, "POLYLINE_TYPE", "solid")
                 seg_style = default_style if default_style in ("solid", "dashed") else "solid"
@@ -206,7 +206,7 @@ class CanvasToolsMixin:
         
         # Create default text
         text_id = self.generate_identifier("text", self.existing_ids)
-        new_text = self.Text(canvas_x, canvas_y, content="Text", width=48.0, height=24.0, identifier=text_id)
+        new_text = self.Text(canvas_x, canvas_y, content="Text", width=48.0, height=24.0, identifier=text_id, layer_id=self.active_layer_id)
         self.texts.append(new_text)
         self.existing_ids.append(text_id)
         
@@ -265,7 +265,8 @@ class CanvasToolsMixin:
                 start=self.dimension_start,
                 end=self.dimension_end,
                 offset=offset,
-                identifier=dim_id
+                identifier=dim_id,
+                layer_id=self.active_layer_id
             )
             self.dimensions.append(new_dimension)
             self.existing_ids.append(dim_id)
@@ -319,7 +320,8 @@ class CanvasToolsMixin:
             start=selected_wall.start,
             end=selected_wall.end,
             offset=default_offset,
-            identifier=dim_id
+            identifier=dim_id,
+            layer_id=self.active_layer_id
         )
         self.dimensions.append(new_dimension)
         self.existing_ids.append(dim_id)

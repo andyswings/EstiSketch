@@ -10,10 +10,11 @@ from Dialogs import manage_materials
 from Dialogs import estimate_materials
 from Dialogs import estimate_cost
 from Dialogs import help_dialog
-from properties_dock import PropertiesDock
+from Dialogs.properties_dock import PropertiesDock
 from file_menu import create_file_menu
 from sh3d_importer import import_sh3d
 from project_io import save_project, open_project
+from Dialogs.layers_panel import LayersPanel
 
 class EstimatorApp(Gtk.Application):
     def __init__(self, config_constants):
@@ -273,8 +274,29 @@ class EstimatorApp(Gtk.Application):
         
         # Only show properties panel if enabled in config
         if getattr(self.config, 'SHOW_PROPERTIES_PANEL', False):
+            # Create a vertical box for the right sidebar
+            right_sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            
+            # Add Properties Dock
             self.properties_dock = PropertiesDock(self.canvas)
-            main_hbox.append(self.properties_dock)
+            right_sidebar.append(self.properties_dock)
+            
+            # Add Layers Panel (bottom half)
+            separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            right_sidebar.append(separator)
+            
+            self.layers_panel = LayersPanel(self.canvas)
+            # Give it some height but allow shrinking
+            self.layers_panel.set_vexpand(True) 
+            # Start hidden to match PropertiesDock initial state
+            self.layers_panel.set_visible(False)
+            right_sidebar.append(self.layers_panel)
+            
+            # Connect sidebar toggle signal
+            self.properties_dock.connect('sidebar-toggled', lambda dock, visible: self.layers_panel.set_visible(visible))
+            
+            main_hbox.append(right_sidebar)
+            
             # Give canvas a reference to properties dock so it can update sidebar values
             self.canvas.properties_dock = self.properties_dock
             
@@ -734,6 +756,8 @@ class EstimatorApp(Gtk.Application):
         self.add_to_recent(path)
         self.current_filepath = path
         open_project(self.canvas, path)
+        if hasattr(self, 'layers_panel'):
+            self.layers_panel.refresh_layers()
         self.canvas.queue_draw()
         self.is_dirty = False
     
@@ -762,6 +786,8 @@ class EstimatorApp(Gtk.Application):
                 btn = Gtk.Button(label=Gio.File.new_for_path(path).get_basename())
                 def _on_click(button, p=path):
                     open_project(self.canvas, p)
+                    if hasattr(self, 'layers_panel'):
+                        self.layers_panel.refresh_layers()
                     self.canvas.queue_draw()
                     self.is_dirty = False
                     popover.popdown()  # Use local popover variable

@@ -58,6 +58,20 @@ class CanvasArea(Gtk.DrawingArea,
         self.offset_x = self.ruler_offset
         self.offset_y = self.ruler_offset
         
+        # Layers system - max 24 layers
+        self.MAX_LAYERS = 24
+        # Create default layer using generate_identifier
+        default_layer_id = self.generate_identifier("layer", [])
+        from components import Layer
+        self.layers = [Layer(
+            id=default_layer_id,
+            name="Layer 0",
+            visible=True,
+            locked=False,
+            opacity=1.0
+        )]
+        self.active_layer_id = default_layer_id
+        
 
         # Wall drawing state
         self.walls = []
@@ -183,6 +197,94 @@ class CanvasArea(Gtk.DrawingArea,
         self.offset_y = 0
         self.queue_draw()
     
+    # ─────────────────────────────────────────────────────────────────────────
+    # Layer Management Methods
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    def add_layer(self, name: str = None) -> str:
+        """Add a new layer and return its ID. Returns None if max layers reached."""
+        if len(self.layers) >= self.MAX_LAYERS:
+            print(f"Cannot add more than {self.MAX_LAYERS} layers")
+            return None
+        
+        from components import Layer
+        existing_ids = [layer.id for layer in self.layers]
+        new_layer_id = self.generate_identifier("layer", existing_ids)
+        layer_num = len(self.layers)
+        layer_name = name if name else f"Layer {layer_num}"
+        
+        new_layer = Layer(
+            id=new_layer_id,
+            name=layer_name,
+            visible=True,
+            locked=False,
+            opacity=1.0
+        )
+        self.layers.append(new_layer)
+        return new_layer_id
+    
+    def remove_layer(self, layer_id: str) -> bool:
+        """Remove a layer by ID. Cannot remove last layer. Returns True if removed."""
+        if len(self.layers) <= 1:
+            print("Cannot remove the last layer")
+            return False
+        
+        for i, layer in enumerate(self.layers):
+            if layer.id == layer_id:
+                self.layers.pop(i)
+                # If active layer was removed, switch to first layer
+                if self.active_layer_id == layer_id:
+                    self.active_layer_id = self.layers[0].id
+                return True
+        return False
+    
+    def get_layer_by_id(self, layer_id: str):
+        """Get a Layer object by its ID."""
+        for layer in self.layers:
+            if layer.id == layer_id:
+                return layer
+        return None
+    
+    def set_active_layer(self, layer_id: str) -> bool:
+        """Set the active layer by ID. Returns True if successful."""
+        layer = self.get_layer_by_id(layer_id)
+        if layer:
+            self.active_layer_id = layer_id
+            return True
+        return False
+    
+    def get_visible_layer_ids(self) -> set:
+        """Get set of IDs for all visible layers."""
+        return {layer.id for layer in self.layers if layer.visible}
+    
+    def get_locked_layer_ids(self) -> set:
+        """Get set of IDs for all locked layers."""
+        return {layer.id for layer in self.layers if layer.locked}
+    
+    def is_object_on_visible_layer(self, obj) -> bool:
+        """Check if an object is on a visible layer. Objects with no layer_id are always visible."""
+        layer_id = getattr(obj, 'layer_id', '')
+        if not layer_id:  # Empty layer_id means visible on all layers (legacy compatibility)
+            return True
+        return layer_id in self.get_visible_layer_ids()
+    
+    def is_object_on_locked_layer(self, obj) -> bool:
+        """Check if an object is on a locked layer. Objects with no layer_id are never locked."""
+        layer_id = getattr(obj, 'layer_id', '')
+        if not layer_id:  # Empty layer_id means not locked
+            return False
+        return layer_id in self.get_locked_layer_ids()
+
+    def get_object_opacity(self, obj) -> float:
+        """Get the opacity of an object based on its layer."""
+        layer_id = getattr(obj, 'layer_id', '')
+        if not layer_id:
+            return 1.0
+        layer = self.get_layer_by_id(layer_id)
+        if layer:
+            return layer.opacity
+        return 1.0
+    
     def delete_selected(self):
         """
         Delete the currently selected object(s) from the canvas.
@@ -291,37 +393,83 @@ class CanvasArea(Gtk.DrawingArea,
         # Select all walls
         for wall_set in self.wall_sets:
             for wall in wall_set:
-                self.selected_items.append({"type": "wall", "object": wall})
+                if not self.is_object_on_locked_layer(wall) and self.is_object_on_visible_layer(wall):
+                    self.selected_items.append({"type": "wall", "object": wall})
         
         # Select all room vertices
         for room in self.rooms:
-            for idx in range(len(room.points)):
-                self.selected_items.append({"type": "vertex", "object": (room, idx)})
+            if not self.is_object_on_locked_layer(room) and self.is_object_on_visible_layer(room):
+                for idx in range(len(room.points)):
+                    self.selected_items.append({"type": "vertex", "object": (room, idx)})
         
         # Select all doors
         for door_item in self.doors:
-            self.selected_items.append({"type": "door", "object": door_item})
+            # door_item is (wall, door, ratio)
+            # check the door object (index 1)
+            if not self.is_object_on_locked_layer(door_item[1]) and self.is_object_on_visible_layer(door_item[1]):
+                self.selected_items.append({"type": "door", "object": door_item})
         
         # Select all windows
         for window_item in self.windows:
-            self.selected_items.append({"type": "window", "object": window_item})
+            if not self.is_object_on_locked_layer(window_item[1]) and self.is_object_on_visible_layer(window_item[1]):
+                self.selected_items.append({"type": "window", "object": window_item})
         
         # Select all text objects
         for text in self.texts:
-            self.selected_items.append({"type": "text", "object": text})
+            if not self.is_object_on_locked_layer(text) and self.is_object_on_visible_layer(text):
+                self.selected_items.append({"type": "text", "object": text})
         
         # Select all dimensions
         for dim in self.dimensions:
-            self.selected_items.append({"type": "dimension", "object": dim})
+            if not self.is_object_on_locked_layer(dim) and self.is_object_on_visible_layer(dim):
+                self.selected_items.append({"type": "dimension", "object": dim})
         
         # Select all polylines
         for polyline_set in self.polyline_sets:
             for polyline in polyline_set:
-                self.selected_items.append({"type": "polyline", "object": polyline})
+                if not self.is_object_on_locked_layer(polyline) and self.is_object_on_visible_layer(polyline):
+                    self.selected_items.append({"type": "polyline", "object": polyline})
         
         self.queue_draw()
         self.emit('selection-changed', self.selected_items)
         print(f"Selected {len(self.selected_items)} objects")
+
+    def deselect_items_on_layer(self, layer_id):
+        """Deselect all items belonging to the specified layer_id."""
+        if not layer_id or not self.selected_items:
+            return
+            
+        new_selection = []
+        changed = False
+        
+        for item in self.selected_items:
+            obj = item["object"]
+            
+            # Extract real object to check layer_id
+            real_obj = obj
+            otype = item.get("type")
+            
+            if otype in ("door", "window"):
+                if isinstance(obj, tuple) and len(obj) >= 2:
+                    real_obj = obj[1]
+            elif otype == "vertex":
+                if isinstance(obj, tuple) and len(obj) >= 1:
+                    real_obj = obj[0] # The room
+            elif otype in ("wall_handle", "polyline_handle", "dimension_handle"):
+                if isinstance(obj, tuple) and len(obj) >= 1:
+                     real_obj = obj[0]
+            
+            # Check layer
+            obj_layer = getattr(real_obj, 'layer_id', '')
+            if obj_layer == layer_id:
+                changed = True
+            else:
+                new_selection.append(item)
+        
+        if changed:
+            self.selected_items = new_selection
+            self.queue_draw()
+            self.emit('selection-changed', self.selected_items)
     
     def copy_selected(self):
         """Copy selected items to clipboard"""
@@ -480,7 +628,8 @@ class CanvasArea(Gtk.DrawingArea,
                     new_room = self.Room(
                         points=new_points,
                         height=room.height,
-                        identifier=self.generate_identifier("room", self.existing_ids)
+                        identifier=self.generate_identifier("room", self.existing_ids),
+                        layer_id=self.active_layer_id
                     )
                     new_room.floor_type = room.floor_type
                     new_room.wall_finish = room.wall_finish

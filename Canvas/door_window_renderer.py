@@ -5,11 +5,23 @@ def draw_doors(self, cr, pixels_per_inch):
     cr.save()
     zoom_transform = self.zoom * pixels_per_inch
 
+    # Helper to check visibility
+    def is_visible(obj):
+        if hasattr(self, 'is_object_on_visible_layer'):
+            return self.is_object_on_visible_layer(obj)
+        return True
+        
+    def get_opacity(obj):
+        if hasattr(self, 'get_object_opacity'):
+            return self.get_object_opacity(obj)
+        return 1.0
+
     for door_item in self.doors:
         wall, door, ratio = door_item
+        opacity = get_opacity(door)
         
-        # Skip invalid entries
-        if wall is None:
+        # Skip invalid entries or hidden doors
+        if wall is None or not is_visible(door):
             continue
             
         A = wall.start
@@ -44,7 +56,7 @@ def draw_doors(self, cr, pixels_per_inch):
         P3 = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])
         P4 = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])
         
-        cr.set_source_rgb(1, 1, 1)  # White fill for opening
+        cr.set_source_rgba(1, 1, 1, opacity)  # White fill for opening
         cr.move_to(*P1)
         cr.line_to(*P2)
         cr.line_to(*P3)
@@ -83,7 +95,7 @@ def draw_doors(self, cr, pixels_per_inch):
             F = (hinge[0] + w * current_normal[0], hinge[1] + w * current_normal[1])
 
             # Draw the door leaf line
-            cr.set_source_rgb(0, 0, 0) # Black color
+            cr.set_source_rgba(0, 0, 0, opacity) # Black color
             cr.set_line_width(1.0 / zoom_transform)
             cr.move_to(*hinge)
             cr.line_to(*F)
@@ -140,7 +152,7 @@ def draw_doors(self, cr, pixels_per_inch):
             F2 = (hinge2[0] + w_half * swing_normal[0], hinge2[1] + w_half * swing_normal[1])  # Right leaf
             
             # Draw door leaves
-            cr.set_source_rgb(0, 0, 0)
+            cr.set_source_rgba(0, 0, 0, opacity)
             cr.set_line_width(1.0 / zoom_transform)
             cr.move_to(*hinge1)
             cr.line_to(*F1)
@@ -227,7 +239,7 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.set_line_width(1.0 / T)
             
             # Draw solid black outline of door opening
-            cr.set_source_rgb(0, 0, 0)  # Black
+            cr.set_source_rgba(0, 0, 0, opacity)  # Black
             cr.move_to(*wall_start)
             cr.line_to(*wall_end)  # Top (outside wall)
             cr.line_to(*wall_inside_end)  # Right side
@@ -236,14 +248,14 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.stroke()
             
             # Draw left leaf (black outline, white fill)
-            cr.set_source_rgb(1, 1, 1)  # White fill
+            cr.set_source_rgba(1, 1, 1, opacity)  # White fill
             cr.move_to(*left_top_start)
             cr.line_to(*left_top_end)
             cr.line_to(*left_bottom_end)
             cr.line_to(*left_bottom_start)
             cr.close_path()
             cr.fill()
-            cr.set_source_rgb(0, 0, 0)  # Black outline
+            cr.set_source_rgba(0, 0, 0, opacity)  # Black outline
             cr.move_to(*left_top_start)
             cr.line_to(*left_top_end)
             cr.line_to(*left_bottom_end)
@@ -252,14 +264,14 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.stroke()
             
             # Draw right leaf (black outline, white fill)
-            cr.set_source_rgb(1, 1, 1)  # White fill
+            cr.set_source_rgba(1, 1, 1, opacity)  # White fill
             cr.move_to(*right_top_start)
             cr.line_to(*right_top_end)
             cr.line_to(*right_bottom_end)
             cr.line_to(*right_bottom_start)
             cr.close_path()
             cr.fill()
-            cr.set_source_rgb(0, 0, 0)  # Black outline
+            cr.set_source_rgba(0, 0, 0, opacity)  # Black outline
             cr.move_to(*right_top_start)
             cr.line_to(*right_top_end)
             cr.line_to(*right_bottom_end)
@@ -308,7 +320,7 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.set_line_width(1.0 / T)
             
             # Draw solid black outline of door opening
-            cr.set_source_rgb(0, 0, 0)  # Black
+            cr.set_source_rgba(0, 0, 0, opacity)  # Black
             cr.move_to(*wall_start)
             cr.line_to(*wall_end)  # Top (outside wall)
             cr.line_to(*wall_inside_end)  # Right side
@@ -318,7 +330,7 @@ def draw_doors(self, cr, pixels_per_inch):
             
             # Draw door leaf as a rectangle (black outline, white fill)
             # Fill with white first
-            cr.set_source_rgb(1, 1, 1)  # White
+            cr.set_source_rgba(1, 1, 1, opacity)  # White
             cr.move_to(*door_top_start)
             cr.line_to(*door_top_end)
             cr.line_to(*door_bottom_end)
@@ -327,7 +339,7 @@ def draw_doors(self, cr, pixels_per_inch):
             cr.fill()
             
             # Draw black outline
-            cr.set_source_rgb(0, 0, 0)  # Black
+            cr.set_source_rgba(0, 0, 0, opacity)  # Black
             cr.move_to(*door_top_start)
             cr.line_to(*door_top_end)
             cr.line_to(*door_bottom_end)
@@ -388,7 +400,7 @@ def draw_doors(self, cr, pixels_per_inch):
                     end1[1] + w_half * math.sin(angle2))
 
             # Draw the door leaf.
-            cr.set_source_rgb(0, 0, 0)           # Black lines.
+            cr.set_source_rgba(0, 0, 0, opacity)           # Black lines.
             cr.set_line_width(1.0 / zoom_transform)
             cr.move_to(*hinge)
             cr.line_to(*end1)
@@ -415,7 +427,7 @@ def draw_doors(self, cr, pixels_per_inch):
             angle_closed = math.atan2(d[1], d[0])  # Door closed is along the wall direction
 
             # Set drawing properties
-            cr.set_source_rgb(0, 0, 0)           # Black lines
+            cr.set_source_rgba(0, 0, 0, opacity)           # Black lines
             cr.set_line_width(1.0 / zoom_transform)
 
             # --- Left Leaf Geometry ---
@@ -480,7 +492,7 @@ def draw_doors(self, cr, pixels_per_inch):
             inner_right = (inside_end[0] - depth * n[0], inside_end[1] - depth * n[1])
             
             # Set drawing properties
-            cr.set_source_rgb(0, 0, 0)  # Black lines
+            cr.set_source_rgba(0, 0, 0, opacity)  # Black lines
             cr.set_line_width(1.0 / T)
             
             # Draw outer box (solid lines)
@@ -547,7 +559,7 @@ def draw_doors(self, cr, pixels_per_inch):
 
         # Move to position and draw
         cr.move_to(x, y)
-        cr.set_source_rgb(0, 0, 0)  # Black text
+        cr.set_source_rgba(0, 0, 0, opacity)  # Black text
         cr.show_text(text)
 
         # Restore the context
@@ -558,12 +570,25 @@ def draw_doors(self, cr, pixels_per_inch):
 def draw_windows(self, cr, pixels_per_inch):
     cr.save()
     zoom_transform = self.zoom * pixels_per_inch
+    
+    # Helper to check visibility
+    def is_visible(obj):
+        if hasattr(self, 'is_object_on_visible_layer'):
+            return self.is_object_on_visible_layer(obj)
+        return True
+
+    def get_opacity(obj):
+        if hasattr(self, 'get_object_opacity'):
+            return self.get_object_opacity(obj)
+        return 1.0
+
     # Draw windows
     for window_item in self.windows: # window_item = (wall, window, ratio)
         wall, window, ratio = window_item # wall is a Wall object, window is a Window object, ratio is a float
+        opacity = get_opacity(window)
         
-        # Skip invalid entries
-        if wall is None:
+        # Skip invalid entries or hidden windows
+        if wall is None or not is_visible(window):
             continue
             
         A = wall.start # wall.start and wall.end are tuples (x, y)
@@ -593,7 +618,7 @@ def draw_windows(self, cr, pixels_per_inch):
         P4 = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1]) # Top-left corner
         
         # Draw the opening as a white rectangle
-        cr.set_source_rgb(1, 1, 1)  # White fill
+        cr.set_source_rgba(1, 1, 1, opacity)  # White fill
         cr.move_to(*P1)
         cr.line_to(*P2)
         cr.line_to(*P3)
@@ -643,7 +668,7 @@ def draw_windows(self, cr, pixels_per_inch):
             cr.set_line_width(1.0 / zoom_transform)
             
             # Draw solid black outline of window opening
-            cr.set_source_rgb(0, 0, 0)  # Black
+            cr.set_source_rgba(0, 0, 0, opacity)  # Black
             cr.move_to(*wall_start)
             cr.line_to(*wall_end)  # Top (outside wall)
             cr.line_to(*wall_inside_end)  # Right side
@@ -652,14 +677,14 @@ def draw_windows(self, cr, pixels_per_inch):
             cr.stroke()
             
             # Draw left pane (black outline, white fill)
-            cr.set_source_rgb(1, 1, 1)  # White fill
+            cr.set_source_rgba(1, 1, 1, opacity)  # White fill
             cr.move_to(*left_top_start)
             cr.line_to(*left_top_end)
             cr.line_to(*left_bottom_end)
             cr.line_to(*left_bottom_start)
             cr.close_path()
             cr.fill()
-            cr.set_source_rgb(0, 0, 0)  # Black outline
+            cr.set_source_rgba(0, 0, 0, opacity)  # Black outline
             cr.move_to(*left_top_start)
             cr.line_to(*left_top_end)
             cr.line_to(*left_bottom_end)
@@ -668,14 +693,14 @@ def draw_windows(self, cr, pixels_per_inch):
             cr.stroke()
             
             # Draw right pane (black outline, white fill)
-            cr.set_source_rgb(1, 1, 1)  # White fill
+            cr.set_source_rgba(1, 1, 1, opacity)  # White fill
             cr.move_to(*right_top_start)
             cr.line_to(*right_top_end)
             cr.line_to(*right_bottom_end)
             cr.line_to(*right_bottom_start)
             cr.close_path()
             cr.fill()
-            cr.set_source_rgb(0, 0, 0)  # Black outline
+            cr.set_source_rgba(0, 0, 0, opacity)  # Black outline
             cr.move_to(*right_top_start)
             cr.line_to(*right_top_end)
             cr.line_to(*right_bottom_end)
@@ -695,7 +720,7 @@ def draw_windows(self, cr, pixels_per_inch):
             wall_mid_end = (H_end[0], H_end[1])        # Midpoint at end
             
             # Draw a single rectangle outline for fixed window
-            cr.set_source_rgb(0, 0, 0)  # Black outline
+            cr.set_source_rgba(0, 0, 0, opacity)  # Black outline
             cr.set_line_width(1.0 / zoom_transform)
             cr.move_to(*P1)
             cr.line_to(*P2)
@@ -728,7 +753,7 @@ def draw_windows(self, cr, pixels_per_inch):
             rect_right_outer = (rect_right_start[0] + extension * p[0], rect_right_start[1] + extension * p[1])
             
             # Draw the extension rectangle outline
-            cr.set_source_rgb(0, 0, 0)  # Black outline (or choose a different color/style if desired)
+            cr.set_source_rgba(0, 0, 0, opacity)  # Black outline (or choose a different color/style if desired)
             cr.move_to(*rect_left_start)
             cr.line_to(*rect_right_start)
             cr.line_to(*rect_right_outer)
@@ -748,7 +773,7 @@ def draw_windows(self, cr, pixels_per_inch):
             wall_mid_end = (H_end[0], H_end[1])        # Midpoint at end
             
             # Draw a single rectangle outline for fixed window
-            cr.set_source_rgb(0, 0, 0)  # Black outline
+            cr.set_source_rgba(0, 0, 0, opacity)  # Black outline
             cr.set_line_width(1.0 / zoom_transform)
             cr.move_to(*P1)
             cr.line_to(*P2)
@@ -786,7 +811,7 @@ def draw_windows(self, cr, pixels_per_inch):
         x_text = -extents.width / 2  # Center horizontally
         y_text = -font_size * -1.5   # Offset above
         cr.move_to(x_text, y_text)
-        cr.set_source_rgb(0, 0, 0)  # Black text
+        cr.set_source_rgba(0, 0, 0, opacity)  # Black text
         cr.show_text(text)
         cr.restore()
     cr.restore()

@@ -1,5 +1,5 @@
 import xml.etree.ElementTree as ET
-from components import Wall, Room, Door, Window, Text, Dimension
+from components import Wall, Room, Door, Window, Text, Dimension, Layer
 
 def save_project(canvas, window_width, window_height, filepath): 
     """ Save the entire project state to an XML file.
@@ -17,6 +17,20 @@ def save_project(canvas, window_width, window_height, filepath):
     # Create the XML root with window dimensions.
     root = ET.Element("Project", window_width=str(window_width), window_height=str(window_height))
 
+    # Save layers
+    layers_elem = ET.SubElement(root, "Layers")
+    for layer in getattr(canvas, 'layers', []):
+        layer_elem = ET.SubElement(layers_elem, "Layer")
+        layer_elem.set("id", layer.id)
+        layer_elem.set("name", layer.name)
+        layer_elem.set("visible", str(layer.visible))
+        layer_elem.set("locked", str(layer.locked))
+        layer_elem.set("opacity", str(layer.opacity))
+    
+    # Save active layer ID
+    active_layer_id = getattr(canvas, 'active_layer_id', '')
+    root.set("active_layer_id", active_layer_id)
+
     # Save wall sets (each wall in a wall set includes all construction details)
     walls_elem = ET.SubElement(root, "WallSets")
     # Build a mapping of wall objects to their wall set index and index within that set.
@@ -32,6 +46,7 @@ def save_project(canvas, window_width, window_height, filepath):
             ET.SubElement(wall_elem, "Width").text = str(wall.width)
             ET.SubElement(wall_elem, "Height").text = str(wall.height)
             ET.SubElement(wall_elem, "ExteriorWall").text = str(wall.exterior_wall)
+            ET.SubElement(wall_elem, "LayerId").text = getattr(wall, 'layer_id', '')
             # Save additional construction properties.
             ET.SubElement(wall_elem, "Material").text = wall.material
             ET.SubElement(wall_elem, "InteriorFinish").text = wall.interior_finish
@@ -52,6 +67,7 @@ def save_project(canvas, window_width, window_height, filepath):
         ET.SubElement(room_elem, "WallFinish").text = room.wall_finish
         ET.SubElement(room_elem, "RoomType").text = room.room_type
         ET.SubElement(room_elem, "Name").text = room.name
+        ET.SubElement(room_elem, "LayerId").text = getattr(room, 'layer_id', '')
 
     # Save doors. In addition to their properties and attachment ratio, also save a wall reference.
     doors_elem = ET.SubElement(root, "Doors")
@@ -63,6 +79,7 @@ def save_project(canvas, window_width, window_height, filepath):
         ET.SubElement(door_elem, "Swing").text = door.swing
         ET.SubElement(door_elem, "Orientation").text = door.orientation
         ET.SubElement(door_elem, "AttachedToWallRatio").text = str(ratio)
+        ET.SubElement(door_elem, "LayerId").text = getattr(door, 'layer_id', '')
         # Save the wall reference.
         wall_ref_elem = ET.SubElement(door_elem, "WallReference")
         if attached_wall is not None:
@@ -85,6 +102,7 @@ def save_project(canvas, window_width, window_height, filepath):
         ET.SubElement(win_elem, "Height").text = str(window_obj.height)
         ET.SubElement(win_elem, "WindowType").text = window_obj.window_type
         ET.SubElement(win_elem, "AttachedToWallRatio").text = str(ratio)
+        ET.SubElement(win_elem, "LayerId").text = getattr(window_obj, 'layer_id', '')
         # Save the wall reference.
         wall_ref_elem = ET.SubElement(win_elem, "WallReference")
         if attached_wall is not None:
@@ -114,6 +132,7 @@ def save_project(canvas, window_width, window_height, filepath):
         t_elem.set("italic", str(text.italic))
         t_elem.set("underline", str(text.underline))
         t_elem.set("identifier", text.identifier)
+        t_elem.set("layer_id", getattr(text, 'layer_id', ''))
     
     # Save dimensions
     dimensions_elem = ET.SubElement(root, "Dimensions")
@@ -125,6 +144,7 @@ def save_project(canvas, window_width, window_height, filepath):
         d_elem.set("end_y", str(dimension.end[1]))
         d_elem.set("offset", str(dimension.offset))
         d_elem.set("identifier", dimension.identifier)
+        d_elem.set("layer_id", getattr(dimension, 'layer_id', ''))
         d_elem.set("text_size", str(dimension.text_size))
         d_elem.set("show_arrows", str(dimension.show_arrows))
         d_elem.set("line_style", dimension.line_style)
@@ -168,6 +188,27 @@ def open_project(canvas, filepath):
     canvas.windows.clear()
     canvas.texts.clear()
     canvas.dimensions.clear()
+    if hasattr(canvas, 'layers'):
+        canvas.layers.clear()
+
+    # --- Restore Layers ---
+    layers_elem = root.find("Layers")
+    if layers_elem is not None:
+        for layer_elem in layers_elem.findall("Layer"):
+            layer = Layer(
+                id=layer_elem.get("id", ""),
+                name=layer_elem.get("name", "Layer"),
+                visible=layer_elem.get("visible", "True") == "True",
+                locked=layer_elem.get("locked", "False") == "True",
+                opacity=float(layer_elem.get("opacity", "1.0"))
+            )
+            if hasattr(canvas, 'layers'):
+                canvas.layers.append(layer)
+    
+    # Restore active layer ID
+    active_layer_id = root.get("active_layer_id", "")
+    if hasattr(canvas, 'active_layer_id'):
+        canvas.active_layer_id = active_layer_id
 
     # --- Restore Wall Sets ---
     walls_elem = root.find("WallSets")
@@ -187,6 +228,7 @@ def open_project(canvas, filepath):
                 
                 # Create a new Wall instance.
                 wall = Wall(start, end, width, height, exterior_wall)
+                wall.layer_id = wall_elem.find("LayerId").text if wall_elem.find("LayerId") is not None else ""
                 wall.material = wall_elem.find("Material").text
                 wall.interior_finish = wall_elem.find("InteriorFinish").text
                 wall.exterior_finish = wall_elem.find("ExteriorFinish").text
@@ -214,6 +256,7 @@ def open_project(canvas, filepath):
             room.wall_finish = room_elem.find("WallFinish").text
             room.room_type = room_elem.find("RoomType").text
             room.name = room_elem.find("Name").text
+            room.layer_id = room_elem.find("LayerId").text if room_elem.find("LayerId") is not None else ""
             canvas.rooms.append(room)
 
     # --- Restore Doors ---
@@ -228,6 +271,7 @@ def open_project(canvas, filepath):
             ratio = float(door_elem.find("AttachedToWallRatio").text)
             
             door = Door(door_type, width, height, swing, orientation)
+            door.layer_id = door_elem.find("LayerId").text if door_elem.find("LayerId") is not None else ""
             attached_wall = None
             wall_ref_elem = door_elem.find("WallReference")
             if wall_ref_elem is not None:
@@ -249,6 +293,7 @@ def open_project(canvas, filepath):
             ratio = float(win_elem.find("AttachedToWallRatio").text)
             
             window_obj = Window(win_width, win_height, window_type)
+            window_obj.layer_id = win_elem.find("LayerId").text if win_elem.find("LayerId") is not None else ""
             attached_wall = None
             wall_ref_elem = win_elem.find("WallReference")
             if wall_ref_elem is not None:
@@ -277,6 +322,7 @@ def open_project(canvas, filepath):
             text_obj.bold = t_elem.get("bold", "False") == "True"
             text_obj.italic = t_elem.get("italic", "False") == "True"
             text_obj.underline = t_elem.get("underline", "False") == "True"
+            text_obj.layer_id = t_elem.get("layer_id", "")
             
             canvas.texts.append(text_obj)
     
@@ -304,6 +350,7 @@ def open_project(canvas, filepath):
             color_g = float(d_elem.get("color_g", "0.0"))
             color_b = float(d_elem.get("color_b", "0.0"))
             dimension_obj.color = (color_r, color_g, color_b)
+            dimension_obj.layer_id = d_elem.get("layer_id", "")
             
             canvas.dimensions.append(dimension_obj)
 
