@@ -9,7 +9,7 @@ Provides UI for:
 - Adding and removing layers
 """
 
-from gi.repository import Gtk, GObject
+from gi.repository import Gtk, GObject, Pango
 
 
 class LayersPanel(Gtk.Box):
@@ -100,11 +100,21 @@ class LayersPanel(Gtk.Box):
         row.append(lock_btn)
         
         # Layer name (as button to select active layer)
-        name_btn = Gtk.Button(label=layer.name)
-        # name_btn.set_has_frame(False) # Keep frame to look like a selectable item
+        name_btn = Gtk.Button()
+        name_lbl = Gtk.Label(label=layer.name)
+        name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        name_lbl.set_xalign(0) # Left align text
+        name_btn.set_child(name_lbl)
+        
         name_btn.set_hexpand(True)
-        # name_btn.set_halign(Gtk.Align.START) # Let it fill to be easier to click
+        # name_btn.set_halign(Gtk.Align.FILL) 
         name_btn.connect("clicked", self.on_layer_selected, layer)
+        
+        # Add right-click controller for renaming
+        right_click = Gtk.GestureClick()
+        right_click.set_button(3)
+        right_click.connect("pressed", self.on_layer_right_click, layer, name_btn)
+        name_btn.add_controller(right_click)
         
         # Highlight active layer
         if layer.id == self.canvas.active_layer_id:
@@ -160,9 +170,46 @@ class LayersPanel(Gtk.Box):
             self.refresh_layers()
             self.emit('layer-changed')
     
+    
     def on_remove_layer(self, button):
         """Remove the active layer."""
         if self.canvas.remove_layer(self.canvas.active_layer_id):
             self.refresh_layers()
             self.canvas.queue_draw()
             self.emit('layer-changed')
+
+    def on_layer_right_click(self, gesture, n_press, x, y, layer, button):
+        """Show rename popover."""
+        # Use simple Gtk.Popover for renaming
+        popover = Gtk.Popover()
+        popover.set_parent(button)
+        
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        vbox.set_margin_start(10)
+        vbox.set_margin_end(10)
+        vbox.set_margin_top(10)
+        vbox.set_margin_bottom(10)
+        popover.set_child(vbox)
+        
+        lbl = Gtk.Label(label="Rename Layer")
+        vbox.append(lbl)
+        
+        entry = Gtk.Entry()
+        entry.set_text(layer.name)
+        entry.connect("activate", lambda e: self.perform_rename(layer, entry.get_text(), popover))
+        vbox.append(entry)
+        
+        btn = Gtk.Button(label="Rename")
+        btn.connect("clicked", lambda b: self.perform_rename(layer, entry.get_text(), popover))
+        vbox.append(btn)
+        
+        popover.popup()
+        
+    def perform_rename(self, layer, new_name, popover):
+        """Execute rename and refresh."""
+        if new_name and new_name != layer.name:
+            layer.name = new_name
+            self.refresh_layers()
+            self.emit('layer-changed')
+        popover.popdown()
+

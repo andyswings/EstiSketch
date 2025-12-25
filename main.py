@@ -268,39 +268,38 @@ class EstimatorApp(Gtk.Application):
         toolbar_box, self.tool_buttons, extra_buttons = toolbar.create_toolbar(self.config, callbacks, self.canvas)
         vbox.append(toolbar_box)
         
+
         
-        main_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        main_hbox.append(self.canvas)
+        
+        main_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        main_paned.set_start_child(self.canvas)
+        self.main_paned = main_paned
         
         # Only show properties panel if enabled in config
         if getattr(self.config, 'SHOW_PROPERTIES_PANEL', False):
-            # Create a vertical box for the right sidebar
-            right_sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-            
             # Add Properties Dock
             self.properties_dock = PropertiesDock(self.canvas)
-            right_sidebar.append(self.properties_dock)
-            
-            # Add Layers Panel (bottom half)
-            separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-            right_sidebar.append(separator)
-            
-            self.layers_panel = LayersPanel(self.canvas)
-            # Give it some height but allow shrinking
-            self.layers_panel.set_vexpand(True) 
-            # Start hidden to match PropertiesDock initial state
-            self.layers_panel.set_visible(False)
-            right_sidebar.append(self.layers_panel)
-            
-            # Connect sidebar toggle signal
-            self.properties_dock.connect('sidebar-toggled', lambda dock, visible: self.layers_panel.set_visible(visible))
-            
-            main_hbox.append(right_sidebar)
-            
             # Give canvas a reference to properties dock so it can update sidebar values
             self.canvas.properties_dock = self.properties_dock
+
+            # Use Paned for resizing
+            main_paned.set_end_child(self.properties_dock)
+            main_paned.set_resize_end_child(False)
+            main_paned.set_shrink_end_child(False)
+            main_paned.set_shrink_start_child(True)
+             
+            # Set initial position based on config
+            sidebar_width = getattr(self.config, 'SIDEBAR_WIDTH', 300)
+            # Gtk.Paned position is from left edge. We need (total_width - sidebar_width)
+            # But initial allocation isn't done yet, so this might be tricky.
+            # Instead, we set the position after realization or just rely on default.
+            # Actually, standard way is setting position.
+            main_paned.set_position(self.config.WINDOW_WIDTH - sidebar_width)
+
+            # Update toggle behavior to use paned
+            self.properties_dock.connect('sidebar-toggled', self.on_sidebar_toggled)
             
-        vbox.append(main_hbox)
+        vbox.append(main_paned)
 
         # Connect non-toggle button actions.
         self.tool_buttons["save"].connect("clicked", lambda btn: self.show_save_dialog())
@@ -823,9 +822,108 @@ class EstimatorApp(Gtk.Application):
     def on_exit(self, action, parameter):
         self.window.emit("close-request")
     
+    
     def on_close_request(self, window):
+        """Handle window close request."""
+        # Save settings first
+        try:
+            self.on_window_destroy(self)
+        except Exception as e:
+            print(f"Error saving settings: {e}")
+
         if not self.is_dirty:
-            window.destroy()
+            # Return False (default) to let the window close
+            # But wait, in GTK4 returning True STOPS propagation (blocks close).
+            # Returning False allows close.
+            return False
+            
+        # Prompt user to save changes
+        dlg = Gtk.MessageDialog(
+            transient_for=self.window,
+            modal=True,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.NONE,
+            text="Unsaved Changes"
+        )
+        dlg.set_secondary_text("You have unsaved changes. Do you want to save before exiting?")
+        dlg.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dlg.add_button("Discard", Gtk.ResponseType.CLOSE)
+        dlg.add_button("Save", Gtk.ResponseType.ACCEPT)
+        
+        dlg.connect("response", self.on_close_response)
+        dlg.present()
+        
+        # Return True to stop the default close action (we wait for dialog)
+        return True
+    
+    def on_sidebar_toggled(self, dock, visible):
+        """Handle sidebar visibility toggle, respecting paned position."""
+        if visible:
+            # Restore previous width if known, else default
+            width = getattr(self.config, 'SIDEBAR_WIDTH', 300)
+            target_pos = self.window.get_allocated_width() - width
+            self.main_paned.set_position(target_pos)
+        else:
+            # When hiding, we want it to be minimum size (icon bar only)
+            target_pos = self.window.get_allocated_width() - 40
+            self.main_paned.set_position(target_pos)
+
+    def on_window_destroy(self, widget):
+        if hasattr(self, 'config'):
+            # Save settings
+            # Update width if sidebar is open
+            if hasattr(self, 'properties_dock') and self.properties_dock.stack.get_visible():
+                width = self.window.get_allocated_width() - self.main_paned.get_position()
+                if width > 50: # Sanity check
+                    self.config.SIDEBAR_WIDTH = width
+            
+            # Save window state
+            w, h = self.window.get_default_size()
+            self.config.WINDOW_WIDTH = w
+            self.config.WINDOW_HEIGHT = h
+            self.config.WINDOW_MAXIMIZED = self.window.is_maximized()
+            
+            self._save_settings()
+        return False
+        
+    def _save_settings(self):
+        """Save current configuration to settings.json"""
+        import json
+        import os
+        settings_path = os.path.join(os.path.dirname(__file__), "settings.json")
+        
+        # Collect values to save
+        data = {
+            "WINDOW_WIDTH": self.config.WINDOW_WIDTH,
+            "WINDOW_HEIGHT": self.config.WINDOW_HEIGHT,
+            "WINDOW_MAXIMIZED": getattr(self.config, "WINDOW_MAXIMIZED", False),
+            "SIDEBAR_WIDTH": getattr(self.config, "SIDEBAR_WIDTH", 300),
+            "SHOW_PROPERTIES_PANEL": getattr(self.config, "SHOW_PROPERTIES_PANEL", True)
+        }
+        
+        # Load existing to preserve other keys
+        try:
+            with open(settings_path, 'r') as f:
+                existing = json.load(f)
+                existing.update(data)
+                data = existing
+        except:
+            pass
+            
+        try:
+            with open(settings_path, 'w') as f:
+                json.dump(data, f, indent=4)
+        except Exception as e:
+            print(f"Failed to save settings: {e}")
+
+    def on_window_close_request(self, *args):
+        try:
+            self.on_window_destroy(self)
+        except Exception as e:
+            print(f"Error saving settings: {e}")
+        
+        if not self.is_dirty:
+            self.window.destroy()
             return True
         # Prompt user to save changes
         dlg = Gtk.MessageDialog(
@@ -844,9 +942,9 @@ class EstimatorApp(Gtk.Application):
         dlg.present()
         return True
     
-    def on_quit_response(self, dialog, response, window):
+    def on_close_response(self, dialog, response):
         dialog.destroy()
-        if response == Gtk.ResponseType.YES:
+        if response == Gtk.ResponseType.ACCEPT: # Save
             if self.current_filepath:
                 save_project(
                     self.canvas,

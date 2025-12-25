@@ -3,6 +3,7 @@ import os
 import json
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GObject
+from .layers_panel import LayersPanel
 
 # Stub widgets—you can flesh these out with real controls
 class WallPropertiesWidget(Gtk.Box):
@@ -1145,20 +1146,31 @@ class PropertiesDock(Gtk.Box):
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         self.icon_bar.append(separator)
 
+        # Layers Tab (Always visible)
+        self.layers_btn = self._make_tab_button("layers", icon_dir, "layers") 
+        self.icon_bar.append(self.layers_btn)
+        self.tabs = {} # Initialize tabs dict before adding layers
+        self.tabs["layers"] = self.layers_btn
+
         # Content stack
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT,
                                transition_duration=200)
+        self.stack.set_size_request(260, -1) # Set width of content area (total will be 300 with icon bar)
         self.append(self.stack)
-        self.stack.set_visible(False)
+        self.stack.set_visible(False) # Start hidden (sidebar collapsed)
 
-        # Track tabs
-        self.tabs = {}
+        # Track tabs (layers already added)
+        # self.tabs = {} 
 
         # Add blank/default page for when nothing is selected
         blank_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         blank_label = Gtk.Label(label="")
         blank_page.append(blank_label)
         self.stack.add_titled(blank_page, "blank", "No Selection")
+        
+        # Layers Page
+        self.layers_page = LayersPanel(canvas)
+        self.stack.add_titled(self.layers_page, "layers", "Layers")
 
         # Pre-create all pages and tabs upfront
         self.wall_page = WallPropertiesWidget()
@@ -1247,12 +1259,14 @@ class PropertiesDock(Gtk.Box):
         wants_window = len(window_items) > 0 and len(wall_items) == 0 and len(text_items) == 0 and len(dimension_items) == 0 and len(door_items) == 0
         wants_door = len(door_items) > 0 and len(wall_items) == 0 and len(text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0
         
+        
         # Enable/disable tabs based on selection
         self.tabs["wall"].set_sensitive(wants_wall)
         self.tabs["text"].set_sensitive(wants_text)
         self.tabs["dimension"].set_sensitive(wants_dimension)
         self.tabs["window"].set_sensitive(wants_window)
         self.tabs["door"].set_sensitive(wants_door)
+        self.tabs["layers"].set_sensitive(True) # Layers always active
         
         # Update content and activate appropriate tab
         if wants_wall:
@@ -1354,11 +1368,29 @@ class PropertiesDock(Gtk.Box):
                 self._set_active_tab("door")
         else:
         # Nothing selected - show blank and hide panel
-            self.stack.set_visible_child_name("blank")
-            self.stack.set_visible(False)
-            self.toggle_button.set_child(self.toggle_close_image)
-            # Deactivate all tabs
+            # Check if we were on layers? If on layers, stay on layers?
+            # User expectation: if I have layers open, it should stay open even if I deselect text?
+            # But behavior for properties is usually "context sensitive". 
+            # If I want to see layers, I click layers. 
+            
+            # If current is layers, DO NOT switch to blank.
+            current_name = self.stack.get_visible_child_name()
+            if current_name == "layers" and self.stack.get_visible():
+                pass # Stay on layers
+            else:
+                self.stack.set_visible_child_name("blank")
+                self.stack.set_visible(False)
+                self.toggle_button.set_child(self.toggle_close_image)
+                # Deactivate all tabs except layers?
+                # Actually, untoggling active tab is enough.
+                # But if we stay on layers, we should keep layers toggle active.
+                pass
+
+            # Deactivate all tabs (except possibly layers if it was active?)
+            # Simplified: just deactivate all context tabs. If layers is active, keep it.
             for name, tab_btn in self.tabs.items():
+                if name == "layers" and tab_btn.get_active() and self.stack.get_visible():
+                    continue
                 tab_btn.handler_block(tab_btn.handler_id)
                 tab_btn.set_active(False)
                 tab_btn.handler_unblock(tab_btn.handler_id)
