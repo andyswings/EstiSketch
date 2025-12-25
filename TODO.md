@@ -1,13 +1,12 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Allow adding points to an existing room
-- [ ] Allow moving an entire room (dragging from inside the room)
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped)
 - [ ] Implement Layers system
 - [ ] Add Circles/Arcs drawing tool
 - [ ] Create Furniture & Fixture library
 - [ ] Add automatic room area calculations
+- [ ] Add right click menu option to mirror offset of dimension to other side of dimension line
 
 ## ✨ Core Features (essential functionality)
 
@@ -172,6 +171,8 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Allow adding points to an existing room - double-click on edge to insert (2025-12-25)
+- [x] Allow moving an entire room (dragging from inside the room) (2025-12-25)
 - [x] Fixed snapping to work in multiple directions at the same time (e.g. horizontal and vertical) also, end points should snap to other end points of lines and when directly above/below or left or right of any other point (2025-12-25)
 - [x] Polylines are now editable (segments moved, endpoints repositioned) (2025-12-25)
 - [x] Rooms no longer closed with duplicate point - only unique vertices stored (2025-12-25)

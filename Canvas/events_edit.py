@@ -423,6 +423,26 @@ class EditEventsMixin:
             self.queue_draw()
             return
         
+        # Handle whole-room dragging - moves all vertices together
+        if getattr(self, "dragging_room", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            
+            # Calculate current position in model coordinates
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            
+            # Calculate offset in model coordinates
+            dx = current_model[0] - self.room_drag_start_model[0]
+            dy = current_model[1] - self.room_drag_start_model[1]
+            
+            # Update all vertices by the same offset
+            for i, orig_pt in enumerate(self.dragging_room_original_points):
+                self.dragging_room.points[i] = (orig_pt[0] + dx, orig_pt[1] + dy)
+            
+            self.queue_draw()
+            return
+        
         # Handle polyline endpoint editing
         if getattr(self, "editing_polyline", None) and getattr(self, "editing_polyline_handle", None):
             pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)

@@ -155,6 +155,51 @@ class CanvasSelectionMixin:
                 if dist_pt < vertex_threshold and dist_pt < best_dist:
                     best_dist = dist_pt
                     selected_item = {"type": "vertex", "object": (room, idx)}
+        
+        # Check for clicks on room edges (between vertices) - double-click to insert vertex
+        edge_threshold = 10  # device pixels for edge detection
+        if n_press == 2 and selected_item is None:  # Only on double-click, and if not clicking on a vertex
+            for room in self.rooms:
+                num_pts = len(room.points)
+                for i in range(num_pts):
+                    # Get edge from point i to point (i+1) % num_pts (closed polygon)
+                    p1 = room.points[i]
+                    p2 = room.points[(i + 1) % num_pts]
+                    
+                    # Convert to widget coordinates
+                    p1_widget = ((p1[0] * T) + self.offset_x, (p1[1] * T) + self.offset_y)
+                    p2_widget = ((p2[0] * T) + self.offset_x, (p2[1] * T) + self.offset_y)
+                    
+                    # Check distance from click to this edge
+                    dist = self.distance_point_to_segment(click_pt, p1_widget, p2_widget)
+                    
+                    if dist < edge_threshold:
+                        # Convert click to model coordinates for new vertex
+                        new_x, new_y = self.device_to_model(x, y, pixels_per_inch)
+                        
+                        # Insert new point at position (i+1) in the points list
+                        room.points.insert(i + 1, (new_x, new_y))
+                        
+                        # Select the new vertex for immediate editing
+                        selected_item = {"type": "vertex", "object": (room, i + 1)}
+                        
+                        print(f"Inserted new room vertex at ({new_x:.1f}, {new_y:.1f})")
+                        self.save_state()
+                        break
+                if selected_item:
+                    break
+        
+        # Check for click inside room (for whole-room dragging)
+        if selected_item is None:
+            for room in self.rooms:
+                # Convert room points to widget coordinates
+                poly_widget = [
+                    ((pt[0] * T) + self.offset_x, (pt[1] * T) + self.offset_y)
+                    for pt in room.points
+                ]
+                if self._point_in_polygon(click_pt, poly_widget):
+                    selected_item = {"type": "room", "object": room}
+                    break
 
         for door_item in self.doors:
             wall, door, ratio = door_item
@@ -508,6 +553,24 @@ class CanvasSelectionMixin:
                         self.polyline_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
                         
                         self.box_selecting = False
+                
+                # Check for whole-room dragging
+                elif item["type"] == "room" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None):
+                    room = item["object"]
+                    
+                    # Store all original vertex positions
+                    self.dragging_room = room
+                    self.dragging_room_original_points = [pt for pt in room.points]
+                    
+                    # Store drag start coordinates
+                    self.drag_start_x = start_x
+                    self.drag_start_y = start_y
+                    
+                    # Convert drag start to model coordinates
+                    pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                    self.room_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                    
+                    self.box_selecting = False
 
         elif self.tool_mode == "add_text":
             self.drag_start_x = start_x
@@ -596,6 +659,15 @@ class CanvasSelectionMixin:
             self.wall_drag_start_model = None
             self.wall_drag_connected_start = []
             self.wall_drag_connected_end = []
+            self.save_state()
+            self.queue_draw()
+            return
+        
+        if getattr(self, "dragging_room", None):
+            # Finalize room drag and clear dragging state
+            self.dragging_room = None
+            self.dragging_room_original_points = None
+            self.room_drag_start_model = None
             self.save_state()
             self.queue_draw()
             return
