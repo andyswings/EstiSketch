@@ -1,6 +1,7 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
+- [ ] Add Ctrl+A to select all objects
 - [ ] Allow adding points to an existing room
 - [ ] Allow moving an entire room (dragging from inside the room)
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped)
@@ -165,7 +166,6 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Dimensions cannot be edited (moved, ends repositioned)
 - [ ] Polylines are not editable (segments moved, vertices repositioned)
 - [ ] Snapping should work in multiple directions at the same time (e.g. horizontal and vertical) also, end points should snap to other end points of lines and when directly above/below or left of right of any other point
 
@@ -175,6 +175,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Dimensions can now be moved and edited - implemented dimension dragging and editing (2025-12-25)
 - [x] Room points can now be moved (dragged) - implemented vertex dragging (2025-12-25)
 - [x] Improved snapping is too course (the snapping "band" is too large) (2025-12-25)
 - [x] Fixed Walls etc. use snapping even when it is disabled in the settings (2025-12-25)

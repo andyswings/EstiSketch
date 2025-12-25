@@ -236,6 +236,39 @@ class EditEventsMixin:
             self.queue_draw()
             return
         
+        # Handle dimension endpoint editing
+        if getattr(self, "editing_dimension", None) and getattr(self, "editing_dimension_handle", None):
+            T = self.zoom * pixels_per_inch
+            
+            # Calculate new position based on drag offset
+            current_device_x = self.drag_start_x + offset_x if hasattr(self, 'drag_start_x') else offset_x
+            current_device_y = self.drag_start_y + offset_y if hasattr(self, 'drag_start_y') else offset_y
+            
+            # Convert to model coordinates
+            new_x, new_y = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            
+            # Apply snapping if enabled
+            if self.snap_manager.snap_enabled:
+                walls = [wall for wall_set in self.wall_sets for wall in wall_set]
+                snapped_pos, snap_type = self.snap_manager.snap_point(
+                    new_x, new_y,
+                    new_x, new_y,  # base point
+                    walls, self.rooms,
+                    canvas_width=self.get_width(),
+                    zoom=self.zoom
+                )
+                if snap_type != "none":
+                    new_x, new_y = snapped_pos
+            
+            # Update the appropriate endpoint
+            if self.editing_dimension_handle == "start":
+                self.editing_dimension.start = (new_x, new_y)
+            else:
+                self.editing_dimension.end = (new_x, new_y)
+            
+            self.queue_draw()
+            return
+        
         # Handle text rotation
         if getattr(self, "rotating_text", None):
             pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
@@ -336,6 +369,31 @@ class EditEventsMixin:
                 idx = vertex_info["index"]
                 new_pos = (orig[0] + dx, orig[1] + dy)
                 room.points[idx] = new_pos
+            
+            self.queue_draw()
+            return
+        
+        # Handle dimension dragging - moves entire dimension (start and end points together)
+        if getattr(self, "dragging_dimensions", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            
+            # Calculate current position in model coordinates
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            
+            # Calculate offset in model coordinates
+            dx = current_model[0] - self.dimension_drag_start_model[0]
+            dy = current_model[1] - self.dimension_drag_start_model[1]
+            
+            # Update all selected dimensions by moving both endpoints
+            for dim_info in self.dragging_dimensions:
+                dim = dim_info["dimension"]
+                orig_start = dim_info["original_start"]
+                orig_end = dim_info["original_end"]
+                
+                dim.start = (orig_start[0] + dx, orig_start[1] + dy)
+                dim.end = (orig_end[0] + dx, orig_end[1] + dy)
             
             self.queue_draw()
             return

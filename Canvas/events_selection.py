@@ -58,6 +58,44 @@ class CanvasSelectionMixin:
                         break
             if selected_item:
                 break
+        
+        # Check for dimension endpoint clicks (for editing)
+        if selected_item is None:
+            for item in self.selected_items:
+                if item["type"] == "dimension":
+                    dim = item["object"]
+                    offset = dim.offset
+                    
+                    # Calculate perpendicular offset
+                    dx = dim.end[0] - dim.start[0]
+                    dy = dim.end[1] - dim.start[1]
+                    length = math.hypot(dx, dy)
+                    if length > 0:
+                        px = -dy / length
+                        py = dx / length
+                    else:
+                        px, py = 0, 0
+                    
+                    # Dimension line endpoints (with offset applied)
+                    dim_start = (dim.start[0] + offset * px, dim.start[1] + offset * py)
+                    dim_end = (dim.end[0] + offset * px, dim.end[1] + offset * py)
+                    
+                    for handle_name, pt in [("start", dim_start), ("end", dim_end)]:
+                        pt_widget = (
+                            (pt[0] * T) + self.offset_x,
+                            (pt[1] * T) + self.offset_y
+                        )
+                        dist = math.hypot(click_pt[0] - pt_widget[0], click_pt[1] - pt_widget[1])
+                        if dist < self.handle_radius:
+                            # Start editing this dimension's endpoint
+                            self.editing_dimension = dim
+                            self.editing_dimension_handle = handle_name
+                            self.editing_dimension_original_start = dim.start
+                            self.editing_dimension_original_end = dim.end
+                            selected_item = {"type": "dimension_handle", "object": (dim, handle_name)}
+                            break
+                if selected_item:
+                    break
 
         # T = self.zoom * pixels_per_inch
         for wall_set in self.wall_sets:
@@ -398,6 +436,31 @@ class CanvasSelectionMixin:
                         self.vertex_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
                         
                         self.box_selecting = False
+                
+                # Check for dimension dragging - supports multiple selected dimensions
+                elif item["type"] == "dimension" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None):
+                    # Collect all selected dimensions
+                    selected_dims = [i for i in self.selected_items if i["type"] == "dimension"]
+                    
+                    if selected_dims:
+                        self.dragging_dimensions = []
+                        for dim_item in selected_dims:
+                            dim = dim_item["object"]
+                            self.dragging_dimensions.append({
+                                "dimension": dim,
+                                "original_start": dim.start,
+                                "original_end": dim.end
+                            })
+                        
+                        # Store drag start coordinates
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        
+                        # Convert drag start to model coordinates
+                        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                        self.dimension_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                        
+                        self.box_selecting = False
 
         elif self.tool_mode == "add_text":
             self.drag_start_x = start_x
@@ -428,6 +491,15 @@ class CanvasSelectionMixin:
             self.connected_endpoints = []
             self.connected_endpoints = []
             self.joint_drag_origin = None
+            return
+        
+        # If we were editing a dimension endpoint, clear that state and save
+        if getattr(self, "editing_dimension", None) and getattr(self, "editing_dimension_handle", None):
+            self.editing_dimension = None
+            self.editing_dimension_handle = None
+            self.editing_dimension_original_start = None
+            self.editing_dimension_original_end = None
+            self.save_state()
             return
 
         if getattr(self, "rotating_text", None):
@@ -470,6 +542,14 @@ class CanvasSelectionMixin:
             # Finalize vertex drag and clear dragging state
             self.dragging_vertices = None
             self.vertex_drag_start_model = None
+            self.save_state()
+            self.queue_draw()
+            return
+        
+        if getattr(self, "dragging_dimensions", None):
+            # Finalize dimension drag and clear dragging state
+            self.dragging_dimensions = None
+            self.dimension_drag_start_model = None
             self.save_state()
             self.queue_draw()
             return
