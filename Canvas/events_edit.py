@@ -397,6 +397,66 @@ class EditEventsMixin:
             
             self.queue_draw()
             return
+        
+        # Handle polyline dragging - moves entire polyline (start and end points together)
+        if getattr(self, "dragging_polylines", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            
+            # Calculate current position in model coordinates
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            
+            # Calculate offset in model coordinates
+            dx = current_model[0] - self.polyline_drag_start_model[0]
+            dy = current_model[1] - self.polyline_drag_start_model[1]
+            
+            # Update all selected polylines by moving both endpoints
+            for poly_info in self.dragging_polylines:
+                poly = poly_info["polyline"]
+                orig_start = poly_info["original_start"]
+                orig_end = poly_info["original_end"]
+                
+                poly.start = (orig_start[0] + dx, orig_start[1] + dy)
+                poly.end = (orig_end[0] + dx, orig_end[1] + dy)
+            
+            self.queue_draw()
+            return
+        
+        # Handle polyline endpoint editing
+        if getattr(self, "editing_polyline", None) and getattr(self, "editing_polyline_handle", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            
+            # Calculate new position based on drag offset
+            current_device_x = self.drag_start_x + offset_x if hasattr(self, 'drag_start_x') else offset_x
+            current_device_y = self.drag_start_y + offset_y if hasattr(self, 'drag_start_y') else offset_y
+            
+            # Convert to model coordinates
+            new_x, new_y = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            
+            # Apply snapping if enabled
+            if self.snap_manager.snap_enabled:
+                walls = [wall for wall_set in self.wall_sets for wall in wall_set]
+                polylines = [pl for poly_set in self.polyline_sets for pl in poly_set]
+                snapped_pos, snap_type = self.snap_manager.snap_point(
+                    new_x, new_y,
+                    new_x, new_y,
+                    walls, self.rooms,
+                    canvas_width=self.get_width(),
+                    zoom=self.zoom,
+                    polylines=polylines
+                )
+                if snap_type != "none":
+                    new_x, new_y = snapped_pos
+            
+            # Update the appropriate endpoint
+            if self.editing_polyline_handle == "start":
+                self.editing_polyline.start = (new_x, new_y)
+            else:
+                self.editing_polyline.end = (new_x, new_y)
+            
+            self.queue_draw()
+            return
             
         # Handle wall dragging
         if getattr(self, "dragging_wall", None):

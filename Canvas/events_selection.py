@@ -96,6 +96,27 @@ class CanvasSelectionMixin:
                             break
                 if selected_item:
                     break
+        
+        # Check for polyline endpoint clicks (for editing)
+        if selected_item is None:
+            for item in self.selected_items:
+                if item["type"] == "polyline":
+                    poly = item["object"]
+                    
+                    for handle_name, pt in [("start", poly.start), ("end", poly.end)]:
+                        pt_widget = (
+                            (pt[0] * T) + self.offset_x,
+                            (pt[1] * T) + self.offset_y
+                        )
+                        dist = math.hypot(click_pt[0] - pt_widget[0], click_pt[1] - pt_widget[1])
+                        if dist < self.handle_radius:
+                            # Start editing this polyline's endpoint
+                            self.editing_polyline = poly
+                            self.editing_polyline_handle = handle_name
+                            selected_item = {"type": "polyline_handle", "object": (poly, handle_name)}
+                            break
+                if selected_item:
+                    break
 
         # T = self.zoom * pixels_per_inch
         for wall_set in self.wall_sets:
@@ -461,6 +482,32 @@ class CanvasSelectionMixin:
                         self.dimension_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
                         
                         self.box_selecting = False
+                
+                # Check for polyline dragging - supports multiple selected polylines
+                # Skip if we're editing an endpoint
+                elif item["type"] == "polyline" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "editing_polyline", None):
+                    # Collect all selected polylines
+                    selected_polys = [i for i in self.selected_items if i["type"] == "polyline"]
+                    
+                    if selected_polys:
+                        self.dragging_polylines = []
+                        for poly_item in selected_polys:
+                            poly = poly_item["object"]
+                            self.dragging_polylines.append({
+                                "polyline": poly,
+                                "original_start": poly.start,
+                                "original_end": poly.end
+                            })
+                        
+                        # Store drag start coordinates
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        
+                        # Convert drag start to model coordinates
+                        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                        self.polyline_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                        
+                        self.box_selecting = False
 
         elif self.tool_mode == "add_text":
             self.drag_start_x = start_x
@@ -499,6 +546,21 @@ class CanvasSelectionMixin:
             self.editing_dimension_handle = None
             self.editing_dimension_original_start = None
             self.editing_dimension_original_end = None
+            self.save_state()
+            return
+        
+        if getattr(self, "dragging_polylines", None):
+            # Finalize polyline drag and clear dragging state
+            self.dragging_polylines = None
+            self.polyline_drag_start_model = None
+            self.save_state()
+            self.queue_draw()
+            return
+        
+        if getattr(self, "editing_polyline", None) and getattr(self, "editing_polyline_handle", None):
+            # Finalize polyline endpoint editing
+            self.editing_polyline = None
+            self.editing_polyline_handle = None
             self.save_state()
             return
 

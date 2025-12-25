@@ -72,7 +72,7 @@ class CanvasArea(Gtk.DrawingArea,
         # Wall editing state
         self.editing_wall = None     # The wall being edited
         self.editing_handle = None   # "start" or "end"
-        self.handle_radius = 10      # device pixels for hit detection
+        self.handle_radius = 15      # device pixels for hit detection
         
         
         # Polyline drawing state

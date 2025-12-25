@@ -198,7 +198,7 @@ class CanvasDrawMixin:
         if hasattr(self, "selected_items"):
             cr.save()
             
-            handle_radius = (self.handle_radius - 2) / (self.zoom * pixels_per_inch)
+            handle_radius = (self.handle_radius - 7) / (self.zoom * pixels_per_inch)
             
             # We’re still in model coordinates here.
             for item in self.selected_items:
@@ -303,6 +303,19 @@ class CanvasDrawMixin:
                 
                 elif item["type"] == "polyline":
                     pl = item["object"]
+                    
+                    # Draw endpoint handles (yellow circles like walls)
+                    for pt in [pl.start, pl.end]:
+                        cr.set_source_rgba(1, 1, 0, 1.0)  # Yellow handles
+                        cr.arc(pt[0], pt[1], handle_radius, 0, 2 * 3.14159)
+                        cr.fill()
+                        # Draw a border
+                        cr.set_source_rgba(0, 0, 0, 1.0)
+                        cr.arc(pt[0], pt[1], handle_radius, 0, 2 * 3.14159)
+                        cr.set_line_width(1.0 / self.zoom)
+                        cr.stroke()
+                    
+                    # Draw selection highlight
                     cr.set_source_rgba(1, 0, 0, 1.0)               # solid red
                     cr.set_line_width(1.0 / self.zoom)
                     # optional: preserve dash style

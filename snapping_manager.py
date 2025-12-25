@@ -8,7 +8,7 @@ class SnappingManager:
         self.allowed_angles = [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180, 202.5, 225, 247.5, 270, 292.5, 315, 337.5]
         self.angle_tolerance = 10  # Increased from 5 to 10
 
-    def collect_points_of_interest(self, walls, rooms, current_wall=None, in_progress_points=None):
+    def collect_points_of_interest(self, walls, rooms, current_wall=None, in_progress_points=None, polylines=None):
         points = []
         for wall in walls:
             points.extend([wall.start, wall.end])
@@ -21,6 +21,10 @@ class SnappingManager:
             points.append(current_wall.start)
         if in_progress_points:
             points.extend(in_progress_points)
+        # Add polyline endpoints
+        if polylines:
+            for poly in polylines:
+                points.extend([poly.start, poly.end])
         if self.config and self.config.ENABLE_CENTERLINE_SNAPPING:
             points.extend(self.find_intersections(walls))
         # print(f"Collected points: {points}")
@@ -146,13 +150,13 @@ class SnappingManager:
             return snapped, "tangent"
         return (x, y), "none"
 
-    def snap_point(self, x, y, base_x, base_y, walls, rooms, current_wall=None, in_progress_points=None, last_wall=None, canvas_width=1024, zoom=1.0):
+    def snap_point(self, x, y, base_x, base_y, walls, rooms, current_wall=None, in_progress_points=None, last_wall=None, canvas_width=1024, zoom=1.0, polylines=None):
         if not self.snap_enabled:
             print("Snapping disabled")
             return (x, y), "none"
         
         # print(f"Snapping point ({x}, {y}) from base ({base_x}, {base_y}), zoom: {zoom}, canvas_width: {canvas_width}")
-        points = self.collect_points_of_interest(walls, rooms, current_wall, in_progress_points)
+        points = self.collect_points_of_interest(walls, rooms, current_wall, in_progress_points, polylines)
         candidates = [
             self.snap_to_points(x, y, points, walls),  # Endpoint/midpoint
             self.snap_to_angle(x, y, base_x, base_y),    # Angle
