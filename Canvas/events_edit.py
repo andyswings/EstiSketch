@@ -289,6 +289,50 @@ class EditEventsMixin:
             self.moving_text.x = start_x + dx
             self.moving_text.y = start_y + dy
             
+            self.queue_draw()
+            return
+            
+        # Handle wall dragging
+        if getattr(self, "dragging_wall", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            T = self.zoom * pixels_per_inch
+            
+            # Calculate current position in model coordinates
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            
+            # Calculate offset in model coordinates
+            dx = current_model[0] - self.wall_drag_start_model[0]
+            dy = current_model[1] - self.wall_drag_start_model[1]
+            
+            # Update wall positions
+            wall = self.dragging_wall
+            new_start = (self.wall_drag_original_start[0] + dx, self.wall_drag_original_start[1] + dy)
+            new_end = (self.wall_drag_original_end[0] + dx, self.wall_drag_original_end[1] + dy)
+            
+            wall.start = new_start
+            wall.end = new_end
+            
+            # Update connected walls at start point
+            for wall_obj, endpoint_name in getattr(self, "wall_drag_connected_start", []):
+                if endpoint_name == "start":
+                    wall_obj.start = new_start
+                else:
+                    wall_obj.end = new_start
+            
+            # Update connected walls at end point
+            for wall_obj, endpoint_name in getattr(self, "wall_drag_connected_end", []):
+                if endpoint_name == "start":
+                    wall_obj.start = new_end
+                else:
+                    wall_obj.end = new_end
+            
+            self.queue_draw()
+            return
+            
+            
+            
         # Handle door/window dragging  
         if getattr(self, "dragging_door_window", None):
             pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)

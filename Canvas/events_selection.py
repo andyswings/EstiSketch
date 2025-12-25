@@ -330,6 +330,50 @@ class CanvasSelectionMixin:
                         self.drag_offset_y = window_center_y - start_model_y
                         
                         self.box_selecting = False
+                
+                # Check for wall dragging (only if not already dragging door/window)
+                elif item["type"] == "wall" and not getattr(self, "dragging_door_window", None):
+                    wall = item["object"]
+                    self.dragging_wall = wall
+                    
+                    # Store original wall positions
+                    self.wall_drag_original_start = wall.start
+                    self.wall_drag_original_end = wall.end
+                    
+                    # Store drag start coordinates (device space)
+                    self.drag_start_x = start_x
+                    self.drag_start_y = start_y
+                    
+                    # Convert drag start to model coordinates
+                    pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                    self.wall_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                    
+                    # Find all walls connected to this wall's endpoints
+                    connected_start = []
+                    connected_end = []
+                    tol = getattr(self.config, "JOINT_SNAP_TOLERANCE", 0.25)
+                    
+                    for wall_set in self.wall_sets:
+                        for w in wall_set:
+                            if w is not wall:  # Don't include the dragged wall itself
+                                # Check if other wall's start connects to dragged wall's start
+                                if self._points_close(w.start, wall.start, tol):
+                                    connected_start.append((w, "start"))
+                                # Check if other wall's end connects to dragged wall's start
+                                if self._points_close(w.end, wall.start, tol):
+                                    connected_start.append((w, "end"))
+                                # Check if other wall's start connects to dragged wall's end
+                                if self._points_close(w.start, wall.end, tol):
+                                    connected_end.append((w, "start"))
+                                # Check if other wall's end connects to dragged wall's end
+                                if self._points_close(w.end, wall.end, tol):
+                                    connected_end.append((w, "end"))
+                    
+                    self.wall_drag_connected_start = connected_start
+                    self.wall_drag_connected_end = connected_end
+                    
+                    self.box_selecting = False
+
         elif self.tool_mode == "add_text":
             self.drag_start_x = start_x
             self.drag_start_y = start_y
@@ -381,6 +425,18 @@ class CanvasSelectionMixin:
             self.dragging_door_window_start_ratio = None
             self.drag_offset_x = 0
             self.drag_offset_y = 0
+            self.save_state()
+            self.queue_draw()
+            return
+        
+        if getattr(self, "dragging_wall", None):
+            # Finalize wall drag and clear dragging state
+            self.dragging_wall = None
+            self.wall_drag_original_start = None
+            self.wall_drag_original_end = None
+            self.wall_drag_start_model = None
+            self.wall_drag_connected_start = []
+            self.wall_drag_connected_end = []
             self.save_state()
             self.queue_draw()
             return

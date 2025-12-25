@@ -1,6 +1,7 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
+- [ ] Allow adding points to an existing room
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped)
 - [ ] Implement Layers system
 - [ ] Add Circles/Arcs drawing tool
@@ -163,7 +164,13 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Walls are not draggable
+- [ ] The "Separate Walls" option in the right click menu is not working. It separates all the walls except the selected ones.
+- [ ] If there is a text object, and a window is added to a wall, the text object jumps to a point near where the window was added. Also the text object will continue to move (follow) the window if the window is moved.
+- [ ] Room points cannot be moved (dragged)
+- [ ] Dimensions cannot be edited (moved, ends repositioned)
+- [ ] Polylines are not editable (segments moved, vertices repositioned)
+- [ ] Right click menu should not show anything when no object is selected unless the clipboard is not empty (and then it should show "Paste" option for now)
+- [ ] Walls etc. use snapping even when it is disabled in the settings
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -171,6 +178,9 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Fixed box selection interference when moving text objects (2025-12-24)
+- [x] Walls are now draggable with connected walls moving together (2025-12-24)
+- [x] Refactor the Canvas to a more modular structure (2025-12-24)
 - [x] Add Copy / Cut / Paste to the right click menu (2025-12-18)
 - [x] Cut, Copy, Paste functionality (2025-12-18)
 - [x] Changing wall height from properties dock is not persistent (2025-12-11)
@@ -182,4 +192,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2025-12-18_
+_Last updated: 2025-12-24_
