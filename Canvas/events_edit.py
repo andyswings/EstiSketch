@@ -293,6 +293,52 @@ class EditEventsMixin:
             
             self.queue_draw()
             return
+        
+        # Handle vertex (room point) dragging - multiple vertices with snapping
+        if getattr(self, "dragging_vertices", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            
+            # Calculate current position in model coordinates
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            
+            # Calculate offset in model coordinates
+            dx = current_model[0] - self.vertex_drag_start_model[0]
+            dy = current_model[1] - self.vertex_drag_start_model[1]
+            
+            # Apply snapping to the first vertex to determine snap offset
+            if self.dragging_vertices:
+                first_vertex = self.dragging_vertices[0]
+                orig = first_vertex["original"]
+                new_pos = (orig[0] + dx, orig[1] + dy)
+                
+                # Try snapping if enabled
+                if self.snap_manager.snap_enabled:
+                    # Flatten all wall endpoints for snapping
+                    walls = [wall for wall_set in self.wall_sets for wall in wall_set]
+                    snapped_pos, snap_type = self.snap_manager.snap_point(
+                        new_pos[0], new_pos[1],
+                        orig[0], orig[1],  # base point for angle snapping
+                        walls, self.rooms,
+                        canvas_width=self.get_width(),
+                        zoom=self.zoom
+                    )
+                    if snap_type != "none":
+                        # Adjust dx/dy based on snap
+                        dx = snapped_pos[0] - orig[0]
+                        dy = snapped_pos[1] - orig[1]
+            
+            # Update all selected vertices with the (possibly snapped) offset
+            for vertex_info in self.dragging_vertices:
+                orig = vertex_info["original"]
+                room = vertex_info["room"]
+                idx = vertex_info["index"]
+                new_pos = (orig[0] + dx, orig[1] + dy)
+                room.points[idx] = new_pos
+            
+            self.queue_draw()
+            return
             
         # Handle wall dragging
         if getattr(self, "dragging_wall", None):

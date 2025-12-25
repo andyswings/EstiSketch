@@ -373,6 +373,31 @@ class CanvasSelectionMixin:
                     self.wall_drag_connected_end = connected_end
                     
                     self.box_selecting = False
+                
+                # Check for vertex (room point) dragging - supports multiple selected vertices
+                elif item["type"] == "vertex" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None):
+                    # Collect all selected vertices
+                    selected_vertices = [i for i in self.selected_items if i["type"] == "vertex"]
+                    
+                    if selected_vertices:
+                        self.dragging_vertices = []
+                        for vertex_item in selected_vertices:
+                            room, idx = vertex_item["object"]
+                            self.dragging_vertices.append({
+                                "room": room,
+                                "index": idx,
+                                "original": room.points[idx]
+                            })
+                        
+                        # Store drag start coordinates
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        
+                        # Convert drag start to model coordinates
+                        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                        self.vertex_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                        
+                        self.box_selecting = False
 
         elif self.tool_mode == "add_text":
             self.drag_start_x = start_x
@@ -437,6 +462,14 @@ class CanvasSelectionMixin:
             self.wall_drag_start_model = None
             self.wall_drag_connected_start = []
             self.wall_drag_connected_end = []
+            self.save_state()
+            self.queue_draw()
+            return
+        
+        if getattr(self, "dragging_vertices", None):
+            # Finalize vertex drag and clear dragging state
+            self.dragging_vertices = None
+            self.vertex_drag_start_model = None
             self.save_state()
             self.queue_draw()
             return
