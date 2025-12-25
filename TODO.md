@@ -10,7 +10,7 @@
 
 ## ✨ Core Features (essential functionality)
 
-### Drawing Tools
+### Drawing Tools (more of a parametric cad tool set) (long term)
 - [ ] Rectangle/Square tool
 - [ ] Polygon tool  
 - [ ] Offset tool (parallel lines at distance)
@@ -46,7 +46,7 @@
 - [ ] Schedules (door/window/material)
 - [ ] Tags/Labels (room names, numbers)
 
-### 3D Visualization
+### 3D Visualization (long term)
 - [ ] Basic 3D modeling/view
 - [ ] 3D navigation (orbit, walk through)
 - [ ] Material textures in 3D
@@ -97,12 +97,11 @@
 - [ ] Templates (start from prebuilt designs)
 - [ ] Favorites/palette (quick access)
 - [ ] Search (find objects, commands)
-- [ ] Measurement input (type exact dimensions)
+- [ ] Measurement input (type exact dimensions) (rudimentary implementation complete)
 - [ ] Auto-save
 - [ ] Backup system
 - [ ] Recovery (unsaved work)
 - [ ] Customizable UI
-- [ ] Command line interface
 
 ### Smart Features
 - [ ] Parametric objects (objects with rules)
@@ -114,6 +113,12 @@
 - [ ] Object snap tracking
 
 ## 🏗️ Specialized Tools
+
+### Engineering
+- [ ] Structural analysis (loads, stresses)
+- [ ] Material properties (steel, concrete, wood)
+- [ ] Load calculations
+- [ ] Stress/strain analysis
 
 ### Electrical/Plumbing/HVAC
 - [ ] Electrical symbols (outlets, switches, lights, panels)
@@ -137,11 +142,6 @@
 - [ ] Countertop templates
 - [ ] Backsplash patterns
 - [ ] Tile layouts
-
-## 📱 Platform & Accessibility
-- [ ] Mobile app (tablet/phone)
-- [ ] Web version (browser-based)
-- [ ] Offline mode
 
 ## 🎓 Help & Learning
 - [ ] Keyboard shortcuts cheat sheet
