@@ -540,6 +540,7 @@ class CanvasDrawMixin:
             
             cr.save()
             cr.identity_matrix() # Reset to device pixels
+            cr.new_path()  # Clear any leftover path state from window/door rendering
             cr.translate(device_x, device_y)
             
             # Apply rotation (convert degrees to radians)

@@ -556,6 +556,7 @@ def draw_doors(self, cr, pixels_per_inch):
 
 
 def draw_windows(self, cr, pixels_per_inch):
+    cr.save()
     zoom_transform = self.zoom * pixels_per_inch
     # Draw windows
     for window_item in self.windows: # window_item = (wall, window, ratio)
@@ -788,3 +789,4 @@ def draw_windows(self, cr, pixels_per_inch):
         cr.set_source_rgb(0, 0, 0)  # Black text
         cr.show_text(text)
         cr.restore()
+    cr.restore()
