@@ -91,8 +91,8 @@ class EditEventsMixin:
                 if w not in selected_walls:
                     remaining_walls.append(w)
 
-        # Regroup the selected walls themselves
-        new_selected_sets = self._group_walls_into_sets(selected_walls)
+        # Separate each selected wall into its own set (do NOT regroup by connectivity)
+        new_selected_sets = [[wall] for wall in selected_walls]
         
         # Regroup the remaining walls from affected sets
         new_remaining_sets = self._group_walls_into_sets(remaining_walls)

@@ -164,7 +164,6 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] The "Separate Walls" option in the right click menu is not working. It separates all the walls except the selected ones.
 - [ ] If there is a text object, and a window is added to a wall, the text object jumps to a point near where the window was added. Also the text object will continue to move (follow) the window if the window is moved.
 - [ ] Room points cannot be moved (dragged)
 - [ ] Dimensions cannot be edited (moved, ends repositioned)
@@ -178,6 +177,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Fixed "Separate Walls" - now separates selected walls into individual sets (2025-12-24)
 - [x] Fixed box selection interference when moving text objects (2025-12-24)
 - [x] Walls are now draggable with connected walls moving together (2025-12-24)
 - [x] Refactor the Canvas to a more modular structure (2025-12-24)
