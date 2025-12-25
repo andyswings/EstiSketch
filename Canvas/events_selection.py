@@ -900,6 +900,7 @@ class CanvasSelectionMixin:
         selected_windows = [item for item in self.selected_items if item.get("type") == "window"]
         selected_polylines = [item for item in self.selected_items if item.get("type") == "polyline"]
         selected_texts = [item for item in self.selected_items if item.get("type") == "text"]
+        selected_dimensions = [item for item in self.selected_items if item.get("type") == "dimension"]
 
         # Create a popover to serve as the context menu
         parent_popover = Gtk.Popover()
@@ -1058,6 +1059,12 @@ class CanvasSelectionMixin:
                 polyline_dashed_button = Gtk.Button(label="Change Polyline(s) to Dashed")
                 polyline_dashed_button.connect("clicked", lambda btn: self.toggle_polyline_style(selected_polylines, parent_popover, style="solid"))
                 box.append(polyline_dashed_button)
+        
+        # Dimension-specific options
+        if selected_dimensions:
+            mirror_offset_btn = Gtk.Button(label="Mirror Offset")
+            mirror_offset_btn.connect("clicked", lambda btn: self.mirror_dimension_offset(selected_dimensions, parent_popover))
+            box.append(mirror_offset_btn)
         
         # Position the popover at the click location
         rect = Gdk.Rectangle()
@@ -1348,5 +1355,26 @@ class CanvasSelectionMixin:
         for door_item in selected_doors:
             wall, door, ratio = door_item["object"]
             door.swing = "left" if door.swing == "right" else "right"
+        self.queue_draw()
+        popover.popdown()
+    
+    def mirror_dimension_offset(self, selected_dimensions: list, popover: Gtk.Popover) -> None:
+        """
+        Mirror the offset of selected dimensions to the other side of the dimension line.
+
+        This negates the offset property of each selected dimension, effectively
+        flipping the dimension label to the opposite side of the measured line.
+
+        Args:
+            selected_dimensions (list): List of selected dimension items.
+            popover (Gtk.Popover): The popover to close after the action.
+
+        Returns:
+            None
+        """
+        for dim_item in selected_dimensions:
+            dim = dim_item["object"]
+            dim.offset = -dim.offset
+        self.save_state()
         self.queue_draw()
         popover.popdown()
