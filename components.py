@@ -3,6 +3,14 @@ from typing import List, Tuple
 
 
 @dataclass
+class Level:
+    """Represents a vertical building level (story)."""
+    id: str  # Unique identifier
+    name: str = "Level 1"
+    elevation: float = 0.0
+    height: float = 96.0  # Default 8ft
+
+@dataclass
 class Layer:
     """Represents a layer that objects can be assigned to."""
     id: str  # Unique identifier (e.g., "layer-abc123...")
@@ -10,6 +18,7 @@ class Layer:
     visible: bool = True  # Whether objects on this layer are drawn
     locked: bool = False  # Whether objects on this layer can be selected/edited
     opacity: float = 1.0  # Layer opacity (0.0 to 1.0)
+    level_id: str = ""  # ID of the level this layer belongs to. Empty = Global.
 
 @dataclass(eq=False)
 class Wall:

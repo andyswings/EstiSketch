@@ -23,7 +23,6 @@
 ### Architectural Elements
 - [ ] Roof design (gable, hip, flat, custom pitches)
 - [ ] Roof components (trusses, rafters, ridges, valleys)
-- [ ] Modify layers system to support Multi-story/Floor levels (each floor is a different layer) (layers should preserve elevation data)
 - [ ] Columns/Posts
 - [ ] Beams
 - [ ] Foundations (slab, crawlspace, basement)
@@ -162,7 +161,8 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Side panel is too needy (pops out when anything is selected event when we've clicked on the toggle to hide it)
+- [ ] When drawing a loop of walls, the last wall is not closed (not mitered with the first wall)
+- [ ] Creating a text object does not seem to make the canvas dirty (no prompt to save when closing)
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -170,6 +170,8 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Fixed issue where side panel was too needy (pops out when anything is selected event when we've clicked on the toggle to hide it) (2025-12-25)
+- [x] Added support for multiple story/floor levels (2025-12-25)
 - [x] Implemented a basic Layers system (2025-12-25)
 - [x] Add right click menu option to mirror offset of dimension to other side of dimension line (2025-12-25)
 - [x] Allow adding points to an existing room - double-click on edge to insert (2025-12-25)

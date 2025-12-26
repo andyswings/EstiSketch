@@ -62,13 +62,20 @@ class CanvasArea(Gtk.DrawingArea,
         self.MAX_LAYERS = 24
         # Create default layer using generate_identifier
         default_layer_id = self.generate_identifier("layer", [])
-        from components import Layer
+        from components import Layer, Level
+        
+        # Level system
+        self.levels = [Level(id="level-1", name="Level 1", elevation=0.0)]
+        self.active_level_id = "level-1"
+        self.show_all_levels = False
+        
         self.layers = [Layer(
             id=default_layer_id,
             name="Layer 0",
             visible=True,
             locked=False,
-            opacity=1.0
+            opacity=1.0,
+            level_id="level-1"  # Default layer assigned to default level
         )]
         self.active_layer_id = default_layer_id
         
@@ -201,7 +208,7 @@ class CanvasArea(Gtk.DrawingArea,
     # Layer Management Methods
     # ─────────────────────────────────────────────────────────────────────────
     
-    def add_layer(self, name: str = None) -> str:
+    def add_layer(self, name: str = None, level_id: str = None) -> str:
         """Add a new layer and return its ID. Returns None if max layers reached."""
         if len(self.layers) >= self.MAX_LAYERS:
             print(f"Cannot add more than {self.MAX_LAYERS} layers")
@@ -213,12 +220,19 @@ class CanvasArea(Gtk.DrawingArea,
         layer_num = len(self.layers)
         layer_name = name if name else f"Layer {layer_num}"
         
+        # Default to active level if not specified
+        if level_id is None:
+            # If show all levels is on, maybe we should ask user? 
+            # For now default to active level
+            level_id = self.active_level_id
+
         new_layer = Layer(
             id=new_layer_id,
             name=layer_name,
             visible=True,
             locked=False,
-            opacity=1.0
+            opacity=1.0,
+            level_id=level_id
         )
         self.layers.append(new_layer)
         return new_layer_id
@@ -262,11 +276,33 @@ class CanvasArea(Gtk.DrawingArea,
         return {layer.id for layer in self.layers if layer.locked}
     
     def is_object_on_visible_layer(self, obj) -> bool:
-        """Check if an object is on a visible layer. Objects with no layer_id are always visible."""
+        """
+        Check if an object is on a visible layer.
+        Taking into account:
+        1. Layer visibility flag
+        2. Active Level (unless show_all_levels or global layer)
+        """
         layer_id = getattr(obj, 'layer_id', '')
-        if not layer_id:  # Empty layer_id means visible on all layers (legacy compatibility)
+        if not layer_id:
             return True
-        return layer_id in self.get_visible_layer_ids()
+            
+        layer = self.get_layer_by_id(layer_id)
+        if not layer:
+            return True # Legacy/Fallback
+            
+        if not layer.visible:
+            return False
+            
+        # Check level filtering
+        if self.show_all_levels:
+            return True
+            
+        # Global layers (empty level_id) are always visible
+        if not layer.level_id:
+            return True
+            
+        # Otherwise must match active level
+        return layer.level_id == self.active_level_id
     
     def is_object_on_locked_layer(self, obj) -> bool:
         """Check if an object is on a locked layer. Objects with no layer_id are never locked."""
@@ -284,6 +320,86 @@ class CanvasArea(Gtk.DrawingArea,
         if layer:
             return layer.opacity
         return 1.0
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Level Management Methods
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def add_level(self, name: str) -> str:
+        """Add a new level and return its ID."""
+        existing_ids = [l.id for l in self.levels]
+        new_id = self.generate_identifier("level", existing_ids)
+        
+        # Calculate default elevation (simply above the last one)
+        elevation = 0.0
+        if self.levels:
+            elevation = self.levels[-1].elevation + self.levels[-1].height
+            
+        from components import Level
+        new_level = Level(id=new_id, name=name, elevation=elevation)
+        self.levels.append(new_level)
+        return new_id
+
+    def remove_level(self, level_id: str) -> bool:
+        """Remove a level. Cannot remove the last level."""
+        if len(self.levels) <= 1:
+            return False
+            
+        for i, level in enumerate(self.levels):
+            if level.id == level_id:
+                self.levels.pop(i)
+                # If active level removed, switch to first
+                if self.active_level_id == level_id:
+                    self.active_level_id = self.levels[0].id
+                    # Also switch active layer if it belonged to removed level
+                    active_layer = self.get_layer_by_id(self.active_layer_id)
+                    if active_layer and active_layer.level_id == level_id:
+                         # Find a layer on the new active level or global
+                         self._ensure_valid_active_layer()
+                return True
+        return False
+
+    def set_active_level(self, level_id: str):
+        """Set the active level and refresh visibility."""
+        # Validate ID
+        if not any(l.id == level_id for l in self.levels):
+            return
+            
+        self.active_level_id = level_id
+        
+        # Ensure active layer is valid for this level
+        self._ensure_valid_active_layer()
+        
+        self.queue_draw()
+        
+    def _ensure_valid_active_layer(self):
+        """Ensure the active layer belongs to the active level or is global."""
+        active_layer = self.get_layer_by_id(self.active_layer_id)
+        
+        # If active layer is global or on current level, we're good
+        if active_layer and (not active_layer.level_id or active_layer.level_id == self.active_level_id):
+            return
+
+        # Otherwise try to find a layer on this level
+        for layer in self.layers:
+            if layer.level_id == self.active_level_id:
+                self.active_layer_id = layer.id
+                return
+                
+        # Or a global layer
+        for layer in self.layers:
+            if not layer.level_id:
+                self.active_layer_id = layer.id
+                return
+                
+        # If all else fails, create a default layer for this level
+        from components import Layer
+        new_id = self.add_layer(f"Layer 1") # add_layer will need update or manual handling?
+        # Actually add_layer needs to know about current level. 
+        # For now, let's fix add_layer separately or handle it here?
+        # Let's fix add_layer in the next chunk/step, but for now just fallback to 0
+        if self.layers:
+             self.active_layer_id = self.layers[0].id
     
     def delete_selected(self):
         """

@@ -294,7 +294,8 @@ class EstimatorApp(Gtk.Application):
             # But initial allocation isn't done yet, so this might be tricky.
             # Instead, we set the position after realization or just rely on default.
             # Actually, standard way is setting position.
-            main_paned.set_position(self.config.WINDOW_WIDTH - sidebar_width)
+            # Start minimized by default
+            main_paned.set_position(self.config.WINDOW_WIDTH - 44)
 
             # Update toggle behavior to use paned
             self.properties_dock.connect('sidebar-toggled', self.on_sidebar_toggled)
@@ -675,7 +676,11 @@ class EstimatorApp(Gtk.Application):
 
     def on_file_dialog_save_done(self, obj, result, user_data, callback):
         """Handle the result of the save dialog."""
-        file = obj.save_finish(result)
+        try:
+            file = obj.save_finish(result)
+        except Exception:
+            # User cancelled or other error
+            return
         if not file:
             return
         path = file.get_path()
@@ -714,7 +719,10 @@ class EstimatorApp(Gtk.Application):
 
     def on_file_dialog_save_as_done(self, obj, result, user_data):
         # Finish the async call and get a Gio.File
-        file = obj.save_finish(result)
+        try:
+            file = obj.save_finish(result)
+        except Exception:
+            return
         if not file:
             return
         path = file.get_path()
@@ -748,7 +756,10 @@ class EstimatorApp(Gtk.Application):
         dlg.open(self.window, None, self.on_file_dialog_open_done, None)
 
     def on_file_dialog_open_done(self, obj, result, user_data):
-        file = obj.open_finish(result)
+        try:
+            file = obj.open_finish(result)
+        except Exception:
+            return
         if not file:
             return
         path = file.get_path()
@@ -825,16 +836,12 @@ class EstimatorApp(Gtk.Application):
     
     def on_close_request(self, window):
         """Handle window close request."""
-        # Save settings first
         try:
             self.on_window_destroy(self)
         except Exception as e:
             print(f"Error saving settings: {e}")
 
         if not self.is_dirty:
-            # Return False (default) to let the window close
-            # But wait, in GTK4 returning True STOPS propagation (blocks close).
-            # Returning False allows close.
             return False
             
         # Prompt user to save changes
@@ -843,12 +850,14 @@ class EstimatorApp(Gtk.Application):
             modal=True,
             message_type=Gtk.MessageType.WARNING,
             buttons=Gtk.ButtonsType.NONE,
-            text="Unsaved Changes"
+            text="Unsaved Changes",
+            secondary_text="You have unsaved changes. Do you want to save before exiting?"
         )
-        dlg.set_secondary_text("You have unsaved changes. Do you want to save before exiting?")
-        dlg.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        dlg.add_button("Discard", Gtk.ResponseType.CLOSE)
-        dlg.add_button("Save", Gtk.ResponseType.ACCEPT)
+        dlg.add_buttons(
+            "Cancel", Gtk.ResponseType.CANCEL,
+            "Discard", Gtk.ResponseType.CLOSE,
+            "Save", Gtk.ResponseType.ACCEPT
+        )
         
         dlg.connect("response", self.on_close_response)
         dlg.present()
@@ -952,14 +961,15 @@ class EstimatorApp(Gtk.Application):
                     self.window.get_height(),
                     self.current_filepath
                 )
-                window.destroy()
+                self.window.destroy()
             else:
-                def after_save(_, __, ___):
-                    window.destroy()
-                self.show_save_dialog()
-        elif response == Gtk.ResponseType.NO:
-            window.destroy()
+                def after_save(*args):
+                    self.window.destroy()
+                self.show_save_dialog(callback=lambda: after_save())
+        elif response == Gtk.ResponseType.CLOSE: # Discard
+            self.window.destroy()
         else:
+            # Cancel or closed dialog
             pass
     
     def do_shutdown(self):

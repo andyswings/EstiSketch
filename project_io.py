@@ -1,5 +1,5 @@
 import xml.etree.ElementTree as ET
-from components import Wall, Room, Door, Window, Text, Dimension, Layer
+from components import Wall, Room, Door, Window, Text, Dimension, Layer, Level
 
 def save_project(canvas, window_width, window_height, filepath): 
     """ Save the entire project state to an XML file.
@@ -17,6 +17,19 @@ def save_project(canvas, window_width, window_height, filepath):
     # Create the XML root with window dimensions.
     root = ET.Element("Project", window_width=str(window_width), window_height=str(window_height))
 
+    # Save Levels
+    levels_elem = ET.SubElement(root, "Levels")
+    for level in getattr(canvas, 'levels', []):
+        level_elem = ET.SubElement(levels_elem, "Level")
+        level_elem.set("id", level.id)
+        level_elem.set("name", level.name)
+        level_elem.set("elevation", str(level.elevation))
+        level_elem.set("height", str(level.height))
+    
+    # Save active level ID
+    active_level_id = getattr(canvas, 'active_level_id', '')
+    root.set("active_level_id", active_level_id)
+
     # Save layers
     layers_elem = ET.SubElement(root, "Layers")
     for layer in getattr(canvas, 'layers', []):
@@ -26,6 +39,7 @@ def save_project(canvas, window_width, window_height, filepath):
         layer_elem.set("visible", str(layer.visible))
         layer_elem.set("locked", str(layer.locked))
         layer_elem.set("opacity", str(layer.opacity))
+        layer_elem.set("level_id", getattr(layer, "level_id", ""))
     
     # Save active layer ID
     active_layer_id = getattr(canvas, 'active_layer_id', '')
@@ -187,20 +201,52 @@ def open_project(canvas, filepath):
     canvas.doors.clear()
     canvas.windows.clear()
     canvas.texts.clear()
+    canvas.texts.clear()
     canvas.dimensions.clear()
     if hasattr(canvas, 'layers'):
         canvas.layers.clear()
+    if hasattr(canvas, 'levels'):
+        canvas.levels.clear()
+
+    # --- Restore Levels ---
+    levels_elem = root.find("Levels")
+    if levels_elem is not None:
+        for level_elem in levels_elem.findall("Level"):
+            level = Level(
+                id=level_elem.get("id"),
+                name=level_elem.get("name", "Level"),
+                elevation=float(level_elem.get("elevation", "0.0")),
+                height=float(level_elem.get("height", "96.0"))
+            )
+            if hasattr(canvas, 'levels'):
+                canvas.levels.append(level)
+    
+    # Default level if none found
+    if hasattr(canvas, 'levels') and not canvas.levels:
+        canvas.levels.append(Level(id="level-1", name="Level 1"))
+        
+    # Restore active level ID
+    active_level_id = root.get("active_level_id", "")
+    if hasattr(canvas, 'active_level_id'):
+        if active_level_id:
+            canvas.active_level_id = active_level_id
+        elif canvas.levels:
+            canvas.active_level_id = canvas.levels[0].id
 
     # --- Restore Layers ---
     layers_elem = root.find("Layers")
     if layers_elem is not None:
         for layer_elem in layers_elem.findall("Layer"):
+            # Handle legacy files: assign to active level (first one) if level_id missing
+            legacy_level_id = canvas.levels[0].id if canvas.levels else ""
+            
             layer = Layer(
                 id=layer_elem.get("id", ""),
                 name=layer_elem.get("name", "Layer"),
                 visible=layer_elem.get("visible", "True") == "True",
                 locked=layer_elem.get("locked", "False") == "True",
-                opacity=float(layer_elem.get("opacity", "1.0"))
+                opacity=float(layer_elem.get("opacity", "1.0")),
+                level_id=layer_elem.get("level_id", legacy_level_id)
             )
             if hasattr(canvas, 'layers'):
                 canvas.layers.append(layer)
