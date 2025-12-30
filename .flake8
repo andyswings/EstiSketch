@@ -1,0 +1,4 @@
+[flake8]
+max-line-length = 200
+exclude = estisketch/lib
+ignore = F401,F811,E741,F841,F541,E712

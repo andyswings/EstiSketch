@@ -1,6 +1,7 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
+- [ ] Add support for changing the elevation of a level (and all objects on that level) (maybe add a level offset to the level object based on the elevation of the last level?)
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped)
 - [ ] Add Circles/Arcs drawing tool
 - [ ] Create Furniture & Fixture library

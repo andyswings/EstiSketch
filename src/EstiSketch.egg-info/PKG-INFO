@@ -1,3 +1,18 @@
+Metadata-Version: 2.4
+Name: EstiSketch
+Version: 0.1.0a0
+Summary: A lightweight 2-D floor-plan sketcher
+Author: Andrew
+License: MIT
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE.txt
+Requires-Dist: PyGObject
+Dynamic: license-file
+
 # EstiSketch ![Status](https://img.shields.io/badge/Status-Alpha-orange)
 
 > **Alpha Release (v0.1.0-alpha)**: This software is currently in the alpha testing phase. Features may be incomplete and bugs may be present. Please report issues on our tracker.
