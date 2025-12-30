@@ -21,5 +21,11 @@ To install the package locally:
 pip install dist/EstiSketch-0.1.0-alpha-py3-none-any.whl
 ```
 
+## Usage
+To run the application:
+```bash
+estisketch
+```
+
 ## How to Contribute
 Please report any bugs or feature requests to the issue tracker.
