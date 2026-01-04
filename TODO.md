@@ -160,7 +160,6 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] When drawing a loop of walls, the last wall is not closed (not mitered with the first wall)
 
 
 ## 💡 Currently Working On
@@ -169,6 +168,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Fixed wall loop closure to correctly miter join the end with the start (2026-01-03)
 - [x] Fixed wall line thickness scaling when zooming (2026-01-03)
 - [x] Fixed manual dimension adjustment to snap to wall face corners (refined) (2026-01-03)
 - [x] Fixed mirrored dimension not updating to opposite wall face (2026-01-03)

@@ -22,13 +22,20 @@ def draw_walls(self, cr):
             continue
 
         # Process the wall set
+        # Process the wall set
         path_active = False
+        path_start_point = None
         current_width_user = -1.0
         current_opacity = -1.0
 
         for i, wall in enumerate(wall_set):
             if not is_visible(wall):
                 if path_active:
+                    cur_pt = cr.get_current_point()
+                    if path_start_point and \
+                       abs(cur_pt[0] - path_start_point[0]) < 1e-4 and \
+                       abs(cur_pt[1] - path_start_point[1]) < 1e-4:
+                        cr.close_path()
                     cr.stroke()
                     path_active = False
                 continue
@@ -49,6 +56,11 @@ def draw_walls(self, cr):
 
             if should_start_new:
                 if path_active:
+                    cur_pt = cr.get_current_point()
+                    if path_start_point and \
+                       abs(cur_pt[0] - path_start_point[0]) < 1e-4 and \
+                       abs(cur_pt[1] - path_start_point[1]) < 1e-4:
+                        cr.close_path()
                     cr.stroke()
 
                 current_width_user = width_user
@@ -56,12 +68,18 @@ def draw_walls(self, cr):
                 cr.set_line_width(current_width_user)
                 cr.set_source_rgba(0, 0, 0, current_opacity)
                 cr.move_to(wall.start[0], wall.start[1])
+                path_start_point = wall.start
                 cr.line_to(wall.end[0], wall.end[1])
                 path_active = True
             else:
                 cr.line_to(wall.end[0], wall.end[1])
 
         if path_active:
+            cur_pt = cr.get_current_point()
+            if path_start_point and \
+               abs(cur_pt[0] - path_start_point[0]) < 1e-4 and \
+               abs(cur_pt[1] - path_start_point[1]) < 1e-4:
+                cr.close_path()
             cr.stroke()
 
     # Draw active drawing chain
@@ -73,12 +91,18 @@ def draw_walls(self, cr):
 
     if active_chain:
         path_active = False
+        path_start_point = None
         current_width_user = -1.0
         current_opacity = -1.0
 
         for i, wall in enumerate(active_chain):
             if not is_visible(wall):
                 if path_active:
+                    cur_pt = cr.get_current_point()
+                    if path_start_point and \
+                       abs(cur_pt[0] - path_start_point[0]) < 1e-4 and \
+                       abs(cur_pt[1] - path_start_point[1]) < 1e-4:
+                        cr.close_path()
                     cr.stroke()
                     path_active = False
                 continue
@@ -98,18 +122,29 @@ def draw_walls(self, cr):
 
             if should_start_new:
                 if path_active:
+                    cur_pt = cr.get_current_point()
+                    if path_start_point and \
+                       abs(cur_pt[0] - path_start_point[0]) < 1e-4 and \
+                       abs(cur_pt[1] - path_start_point[1]) < 1e-4:
+                        cr.close_path()
                     cr.stroke()
                 current_width_user = width_user
                 current_opacity = opacity
                 cr.set_line_width(current_width_user)
                 cr.set_source_rgba(0, 0, 0, current_opacity)
                 cr.move_to(wall.start[0], wall.start[1])
+                path_start_point = wall.start
                 cr.line_to(wall.end[0], wall.end[1])
                 path_active = True
             else:
                 cr.line_to(wall.end[0], wall.end[1])
 
         if path_active:
+            cur_pt = cr.get_current_point()
+            if path_start_point and \
+               abs(cur_pt[0] - path_start_point[0]) < 1e-4 and \
+               abs(cur_pt[1] - path_start_point[1]) < 1e-4:
+                cr.close_path()
             cr.stroke()
 
 
