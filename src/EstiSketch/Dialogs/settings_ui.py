@@ -38,6 +38,7 @@ def create_settings_dialog(parent, config_constants, canvas):
         ("Default Wall Height (inches)", "DEFAULT_WALL_HEIGHT"),
         ("Default Wall Width (inches)", "DEFAULT_WALL_WIDTH"),
         ("Default Room Height (inches)", "DEFAULT_ROOM_HEIGHT"),
+        ("Default Level Height (inches)", "DEFAULT_LEVEL_HEIGHT"),
         ("Grid Spacing (pixels)", "GRID_SPACING"),
         ("Wall Join Tolerance", "WALL_JOIN_TOLERANCE"),
         ("Snap to Angle Increment", "SNAP_TO_ANGLE_INCREMENT"),

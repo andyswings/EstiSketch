@@ -1,10 +1,9 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped)
-- [ ] Add Circles/Arcs drawing tool
-- [ ] Create Furniture & Fixture library
+- [ ] Add Circles/Arcs drawing tool (new arc tool? or just add arc drawing to the existing polyline tool?)
+- [ ] Add Curved Walls tool (new tool? or just add to existing wall tool?)
 - [ ] Add automatic room area calculations
 
 ## ✨ Core Features (essential functionality)
@@ -134,6 +133,7 @@
 - [ ] Grading (elevation changes)
 
 ### Kitchen/Bath Specialized
+- [ ] Create Furniture & Fixture library
 - [ ] Cabinet designer (custom cabinets)
 - [ ] Countertop templates
 - [ ] Backsplash patterns
@@ -168,6 +168,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Added "Default Level Height" setting to Settings Dialog and Config (2026-01-03)
 - [x] Add support for changing the elevation of a level (Level Manager UI update) (2026-01-03)
 - [x] Fixed wall loop closure to correctly miter join the end with the start (2026-01-03)
 - [x] Fixed wall line thickness scaling when zooming (2026-01-03)

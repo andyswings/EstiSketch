@@ -26,6 +26,7 @@ DEFAULT_SETTINGS = {
     "OK_LABEL": "OK",
     "CANCEL_LABEL": "Cancel",
     "DEFAULT_WALL_HEIGHT": 96.0,
+    "DEFAULT_LEVEL_HEIGHT": 96.0,
     "DEFAULT_WALL_WIDTH": 5.5,
     "UNITS": "feet_inches",
     "SNAP_ENABLED": True,

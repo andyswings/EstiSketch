@@ -327,13 +327,17 @@ class CanvasArea(Gtk.DrawingArea,
         existing_ids = [l.id for l in self.levels]
         new_id = self.generate_identifier("level", existing_ids)
 
-        # Calculate default elevation (simply above the last one)
+        # Calculate default elevation
         elevation = 0.0
+        default_height = getattr(self.config, 'DEFAULT_LEVEL_HEIGHT', 96.0)
+        
         if self.levels:
-            elevation = self.levels[-1].elevation + self.levels[-1].height
+            # Use the configured default height as the offset from the previous level
+            # satisfying the user's expectation that the setting controls the spacing
+            elevation = self.levels[-1].elevation + default_height
 
         from ..components import Level
-        new_level = Level(id=new_id, name=name, elevation=elevation)
+        new_level = Level(id=new_id, name=name, elevation=elevation, height=default_height)
         self.levels.append(new_level)
         return new_id
 
