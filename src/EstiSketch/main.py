@@ -93,6 +93,9 @@ class EstimatorApp(Gtk.Application):
         self.window.set_default_size(
             self.config.WINDOW_WIDTH,
             self.config.WINDOW_HEIGHT)
+            
+        if getattr(self.config, 'WINDOW_MAXIMIZED', False):
+            self.window.maximize()
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.window.set_child(vbox)
@@ -299,8 +302,10 @@ class EstimatorApp(Gtk.Application):
             # But initial allocation isn't done yet, so this might be tricky.
             # Instead, we set the position after realization or just rely on default.
             # Actually, standard way is setting position.
-            # Start minimized by default
-            main_paned.set_position(self.config.WINDOW_WIDTH - 44)
+            # Start minimized by default - push handle to far right
+            # Using a large number ensures it is clamped to the maximum allowed position
+            # respecting the minimum size of the end child (sidebar icon bar)
+            main_paned.set_position(100000)
 
             # Update toggle behavior to use paned
             self.properties_dock.connect(

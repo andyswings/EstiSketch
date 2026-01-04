@@ -256,6 +256,7 @@ class CanvasToolsMixin:
         # Select it
         self.selected_items = [{"type": "text", "object": new_text}]
         self.emit('selection-changed', self.selected_items)
+        self.save_state()
         self.queue_draw()
 
     def _handle_dimension_click(
