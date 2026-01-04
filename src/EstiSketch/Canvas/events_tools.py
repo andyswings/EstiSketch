@@ -362,16 +362,65 @@ class CanvasToolsMixin:
             print("No wall found near double-click for auto-dimensioning")
             return
 
-        # Calculate automatic offset (perpendicular distance from wall)
-        # Use 12 inches as default offset
+        # Calculate wall geometry for edge alignment
+        start = selected_wall.start
+        end = selected_wall.end
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        length = math.hypot(dx, dy)
+
+        if length == 0:
+            return
+
+        # Unit vector along wall
+        ux = dx / length
+        uy = dy / length
+
+        # Perpendicular vector (rotate 90 degrees counter-clockwise)
+        # Using consistent normal definition
+        px = -uy
+        py = ux
+
+        # Vector from start to click point
+        mx = canvas_x - start[0]
+        my = canvas_y - start[1]
+
+        # Cross product to determine side (signed distance)
+        # vals > 0 means "left" side (positive normal), < 0 means "right" side
+        cross = ux * my - uy * mx
+        direction = 1.0 if cross >= 0 else -1.0
+
+        # Offset to wall edge
+        # Wall width is in inches
+        half_width = selected_wall.width / 2.0
+        
+        # Calculate new start/end points at the wall edge
+        edge_offset_x = px * half_width * direction
+        edge_offset_y = py * half_width * direction
+
+        edge_offset_vector = (edge_offset_x, edge_offset_y)
+        edge_start_simple = (start[0] + edge_offset_x, start[1] + edge_offset_y)
+        edge_end_simple = (end[0] + edge_offset_x, end[1] + edge_offset_y)
+
+        # Calculate true corner points (handling miter joins)
+        edge_start = self._get_corner_point_for_dimension(
+            selected_wall, start, edge_start_simple, edge_offset_vector)
+        edge_end = self._get_corner_point_for_dimension(
+            selected_wall, end, edge_end_simple, edge_offset_vector)
+
+        # Calculate automatic offset for dimension line
+        # Use 12 inches as default offset from the edge
         default_offset = 12.0  # TODO: Make this configurable
+        
+        # Apply direction to offset so dimension extends outward from the edge
+        final_offset = default_offset * direction
 
         # Create dimension object
         dim_id = self.generate_identifier("dimension", self.existing_ids)
         new_dimension = self.Dimension(
-            start=selected_wall.start,
-            end=selected_wall.end,
-            offset=default_offset,
+            start=edge_start,
+            end=edge_end,
+            offset=final_offset,
             identifier=dim_id,
             layer_id=self.active_layer_id
         )
@@ -380,10 +429,103 @@ class CanvasToolsMixin:
 
         print(
             f"Auto-dimension created for wall from {
-                selected_wall.start} to {
-                selected_wall.end}")
+                edge_start} to {
+                edge_end}")
         self.save_state()
         self.queue_draw()
+
+    def _get_corner_point_for_dimension(self, wall, nominal_point, simple_offset_point, offset_vec):
+        """
+        Calculate the true edge corner point, considering miter joins with connected walls.
+        
+        Args:
+            wall: The current wall being dimensioned.
+            nominal_point: The centerline endpoint (start or end) of the wall.
+            simple_offset_point: The point shifted laterally by width/2.
+            offset_vec: The lateral shift vector used.
+            
+        Returns:
+            tuple: (x, y) coordinates of the wall corner.
+        """
+        # 1. Find connected wall at nominal_point
+        connected_wall = None
+        for w_set in self.wall_sets:
+            for w in w_set:
+                if w is wall:
+                    continue
+                # Check soft equality for connection
+                if (abs(w.start[0] - nominal_point[0]) < 1e-4 and abs(w.start[1] - nominal_point[1]) < 1e-4) or \
+                   (abs(w.end[0] - nominal_point[0]) < 1e-4 and abs(w.end[1] - nominal_point[1]) < 1e-4):
+                    connected_wall = w
+                    break
+            if connected_wall:
+                break
+        
+        # If no connected wall, return simple offset (butt end)
+        if not connected_wall:
+            return simple_offset_point
+
+        # 2. Get vectors for both walls pointing AWAY from the connection vertex
+        
+        # Vector 1 (Current Wall)
+        if (abs(wall.start[0] - nominal_point[0]) < 1e-4 and abs(wall.start[1] - nominal_point[1]) < 1e-4):
+            dx1, dy1 = wall.end[0] - wall.start[0], wall.end[1] - wall.start[1]
+        else:
+            dx1, dy1 = wall.start[0] - wall.end[0], wall.start[1] - wall.end[1]
+            
+        len1 = math.hypot(dx1, dy1)
+        if len1 == 0: return simple_offset_point
+        ux1, uy1 = dx1 / len1, dy1 / len1
+
+        # Vector 2 (Connected Wall)
+        if (abs(connected_wall.start[0] - nominal_point[0]) < 1e-4 and abs(connected_wall.start[1] - nominal_point[1]) < 1e-4):
+            dx2, dy2 = connected_wall.end[0] - connected_wall.start[0], connected_wall.end[1] - connected_wall.start[1]
+        else:
+            dx2, dy2 = connected_wall.start[0] - connected_wall.end[0], connected_wall.start[1] - connected_wall.end[1]
+
+        len2 = math.hypot(dx2, dy2)
+        if len2 == 0: return simple_offset_point
+        ux2, uy2 = dx2 / len2, dy2 / len2
+
+        # 3. Calculate Miter Direction (Bisector)
+        # The join line goes along V1 + V2
+        bx, by = ux1 + ux2, uy1 + uy2
+        
+        # Check for collinearity (parallel or anti-parallel)
+        # If magnitude is near 0, they are 180 deg apart (straight line) -> continuous edge
+        if math.hypot(bx, by) < 1e-3:
+            return simple_offset_point
+            
+        # 4. Intersect Edge Line with Miter Line
+        # Line 1 (Edge): P = simple_offset_point + t * U1
+        # Line 2 (Miter): Q = nominal_point + s * (V1 + V2)
+        
+        # We solve for intersection:
+        # Px + t*ux1 = Qx + s*bx
+        # Py + t*uy1 = Qy + s*by
+        
+        # Rearrange:
+        # t*ux1 - s*bx = Qx - Px
+        # t*uy1 - s*by = Qy - Py
+        
+        # Cramer's rule or direct substitution
+        det = ux1 * (-by) - (-bx) * uy1
+        # det = -ux1*by + bx*uy1
+        
+        if abs(det) < 1e-5:
+            return simple_offset_point
+            
+        dx_qp = nominal_point[0] - simple_offset_point[0]
+        dy_qp = nominal_point[1] - simple_offset_point[1]
+        
+        # Solve for t
+        t = (dx_qp * (-by) - (-bx) * dy_qp) / det
+        
+        # Intersection point
+        ix = simple_offset_point[0] + t * ux1
+        iy = simple_offset_point[1] + t * uy1
+        
+        return (ix, iy)
 
     def _calculate_dimension_offset(
             self,

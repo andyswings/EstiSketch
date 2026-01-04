@@ -164,7 +164,6 @@
 ## 🐛 Known Bugs / FIXMEs
 - [ ] When drawing a loop of walls, the last wall is not closed (not mitered with the first wall)
 
-- [ ] When a dimension is created, the dimension line is not aligned with the objects it is measuring (it is aligned to the center of the objects, not the edge)
 
 
 
@@ -174,6 +173,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Fixed auto-dimension alignment to snap to wall edges instead of centerlines (2026-01-03)
 - [x] Creating a text object now makes the canvas dirty (2026-01-03)
 - [x] Application window now correctly maximizes on startup if configured (2026-01-03)
 - [x] Sidebar now correctly collapses by default on startup (2026-01-03)
