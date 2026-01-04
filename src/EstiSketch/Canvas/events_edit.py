@@ -300,6 +300,53 @@ class EditEventsMixin:
                 )
                 if snap_type != "none":
                     new_x, new_y = snapped_pos
+                else:
+                    # Fallback: Snap to wall face corners (mitered edges)
+                    # This allows precise manual placement of dimension points on wall surfaces
+                    check_dist = self.snap_manager.snap_threshold
+                    best_face_snap = None
+                    
+                    for wall_set in self.wall_sets:
+                        for wall in wall_set:
+                            # Calculate normal
+                            dx = wall.end[0] - wall.start[0]
+                            dy = wall.end[1] - wall.start[1]
+                            l = math.hypot(dx, dy)
+                            if l == 0: continue
+                            nx, ny = -dy/l, dx/l
+                            
+                            half_w = wall.width / 2.0
+                            off_x = nx * half_w
+                            off_y = ny * half_w
+                            
+                            off_vec = (off_x, off_y)
+                            neg_off_vec = (-off_x, -off_y)
+                            
+                            # 4 corners
+                            # Start-Left
+                            sl_simple = (wall.start[0] + off_x, wall.start[1] + off_y)
+                            sl = self._get_corner_point_for_dimension(wall, wall.start, sl_simple, off_vec)
+                            
+                            # Start-Right
+                            sr_simple = (wall.start[0] - off_x, wall.start[1] - off_y)
+                            sr = self._get_corner_point_for_dimension(wall, wall.start, sr_simple, neg_off_vec)
+                            
+                            # End-Left
+                            el_simple = (wall.end[0] + off_x, wall.end[1] + off_y)
+                            el = self._get_corner_point_for_dimension(wall, wall.end, el_simple, off_vec)
+                            
+                            # End-Right
+                            er_simple = (wall.end[0] - off_x, wall.end[1] - off_y)
+                            er = self._get_corner_point_for_dimension(wall, wall.end, er_simple, neg_off_vec)
+                            
+                            for pt in [sl, sr, el, er]:
+                                d = math.hypot(new_x - pt[0], new_y - pt[1])
+                                if d < check_dist:
+                                    check_dist = d
+                                    best_face_snap = pt
+                    
+                    if best_face_snap:
+                       new_x, new_y = best_face_snap
 
             # Update the appropriate endpoint
             if self.editing_dimension_handle == "start":

@@ -14,9 +14,7 @@
 - [ ] Polygon tool  
 - [ ] Offset tool (parallel lines at distance)
 - [ ] Trim/Extend tool
-- [ ] Fillet/Chamfer (rounded/beveled corners)
 - [ ] Mirror tool
-- [ ] Array/Pattern tools (grid/circular)
 - [ ] Scale tool
 - [ ] Align/Distribute tools
 - [ ] Hatching/Fill patterns
@@ -163,9 +161,9 @@
 
 ## 🐛 Known Bugs / FIXMEs
 - [ ] When drawing a loop of walls, the last wall is not closed (not mitered with the first wall)
-
-
-
+- [ ] When manually adjusting an endpoint of a dimension, the dimension still snaps to the center of the objects it is measuring instead of the edge
+- [ ] When zooming in, walls are not scaled correctly (lines should be thicker)
+- [ ] When zooming out, walls are not scaled correctly (lines should be thinner)
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -173,6 +171,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Fixed mirrored dimension not updating to opposite wall face (2026-01-03)
 - [x] Fixed auto-dimension alignment to snap to wall edges instead of centerlines (2026-01-03)
 - [x] Creating a text object now makes the canvas dirty (2026-01-03)
 - [x] Application window now correctly maximizes on startup if configured (2026-01-03)

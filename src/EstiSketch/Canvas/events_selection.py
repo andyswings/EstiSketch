@@ -1772,7 +1772,93 @@ class CanvasSelectionMixin:
         """
         for dim_item in selected_dimensions:
             dim = dim_item["object"]
-            dim.offset = -dim.offset
+            
+            # Find closest wall parallel to dimension
+            dx = dim.end[0] - dim.start[0]
+            dy = dim.end[1] - dim.start[1]
+            dim_len = math.hypot(dx, dy)
+            if dim_len == 0:
+                dim.offset = -dim.offset
+                continue
+            
+            # Center of dimension
+            cx = (dim.start[0] + dim.end[0]) / 2
+            cy = (dim.start[1] + dim.end[1]) / 2
+            
+            best_wall = None
+            best_dist = 50.0 # Tolerance in inches (offset is usually ~12-24)
+            
+            for wall_set in self.wall_sets:
+                for wall in wall_set:
+                    # Check if parallel
+                    w_dx = wall.end[0] - wall.start[0]
+                    w_dy = wall.end[1] - wall.start[1]
+                    w_len = math.hypot(w_dx, w_dy)
+                    if w_len == 0: continue
+                    
+                    # Dot product of normalized vectors to check parallel alignment
+                    dot = (dx/dim_len) * (w_dx/w_len) + (dy/dim_len) * (w_dy/w_len)
+                    if abs(dot) < 0.9: continue # Not parallel
+                    
+                    # Check distance from center to wall segment
+                    dist = self.distance_point_to_segment((cx, cy), wall.start, wall.end)
+                    
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_wall = wall
+            
+            if best_wall:
+                # Re-calculate corners for the "Other" side
+                start = best_wall.start
+                end = best_wall.end
+                
+                ux = (end[0] - start[0])
+                uy = (end[1] - start[1])
+                length = math.hypot(ux, uy)
+                if length > 0:
+                    ux /= length
+                    uy /= length
+                
+                px, py = -uy, ux # Normal
+                
+                # Vector from wall start to dim center
+                mx = cx - start[0]
+                my = cy - start[1]
+                
+                # Cross product to determine current side
+                cross = ux * my - uy * mx
+                current_side = 1.0 if cross >= 0 else -1.0
+                
+                # New side (flip direction)
+                new_direction = -current_side
+                
+                # Re-run logic for the new side
+                half_width = best_wall.width / 2.0
+                edge_offset_x = px * half_width * new_direction
+                edge_offset_y = py * half_width * new_direction
+                
+                edge_offset_vector = (edge_offset_x, edge_offset_y)
+                edge_start_simple = (start[0] + edge_offset_x, start[1] + edge_offset_y)
+                edge_end_simple = (end[0] + edge_offset_x, end[1] + edge_offset_y)
+                
+                # Calculate true corner points
+                new_start = self._get_corner_point_for_dimension(
+                    best_wall, start, edge_start_simple, edge_offset_vector)
+                new_end = self._get_corner_point_for_dimension(
+                    best_wall, end, edge_end_simple, edge_offset_vector)
+                
+                dim.start = new_start
+                dim.end = new_end
+                
+                # Flip offset sign to keep outward orientation
+                dim.offset = -dim.offset
+            else:
+                # Fallback if no wall found
+                dim.offset = -dim.offset
+
         self.save_state()
         self.queue_draw()
-        popover.popdown()
+        try:
+            popover.popdown()
+        except BaseException:
+            pass
