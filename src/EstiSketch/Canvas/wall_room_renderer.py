@@ -33,7 +33,7 @@ def draw_walls(self, cr):
                     path_active = False
                 continue
 
-            width_user = wall.width / self.zoom
+            width_user = wall.width
             opacity = get_opacity(wall)
 
             should_start_new = True
@@ -83,7 +83,7 @@ def draw_walls(self, cr):
                     path_active = False
                 continue
 
-            width_user = wall.width / self.zoom
+            width_user = wall.width
             opacity = get_opacity(wall)
 
             should_start_new = True
