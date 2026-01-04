@@ -197,6 +197,20 @@ class LayersPanel(Gtk.Box):
                 if not c:
                     break
                 list_box.remove(c)
+            
+            # Header Row
+            header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            h1 = Gtk.Label(label="Name")
+            h1.set_hexpand(True)
+            h1.set_halign(Gtk.Align.START)
+            header.append(h1)
+            h2 = Gtk.Label(label="Elevation")
+            h2.set_size_request(80, -1)
+            header.append(h2)
+            h3 = Gtk.Label(label="Del")
+            header.append(h3)
+            list_box.append(header)
+
             for level in self.canvas.levels:
                 row = Gtk.Box(
                     orientation=Gtk.Orientation.HORIZONTAL,
@@ -212,6 +226,23 @@ class LayersPanel(Gtk.Box):
                     "changed", lambda e, l=level: rename_level(
                         l, e.get_text()))  # rename live?
                 row.append(name_entry)
+                
+                elev_entry = Gtk.Entry()
+                elev_txt = self.canvas.converter.format_measurement(level.elevation)
+                elev_entry.set_text(elev_txt)
+                elev_entry.set_size_request(80, -1)
+                
+                # Handle Enter key
+                elev_entry.connect(
+                    "activate", lambda e, l=level: update_elevation(l, e.get_text()))
+                
+                # Handle focus lost (GTK4 style)
+                focus_controller = Gtk.EventControllerFocus()
+                focus_controller.connect(
+                    "leave", lambda c, l=level, e=elev_entry: update_elevation(l, e.get_text()))
+                elev_entry.add_controller(focus_controller)
+                
+                row.append(elev_entry)
 
                 # Delete btn (unless only 1 level)
                 if len(self.canvas.levels) > 1:
@@ -226,6 +257,18 @@ class LayersPanel(Gtk.Box):
             if new_name:
                 level.name = new_name
                 self.refresh_level_ui()  # update main panel
+        
+        def update_elevation(level, new_value):
+            try:
+                val = self.canvas.converter.parse_measurement(new_value)
+                if val is not None:
+                    level.elevation = val
+                    print(f"Updated Level {level.name} elevation to {val}")
+                    # If this is active level, maybe queue draw?
+                    # Generally drawing doesn't depend on elevation yet unless 3D
+                    pass
+            except Exception as e:
+                print(f"Error parsing elevation: {e}")
 
         def delete_level(level_id):
             if self.canvas.remove_level(level_id):

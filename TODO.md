@@ -1,7 +1,7 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add support for changing the elevation of a level (and all objects on that level) (maybe add a level offset to the level object based on the elevation of the last level?)
+
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped)
 - [ ] Add Circles/Arcs drawing tool
 - [ ] Create Furniture & Fixture library
@@ -168,6 +168,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Add support for changing the elevation of a level (Level Manager UI update) (2026-01-03)
 - [x] Fixed wall loop closure to correctly miter join the end with the start (2026-01-03)
 - [x] Fixed wall line thickness scaling when zooming (2026-01-03)
 - [x] Fixed manual dimension adjustment to snap to wall face corners (refined) (2026-01-03)
