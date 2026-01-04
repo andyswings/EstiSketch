@@ -79,7 +79,7 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
 5. **Run the Application:**
 
     ```bash
-    python main.py
+    python run_dev.py
     ```
 
 **Contributing**
