@@ -72,6 +72,10 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
         "add_dimension", f"{config_constants.ADD_DIMENSION_LABEL} (M)")
     tool_buttons["add_text"] = create_icon_toggle_button(
         "add_text", f"{config_constants.ADD_TEXT_LABEL} (T)")
+    tool_buttons["add_circle"] = create_icon_toggle_button(
+        "add_circle", "Add Circle (C)")
+    tool_buttons["add_arc"] = create_icon_toggle_button(
+        "add_arc", "Add Arc (Shift+A)")
 
     # Set up toggle button group
     tool_buttons["panning"].set_group(tool_buttons["pointer"])  # Add to group
@@ -82,6 +86,8 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
     tool_buttons["add_polyline"].set_group(tool_buttons["pointer"])
     tool_buttons["add_dimension"].set_group(tool_buttons["pointer"])
     tool_buttons["add_text"].set_group(tool_buttons["pointer"])
+    tool_buttons["add_circle"].set_group(tool_buttons["pointer"])
+    tool_buttons["add_arc"].set_group(tool_buttons["pointer"])
 
     # Add tool buttons to toolbar
     tb.append(tool_buttons["pointer"])
@@ -93,6 +99,8 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
     tb.append(tool_buttons["add_polyline"])
     tb.append(tool_buttons["add_dimension"])
     tb.append(tool_buttons["add_text"])
+    tb.append(tool_buttons["add_circle"])
+    tb.append(tool_buttons["add_arc"])
 
     # Zoom buttons (after tools)
     tool_buttons["zoom_in"] = create_icon_button("zoom_in", "Zoom In (Ctrl+=)")

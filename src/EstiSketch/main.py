@@ -263,6 +263,42 @@ class EstimatorApp(Gtk.Application):
             else:
                 self.canvas.set_tool_mode(None)
 
+        def on_add_circle_toggled(toggle_button):
+            if toggle_button.get_active():
+                # Deactivate other tools
+                self.tool_buttons["pointer"].set_active(False)
+                self.tool_buttons["panning"].set_active(False)
+                self.tool_buttons["draw_walls"].set_active(False)
+                self.tool_buttons["draw_rooms"].set_active(False)
+                self.tool_buttons["add_doors"].set_active(False)
+                self.tool_buttons["add_windows"].set_active(False)
+                self.tool_buttons["add_polyline"].set_active(False)
+                self.tool_buttons["add_dimension"].set_active(False)
+                self.tool_buttons["add_text"].set_active(False)
+                # Activate add_circle mode
+                self.canvas.set_tool_mode("add_circle")
+                print("Add circle mode activated")
+            else:
+                self.canvas.set_tool_mode(None)
+
+        def on_add_arc_toggled(toggle_button):
+            if toggle_button.get_active():
+                # Deactivate other tools
+                self.tool_buttons["pointer"].set_active(False)
+                self.tool_buttons["panning"].set_active(False)
+                self.tool_buttons["draw_walls"].set_active(False)
+                self.tool_buttons["draw_rooms"].set_active(False)
+                self.tool_buttons["add_doors"].set_active(False)
+                self.tool_buttons["add_windows"].set_active(False)
+                self.tool_buttons["add_polyline"].set_active(False)
+                self.tool_buttons["add_dimension"].set_active(False)
+                self.tool_buttons["add_text"].set_active(False)
+                # Activate add_arc mode
+                self.canvas.set_tool_mode("add_arc")
+                print("Add arc mode activated")
+            else:
+                self.canvas.set_tool_mode(None)
+
         callbacks = {
             "pointer": on_pointer_toggled,
             "panning": on_panning_toggled,
@@ -272,7 +308,9 @@ class EstimatorApp(Gtk.Application):
             "add_windows": on_add_windows_toggled,
             "add_polyline": on_add_polyline_toggled,
             "add_dimension": on_add_dimension_toggled,
-            "add_text": on_add_text_toggled
+            "add_text": on_add_text_toggled,
+            "add_circle": on_add_circle_toggled,
+            "add_arc": on_add_arc_toggled
         }
         toolbar_box, self.tool_buttons, extra_buttons = toolbar.create_toolbar(
             self.config, callbacks, self.canvas)
@@ -449,6 +487,14 @@ class EstimatorApp(Gtk.Application):
                     return True
             elif keyname == "return":
                 self.canvas.enter_wall_length()
+                return True
+            elif keyname == "c":
+                self.tool_buttons["add_circle"].set_active(True)
+                return True
+
+        if shift_pressed and not ctrl_pressed:
+            if keyname == "a":
+                self.tool_buttons["add_arc"].set_active(True)
                 return True
 
         if ctrl_pressed and not shift_pressed:

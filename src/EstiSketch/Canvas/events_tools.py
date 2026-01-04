@@ -505,3 +505,156 @@ class CanvasToolsMixin:
             d.destroy()
 
         dialog.connect("response", on_response)
+
+    def _handle_circle_click(self, n_press: int, x: float, y: float) -> None:
+        """
+        Handle click events for drawing circles.
+        Workflow: Click Center -> Move (Radius preview) -> Click Radius.
+        """
+        ppi = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        mx, my = self.device_to_model(x, y, ppi)
+        
+        # Snap logic (reuse snap manager from other tools)
+        (sx, sy), self.snap_type = self.snap_manager.snap_point(
+            mx, my,
+            mx, my, # No previous point logic used for circle center unless we track it
+            self.walls, self.rooms, # etc
+            zoom=self.zoom
+        )
+        
+        if not self.drawing_circle:
+             # First click: Set Center
+             self.circle_center = (sx, sy)
+             self.drawing_circle = True
+             self.circle_radius_preview = 0.0
+             print(f"Circle center set at {self.circle_center}")
+        else:
+             # Second click: Set Radius and Finalize
+             radius = math.hypot(sx - self.circle_center[0], sy - self.circle_center[1])
+             if radius > 0:
+                 circle_id = self.generate_identifier("circle", self.existing_ids)
+                 new_circle = self.Circle(
+                     center=self.circle_center,
+                     radius=radius,
+                     identifier=circle_id,
+                     layer_id=self.active_layer_id
+                 )
+                 self.circles.append(new_circle)
+                 self.existing_ids.append(circle_id)
+                 print(f"Circle created with radius {radius}")
+                 self.save_state()
+             
+             # Reset
+             self.drawing_circle = False
+             self.circle_center = None
+             self.circle_radius_preview = None
+        
+        self.queue_draw()
+
+    def _handle_arc_click(self, n_press: int, x: float, y: float) -> None:
+        """
+        Handle click events for drawing arcs (3-point).
+        Workflow: Click Start -> Click End -> Click Point-on-Curve.
+        """
+        ppi = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        mx, my = self.device_to_model(x, y, ppi)
+        
+        # Snap logic (simple point snap)
+        (sx, sy), self.snap_type = self.snap_manager.snap_point(
+            mx, my, mx, my, self.walls, self.rooms, zoom=self.zoom
+        )
+        
+        if not self.drawing_arc:
+            # First click: Set Start
+            self.arc_start = (sx, sy)
+            self.drawing_arc = True
+            self.arc_end = None
+            self.arc_preview_point = None
+            print(f"Arc start set at {self.arc_start}")
+        
+        elif self.arc_end is None:
+            # Second click: Set End
+            if (sx, sy) != self.arc_start:
+                self.arc_end = (sx, sy)
+                print(f"Arc end set at {self.arc_end}")
+            else:
+                print("Arc end cannot be same as start")
+        
+        else:
+            # Third click: Set Point-on-Curve and Finalize
+            self.arc_preview_point = (sx, sy)
+            
+            # Calculate geometry
+            geom = self.get_circle_from_3_points(self.arc_start, self.arc_end, (sx, sy))
+            if geom:
+                (cx, cy), radius = geom
+                
+                # Determine angles
+                angle_start = self.get_angle_at_point((cx, cy), self.arc_start)
+                angle_mid = self.get_angle_at_point((cx, cy), (sx, sy))
+                angle_end = self.get_angle_at_point((cx, cy), self.arc_end)
+                
+                # Determine orientation for storage
+                # Cairo assumes CW drawing from start to end by default OR we explicitly store CW/CCW?
+                # Arc dataclass stores start/end angles. We need to know if we traverse CW or CCW.
+                # Standard convention (like DXF): Arcs are CCW.
+                # If our 3 points imply a CW arc from start to end, we should swap start/end logic?
+                # Actually, standard math returns angles in CCW from X-axis.
+                # If we draw from Angle Start to Angle End CCW, does it hit Mid?
+                
+                a_start_n = self.normalize_angle(angle_start)
+                a_mid_n = self.normalize_angle(angle_mid)
+                a_end_n = self.normalize_angle(angle_end)
+                
+                # Check if Mid is between Start and End in CCW direction
+                # (Start < Mid < End) circular logic
+                
+                is_ccw = False
+                if a_start_n < a_end_n:
+                    if a_start_n < a_mid_n < a_end_n:
+                         is_ccw = True
+                else: # start > end (crosses 0)
+                    if a_mid_n > a_start_n or a_mid_n < a_end_n:
+                         is_ccw = True
+                
+                final_start = angle_start
+                final_end = angle_end
+
+                if not is_ccw:
+                    # If the user defined points imply a CW arc (Start -> Mid -> End is CW),
+                    # we should store it as an arc from End to Start (CCW) so standard renderers work?
+                    # OR we just store it as is and renderer handles it. 
+                    # My renderer currently handles CW/CCW check.
+                    # Let's align with the renderer's logic in on_draw. Is uses arc/arc_negative.
+                    # But simpler to just normalize to always be valid CCW arc? 
+                    # If 3 points determine circle, arc is unique.
+                    
+                    # Let's perform the swap so stored arc is always CCW traversal?
+                    # This makes rendering cleaner (always cr.arc, never cr.arc_negative).
+                    final_start = angle_end
+                    final_end = angle_start
+                
+                arc_id = self.generate_identifier("arc", self.existing_ids)
+                new_arc = self.Arc(
+                    center=(cx, cy),
+                    radius=radius,
+                    start_angle=final_start,
+                    end_angle=final_end,
+                    identifier=arc_id,
+                    layer_id=self.active_layer_id
+                )
+                self.arcs.append(new_arc)
+                self.existing_ids.append(arc_id)
+                print(f"Arc created with radius {radius}")
+                self.save_state()
+            
+            else:
+                print("Points are collinear, cannot create arc.")
+
+            # Reset
+            self.drawing_arc = False
+            self.arc_start = None
+            self.arc_end = None
+            self.arc_preview_point = None
+            
+        self.queue_draw()

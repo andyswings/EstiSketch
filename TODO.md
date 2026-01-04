@@ -1,10 +1,12 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add Stairs tool (straight, L-shaped, U-shaped)
-- [ ] Add Circles/Arcs drawing tool (new arc tool? or just add arc drawing to the existing polyline tool?)
+- [ ] Add support for editing circle and arc dimensions (change radius)
+- [ ] Add circle and arc tab to properties panel
+- [ ] Add live dimensions for circle and arc objects while drawing
 - [ ] Add Curved Walls tool (new tool? or just add to existing wall tool?)
 - [ ] Add automatic room area calculations
+- [ ] Add Stairs tool (straight, L-shaped, U-shaped, spiral)
 
 ## ✨ Core Features (essential functionality)
 
@@ -160,7 +162,8 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-
+- [ ] When two or more objects are too close to each other or on top of each other, it is difficult or impossible to select a specific object.
+- [ ] Fix NameError when drawing circle and arc objects
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -168,6 +171,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Added Circles/Arcs drawing tools (2026-01-03)
 - [x] Added "Default Level Height" setting to Settings Dialog and Config (2026-01-03)
 - [x] Add support for changing the elevation of a level (Level Manager UI update) (2026-01-03)
 - [x] Fixed wall loop closure to correctly miter join the end with the start (2026-01-03)

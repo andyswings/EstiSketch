@@ -137,6 +137,95 @@ class CanvasDrawMixin:
             cr.set_line_width(1.0 / zoom_transform)
             cr.stroke()
 
+        # Draw Circles
+        for circle in self.circles:
+            if not self.is_object_on_visible_layer(circle):
+                continue
+            self._draw_circle(cr, circle)
+
+        # Draw Arcs
+        for arc in self.arcs:
+            if not self.is_object_on_visible_layer(arc):
+                continue
+            self._draw_arc(cr, arc)
+        
+        # Circle Preview
+        if self.tool_mode == "add_circle" and self.drawing_circle and self.circle_center and self.circle_radius_preview is not None:
+            temp_circle = self.Circle(
+                center=self.circle_center,
+                radius=self.circle_radius_preview
+            )
+            self._draw_circle(cr, temp_circle, is_preview=True)
+
+        # Arc Preview
+        if self.tool_mode == "add_arc" and self.drawing_arc:
+            if self.arc_start and self.arc_end and self.arc_preview_point:
+                 # 3-Point Arc Preview
+                 geom = self.get_circle_from_3_points(self.arc_start, self.arc_end, self.arc_preview_point)
+                 if geom:
+                    (cx, cy), radius = geom
+                    start_angle = self.get_angle_at_point((cx, cy), self.arc_start)
+                    # For arc end, we need to know the *current* mouse pos angle
+                    # Wait, 3-point arc is defined by start, end, and point-on-curve
+                    # The angle range goes from start -> point-on-curve -> end OR start -> end?
+                    # Standard 3-point arc: Arc passes through Start, Middle(Mouse), End? 
+                    # User clicks Start, clicks End, then drags "bulge" point.
+                    # So arc goes Start -> Mouse -> End.
+                    
+                    # Angles
+                    angle_start = self.get_angle_at_point((cx, cy), self.arc_start)
+                    angle_mid = self.get_angle_at_point((cx, cy), self.arc_preview_point)
+                    angle_end = self.get_angle_at_point((cx, cy), self.arc_end)
+                    
+                    # We need to determine if we draw clockwise or counter-clockwise
+                    # Arc is drawn from angle1 to angle2
+                    # cairo.arc(xc, yc, radius, angle1, angle2) draws clockwise
+                    # We need to normalize angles
+                    
+                    # Logic: Draw from start to end, checking if mid is between them in CW direction
+                    
+                    temp_arc = self.Arc(
+                        center=(cx, cy),
+                        radius=radius,
+                        start_angle=angle_start,
+                        end_angle=angle_end
+                    )
+                    
+                    # Determine direction: Cairo arc is CW. arc_negative is CCW.
+                    # Let's normalize angles to 0-2PI relative to start
+                    # a_start = 0
+                    # a_mid = (angle_mid - angle_start) % 2PI
+                    # a_end = (angle_end - angle_start) % 2PI
+                    # If a_mid < a_end, then CW path is Start -> Mid -> End.
+                    
+                    a_mid_rel = (angle_mid - angle_start) % (2 * math.pi)
+                    a_end_rel = (angle_end - angle_start) % (2 * math.pi)
+                    
+                    cr.save()
+                    pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                    cr.set_source_rgba(0, 0, 1, 0.5)
+                    cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+                    
+                    if a_mid_rel < a_end_rel:
+                         # CW
+                         cr.arc(cx, cy, radius, angle_start, angle_end)
+                    else:
+                         # CCW (Use arc_negative)
+                         cr.arc_negative(cx, cy, radius, angle_start, angle_end)
+                         
+                    cr.stroke()
+                    cr.restore()
+            elif self.arc_start and hasattr(self, '_last_mouse_pos'):
+                 # Preview line from Start to Mouse (waiting for End click)
+                 cr.save()
+                 cr.set_source_rgb(0.5, 0.5, 0.5)
+                 cr.set_line_width(1.0 / (self.zoom * getattr(self.config, "PIXELS_PER_INCH", 2.0)))
+                 cr.set_dash([4.0, 4.0])
+                 cr.move_to(self.arc_start[0], self.arc_start[1])
+                 cr.line_to(self._last_mouse_pos[0], self._last_mouse_pos[1])
+                 cr.stroke()
+                 cr.restore()
+
         # Draw finished polylines
         cr.save()
         cr.set_line_width(1.0 / self.zoom)
@@ -798,37 +887,190 @@ class CanvasDrawMixin:
 
         # Set line style
         line_style = getattr(dimension, 'line_style', 'solid')
-        if line_style == "dashed":
+        if line_style == 'dashed':
             cr.set_dash([4.0 / (self.zoom * pixels_per_inch),
                         4.0 / (self.zoom * pixels_per_inch)])
         else:
             cr.set_dash([])
 
-        # Draw extension lines (from measured points to dimension line)
-        # Extension lines go slightly beyond the dimension line
-        extension_overhang = 2.0  # inches
-
-        # Extension line at start
-        ext_start_pt = (start[0] + (offset + extension_overhang)
-                        * px, start[1] + (offset + extension_overhang) * py)
-        cr.move_to(start[0], start[1])
-        cr.line_to(ext_start_pt[0], ext_start_pt[1])
-        cr.stroke()
-
-        # Extension line at end
-        ext_end_pt = (end[0] + (offset + extension_overhang)
-                      * px, end[1] + (offset + extension_overhang) * py)
-        cr.move_to(end[0], end[1])
-        cr.line_to(ext_end_pt[0], ext_end_pt[1])
-        cr.stroke()
-
-        # Draw dimension line
+        # Draw Dimension Line
         cr.move_to(dim_start[0], dim_start[1])
         cr.line_to(dim_end[0], dim_end[1])
         cr.stroke()
 
-        # Draw arrows if enabled
+        # Draw Extension Lines
+        extension_gap = 4.0 / pixels_per_inch  # small gap from measurement point
+        extension_overhang = 6.0 / \
+            pixels_per_inch  # extend past dimension line
+
+        # Extension vectors (from nominal point to past dimension line)
+        # Vector P goes "up" (offset direction)
+        # We start a bit off nominal point, go to dim line + overhang
+        ext1_start_pt = (start[0] + extension_gap * px,
+                         start[1] + extension_gap * py)
+        ext1_end_pt = (start[0] + (offset + extension_overhang)
+                       * px, start[1] + (offset + extension_overhang) * py)
+
+        ext2_start_pt = (end[0] + extension_gap * px, end[1] + extension_gap * py)
+        ext2_end_pt = (end[0] + (offset + extension_overhang) * px,
+                       end[1] + (offset + extension_overhang) * py)
+
+        cr.set_line_width(0.5 / (self.zoom * pixels_per_inch))
+        cr.move_to(ext1_start_pt[0], ext1_start_pt[1])
+        cr.line_to(ext1_end_pt[0], ext1_end_pt[1])
+        cr.move_to(ext2_start_pt[0], ext2_start_pt[1])
+        cr.line_to(ext2_end_pt[0], ext2_end_pt[1])
+        cr.stroke()
+
+        # Draw Arrows (if enabled)
         show_arrows = getattr(dimension, 'show_arrows', True)
+        if show_arrows:
+            arrow_size = 10.0 / (self.zoom * pixels_per_inch)
+            arrow_angle = 30 * math.pi / 180.0
+
+            # Arrow at start (pointing towards start from inside)
+            # Actually standard arrows point OUT from the dimension line end points
+            # We want arrows at dim_start and dim_end pointing INWARDS or OUTWARDS depending on style
+            # Simple tick style:
+            # Draw arrow head at dim_start pointing to dim_end
+            
+            # Start Arrow
+            angle_vec = math.atan2(dim_end[1] - dim_start[1], dim_end[0] - dim_start[0])
+            cr.move_to(dim_start[0], dim_start[1])
+            cr.line_to(dim_start[0] + arrow_size * math.cos(angle_vec + arrow_angle),
+                       dim_start[1] + arrow_size * math.sin(angle_vec + arrow_angle))
+            cr.move_to(dim_start[0], dim_start[1])
+            cr.line_to(dim_start[0] + arrow_size * math.cos(angle_vec - arrow_angle),
+                       dim_start[1] + arrow_size * math.sin(angle_vec - arrow_angle))
+            cr.stroke()
+
+            # End Arrow
+            angle_vec_end = math.atan2(dim_start[1] - dim_end[1], dim_start[0] - dim_end[0])
+            cr.move_to(dim_end[0], dim_end[1])
+            cr.line_to(dim_end[0] + arrow_size * math.cos(angle_vec_end + arrow_angle),
+                       dim_end[1] + arrow_size * math.sin(angle_vec_end + arrow_angle))
+            cr.move_to(dim_end[0], dim_end[1])
+            cr.line_to(dim_end[0] + arrow_size * math.cos(angle_vec_end - arrow_angle),
+                       dim_end[1] + arrow_size * math.sin(angle_vec_end - arrow_angle))
+            cr.stroke()
+
+        # Draw measurement text
+        # ... existing logic for text ...
+        dx = dim_end[0] - dim_start[0]
+        dy = dim_end[1] - dim_start[1]
+        mid_x = (dim_start[0] + dim_end[0]) / 2
+        mid_y = (dim_start[1] + dim_end[1]) / 2
+        dim_angle = math.atan2(dy, dx)
+        
+        # Keep text readable (upright)
+        deg = math.degrees(dim_angle) % 360
+        if 90 < deg < 270:
+            dim_angle += math.pi
+
+        measurement_str = self.converter.format_measurement(length, use_fraction=False)
+        text_size = getattr(dimension, 'text_size', 12.0)
+        
+        cr.save()
+        cr.translate(mid_x, mid_y)
+        cr.rotate(dim_angle)
+        
+        # Offset text slightly above line
+        text_offset = 4.0 / (self.zoom * pixels_per_inch) + (text_size / (self.zoom * pixels_per_inch))
+        cr.move_to(0, -text_offset)
+        
+        cr.set_source_rgb(0, 0, 0) # Text always black? Or follow dim color?
+        cr.set_source_rgba(color[0], color[1], color[2], 1.0) # Match dim color
+        cr.select_font_face("Sans", 0, 0)
+        cr.set_font_size(text_size / (self.zoom * pixels_per_inch))
+        
+        # Center align text
+        extents = cr.text_extents(measurement_str)
+        cr.rel_move_to(-extents.width / 2, 0)
+        
+        cr.show_text(measurement_str)
+        cr.restore()
+        
+        cr.restore()
+
+    def _draw_circle(self, cr, circle, is_preview=False):
+        """Draw a circle object."""
+        if not circle.radius or circle.radius <= 0:
+            return
+
+        cx, cy = circle.center
+        
+        cr.save()
+        
+        # Selection check
+        is_selected = False
+        if not is_preview:
+            is_selected = any(item.get("type") == "circle" and item.get("object") is circle for item in self.selected_items)
+
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        line_width = 1.0 / (self.zoom * pixels_per_inch)
+        
+        if is_selected:
+            cr.set_source_rgb(1, 0, 0)
+            line_width *= 2.0
+        else:
+            color = getattr(circle, 'color', (0,0,0))
+            opacity = 1.0
+            if hasattr(self, 'get_object_opacity'):
+                opacity = self.get_object_opacity(circle)
+            cr.set_source_rgba(color[0], color[1], color[2], opacity)
+        
+        cr.set_line_width(line_width)
+        
+        line_style = getattr(circle, 'line_style', 'solid')
+        if line_style == 'dashed':
+            cr.set_dash([4.0 / (self.zoom * pixels_per_inch), 4.0])
+        else:
+            cr.set_dash([])
+            
+        cr.arc(cx, cy, circle.radius, 0, 2 * math.pi)
+        cr.stroke()
+        
+        cr.restore()
+
+    def _draw_arc(self, cr, arc, is_preview=False):
+        """Draw an arc object."""
+        if not arc.radius or arc.radius <= 0:
+            return
+
+        cx, cy = arc.center
+        
+        cr.save()
+        
+        # Selection check
+        is_selected = False
+        if not is_preview:
+            is_selected = any(item.get("type") == "arc" and item.get("object") is arc for item in self.selected_items)
+
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        line_width = 1.0 / (self.zoom * pixels_per_inch)
+        
+        if is_selected:
+            cr.set_source_rgb(1, 0, 0)
+            line_width *= 2.0
+        else:
+            color = getattr(arc, 'color', (0,0,0))
+            opacity = 1.0
+            if hasattr(self, 'get_object_opacity'):
+                opacity = self.get_object_opacity(arc)
+            cr.set_source_rgba(color[0], color[1], color[2], opacity)
+        
+        cr.set_line_width(line_width)
+        
+        line_style = getattr(arc, 'line_style', 'solid')
+        if line_style == 'dashed':
+            cr.set_dash([4.0 / (self.zoom * pixels_per_inch), 4.0])
+        else:
+            cr.set_dash([])
+            
+        cr.arc(cx, cy, arc.radius, arc.start_angle, arc.end_angle)
+        cr.stroke()
+        
+        cr.restore()
         if show_arrows:
             arrow_len = 3.0  # inches
             arrow_angle = math.radians(20)  # 20 degree arrow angle
@@ -855,81 +1097,4 @@ class CanvasDrawMixin:
             cr.line_to(a2x, a2y)
             cr.stroke()
 
-            # Arrow at end (pointing towards end point)
-            arrow_dir_x = ux
-            arrow_dir_y = uy
-
-            # Arrow line 1
-            a1x = dim_end[0] + arrow_len * (arrow_dir_x * math.cos(
-                arrow_angle) - arrow_dir_y * math.sin(arrow_angle))
-            a1y = dim_end[1] + arrow_len * (arrow_dir_x * math.sin(
-                arrow_angle) + arrow_dir_y * math.cos(arrow_angle))
-            cr.move_to(dim_end[0], dim_end[1])
-            cr.line_to(a1x, a1y)
-            cr.stroke()
-
-            # Arrow line 2
-            a2x = dim_end[0] + arrow_len * \
-                (arrow_dir_x * math.cos(-arrow_angle) - arrow_dir_y * math.sin(-arrow_angle))
-            a2y = dim_end[1] + arrow_len * \
-                (arrow_dir_x * math.sin(-arrow_angle) + arrow_dir_y * math.cos(-arrow_angle))
-            cr.move_to(dim_end[0], dim_end[1])
-            cr.line_to(a2x, a2y)
-            cr.stroke()
-
-        # Draw measurement text at midpoint
-        mid_x = (dim_start[0] + dim_end[0]) / 2
-        mid_y = (dim_start[1] + dim_end[1]) / 2
-
-        # Format measurement
-        measurement_str = self.converter.format_measurement(
-            length, use_fraction=False)
-
-        # Calculate text angle (parallel to dimension line)
-        text_angle = math.atan2(dy, dx)
-
-        # Flip text if upside down
-        if text_angle > math.pi / 2 or text_angle < -math.pi / 2:
-            text_angle += math.pi
-
-        cr.save()
-        cr.translate(mid_x, mid_y)
-        cr.rotate(text_angle)
-
-        # Set font
-        text_size = getattr(dimension, 'text_size', 12.0) / \
-            (self.zoom * pixels_per_inch)
-        cr.set_font_size(text_size)
-        cr.select_font_face("Sans", 0, 0)
-
-        # Get text extents for background
-        extents = cr.text_extents(measurement_str)
-        text_width = extents.width
-        text_height = extents.height
-
-        # Draw white background for text
-        padding = 2.0 / (self.zoom * pixels_per_inch)
-        # Background should also obey opacity
-        opacity = 1.0
-        if hasattr(self, 'get_object_opacity'):
-            opacity = self.get_object_opacity(dimension)
-
-        cr.set_source_rgba(1, 1, 1, opacity)
-        cr.rectangle(
-            -text_width / 2 - padding,
-            -text_height - padding,
-            text_width + 2 * padding,
-            text_height + 2 * padding
-        )
-        cr.fill()
-
-        # Draw text
-        if is_preview:
-            cr.set_source_rgba(color[0], color[1], color[2], 0.5)
-        else:
-            cr.set_source_rgb(*color)
-        cr.move_to(-text_width / 2, 0)
-        cr.show_text(measurement_str)
-
-        cr.restore()
         cr.restore()

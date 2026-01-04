@@ -159,3 +159,33 @@ class CanvasGeometryMixin:
         iy = simple_offset_point[1] + t * uy1
         
         return (ix, iy)
+
+    def get_circle_from_3_points(self, p1, p2, p3):
+        """
+        Calculate center and radius of a circle defined by 3 points.
+        Returns:
+            ((center_x, center_y), radius) or None if collinear.
+        """
+        x1, y1 = p1
+        x2, y2 = p2
+        x3, y3 = p3
+
+        D = 2 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2))
+        
+        if abs(D) < 1e-6:
+            return None  # Points are collinear
+
+        center_x = ((x1**2 + y1**2) * (y2 - y3) + (x2**2 + y2**2) * (y3 - y1) + (x3**2 + y3**2) * (y1 - y2)) / D
+        center_y = ((x1**2 + y1**2) * (x3 - x2) + (x2**2 + y2**2) * (x1 - x3) + (x3**2 + y3**2) * (x2 - x1)) / D
+        
+        radius = math.hypot(center_x - x1, center_y - y1)
+        
+        return ((center_x, center_y), radius)
+
+    def get_angle_at_point(self, center, point):
+        """Calculate angle (radians) of 'point' around 'center', normalized to 0-2PI."""
+        return math.atan2(point[1] - center[1], point[0] - center[0])
+
+    def normalize_angle(self, angle):
+        """Normalize angle to 0-2PI range."""
+        return angle % (2 * math.pi)

@@ -147,6 +147,23 @@ class CanvasArea(Gtk.DrawingArea,
         self.Room = Room
         self.Text = Text
         self.Dimension = Dimension
+        from ..components import Circle, Arc
+        self.Circle = Circle
+        self.Arc = Arc
+
+        # Circle drawing state
+        self.circles = []
+        self.drawing_circle = False
+        self.circle_center = None
+        self.circle_radius_preview = None
+
+        # Arc drawing state
+        self.arcs = []
+        self.drawing_arc = False
+        self.arc_start = None
+        self.arc_end = None
+        self.arc_preview_point = None
+
         # Initialize snapping manager
         self.snap_manager = SnappingManager(
             snap_enabled=self.config.SNAP_ENABLED,

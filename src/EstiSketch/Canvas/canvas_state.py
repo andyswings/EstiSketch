@@ -15,7 +15,9 @@ class CanvasStateMixin:
             "doors": copy.deepcopy(self.doors),
             "windows": copy.deepcopy(self.windows),
             "texts": copy.deepcopy(self.texts),
-            "dimensions": copy.deepcopy(self.dimensions)
+            "dimensions": copy.deepcopy(self.dimensions),
+            "circles": copy.deepcopy(self.circles),
+            "arcs": copy.deepcopy(self.arcs)
         }
         self.undo_stack.append(state)
         if len(self.undo_stack) > self.config.UNDO_REDO_LIMIT:
@@ -45,6 +47,8 @@ class CanvasStateMixin:
         self.windows = copy.deepcopy(state.get("windows", []))
         self.texts = copy.deepcopy(state.get("texts", []))
         self.dimensions = copy.deepcopy(state.get("dimensions", []))
+        self.circles = copy.deepcopy(state.get("circles", []))
+        self.arcs = copy.deepcopy(state.get("arcs", []))
         self.snap_type = "none"
         self.queue_draw()
         print(

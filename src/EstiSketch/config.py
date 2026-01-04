@@ -17,6 +17,8 @@ DEFAULT_SETTINGS = {
     "ADD_WINDOWS_LABEL": "Add Windows",
     "ADD_DIMENSION_LABEL": "Add Dimension Lines",
     "ADD_TEXT_LABEL": "Add Text",
+    "ADD_CIRCLE_LABEL": "Add Circle",
+    "ADD_ARC_LABEL": "Add Arc",
     "MANAGE_MATERIALS_LABEL": "Manage Materials",
     "ESTIMATE_MATERIALS_LABEL": "Estimate Materials",
     "ESTIMATE_COST_LABEL": "Estimate Cost",

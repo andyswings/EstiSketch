@@ -424,6 +424,63 @@ class CanvasSelectionMixin:
                     selected_item = {"type": "dimension", "object": dimension}
                     break
 
+        # Check Circles
+        if selected_item is None:
+            for circle in self.circles:
+                if self.is_object_on_locked_layer(circle) or not self.is_object_on_visible_layer(circle):
+                    continue
+                    
+                center_widget = self.model_to_device(circle.center[0], circle.center[1], pixels_per_inch)
+                radius_widget = circle.radius * T # T = zoom * ppi
+                
+                dist = math.hypot(click_pt[0] - center_widget[0], click_pt[1] - center_widget[1])
+                
+                # Check if click is near the circle edge (within threshold)
+                dist_to_edge = abs(dist - radius_widget)
+                if dist_to_edge < fixed_threshold:
+                    selected_item = {"type": "circle", "object": circle}
+                    break
+
+        # Check Arcs
+        if selected_item is None:
+            for arc in self.arcs:
+                if self.is_object_on_locked_layer(arc) or not self.is_object_on_visible_layer(arc):
+                    continue
+                    
+                center_widget = self.model_to_device(arc.center[0], arc.center[1], pixels_per_inch)
+                radius_widget = arc.radius * T
+                
+                dist = math.hypot(click_pt[0] - center_widget[0], click_pt[1] - center_widget[1])
+                dist_to_edge = abs(dist - radius_widget)
+                
+                if dist_to_edge < fixed_threshold:
+                    # Check angle
+                    angle = math.atan2(click_pt[1] - center_widget[1], click_pt[0] - center_widget[0])
+                    # Normalize to 0-2PI relative to start angle?
+                    # arc.start_angle / end_angle are in radians.
+                    # Need to check if 'angle' is between start and end in the arc's direction (CCW/CW)
+                    # We store arcs as CCW from start to end (see previous step decision)
+                    # OR we just check if angle is in [start, end] range normalized
+                    
+                    angle_norm = self.normalize_angle(angle)
+                    start_norm = self.normalize_angle(arc.start_angle)
+                    end_norm = self.normalize_angle(arc.end_angle)
+                    
+                    # Logic: if start < end, then angle must be in [start, end]
+                    # if start > end (crosses 0), then angle > start OR angle < end
+                    
+                    in_angle = False
+                    if start_norm < end_norm:
+                        if start_norm <= angle_norm <= end_norm:
+                            in_angle = True
+                    else:
+                        if angle_norm >= start_norm or angle_norm <= end_norm:
+                            in_angle = True
+                            
+                    if in_angle:
+                        selected_item = {"type": "arc", "object": arc}
+                        break
+
         event = gesture.get_current_event()
         state = event.get_modifier_state() if hasattr(
             event, "get_modifier_state") else event.state

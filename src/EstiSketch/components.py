@@ -158,3 +158,25 @@ class Dimension:
     show_arrows: bool = True  # Whether to show extension arrows
     line_style: str = "solid"  # "solid" or "dashed"
     color: tuple = (0.0, 0.0, 0.0)  # RGB color
+
+
+@dataclass(eq=False)
+class Circle:
+    center: tuple  # (x, y) in inches
+    radius: float  # in inches
+    identifier: str = ""
+    layer_id: str = ""
+    line_style: str = "solid"
+    color: tuple = (0.0, 0.0, 0.0)
+
+
+@dataclass(eq=False)
+class Arc:
+    center: tuple  # (x, y) in inches
+    radius: float  # in inches
+    start_angle: float  # radians
+    end_angle: float  # radians
+    identifier: str = ""
+    layer_id: str = ""
+    line_style: str = "solid"
+    color: tuple = (0.0, 0.0, 0.0)

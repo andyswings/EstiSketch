@@ -41,6 +41,10 @@ class CanvasEventsMixin:
             self._handle_dimension_click(n_press, x, y)
         elif self.tool_mode == "add_text":
             self._handle_text_click(n_press, x, y)
+        elif self.tool_mode == "add_circle":
+            self._handle_circle_click(n_press, x, y)
+        elif self.tool_mode == "add_arc":
+            self._handle_arc_click(n_press, x, y)
 
     def on_click_pressed(
             self,
@@ -297,6 +301,42 @@ class CanvasEventsMixin:
 
             self.current_room_preview = (snapped_x, snapped_y)
             self.queue_draw()
+
+        elif self.tool_mode == "add_circle" and self.drawing_circle and self.circle_center:
+             # Update radius preview
+             # Snap the current mouse point first?
+             # For radius, usually we just want direct distance or maybe grid snap.
+             # Let's use the 'raw_point' (canvas_x, canvas_y) but maybe apply simple grid snap if enabled?
+             # For consistency with other tools, let's just use canvas_x, canvas_y for now or simple point snap.
+             
+             # Reuse snap manager for simple point snap (grid/vertex)
+             (sx, sy), _ = self.snap_manager.snap_point(
+                canvas_x, canvas_y,
+                self.circle_center[0], self.circle_center[1], # Use center as "previous point" reference
+                self.walls, self.rooms, zoom=self.zoom
+             )
+             
+             self.circle_radius_preview = math.hypot(sx - self.circle_center[0], sy - self.circle_center[1])
+             print(f"DEBUG: Circle preview r={self.circle_radius_preview}")
+             self.queue_draw()
+             
+        elif self.tool_mode == "add_arc" and self.drawing_arc:
+             if self.arc_start and self.arc_end:
+                 # Update 3rd point preview
+                 (sx, sy), _ = self.snap_manager.snap_point(
+                    canvas_x, canvas_y,
+                    canvas_x, canvas_y, 
+                    self.walls, self.rooms, zoom=self.zoom
+                 )
+                 self.arc_preview_point = (sx, sy)
+                 print(f"DEBUG: Arc preview pt={self.arc_preview_point}")
+                 self.queue_draw()
+             elif self.arc_start:
+                 # We are waiting for 2nd click (End point).
+                 # Just queue draw to update the dashed line to _last_mouse_pos
+                 # _last_mouse_pos is updated at start of on_motion
+                 print("DEBUG: Arc preview dragging end point")
+                 self.queue_draw()
 
     def on_zoom_changed(
             self,
