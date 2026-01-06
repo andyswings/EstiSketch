@@ -540,7 +540,15 @@ class CanvasDrawMixin:
                   geom = self.get_circle_from_3_points(self.arc_start, self.arc_end, self.arc_preview_point)
                   if geom:
                        (cx, cy), radius = geom
-                       arcs_to_label.append(self.Arc(center=(cx, cy), radius=radius, start_angle=0, end_angle=0))
+                       angle_start = math.atan2(self.arc_start[1] - cy, self.arc_start[0] - cx)
+                       arcs_to_label.append(self.Arc(center=(cx, cy), radius=radius, start_angle=angle_start, end_angle=0))
+        
+        # Add currently edited objects (handles selected)
+        if getattr(self, "editing_circle", None) and self.editing_circle not in circles_to_label:
+             circles_to_label.append(self.editing_circle)
+
+        if getattr(self, "editing_arc", None) and self.editing_arc not in arcs_to_label:
+             arcs_to_label.append(self.editing_arc)
 
         if hasattr(self, "selected_items"):
              for item in self.selected_items:
@@ -1121,7 +1129,11 @@ class CanvasDrawMixin:
         # Selection check
         is_selected = False
         if not is_preview:
-            is_selected = any(item.get("type") == "circle" and item.get("object") is circle for item in self.selected_items)
+            is_selected = any(
+                (item.get("type") == "circle" and item.get("object") is circle) or
+                (item.get("type") == "circle_handle" and item.get("object")[0] is circle)
+                for item in self.selected_items
+            )
 
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         line_width = 1.0 / (self.zoom * pixels_per_inch)
@@ -1176,7 +1188,11 @@ class CanvasDrawMixin:
         # Selection check
         is_selected = False
         if not is_preview:
-            is_selected = any(item.get("type") == "arc" and item.get("object") is arc for item in self.selected_items)
+            is_selected = any(
+                (item.get("type") == "arc" and item.get("object") is arc) or
+                (item.get("type") == "arc_handle" and item.get("object")[0] is arc)
+                for item in self.selected_items
+            )
 
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         line_width = 1.0 / (self.zoom * pixels_per_inch)

@@ -733,8 +733,7 @@ class EditEventsMixin:
             self.queue_draw()
             return
 
-            self.queue_draw()
-            return
+
 
         # Handle Circle Editing (Radius)
         if getattr(self, "editing_circle", None) and getattr(self, "editing_circle_handle", None):

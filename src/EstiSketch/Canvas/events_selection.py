@@ -573,6 +573,10 @@ class CanvasSelectionMixin:
         """
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        
+        # Always initialize drag start coordinates
+        self.drag_start_x = start_x
+        self.drag_start_y = start_y
 
         # If we already entered handle-editing on press, don't overwrite
         # box_select_start.
@@ -884,6 +888,38 @@ class CanvasSelectionMixin:
             self.connected_endpoints = []
             self.connected_endpoints = []
             self.joint_drag_origin = None
+            return
+
+        # If we were editing a circle, clear that state and save
+        if getattr(self, "editing_circle", None) and getattr(self, "editing_circle_handle", None):
+            self.editing_circle = None
+            self.editing_circle_handle = None
+            self.save_state()
+            return
+
+        # If we were editing an arc, clear that state and save
+        if getattr(self, "editing_arc", None) and getattr(self, "editing_arc_handle", None):
+            self.editing_arc = None
+            self.editing_arc_handle = None
+            self.save_state()
+            return
+
+        # If we were dragging a circle, clear that state and save
+        if getattr(self, "dragging_circle", None):
+            self.dragging_circle = None
+            self.circle_drag_original_center = None
+            self.circle_drag_start_model = None
+            self.save_state()
+            self.queue_draw()
+            return
+
+        # If we were dragging an arc, clear that state and save
+        if getattr(self, "dragging_arc", None):
+            self.dragging_arc = None
+            self.arc_drag_original_center = None
+            self.arc_drag_start_model = None
+            self.save_state()
+            self.queue_draw()
             return
 
         # If we were editing a dimension endpoint, clear that state and save

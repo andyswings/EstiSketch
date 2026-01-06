@@ -160,9 +160,9 @@
 
 ## 🐛 Known Bugs / FIXMEs
 - [ ] When two or more objects are too close to each other or on top of each other, it is difficult or impossible to select a specific object.
-- [ ] Changing the radius of a circle works when clicking on the circle object and the circle still shows as being selected, but if the yellow "handle" is dragged to change the radius, the circle object is no longer showing as selected (but is still edited anyway).
-- [ ] When editing the radius of a circle or arc object, the live dimension should be shown, but it is not.
-- [ ] The live dimension for an arc object is always shown horizontal, even when the arc is vertical.
+- [ ] Dragging to move circle/arc objects is not working
+- [ ] Editing arc dimensions is not working as expected right now editing an end point moves the endpoint along the arc instead of changing the radius
+- [ ] Arcs are drawn with a two step process, first a dashed line is drawn representing the span of the arc, then the next click sets the radius and creates the arc. Live dimensions are correctly shown for the second step but not the first.
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -170,13 +170,16 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
-- [x] Add support for editing circle and arc dimensions (change radius) (2026-01-05)
-- [x] Add circle and arc tab to properties panel (2026-01-05)
-- [x] Add live dimensions for circle and arc objects while drawing (2026-01-05)
-- [x] Fix NameError when drawing circle and arc objects (2026-01-05)
+- [x] Corrected arc dimension orientation (2026-01-05)
+- [x] Fixed missing live dimensions during circle/arc editing (2026-01-05)
+- [x] Fixed selection state visual loss during handle dragging (2026-01-05)
+- [x] Added support for editing circle and arc dimensions (change radius) (2026-01-05)
+- [x] Added circle and arc tab to properties panel (2026-01-05)
+- [x] Added live dimensions for circle and arc objects while drawing (2026-01-05)
+- [x] Fixed NameError when drawing circle and arc objects (2026-01-05)
 - [x] Added Circles/Arcs drawing tools (2026-01-03)
 - [x] Added "Default Level Height" setting to Settings Dialog and Config (2026-01-03)
-- [x] Add support for changing the elevation of a level (Level Manager UI update) (2026-01-03)
+- [x] Added support for changing the elevation of a level (Level Manager UI update) (2026-01-03)
 - [x] Fixed wall loop closure to correctly miter join the end with the start (2026-01-03)
 - [x] Fixed wall line thickness scaling when zooming (2026-01-03)
 - [x] Fixed manual dimension adjustment to snap to wall face corners (refined) (2026-01-03)
