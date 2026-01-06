@@ -1071,30 +1071,4 @@ class CanvasDrawMixin:
         cr.stroke()
         
         cr.restore()
-        if show_arrows:
-            arrow_len = 3.0  # inches
-            arrow_angle = math.radians(20)  # 20 degree arrow angle
 
-            # Arrow at start (pointing towards start point)
-            arrow_dir_x = -ux
-            arrow_dir_y = -uy
-
-            # Arrow line 1
-            a1x = dim_start[0] + arrow_len * (arrow_dir_x * math.cos(
-                arrow_angle) - arrow_dir_y * math.sin(arrow_angle))
-            a1y = dim_start[1] + arrow_len * (arrow_dir_x * math.sin(
-                arrow_angle) + arrow_dir_y * math.cos(arrow_angle))
-            cr.move_to(dim_start[0], dim_start[1])
-            cr.line_to(a1x, a1y)
-            cr.stroke()
-
-            # Arrow line 2
-            a2x = dim_start[0] + arrow_len * (
-                arrow_dir_x * math.cos(-arrow_angle) - arrow_dir_y * math.sin(-arrow_angle))
-            a2y = dim_start[1] + arrow_len * (
-                arrow_dir_x * math.sin(-arrow_angle) + arrow_dir_y * math.cos(-arrow_angle))
-            cr.move_to(dim_start[0], dim_start[1])
-            cr.line_to(a2x, a2y)
-            cr.stroke()
-
-        cr.restore()
