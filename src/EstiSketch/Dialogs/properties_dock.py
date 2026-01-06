@@ -1194,6 +1194,253 @@ class DoorPropertiesWidget(Gtk.Box):
         self._block_updates = False
 
 
+class CirclePropertiesWidget(Gtk.Box):
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.current_circles = []
+        self._block_updates = False
+
+        # Frame
+        frame = Gtk.Frame(label="Circle Properties")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        frame.set_child(box)
+        self.append(frame)
+
+        # Radius (displayed in inches)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Radius:"))
+        self.radius_spin = Gtk.SpinButton.new_with_range(1, 10000, 1)
+        self.radius_spin.set_digits(2)
+        self.radius_spin.connect("value-changed", self.on_radius_changed)
+        row.append(self.radius_spin)
+        box.append(row)
+
+        # Line Style
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Line Style:"))
+        self.line_style_combo = Gtk.ComboBoxText()
+        self.line_style_combo.append_text("solid")
+        self.line_style_combo.append_text("dashed")
+        self.line_style_combo.connect("changed", self.on_line_style_changed)
+        row.append(self.line_style_combo)
+        box.append(row)
+
+        # Color
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Color:"))
+        self.color_button = Gtk.ColorButton()
+        self.color_button.connect("color-set", self.on_color_changed)
+        row.append(self.color_button)
+        box.append(row)
+
+    def on_radius_changed(self, spin):
+        if self._block_updates or not self.current_circles:
+            return
+        radius = spin.get_value()
+        for circle in self.current_circles:
+            circle.radius = radius
+        self.emit_property_changed()
+
+    def on_line_style_changed(self, combo):
+        if self._block_updates or not self.current_circles:
+            return
+        style = combo.get_active_text()
+        if style:
+            for circle in self.current_circles:
+                circle.line_style = style
+        self.emit_property_changed()
+
+    def on_color_changed(self, color_button):
+        if self._block_updates or not self.current_circles:
+            return
+        rgba = color_button.get_rgba()
+        color = (rgba.red, rgba.green, rgba.blue)
+        for circle in self.current_circles:
+            circle.color = color
+        self.emit_property_changed()
+
+    def emit_property_changed(self):
+        if hasattr(self, "canvas") and self.canvas:
+            self.canvas.queue_draw()
+            # self.canvas.save_state() # Ideally we save state on changes
+
+    def set_circle(self, circles):
+        self._block_updates = True
+        if not isinstance(circles, list):
+            circles = [circles]
+        self.current_circles = circles
+
+        if not circles:
+            self._block_updates = False
+            return
+
+        first = circles[0]
+
+        # Radius
+        # Check if all same
+        self.radius_spin.set_value(first.radius)
+
+        # Line Style
+        style = getattr(first, 'line_style', 'solid')
+        if style == 'dashed':
+            self.line_style_combo.set_active(1)
+        else:
+            self.line_style_combo.set_active(0)
+
+        # Color
+        color = getattr(first, 'color', (0.0, 0.0, 0.0))
+        from gi.repository import Gdk
+        rgba = Gdk.RGBA()
+        rgba.red, rgba.green, rgba.blue, rgba.alpha = color[0], color[1], color[2], 1.0
+        self.color_button.set_rgba(rgba)
+
+        self._block_updates = False
+
+
+class ArcPropertiesWidget(Gtk.Box):
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.current_arcs = []
+        self._block_updates = False
+
+        # Frame
+        frame = Gtk.Frame(label="Arc Properties")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        frame.set_child(box)
+        self.append(frame)
+
+        # Radius
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Radius:"))
+        self.radius_spin = Gtk.SpinButton.new_with_range(1, 10000, 1)
+        self.radius_spin.set_digits(2)
+        self.radius_spin.connect("value-changed", self.on_radius_changed)
+        row.append(self.radius_spin)
+        box.append(row)
+
+        # Start Angle (degrees)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Start Angle (°):"))
+        self.start_angle_spin = Gtk.SpinButton.new_with_range(-360, 360, 1)
+        self.start_angle_spin.connect("value-changed", self.on_angles_changed)
+        row.append(self.start_angle_spin)
+        box.append(row)
+
+        # End Angle (degrees)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="End Angle (°):"))
+        self.end_angle_spin = Gtk.SpinButton.new_with_range(-360, 360, 1)
+        self.end_angle_spin.connect("value-changed", self.on_angles_changed)
+        row.append(self.end_angle_spin)
+        box.append(row)
+
+        # Line Style
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Line Style:"))
+        self.line_style_combo = Gtk.ComboBoxText()
+        self.line_style_combo.append_text("solid")
+        self.line_style_combo.append_text("dashed")
+        self.line_style_combo.connect("changed", self.on_line_style_changed)
+        row.append(self.line_style_combo)
+        box.append(row)
+
+        # Color
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Color:"))
+        self.color_button = Gtk.ColorButton()
+        self.color_button.connect("color-set", self.on_color_changed)
+        row.append(self.color_button)
+        box.append(row)
+
+    def on_radius_changed(self, spin):
+        if self._block_updates or not self.current_arcs:
+            return
+        radius = spin.get_value()
+        for arc in self.current_arcs:
+            arc.radius = radius
+        self.emit_property_changed()
+
+    def on_angles_changed(self, spin):
+        if self._block_updates or not self.current_arcs:
+            return
+        # Convert degrees to radians
+        start_deg = self.start_angle_spin.get_value()
+        end_deg = self.end_angle_spin.get_value()
+        
+        # Ensure end > start? Not necessarily required by math, but usually arc is CCW
+        
+        for arc in self.current_arcs:
+            arc.start_angle = math.radians(start_deg)
+            arc.end_angle = math.radians(end_deg)
+        self.emit_property_changed()
+
+    def on_line_style_changed(self, combo):
+        if self._block_updates or not self.current_arcs:
+            return
+        style = combo.get_active_text()
+        if style:
+            for arc in self.current_arcs:
+                arc.line_style = style
+        self.emit_property_changed()
+
+    def on_color_changed(self, color_button):
+        if self._block_updates or not self.current_arcs:
+            return
+        rgba = color_button.get_rgba()
+        color = (rgba.red, rgba.green, rgba.blue)
+        for arc in self.current_arcs:
+            arc.color = color
+        self.emit_property_changed()
+
+    def emit_property_changed(self):
+        if hasattr(self, "canvas") and self.canvas:
+            self.canvas.queue_draw()
+
+    def set_arc(self, arcs):
+        self._block_updates = True
+        if not isinstance(arcs, list):
+            arcs = [arcs]
+        self.current_arcs = arcs
+
+        if not arcs:
+            self._block_updates = False
+            return
+
+        first = arcs[0]
+
+        # Radius
+        self.radius_spin.set_value(first.radius)
+
+        # Angles (radians to degrees)
+        import math
+        self.start_angle_spin.set_value(math.degrees(first.start_angle))
+        self.end_angle_spin.set_value(math.degrees(first.end_angle))
+
+        # Line Style
+        style = getattr(first, 'line_style', 'solid')
+        if style == 'dashed':
+            self.line_style_combo.set_active(1)
+        else:
+            self.line_style_combo.set_active(0)
+
+        # Color
+        color = getattr(first, 'color', (0.0, 0.0, 0.0))
+        from gi.repository import Gdk
+        rgba = Gdk.RGBA()
+        rgba.red, rgba.green, rgba.blue, rgba.alpha = color[0], color[1], color[2], 1.0
+        self.color_button.set_rgba(rgba)
+
+        self._block_updates = False
+
+
 class PropertiesDock(Gtk.Box):
 
     __gsignals__ = {
@@ -1308,6 +1555,22 @@ class PropertiesDock(Gtk.Box):
         self.icon_bar.append(door_btn)
         self.tabs["door"] = door_btn
 
+        self.circle_page = CirclePropertiesWidget()
+        self.circle_page.canvas = canvas
+        self.stack.add_titled(self.circle_page, "circle", "Circle Properties")
+
+        circle_btn = self._make_tab_button("circle", icon_dir, "add_circle")
+        self.icon_bar.append(circle_btn)
+        self.tabs["circle"] = circle_btn
+
+        self.arc_page = ArcPropertiesWidget()
+        self.arc_page.canvas = canvas
+        self.stack.add_titled(self.arc_page, "arc", "Arc Properties")
+
+        arc_btn = self._make_tab_button("arc", icon_dir, "add_arc")
+        self.icon_bar.append(arc_btn)
+        self.tabs["arc"] = arc_btn
+
     def _make_tab_button(self, name, icon_dir, icon_name):
         btn = Gtk.ToggleButton()
         image = Gtk.Image.new_from_file(
@@ -1332,6 +1595,8 @@ class PropertiesDock(Gtk.Box):
         dimension_items = []
         window_items = []
         door_items = []
+        circle_items = []
+        arc_items = []
 
         for item in selected_items:
             item_type = item["type"]
@@ -1352,17 +1617,25 @@ class PropertiesDock(Gtk.Box):
                 # floating)
                 wall, window, ratio = item["object"]
                 window_items.append(item)  # Keep the full tuple for callbacks
+            elif item_type == "circle":
+                circle_items.append(item)
+            elif item_type == "arc":
+                arc_items.append(item)
 
         wants_wall = len(wall_items) > 0 and len(text_items) == 0 and len(
-            dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0
+            dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0 and len(circle_items) == 0 and len(arc_items) == 0
         wants_text = len(text_items) > 0 and len(wall_items) == 0 and len(
-            dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0
+            dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0 and len(circle_items) == 0 and len(arc_items) == 0
         wants_dimension = len(dimension_items) > 0 and len(wall_items) == 0 and len(
-            text_items) == 0 and len(window_items) == 0 and len(door_items) == 0
+            text_items) == 0 and len(window_items) == 0 and len(door_items) == 0 and len(circle_items) == 0 and len(arc_items) == 0
         wants_window = len(window_items) > 0 and len(wall_items) == 0 and len(
-            text_items) == 0 and len(dimension_items) == 0 and len(door_items) == 0
+            text_items) == 0 and len(dimension_items) == 0 and len(door_items) == 0 and len(circle_items) == 0 and len(arc_items) == 0
         wants_door = len(door_items) > 0 and len(wall_items) == 0 and len(
-            text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0
+            text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0 and len(circle_items) == 0 and len(arc_items) == 0
+        wants_circle = len(circle_items) > 0 and len(wall_items) == 0 and len(
+            text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0 and len(arc_items) == 0
+        wants_arc = len(arc_items) > 0 and len(wall_items) == 0 and len(
+            text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0 and len(circle_items) == 0
 
         # Enable/disable tabs based on selection
         self.tabs["wall"].set_sensitive(wants_wall)
@@ -1370,6 +1643,8 @@ class PropertiesDock(Gtk.Box):
         self.tabs["dimension"].set_sensitive(wants_dimension)
         self.tabs["window"].set_sensitive(wants_window)
         self.tabs["door"].set_sensitive(wants_door)
+        self.tabs["circle"].set_sensitive(wants_circle)
+        self.tabs["arc"].set_sensitive(wants_arc)
         self.tabs["layers"].set_sensitive(True)  # Layers always active
 
         # Update content and activate appropriate tab
@@ -1479,6 +1754,28 @@ class PropertiesDock(Gtk.Box):
             # Only set active tab if it's not already active
             if not self.tabs["door"].get_active():
                 self._set_active_tab("door")
+        elif wants_circle:
+            already_on_circle = self.stack.get_visible_child_name() == "circle"
+            selected_circles = [item["object"] for item in circle_items]
+            self.circle_page.set_circle(selected_circles)
+            if not already_on_circle:
+                self.stack.set_visible_child_name("circle")
+            if not self.stack.get_visible():
+                self.stack.set_visible(True)
+                self.toggle_button.set_child(self.toggle_open_image)
+            if not self.tabs["circle"].get_active():
+                self._set_active_tab("circle")
+        elif wants_arc:
+            already_on_arc = self.stack.get_visible_child_name() == "arc"
+            selected_arcs = [item["object"] for item in arc_items]
+            self.arc_page.set_arc(selected_arcs)
+            if not already_on_arc:
+                self.stack.set_visible_child_name("arc")
+            if not self.stack.get_visible():
+                self.stack.set_visible(True)
+                self.toggle_button.set_child(self.toggle_open_image)
+            if not self.tabs["arc"].get_active():
+                self._set_active_tab("arc")
         else:
             # Nothing selected - show blank and hide panel
             # Check if we were on layers? If on layers, stay on layers?

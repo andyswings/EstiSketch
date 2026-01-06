@@ -149,6 +149,55 @@ class CanvasSelectionMixin:
                 if selected_item:
                     break
 
+        # Check for circle/arc handle clicks
+        if selected_item is None:
+            for item in self.selected_items:
+                if item["type"] == "circle":
+                    circle = item["object"]
+                    cx, cy = circle.center
+                    hx = cx + circle.radius
+                    hy = cy
+                    
+                    tx = (hx * T) + self.offset_x
+                    ty = (hy * T) + self.offset_y
+                    
+                    dist = math.hypot(click_pt[0] - tx, click_pt[1] - ty)
+                    if dist < self.handle_radius:
+                        self.editing_circle = circle
+                        self.editing_circle_handle = "radius"
+                        selected_item = {"type": "circle_handle", "object": (circle, "radius")}
+                        break
+                        
+                elif item["type"] == "arc":
+                    arc = item["object"]
+                    cx, cy = arc.center
+                    
+                    # Handles: start, end, mid
+                    sx = cx + arc.radius * math.cos(arc.start_angle)
+                    sy = cy + arc.radius * math.sin(arc.start_angle)
+                    
+                    ex = cx + arc.radius * math.cos(arc.end_angle)
+                    ey = cy + arc.radius * math.sin(arc.end_angle)
+                    
+                    mid_angle = (arc.start_angle + arc.end_angle) / 2
+                    mx = cx + arc.radius * math.cos(mid_angle)
+                    my = cy + arc.radius * math.sin(mid_angle)
+                    
+                    handles = [("start", sx, sy), ("end", ex, ey), ("mid", mx, my)]
+                    
+                    for h_name, hx, hy in handles:
+                        tx = (hx * T) + self.offset_x
+                        ty = (hy * T) + self.offset_y
+                        
+                        dist = math.hypot(click_pt[0] - tx, click_pt[1] - ty)
+                        if dist < self.handle_radius:
+                            self.editing_arc = arc
+                            self.editing_arc_handle = h_name
+                            selected_item = {"type": "arc_handle", "object": (arc, h_name)}
+                            break
+                    if selected_item:
+                        break
+
         # T = self.zoom * pixels_per_inch
         for wall_set in self.wall_sets:
             for wall in wall_set:
@@ -769,6 +818,35 @@ class CanvasSelectionMixin:
         elif self.tool_mode == "add_text":
             self.drag_start_x = start_x
             self.drag_start_y = start_y
+
+        # Check for Circle dragging
+        if not getattr(self, "editing_circle", None) and not self.box_selecting and len(self.selected_items) > 0:
+             # Check if we are dragging a selected circle
+             # We need to support multiple selection dragging eventually, but for now single
+             item = self.selected_items[0]
+             if item["type"] == "circle":
+                  self.dragging_circle = item["object"]
+                  self.drag_start_x = start_x
+                  self.drag_start_y = start_y
+                  # Initial center
+                  self.circle_drag_original_center = self.dragging_circle.center
+                  
+                  pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                  self.circle_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                  self.box_selecting = False
+
+        # Check for Arc dragging
+        if not getattr(self, "editing_arc", None) and not self.box_selecting and len(self.selected_items) > 0:
+             item = self.selected_items[0]
+             if item["type"] == "arc":
+                  self.dragging_arc = item["object"]
+                  self.drag_start_x = start_x
+                  self.drag_start_y = start_y
+                  self.arc_drag_original_center = self.dragging_arc.center
+                  
+                  pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                  self.arc_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                  self.box_selecting = False
 
     def on_drag_end(
             self,

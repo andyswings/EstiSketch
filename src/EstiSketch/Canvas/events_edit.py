@@ -733,6 +733,82 @@ class EditEventsMixin:
             self.queue_draw()
             return
 
+            self.queue_draw()
+            return
+
+        # Handle Circle Editing (Radius)
+        if getattr(self, "editing_circle", None) and getattr(self, "editing_circle_handle", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            
+            new_x, new_y = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            
+            cx, cy = self.editing_circle.center
+            new_radius = math.hypot(new_x - cx, new_y - cy)
+            
+            if new_radius > 0:
+                self.editing_circle.radius = new_radius
+            
+            self.queue_draw()
+            return
+
+        # Handle Arc Editing
+        if getattr(self, "editing_arc", None) and getattr(self, "editing_arc_handle", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            
+            new_x, new_y = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            cx, cy = self.editing_arc.center
+            
+            # Calculate angle and distance
+            angle = math.atan2(new_y - cy, new_x - cx)
+            dist = math.hypot(new_x - cx, new_y - cy)
+            
+            if self.editing_arc_handle == "start":
+                self.editing_arc.start_angle = angle
+                # Optional: update radius too?
+                # self.editing_arc.radius = dist
+            elif self.editing_arc_handle == "end":
+                self.editing_arc.end_angle = angle
+                # self.editing_arc.radius = dist
+            elif self.editing_arc_handle == "mid":
+                # Update radius
+                if dist > 0:
+                    self.editing_arc.radius = dist
+            
+            self.queue_draw()
+            return
+
+        # Handle Circle Dragging (Move)
+        if getattr(self, "dragging_circle", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            T = self.zoom * pixels_per_inch
+            
+            dx = offset_x / T
+            dy = offset_y / T
+            
+            ox, oy = self.circle_drag_original_center
+            self.dragging_circle.center = (ox + dx, oy + dy)
+            self.queue_draw()
+            return
+
+        # Handle Arc Dragging (Move)
+        if getattr(self, "dragging_arc", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            T = self.zoom * pixels_per_inch
+            
+            dx = offset_x / T
+            dy = offset_y / T
+            
+            ox, oy = self.arc_drag_original_center
+            self.dragging_arc.center = (ox + dx, oy + dy)
+            self.queue_draw()
+            return
+
         if self.tool_mode == "panning":
             self.offset_x = self.last_offset_x + offset_x
             self.offset_y = self.last_offset_y + offset_y

@@ -521,6 +521,32 @@ class CanvasDrawMixin:
                 if item.get("type") == "wall":
                     walls_to_label.append(item["object"])
 
+        # Circles
+        circles_to_label = []
+        if self.tool_mode == "add_circle" and self.drawing_circle and self.circle_center and self.circle_radius_preview is not None:
+             # Create temp object for labeling
+             circles_to_label.append(self.Circle(center=self.circle_center, radius=self.circle_radius_preview))
+        
+        if hasattr(self, "selected_items"):
+             for item in self.selected_items:
+                  if item.get("type") == "circle":
+                       circles_to_label.append(item["object"])
+
+        # Arcs
+        arcs_to_label = []
+        if self.tool_mode == "add_arc" and self.drawing_arc:
+             # If we have a valid preview arc
+             if self.arc_start and self.arc_end and self.arc_preview_point:
+                  geom = self.get_circle_from_3_points(self.arc_start, self.arc_end, self.arc_preview_point)
+                  if geom:
+                       (cx, cy), radius = geom
+                       arcs_to_label.append(self.Arc(center=(cx, cy), radius=radius, start_angle=0, end_angle=0))
+
+        if hasattr(self, "selected_items"):
+             for item in self.selected_items:
+                  if item.get("type") == "arc":
+                       arcs_to_label.append(item["object"])
+
         for wall in walls_to_label:
             start = wall.start
             end = wall.end
@@ -548,6 +574,97 @@ class CanvasDrawMixin:
             cr.set_font_size(12 / (self.zoom * pixels_per_inch))
             cr.show_text(text)
             cr.restore()
+        
+        # Determine font size for other labels
+        font_size = 12 / (self.zoom * pixels_per_inch)
+
+        for circle in circles_to_label:
+             if not circle.radius or circle.radius <= 0:
+                  continue
+             
+             measurement_str = self.converter.format_measurement(circle.radius, use_fraction=False)
+             text = f"R: {measurement_str}"
+             
+             # Draw line from center to right edge
+             cx, cy = circle.center
+             rx = cx + circle.radius
+             ry = cy
+             
+             cr.save()
+             # Draw radius line
+             cr.set_source_rgb(0, 0, 1) # Blue
+             cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+             cr.set_dash([4.0 / (self.zoom * pixels_per_inch), 4.0 / (self.zoom * pixels_per_inch)])
+             cr.move_to(cx, cy)
+             cr.line_to(rx, ry)
+             cr.stroke()
+             
+             # Draw text above line
+             cr.translate((cx + rx) / 2, ry)
+             cr.move_to(0, -5 / (self.zoom * pixels_per_inch))
+             
+             cr.set_source_rgb(0, 0, 0)
+             cr.select_font_face("Sans", 0, 0)
+             cr.set_font_size(font_size)
+             
+             # Center text
+             extents = cr.text_extents(text)
+             cr.rel_move_to(-extents.width / 2, 0)
+             
+             cr.show_text(text)
+             cr.restore()
+
+        for arc in arcs_to_label:
+             if not arc.radius or arc.radius <= 0:
+                  continue
+             
+             measurement_str = self.converter.format_measurement(arc.radius, use_fraction=False)
+             text = f"R: {measurement_str}"
+             
+             # Draw line from center to start or just horizontal?
+             # Let's draw to start point if available, or just horizontal
+             cx, cy = arc.center
+             angle = 0 
+             if hasattr(arc, 'start_angle'):
+                  angle = arc.start_angle
+             
+             rx = cx + arc.radius * math.cos(angle)
+             ry = cy + arc.radius * math.sin(angle)
+             
+             cr.save()
+             # Draw radius line
+             cr.set_source_rgb(0, 0, 1) # Blue
+             cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+             cr.set_dash([4.0 / (self.zoom * pixels_per_inch), 4.0 / (self.zoom * pixels_per_inch)])
+             cr.move_to(cx, cy)
+             cr.line_to(rx, ry)
+             cr.stroke()
+             
+             # Draw text
+             mid_x = (cx + rx) / 2
+             mid_y = (cy + ry) / 2
+             
+             cr.translate(mid_x, mid_y)
+             # Rotate text to align with radius line? Or keep horizontal?
+             # Let's align
+             cr.rotate(angle)
+             
+             # Ensure text is upright
+             deg = math.degrees(angle) % 360
+             if 90 < deg < 270:
+                  cr.rotate(math.pi)
+             
+             cr.move_to(0, -5 / (self.zoom * pixels_per_inch))
+             
+             cr.set_source_rgb(0, 0, 0)
+             cr.select_font_face("Sans", 0, 0)
+             cr.set_font_size(font_size)
+             
+             extents = cr.text_extents(text)
+             cr.rel_move_to(-extents.width / 2, 0)
+             
+             cr.show_text(text)
+             cr.restore()
 
     def draw_alignment_guide(self, cr, pixels_per_inch):
         if not (
@@ -1029,6 +1146,21 @@ class CanvasDrawMixin:
             
         cr.arc(cx, cy, circle.radius, 0, 2 * math.pi)
         cr.stroke()
+
+        if is_selected:
+            # Draw handle at 0 degrees (right side)
+            handle_radius = (self.handle_radius - 7) / (self.zoom * pixels_per_inch)
+            hx = cx + circle.radius
+            hy = cy
+            
+            cr.set_source_rgba(1, 1, 0, 1.0)  # Yellow fill
+            cr.arc(hx, hy, handle_radius, 0, 2 * math.pi)
+            cr.fill()
+            
+            cr.set_source_rgba(0, 0, 0, 1.0)  # Black border
+            cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+            cr.arc(hx, hy, handle_radius, 0, 2 * math.pi)
+            cr.stroke()
         
         cr.restore()
 
@@ -1069,6 +1201,46 @@ class CanvasDrawMixin:
             
         cr.arc(cx, cy, arc.radius, arc.start_angle, arc.end_angle)
         cr.stroke()
+
+        if is_selected:
+            handle_radius = (self.handle_radius - 7) / (self.zoom * pixels_per_inch)
+            
+            # Start Handle
+            sx = cx + arc.radius * math.cos(arc.start_angle)
+            sy = cy + arc.radius * math.sin(arc.start_angle)
+            
+            # End Handle
+            ex = cx + arc.radius * math.cos(arc.end_angle)
+            ey = cy + arc.radius * math.sin(arc.end_angle)
+
+            # Mid selection handle (strictly for radius adjustment)
+            # Calculate mid angle. Handle wrap around logic for "mid"
+            # If we draw from start to end CW/CCW? 
+            # Cairo arc is Clockwise from start to end? No, Cairo is angle1 to angle2... 
+            # actually cairo.arc adds path from current point to start of arc, then adds circle segment CW?
+            # cairo.arc is clockwise by default? Wait.
+            # `cairo_arc` adds a circular arc... from angle1 to angle2... 
+            # Angles increase clockwise in cairo (y down).
+            # So start_angle to end_angle is the "positive" direction (Clockwise).
+            
+            # We just take average for visual handle?
+            mid_angle = (arc.start_angle + arc.end_angle) / 2
+            # Needs to be on the drawn arc.
+            # If start < end and difference is < 180, it's fine.
+            # But what if proper arc goes through 0?
+            
+            mx = cx + arc.radius * math.cos(mid_angle)
+            my = cy + arc.radius * math.sin(mid_angle)
+
+            for hx, hy in [(sx, sy), (ex, ey), (mx, my)]:
+                cr.set_source_rgba(1, 1, 0, 1.0)
+                cr.arc(hx, hy, handle_radius, 0, 2 * math.pi)
+                cr.fill()
+                
+                cr.set_source_rgba(0, 0, 0, 1.0)
+                cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+                cr.arc(hx, hy, handle_radius, 0, 2 * math.pi)
+                cr.stroke()
         
         cr.restore()
 

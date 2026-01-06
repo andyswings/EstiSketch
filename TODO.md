@@ -163,7 +163,6 @@
 
 ## 🐛 Known Bugs / FIXMEs
 - [ ] When two or more objects are too close to each other or on top of each other, it is difficult or impossible to select a specific object.
-- [ ] Fix NameError when drawing circle and arc objects
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -171,6 +170,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Fix NameError when drawing circle and arc objects (2026-01-05)
 - [x] Added Circles/Arcs drawing tools (2026-01-03)
 - [x] Added "Default Level Height" setting to Settings Dialog and Config (2026-01-03)
 - [x] Add support for changing the elevation of a level (Level Manager UI update) (2026-01-03)
@@ -213,4 +213,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2026-01-03_
+_Last updated: 2026-01-05_
