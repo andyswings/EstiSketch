@@ -1,9 +1,6 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add support for editing circle and arc dimensions (change radius)
-- [ ] Add circle and arc tab to properties panel
-- [ ] Add live dimensions for circle and arc objects while drawing
 - [ ] Add Curved Walls tool (new tool? or just add to existing wall tool?)
 - [ ] Add automatic room area calculations
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped, spiral)
@@ -163,6 +160,9 @@
 
 ## 🐛 Known Bugs / FIXMEs
 - [ ] When two or more objects are too close to each other or on top of each other, it is difficult or impossible to select a specific object.
+- [ ] Changing the radius of a circle works when clicking on the circle object and the circle still shows as being selected, but if the yellow "handle" is dragged to change the radius, the circle object is no longer showing as selected (but is still edited anyway).
+- [ ] When editing the radius of a circle or arc object, the live dimension should be shown, but it is not.
+- [ ] The live dimension for an arc object is always shown horizontal, even when the arc is vertical.
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -170,6 +170,9 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Add support for editing circle and arc dimensions (change radius) (2026-01-05)
+- [x] Add circle and arc tab to properties panel (2026-01-05)
+- [x] Add live dimensions for circle and arc objects while drawing (2026-01-05)
 - [x] Fix NameError when drawing circle and arc objects (2026-01-05)
 - [x] Added Circles/Arcs drawing tools (2026-01-03)
 - [x] Added "Default Level Height" setting to Settings Dialog and Config (2026-01-03)

@@ -576,13 +576,14 @@ class CanvasSelectionMixin:
 
         # If we already entered handle-editing on press, don't overwrite
         # box_select_start.
-        if getattr(
-                self,
-                "editing_wall",
-                None) and getattr(
-                self,
-                "editing_handle",
-                None):
+        if (getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None)) or \
+           (getattr(self, "editing_circle", None) and getattr(self, "editing_circle_handle", None)) or \
+           (getattr(self, "editing_arc", None) and getattr(self, "editing_arc_handle", None)):
+            
+            # Initializing drag start coordinates for calculating drag offset
+            self.drag_start_x = start_x
+            self.drag_start_y = start_y
+
             # Keep box_select_start set by on_click_pressed (model coords of endpoint).
             # No further initialization required for editing; on_drag_update
             # will handle motion.
