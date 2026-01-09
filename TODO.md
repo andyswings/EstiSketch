@@ -160,9 +160,7 @@
 
 ## 🐛 Known Bugs / FIXMEs
 - [ ] When two or more objects are too close to each other or on top of each other, it is difficult or impossible to select a specific object.
-- [ ] Dragging to move circle/arc objects is not working
-- [ ] Editing arc dimensions is not working as expected right now editing an end point moves the endpoint along the arc instead of changing the radius
-- [ ] Arcs are drawn with a two step process, first a dashed line is drawn representing the span of the arc, then the next click sets the radius and creates the arc. Live dimensions are correctly shown for the second step but not the first.
+- [ ] When editing an arc endpoint, the radius should change only as required to maintain the same distance between the arc peak and a straight line between the endpoints, and the opposite endpoint should not move. only the selected endpoint should move.
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -170,6 +168,10 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Fixed arc mid handle editing - endpoints now stay fixed while radius changes (2026-01-08)
+- [x] Fixed circle/arc dragging - objects can now be moved by dragging (2026-01-08)
+- [x] Fixed arc endpoint editing to adjust radius instead of rotating along arc (2026-01-08)
+- [x] Added live dimensions for arc span creation (first step) (2026-01-08)
 - [x] Corrected arc dimension orientation (2026-01-05)
 - [x] Fixed missing live dimensions during circle/arc editing (2026-01-05)
 - [x] Fixed selection state visual loss during handle dragging (2026-01-05)
@@ -219,4 +221,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2026-01-05_
+_Last updated: 2026-01-08_

@@ -674,6 +674,38 @@ class CanvasDrawMixin:
              cr.show_text(text)
              cr.restore()
 
+        # Arc span preview (first step of arc creation: start to end point)
+        if self.tool_mode == "add_arc" and self.drawing_arc and self.arc_start and not self.arc_end and hasattr(self, '_last_mouse_pos'):
+             start = self.arc_start
+             end = self._last_mouse_pos
+             dx = end[0] - start[0]
+             dy = end[1] - start[1]
+             length = math.hypot(dx, dy)
+
+             if length > 0:
+                  angle = math.atan2(dy, dx)
+                  deg = math.degrees(angle)
+                  mid_x = (start[0] + end[0]) / 2
+                  mid_y = (start[1] + end[1]) / 2
+                  measurement_str = self.converter.format_measurement(length, use_fraction=False)
+                  text = f'{measurement_str}'
+
+                  cr.save()
+                  cr.translate(mid_x, mid_y)
+                  cr.rotate(angle)
+                  offset = 20 / (self.zoom * pixels_per_inch)
+                  if -90 < deg < 90:
+                       cr.move_to(0, offset)
+                  else:
+                       cr.rotate(math.radians(180))
+                       cr.move_to(0, offset)
+                  cr.set_source_rgb(0, 0, 0)
+                  cr.select_font_face("Sans", 0, 0)
+                  cr.set_font_size(12 / (self.zoom * pixels_per_inch))
+                  cr.show_text(text)
+                  cr.restore()
+
+
     def draw_alignment_guide(self, cr, pixels_per_inch):
         if not (
                 self.drawing_wall and self.current_wall and self.alignment_candidate and self.raw_current_end):
@@ -1215,7 +1247,19 @@ class CanvasDrawMixin:
         else:
             cr.set_dash([])
             
-        cr.arc(cx, cy, arc.radius, arc.start_angle, arc.end_angle)
+        # Calculate angle difference to determine arc direction
+        angle_diff = arc.end_angle - arc.start_angle
+        # Normalize to -2π to 2π range
+        while angle_diff > math.pi:
+            angle_diff -= 2 * math.pi
+        while angle_diff < -math.pi:
+            angle_diff += 2 * math.pi
+        
+        # Use arc_negative for clockwise arcs (negative angle difference)
+        if angle_diff < 0:
+            cr.arc_negative(cx, cy, arc.radius, arc.start_angle, arc.end_angle)
+        else:
+            cr.arc(cx, cy, arc.radius, arc.start_angle, arc.end_angle)
         cr.stroke()
 
         if is_selected:

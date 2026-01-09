@@ -820,38 +820,32 @@ class CanvasSelectionMixin:
 
                     self.box_selecting = False
 
+                # Check for circle dragging
+                elif item["type"] == "circle" and not getattr(self, "editing_circle", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None):
+                    self.dragging_circle = item["object"]
+                    self.drag_start_x = start_x
+                    self.drag_start_y = start_y
+                    # Initial center
+                    self.circle_drag_original_center = self.dragging_circle.center
+                    
+                    pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                    self.circle_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                    self.box_selecting = False
+
+                # Check for arc dragging
+                elif item["type"] == "arc" and not getattr(self, "editing_arc", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_circle", None):
+                    self.dragging_arc = item["object"]
+                    self.drag_start_x = start_x
+                    self.drag_start_y = start_y
+                    self.arc_drag_original_center = self.dragging_arc.center
+                    
+                    pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                    self.arc_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                    self.box_selecting = False
+
         elif self.tool_mode == "add_text":
             self.drag_start_x = start_x
             self.drag_start_y = start_y
-
-        # Check for Circle dragging
-        if not getattr(self, "editing_circle", None) and not self.box_selecting and len(self.selected_items) > 0:
-             # Check if we are dragging a selected circle
-             # We need to support multiple selection dragging eventually, but for now single
-             item = self.selected_items[0]
-             if item["type"] == "circle":
-                  self.dragging_circle = item["object"]
-                  self.drag_start_x = start_x
-                  self.drag_start_y = start_y
-                  # Initial center
-                  self.circle_drag_original_center = self.dragging_circle.center
-                  
-                  pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
-                  self.circle_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
-                  self.box_selecting = False
-
-        # Check for Arc dragging
-        if not getattr(self, "editing_arc", None) and not self.box_selecting and len(self.selected_items) > 0:
-             item = self.selected_items[0]
-             if item["type"] == "arc":
-                  self.dragging_arc = item["object"]
-                  self.drag_start_x = start_x
-                  self.drag_start_y = start_y
-                  self.arc_drag_original_center = self.dragging_arc.center
-                  
-                  pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
-                  self.arc_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
-                  self.box_selecting = False
 
     def on_drag_end(
             self,

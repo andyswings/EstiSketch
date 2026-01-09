@@ -769,15 +769,78 @@ class EditEventsMixin:
             
             if self.editing_arc_handle == "start":
                 self.editing_arc.start_angle = angle
-                # Optional: update radius too?
-                # self.editing_arc.radius = dist
+                # Update radius too when dragging endpoint
+                self.editing_arc.radius = dist
             elif self.editing_arc_handle == "end":
                 self.editing_arc.end_angle = angle
-                # self.editing_arc.radius = dist
+                self.editing_arc.radius = dist
             elif self.editing_arc_handle == "mid":
-                # Update radius
-                if dist > 0:
-                    self.editing_arc.radius = dist
+                # When editing radius/mid handle, keep endpoints fixed in space
+                # Calculate current endpoint positions
+                old_start_x = cx + self.editing_arc.radius * math.cos(self.editing_arc.start_angle)
+                old_start_y = cy + self.editing_arc.radius * math.sin(self.editing_arc.start_angle)
+                old_end_x = cx + self.editing_arc.radius * math.cos(self.editing_arc.end_angle)
+                old_end_y = cy + self.editing_arc.radius * math.sin(self.editing_arc.end_angle)
+                
+                # Calculate chord geometry
+                chord_mid_x = (old_start_x + old_end_x) / 2
+                chord_mid_y = (old_start_y + old_end_y) / 2
+                half_chord = math.hypot(old_end_x - old_start_x, old_end_y - old_start_y) / 2
+                
+                # Calculate perpendicular direction to chord
+                chord_dx = old_end_x - old_start_x
+                chord_dy = old_end_y - old_start_y
+                chord_len = math.hypot(chord_dx, chord_dy)
+                
+                if chord_len > 0 and half_chord > 0:
+                    # Perpendicular unit vector
+                    perp_x = -chord_dy / chord_len
+                    perp_y = chord_dx / chord_len
+                    
+                    # Project mouse position onto perpendicular line through chord midpoint
+                    to_mouse_x = new_x - chord_mid_x
+                    to_mouse_y = new_y - chord_mid_y
+                    sagitta = perp_x * to_mouse_x + perp_y * to_mouse_y
+                    
+                    # Ensure minimum sagitta to avoid degenerate arcs (but allow sign change for flipping)
+                    # Use a very small minimum to allow very flat arcs
+                    min_sagitta = 0.01
+                    if abs(sagitta) < min_sagitta:
+                        # Keep the direction but enforce minimum distance
+                        if sagitta >= 0:
+                            sagitta = min_sagitta
+                        else:
+                            sagitta = -min_sagitta
+                    
+                    # Correct radius formula: r = (sagitta² + half_chord²) / (2 * |sagitta|)
+                    new_radius = (sagitta**2 + half_chord**2) / (2 * abs(sagitta))
+                    
+                    if new_radius > 0:
+                        # Distance from chord midpoint to center
+                        # For minor arcs (sagitta < half_chord): center is on opposite side from mid handle
+                        # For major arcs (sagitta > half_chord): center is on SAME side as mid handle
+                        # center_dist = radius - sagitta (can be negative for major arcs)
+                        center_dist = new_radius - abs(sagitta)
+                        
+                        # Position center based on sagitta direction
+                        # When center_dist is negative, the multiplication handles the flip
+                        if sagitta > 0:
+                            new_cx = chord_mid_x - perp_x * center_dist
+                            new_cy = chord_mid_y - perp_y * center_dist
+                        else:
+                            new_cx = chord_mid_x + perp_x * center_dist
+                            new_cy = chord_mid_y + perp_y * center_dist
+                        
+                        # Update arc
+                        self.editing_arc.center = (new_cx, new_cy)
+                        self.editing_arc.radius = new_radius
+                        
+                        # Recalculate angles based on new center
+                        new_start_angle = math.atan2(old_start_y - new_cy, old_start_x - new_cx)
+                        new_end_angle = math.atan2(old_end_y - new_cy, old_end_x - new_cx)
+                        
+                        self.editing_arc.start_angle = new_start_angle
+                        self.editing_arc.end_angle = new_end_angle
             
             self.queue_draw()
             return
