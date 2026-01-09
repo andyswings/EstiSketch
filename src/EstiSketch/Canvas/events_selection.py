@@ -753,6 +753,38 @@ class CanvasSelectionMixin:
                         self.dragging_dimensions = []
                         for dim_item in selected_dims:
                             dim = dim_item["object"]
+                            
+                            # Ensure we have the fresh object from self.dimensions
+                            # This handles cases where selected_items might hold a stale reference
+                            # (e.g. after undo/redo or state changes where deepcopy was used)
+                            found_dim = None
+                            
+                            # 1. Try to match by identifier (most robust)
+                            dim_id = getattr(dim, "identifier", None)
+                            if dim_id:
+                                for d in self.dimensions:
+                                    if getattr(d, "identifier", None) == dim_id:
+                                        found_dim = d
+                                        break
+                            
+                            # 2. If no identifier match, try identity (fast)
+                            if not found_dim:
+                                for d in self.dimensions:
+                                    if d is dim:
+                                        found_dim = d
+                                        break
+                            
+                            # 3. If no identity match, try equality (last resort)
+                            if not found_dim:
+                                for d in self.dimensions:
+                                    if d == dim:
+                                        found_dim = d
+                                        break
+
+                            if found_dim:
+                                dim = found_dim
+                                dim_item["object"] = dim  # Update selection to point to fresh object
+
                             self.dragging_dimensions.append({
                                 "dimension": dim,
                                 "original_start": dim.start,

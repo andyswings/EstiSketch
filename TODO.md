@@ -5,7 +5,7 @@
 - [ ] Add right click menu option to convert curved walls to straight walls and vice versa (should obviously only be available when a wall or walls are selected)
 - [ ] Add automatic room area calculations
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped, spiral)
-- [ ] Add "dirty" indicator to status bar (should be some sort of icon that changes color when the document is modified and needs to be saved)
+- [ ] Add "dirty" indicator to the left side of the status bar (should be some sort of icon that changes color when the document is modified and needs to be saved)
 - [ ] Add tool usage hints to the status bar (should be context aware and change based on the current tool) (an example would be "Tab to cycle selection for overlapping objects" or "Enter to set exact dimensions")
 - [ ] Add polyline tab to properties panel
 
@@ -163,7 +163,6 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Editing dimension end points works but then if we try to move the dimension it resets the dimension to the original angle and length
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -171,6 +170,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Fixed dimension moving - when you try to move the dimension it no longer resets the dimension to the original angle and length (2026-01-09)
 - [x] Added Tab-to-cycle selection for overlapping objects - press Tab to cycle through objects at mouse position (2026-01-08)
 - [x] Editing an arc endpoint, the radius now changes only as required to maintain the same distance between the arc peak and a straight line between the endpoints. (2026-01-08)
 - [x] Fixed arc mid handle editing - endpoints now stay fixed while radius changes (2026-01-08)
@@ -226,4 +226,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2026-01-08_
+_Last updated: 2026-01-09_
