@@ -491,6 +491,11 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "c":
                 self.tool_buttons["add_circle"].set_active(True)
                 return True
+            elif keyname == "tab":
+                # Cycle through overlapping objects at current mouse position
+                if hasattr(self.canvas, 'cycle_selection_at_mouse'):
+                    self.canvas.cycle_selection_at_mouse()
+                return True
 
         if shift_pressed and not ctrl_pressed:
             if keyname == "a":

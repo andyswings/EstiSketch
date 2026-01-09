@@ -214,6 +214,7 @@ class CanvasEventsMixin:
         """
         self.mouse_x = x
         self.mouse_y = y
+        self._last_mouse_pos = (x, y)  # Track for Tab-to-cycle selection
 
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         canvas_x, canvas_y = self.device_to_model(x, y, pixels_per_inch)

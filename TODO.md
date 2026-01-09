@@ -2,8 +2,12 @@
 
 ## 🚀 High Priority (do next)
 - [ ] Add Curved Walls tool (new tool? or just add to existing wall tool?)
+- [ ] Add right click menu option to convert curved walls to straight walls and vice versa (should obviously only be available when a wall or walls are selected)
 - [ ] Add automatic room area calculations
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped, spiral)
+- [ ] Add "dirty" indicator to status bar (should be some sort of icon that changes color when the document is modified and needs to be saved)
+- [ ] Add tool usage hints to the status bar (should be context aware and change based on the current tool) (an example would be "Tab to cycle selection for overlapping objects" or "Enter to set exact dimensions")
+- [ ] Add polyline tab to properties panel
 
 ## ✨ Core Features (essential functionality)
 
@@ -159,8 +163,7 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] When two or more objects are too close to each other or on top of each other, it is difficult or impossible to select a specific object.
-- [ ] When editing an arc endpoint, the radius should change only as required to maintain the same distance between the arc peak and a straight line between the endpoints, and the opposite endpoint should not move. only the selected endpoint should move.
+- [ ] Editing dimension end points works but then if we try to move the dimension it resets the dimension to the original angle and length
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -168,6 +171,8 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Added Tab-to-cycle selection for overlapping objects - press Tab to cycle through objects at mouse position (2026-01-08)
+- [x] Editing an arc endpoint, the radius now changes only as required to maintain the same distance between the arc peak and a straight line between the endpoints. (2026-01-08)
 - [x] Fixed arc mid handle editing - endpoints now stay fixed while radius changes (2026-01-08)
 - [x] Fixed circle/arc dragging - objects can now be moved by dragging (2026-01-08)
 - [x] Fixed arc endpoint editing to adjust radius instead of rotating along arc (2026-01-08)

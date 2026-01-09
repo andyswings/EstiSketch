@@ -40,6 +40,7 @@ class CanvasSelectionMixin:
                 return
 
         click_pt = (x, y)
+        print(f"DEBUG: Click at {click_pt}")
         fixed_threshold = 10      # device pixels for walls
         vertex_threshold = 15     # device pixels for vertices
         best_dist = float('inf')
@@ -2028,3 +2029,208 @@ class CanvasSelectionMixin:
             popover.popdown()
         except BaseException:
             pass
+
+    def cycle_selection_at_mouse(self):
+        """
+        Cycle through overlapping objects at the current mouse position.
+        
+        When multiple objects overlap at the mouse position, pressing Tab
+        will cycle through them, selecting the next one in the list.
+        """
+        # Get current mouse position
+        if not hasattr(self, '_last_mouse_pos') or self._last_mouse_pos is None:
+            return
+        
+        # _last_mouse_pos is stored in Model Coordinates (inches) by canvas_events.py
+        # We need Device Coordinates (pixels) for the distance checks below
+        mx, my = self._last_mouse_pos
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        click_pt = self.model_to_device(mx, my, pixels_per_inch)
+        
+        T = self.zoom * pixels_per_inch
+        fixed_threshold = 10
+        vertex_threshold = 15
+        
+        # Collect all selectable objects at this position
+        candidates = []
+        
+        # Check Walls
+        for wall_set in self.wall_sets:
+            for wall in wall_set:
+                if self.is_object_on_locked_layer(wall) or not self.is_object_on_visible_layer(wall):
+                    continue
+                start_widget = ((wall.start[0] * T) + self.offset_x, (wall.start[1] * T) + self.offset_y)
+                end_widget = ((wall.end[0] * T) + self.offset_x, (wall.end[1] * T) + self.offset_y)
+                
+                # Check if near wall line
+                dist = self.distance_point_to_segment(click_pt, start_widget, end_widget)
+                if dist < fixed_threshold:
+                    candidates.append({"type": "wall", "object": wall})
+        
+        # Check Rooms
+        for room in self.rooms:
+            if self.is_object_on_locked_layer(room) or not self.is_object_on_visible_layer(room):
+                continue
+            poly_widget = [((p[0] * T) + self.offset_x, (p[1] * T) + self.offset_y) for p in room.points]
+            if self._point_in_polygon(click_pt, poly_widget):
+                candidates.append({"type": "room", "object": room})
+        
+        # Check Doors
+        for door_item in self.doors:
+            # door_item is (wall, door, ratio)
+            wall, door, ratio = door_item
+            if self.is_object_on_locked_layer(door) or not self.is_object_on_visible_layer(door):
+                continue
+            
+            # Calculate door position from wall start/end + ratio
+            A = wall.start
+            B = wall.end
+            # door center in model space
+            dx = B[0] - A[0]
+            dy = B[1] - A[1]
+            door_mx = A[0] + ratio * dx
+            door_my = A[1] + ratio * dy
+            
+            door_center = self.model_to_device(door_mx, door_my, pixels_per_inch)
+            dist = math.hypot(click_pt[0] - door_center[0], click_pt[1] - door_center[1])
+            if dist < fixed_threshold * 2:
+                candidates.append({"type": "door", "object": door_item})
+        
+        # Check Windows
+        for window_item in self.windows:
+            # window_item is (wall, window, ratio)
+            wall, window, ratio = window_item
+            if self.is_object_on_locked_layer(window) or not self.is_object_on_visible_layer(window):
+                continue
+                
+            # Calculate window position from wall start/end + ratio
+            A = wall.start
+            B = wall.end
+            dx = B[0] - A[0]
+            dy = B[1] - A[1]
+            win_mx = A[0] + ratio * dx
+            win_my = A[1] + ratio * dy
+            
+            window_center = self.model_to_device(win_mx, win_my, pixels_per_inch)
+            dist = math.hypot(click_pt[0] - window_center[0], click_pt[1] - window_center[1])
+            if dist < fixed_threshold * 2:
+                candidates.append({"type": "window", "object": window_item})
+        
+        # Check Texts
+        for text in self.texts:
+            if self.is_object_on_locked_layer(text) or not self.is_object_on_visible_layer(text):
+                continue
+            text_widget = self.model_to_device(text.x, text.y, pixels_per_inch)
+            text_width = getattr(text, 'width', 100) * T
+            text_height = getattr(text, 'height', 30) * T
+            if (text_widget[0] <= click_pt[0] <= text_widget[0] + text_width and
+                text_widget[1] <= click_pt[1] <= text_widget[1] + text_height):
+                candidates.append({"type": "text", "object": text})
+
+        # Check Polylines
+        for poly_list in self.polyline_sets:
+            for pl in poly_list:
+                if self.is_object_on_locked_layer(pl) or not self.is_object_on_visible_layer(pl):
+                    continue
+                # transform endpoints from model to widget coords
+                p1 = self.model_to_device(pl.start[0], pl.start[1], pixels_per_inch)
+                p2 = self.model_to_device(pl.end[0], pl.end[1], pixels_per_inch)
+                # distance from click to segment
+                if self.distance_point_to_segment(click_pt, p1, p2) < fixed_threshold:
+                    candidates.append({
+                        "type": "polyline",
+                        "object": pl,
+                        "identifier": getattr(pl, "identifier", None),
+                        "_obj_id": id(pl)
+                    })
+
+        # Check Dimensions
+        for dimension in self.dimensions:
+            if self.is_object_on_locked_layer(dimension) or not self.is_object_on_visible_layer(dimension):
+                continue
+            
+            start = dimension.start
+            end = dimension.end
+            offset = dimension.offset
+
+            dx = end[0] - start[0]
+            dy = end[1] - start[1]
+            length = math.hypot(dx, dy)
+
+            if length == 0:
+                continue
+
+            # Perpendicular unit vector
+            ux = dx / length
+            uy = dy / length
+            px = -uy
+            py = ux
+
+            # Dimension line endpoints
+            dim_start = (start[0] + offset * px, start[1] + offset * py)
+            dim_end = (end[0] + offset * px, end[1] + offset * py)
+
+            # Convert to device coordinates
+            dim_start_dev = self.model_to_device(dim_start[0], dim_start[1], pixels_per_inch)
+            dim_end_dev = self.model_to_device(dim_end[0], dim_end[1], pixels_per_inch)
+
+            # Check distance to dimension line
+            dist = self.distance_point_to_segment(click_pt, dim_start_dev, dim_end_dev)
+            if dist < fixed_threshold:
+                candidates.append({"type": "dimension", "object": dimension})
+
+        
+        # Check Circles
+        for circle in self.circles:
+            if self.is_object_on_locked_layer(circle) or not self.is_object_on_visible_layer(circle):
+                continue
+            center_widget = self.model_to_device(circle.center[0], circle.center[1], pixels_per_inch)
+            radius_widget = circle.radius * T
+            dist = math.hypot(click_pt[0] - center_widget[0], click_pt[1] - center_widget[1])
+            dist_to_edge = abs(dist - radius_widget)
+            if dist_to_edge < fixed_threshold:
+                candidates.append({"type": "circle", "object": circle})
+        
+        # Check Arcs
+        for arc in self.arcs:
+            if self.is_object_on_locked_layer(arc) or not self.is_object_on_visible_layer(arc):
+                continue
+            center_widget = self.model_to_device(arc.center[0], arc.center[1], pixels_per_inch)
+            radius_widget = arc.radius * T
+            dist = math.hypot(click_pt[0] - center_widget[0], click_pt[1] - center_widget[1])
+            dist_to_edge = abs(dist - radius_widget)
+            if dist_to_edge < fixed_threshold:
+                # Check angle range
+                angle = math.atan2(click_pt[1] - center_widget[1], click_pt[0] - center_widget[0])
+                angle_norm = self.normalize_angle(angle)
+                start_norm = self.normalize_angle(arc.start_angle)
+                end_norm = self.normalize_angle(arc.end_angle)
+                in_angle = False
+                if start_norm < end_norm:
+                    if start_norm <= angle_norm <= end_norm:
+                        in_angle = True
+                else:
+                    if angle_norm >= start_norm or angle_norm <= end_norm:
+                        in_angle = True
+                if in_angle:
+                    candidates.append({"type": "arc", "object": arc})
+        
+        # If no candidates, do nothing
+        if not candidates:
+            return
+        
+        # Find current selection in candidates
+        current_idx = -1
+        if self.selected_items:
+            current_obj = self.selected_items[0].get("object")
+            for i, cand in enumerate(candidates):
+                if self.same_selection(cand["object"], current_obj):
+                    current_idx = i
+                    break
+        
+        # Select the next candidate (cycle)
+        next_idx = (current_idx + 1) % len(candidates)
+        self.selected_items = [candidates[next_idx]]
+        self.emit('selection-changed', self.selected_items)
+        self.queue_draw()
+        print(f"Cycled to: {candidates[next_idx]['type']}")
