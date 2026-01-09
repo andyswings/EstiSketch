@@ -85,6 +85,19 @@ class EstimatorApp(Gtk.Application):
         exit_action.connect("activate", self.on_exit)
         self.add_action(exit_action)
 
+        # Load CSS for status indicator
+        css_provider = Gtk.CssProvider()
+        css = b"""
+        .success { color: #33d17a; }
+        .error { color: #e01b24; }
+        """
+        css_provider.load_from_data(css)
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(),
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
     def do_activate(self):
         self.window = Gtk.ApplicationWindow(
             application=self,
@@ -379,8 +392,25 @@ class EstimatorApp(Gtk.Application):
         extra_buttons["settings"].connect("clicked", self.on_settings_clicked)
         extra_buttons["help"].connect("clicked", self.on_help_clicked)
 
-        status_label = Gtk.Label(label="Status: Ready")
-        vbox.append(status_label)
+        # Status Bar Area
+        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        status_box.set_margin_start(10)
+        status_box.set_margin_end(10)
+        status_box.set_margin_bottom(4)
+        vbox.append(status_box)
+
+        # Dirty Indicator (Circle icon)
+        # using 'media-record-symbolic' as a generic circle
+        self.dirty_indicator = Gtk.Image.new_from_icon_name("media-record-symbolic")
+        # Default to clean (Green)
+        self.dirty_indicator.set_pixel_size(16)
+        # We'll use CSS to color it, or just set generic state classes
+        status_box.append(self.dirty_indicator)
+        
+        # We don't need text label anymore per user request, but let's keep a flexible container
+        # in case we want to add tool hints later.
+        self.status_label = Gtk.Label(label="")
+        status_box.append(self.status_label)
 
         self.tool_buttons["pointer"].set_active(True)
 
@@ -398,12 +428,34 @@ class EstimatorApp(Gtk.Application):
 
         def save_state_mark_dirty(*args, **kwargs):
             orig_save_state(*args, **kwargs)
-            self.is_dirty = True
+            self.update_dirty_state(True)
         self.canvas.save_state = save_state_mark_dirty
 
-        # Reset dirty state on save.
-        self.canvas.save_state()
-        self.is_dirty = False
+        # Initialize as clean
+        self.update_dirty_state(False)
+
+        # Connect the "destroy" signal to check for unsaved changes.
+        self.window.connect("close-request", self.on_close_request)
+    
+    def update_dirty_state(self, is_dirty: bool):
+        """Update the application dirty state and the UI indicator."""
+        self.is_dirty = is_dirty
+        
+        context = self.dirty_indicator.get_style_context()
+        # Clear existing classes to avoid conflict
+        if context.has_class("success"):
+            context.remove_class("success")
+        if context.has_class("error"):
+            context.remove_class("error")
+
+        if self.is_dirty:
+            # Dirty = Red
+            context.add_class("error")
+            self.dirty_indicator.set_tooltip_text("Unsaved changes")
+        else:
+            # Clean = Green
+            context.add_class("success")
+            self.dirty_indicator.set_tooltip_text("All changes saved")
 
         # Connect the "destroy" signal to check for unsaved changes.
         self.window.connect("close-request", self.on_close_request)
@@ -657,7 +709,7 @@ class EstimatorApp(Gtk.Application):
                 self.canvas.windows.extend(imported["windows"])
                 self.canvas.existing_ids.extend(imported["identifiers"])
                 # Mark the canvas as dirty since it has new content.
-                self.is_dirty = True
+                self.update_dirty_state(True)
                 # Request redraw of canvas
                 self.canvas.queue_draw()
             except Exception as e:
@@ -714,7 +766,7 @@ class EstimatorApp(Gtk.Application):
         # Reset the current file path
         self.current_filepath = None
         # Reset the dirty state
-        self.is_dirty = False
+        self.update_dirty_state(False)
         # Redraw the canvas
         self.canvas.queue_draw()
 
@@ -735,7 +787,7 @@ class EstimatorApp(Gtk.Application):
                 self.window.get_height(),
                 self.current_filepath
             )
-            self.is_dirty = False
+            self.update_dirty_state(False)
             if callback:
                 callback()
             return
@@ -782,7 +834,7 @@ class EstimatorApp(Gtk.Application):
             path
         )
         self.add_to_recent(path)
-        self.is_dirty = False
+        self.update_dirty_state(False)
         if callback:
             callback()
 
@@ -825,7 +877,7 @@ class EstimatorApp(Gtk.Application):
             self.window.get_height(),
             path
         )
-        self.is_dirty = False
+        self.update_dirty_state(False)
 
     def show_open_dialog(self):
         dlg = Gtk.FileDialog.new()
@@ -857,7 +909,7 @@ class EstimatorApp(Gtk.Application):
         if hasattr(self, 'layers_panel'):
             self.layers_panel.refresh_layers()
         self.canvas.queue_draw()
-        self.is_dirty = False
+        self.update_dirty_state(False)
 
     def on_open_recent(self, action, parameter):
         # Automatically remove files that no longer exist
@@ -890,7 +942,7 @@ class EstimatorApp(Gtk.Application):
                     if hasattr(self, 'layers_panel'):
                         self.layers_panel.refresh_layers()
                     self.canvas.queue_draw()
-                    self.is_dirty = False
+                    self.update_dirty_state(False)
                     popover.popdown()  # Use local popover variable
                 btn.connect("clicked", _on_click)
                 box.append(btn)
