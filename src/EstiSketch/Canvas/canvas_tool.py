@@ -9,3 +9,12 @@ class CanvasToolMixin:
         self.current_room_points = []
         self.current_room_preview = None
         self.queue_draw()
+
+        # Update hint for the new tool mode
+        from ..Resources.tool_hints import TOOL_HINTS
+        hint_key = mode if mode else "pointer"
+        # Special case for circle/arc variants if needed, or just use base mode
+        if hint_key in TOOL_HINTS:
+            self.update_hint(TOOL_HINTS[hint_key])
+        elif not mode:
+             self.update_hint(TOOL_HINTS["pointer"])

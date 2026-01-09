@@ -69,6 +69,9 @@ class CanvasSelectionMixin:
                         selected_item = {
                             "type": "wall_handle", "object": (
                                 wall, handle_name)}
+                        
+                        from ..Resources.tool_hints import TOOL_HINTS
+                        self.update_hint(TOOL_HINTS["select_wall"])
                         break
             if selected_item:
                 break
@@ -243,6 +246,9 @@ class CanvasSelectionMixin:
                 if dist_pt < vertex_threshold and dist_pt < best_dist:
                     best_dist = dist_pt
                     selected_item = {"type": "vertex", "object": (room, idx)}
+                    
+                    from ..Resources.tool_hints import TOOL_HINTS
+                    self.update_hint(TOOL_HINTS["select_room"])
 
         # Check for clicks on room edges (between vertices) - double-click to
         # insert vertex
@@ -306,6 +312,8 @@ class CanvasSelectionMixin:
                 ]
                 if self._point_in_polygon(click_pt, poly_widget):
                     selected_item = {"type": "room", "object": room}
+                    from ..Resources.tool_hints import TOOL_HINTS
+                    self.update_hint(TOOL_HINTS["select_room"])
                     break
 
         for door_item in self.doors:
@@ -548,6 +556,22 @@ class CanvasSelectionMixin:
         else:
             if not shift_pressed:
                 self.selected_items = []
+                
+        # Update generic selection hint if an item was selected but no specific hint set yet
+        if selected_item and not shift_pressed: 
+             # We might want more specific hints based on type, but for now generic:
+             from ..Resources.tool_hints import TOOL_HINTS
+             if selected_item["type"] == "wall":
+                  self.update_hint(TOOL_HINTS["select_wall"])
+             elif selected_item["type"] == "room":
+                  self.update_hint(TOOL_HINTS["select_room"])
+             else:
+                  self.update_hint(TOOL_HINTS["select_object"])
+        elif not selected_item:
+             # Reset to pointer hint if nothing selected
+             from ..Resources.tool_hints import TOOL_HINTS
+             self.update_hint(TOOL_HINTS["pointer"])
+
         self.emit('selection-changed', self.selected_items)
         self.queue_draw()
 
@@ -1201,6 +1225,33 @@ class CanvasSelectionMixin:
                 # Check intersection (if NOT disjoint)
                 if not (tx2 < x1 or tx1 > x2 or ty2 < y1 or ty1 > y2):
                     new_selection.append({"type": "text", "object": text})
+
+            for circle in self.circles:
+                if self.is_object_on_locked_layer(circle) or not self.is_object_on_visible_layer(circle):
+                    continue
+                # Simple check: if center is in rect OR if the circle intersects the rect
+                # For now: check if center is in rect
+                cx, cy = circle.center
+                if (x1 <= cx <= x2) and (y1 <= cy <= y2):
+                    new_selection.append({"type": "circle", "object": circle})
+                # TODO: Add intersection check (dist to rect < radius)
+
+            for arc in self.arcs:
+                if self.is_object_on_locked_layer(arc) or not self.is_object_on_visible_layer(arc):
+                    continue
+                # Simple check: keys points (start, end, center?)
+                cx, cy = arc.center
+                sx = cx + arc.radius * math.cos(arc.start_angle)
+                sy = cy + arc.radius * math.sin(arc.start_angle)
+                ex = cx + arc.radius * math.cos(arc.end_angle)
+                ey = cy + arc.radius * math.sin(arc.end_angle)
+                
+                # Check if start or end are in rect
+                start_in = (x1 <= sx <= x2) and (y1 <= sy <= y2)
+                end_in = (x1 <= ex <= x2) and (y1 <= ey <= y2)
+                
+                if start_in or end_in:
+                    new_selection.append({"type": "arc", "object": arc})
 
             if hasattr(self, "box_select_extend") and self.box_select_extend:
                 for item in new_selection:

@@ -393,24 +393,26 @@ class EstimatorApp(Gtk.Application):
         extra_buttons["help"].connect("clicked", self.on_help_clicked)
 
         # Status Bar Area
-        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        # Status Bar Area (CenterBox to center the hint)
+        status_box = Gtk.CenterBox()
         status_box.set_margin_start(10)
         status_box.set_margin_end(10)
         status_box.set_margin_bottom(4)
         vbox.append(status_box)
 
-        # Dirty Indicator (Circle icon)
-        # using 'media-record-symbolic' as a generic circle
+        # Dirty Indicator (Circle icon) - Left widget
         self.dirty_indicator = Gtk.Image.new_from_icon_name("media-record-symbolic")
-        # Default to clean (Green)
         self.dirty_indicator.set_pixel_size(16)
-        # We'll use CSS to color it, or just set generic state classes
-        status_box.append(self.dirty_indicator)
+        status_box.set_start_widget(self.dirty_indicator)
         
-        # We don't need text label anymore per user request, but let's keep a flexible container
-        # in case we want to add tool hints later.
-        self.status_label = Gtk.Label(label="")
-        status_box.append(self.status_label)
+        # Tool Hints Label - Center widget
+        self.status_label = Gtk.Label(label="Ready")
+        # Ensure label doesn't expand to push others if text is long, use ellipsization if needed?
+        # Actually Gtk.CenterBox handles it well.
+        status_box.set_center_widget(self.status_label)
+        
+        # Connect to canvas status updates
+        self.canvas.connect('status-update', self.on_status_update)
 
         self.tool_buttons["pointer"].set_active(True)
 
@@ -436,6 +438,10 @@ class EstimatorApp(Gtk.Application):
 
         # Connect the "destroy" signal to check for unsaved changes.
         self.window.connect("close-request", self.on_close_request)
+
+    def on_status_update(self, canvas, message):
+        """Update the status bar text."""
+        self.status_label.set_label(message)
     
     def update_dirty_state(self, is_dirty: bool):
         """Update the application dirty state and the UI indicator."""

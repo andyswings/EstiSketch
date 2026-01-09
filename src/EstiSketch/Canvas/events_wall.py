@@ -1,5 +1,5 @@
 import math
-from gi.repository import Gtk
+from gi.repository import Gtk, GLib
 from typing import List
 from ..components import Wall
 
@@ -136,8 +136,19 @@ class CanvasWallMixin:
                     self.alignment_candidate = None
                     self.raw_current_end = None
                     self.save_state()
+                    
+                    from ..Resources.tool_hints import TOOL_HINTS
+                    self.update_hint(TOOL_HINTS["draw_walls"])
                 else:
                     self.snap_type = "none"
+        
+        # Update hints based on state
+        from ..Resources.tool_hints import TOOL_HINTS
+        if self.drawing_wall:
+             self.update_hint(TOOL_HINTS["draw_walls_active"])
+        elif self.tool_mode == "draw_walls":
+             self.update_hint(TOOL_HINTS["draw_walls"])
+
         self.queue_draw()
 
     def enter_wall_length(self):
@@ -148,6 +159,7 @@ class CanvasWallMixin:
         dialog = create_length_input_dialog(self.get_root())
         dialog.connect("response", self.on_length_input_response)
         dialog.present()
+        self.update_hint("Enter exact length for wall segment")
 
     def on_length_input_response(self, dialog, response_id):
         if response_id == Gtk.ResponseType.OK:
@@ -165,6 +177,12 @@ class CanvasWallMixin:
             self.auto_dimension_mode = False
 
         dialog.destroy()
+        
+        from ..Resources.tool_hints import TOOL_HINTS
+        if self.drawing_wall:
+            self.update_hint(TOOL_HINTS["draw_walls_active"])
+        elif self.tool_mode == "draw_walls":
+            self.update_hint(TOOL_HINTS["draw_walls"])
 
     def apply_wall_length(self, length):
         if not self.current_wall:

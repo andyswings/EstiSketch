@@ -38,6 +38,8 @@ class CanvasArea(Gtk.DrawingArea,
     __gsignals__ = {
         # when selection changes, send the new list of selected items
         'selection-changed': (GObject.SignalFlags.RUN_FIRST, None, (object,)),
+        # when tool hint needs updating
+        'status-update': (GObject.SignalFlags.RUN_FIRST, None, (str,)),
     }
 
     def __init__(self, config_constants):
@@ -218,6 +220,10 @@ class CanvasArea(Gtk.DrawingArea,
         self.offset_x = 0
         self.offset_y = 0
         self.queue_draw()
+
+    def update_hint(self, message):
+        """Emit status-update signal with message."""
+        self.emit('status-update', message)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Layer Management Methods
@@ -500,6 +506,18 @@ class CanvasArea(Gtk.DrawingArea,
                 if dim_obj in self.dimensions:
                     self.dimensions.remove(dim_obj)
 
+            # Circle
+            if item["type"] == "circle":
+                circle_obj = item["object"]
+                if circle_obj in self.circles:
+                    self.circles.remove(circle_obj)
+
+            # Arc
+            if item["type"] == "arc":
+                arc_obj = item["object"]
+                if arc_obj in self.arcs:
+                    self.arcs.remove(arc_obj)
+
         # Process room vertex deletions
         for room_id, indices in room_vertices_to_delete.items():
             # Find the actual room object in self.rooms
@@ -585,6 +603,16 @@ class CanvasArea(Gtk.DrawingArea,
                         polyline) and self.is_object_on_visible_layer(polyline):
                     self.selected_items.append(
                         {"type": "polyline", "object": polyline})
+
+        # Select all circles
+        for circle in self.circles:
+            if not self.is_object_on_locked_layer(circle) and self.is_object_on_visible_layer(circle):
+                self.selected_items.append({"type": "circle", "object": circle})
+
+        # Select all arcs
+        for arc in self.arcs:
+            if not self.is_object_on_locked_layer(arc) and self.is_object_on_visible_layer(arc):
+                self.selected_items.append({"type": "arc", "object": arc})
 
         self.queue_draw()
         self.emit('selection-changed', self.selected_items)

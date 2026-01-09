@@ -5,7 +5,6 @@
 - [ ] Add right click menu option to convert curved walls to straight walls and vice versa (should obviously only be available when a wall or walls are selected)
 - [ ] Add automatic room area calculations
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped, spiral)
-- [ ] Add tool usage hints to the status bar (should be context aware and change based on the current tool) (an example would be "Tab to cycle selection for overlapping objects" or "Enter to set exact dimensions")
 - [ ] Add polyline tab to properties panel
 
 ## ✨ Core Features (essential functionality)
@@ -169,6 +168,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Added context-aware tool usage hints to the status bar (2026-01-09)
 - [x] Added "dirty" indicator to the left side of the status bar (green circle when clean, red circle when dirty) (2026-01-09)
 - [x] Fixed dimension moving - when you try to move the dimension it no longer resets the dimension to the original angle and length (2026-01-09)
 - [x] Added Tab-to-cycle selection for overlapping objects - press Tab to cycle through objects at mouse position (2026-01-08)

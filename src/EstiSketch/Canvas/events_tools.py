@@ -208,6 +208,9 @@ class CanvasToolsMixin:
                     seg.style = "solid"
                 self.polylines.append(seg)
                 self.current_polyline_start = snapped
+                from ..Resources.tool_hints import TOOL_HINTS
+                self.update_hint(TOOL_HINTS["add_polyline_active"])
+
             self.queue_draw()
             self.current_polyline_preview = None
 
@@ -221,6 +224,10 @@ class CanvasToolsMixin:
             self.polylines = []
             self.queue_draw()
             self.current_polyline_preview = None
+
+            # Reset hint
+            from ..Resources.tool_hints import TOOL_HINTS
+            self.update_hint(TOOL_HINTS["add_polyline"])
 
     def _handle_text_click(self, n_press: int, x: float, y: float) -> None:
         """
@@ -298,6 +305,8 @@ class CanvasToolsMixin:
             self.dimension_end = (canvas_x, canvas_y)
             print(f"Dimension end set at {self.dimension_end}")
             self.queue_draw()
+            from ..Resources.tool_hints import TOOL_HINTS
+            self.update_hint(TOOL_HINTS["add_dimension_active"])
         else:
             # Third click - finalize with offset
             offset = self._calculate_dimension_offset(
@@ -326,7 +335,11 @@ class CanvasToolsMixin:
 
             print(f"Dimension created with offset {offset}")
             self.save_state()
+            self.save_state()
             self.queue_draw()
+
+            from ..Resources.tool_hints import TOOL_HINTS
+            self.update_hint(TOOL_HINTS["add_dimension"])
 
     def _handle_auto_dimension(
             self,
@@ -527,7 +540,10 @@ class CanvasToolsMixin:
              self.circle_center = (sx, sy)
              self.drawing_circle = True
              self.circle_radius_preview = 0.0
+             self.circle_radius_preview = 0.0
              print(f"Circle center set at {self.circle_center}")
+             from ..Resources.tool_hints import TOOL_HINTS
+             self.update_hint(TOOL_HINTS["add_circle_active"])
         else:
              # Second click: Set Radius and Finalize
              radius = math.hypot(sx - self.circle_center[0], sy - self.circle_center[1])
@@ -548,6 +564,8 @@ class CanvasToolsMixin:
              self.drawing_circle = False
              self.circle_center = None
              self.circle_radius_preview = None
+             from ..Resources.tool_hints import TOOL_HINTS
+             self.update_hint(TOOL_HINTS["add_circle"])
         
         self.queue_draw()
 
@@ -571,12 +589,18 @@ class CanvasToolsMixin:
             self.arc_end = None
             self.arc_preview_point = None
             print(f"Arc start set at {self.arc_start}")
+            
+            from ..Resources.tool_hints import TOOL_HINTS
+            self.update_hint(TOOL_HINTS["add_arc_active_end"])
         
         elif self.arc_end is None:
             # Second click: Set End
             if (sx, sy) != self.arc_start:
                 self.arc_end = (sx, sy)
                 print(f"Arc end set at {self.arc_end}")
+                
+                from ..Resources.tool_hints import TOOL_HINTS
+                self.update_hint(TOOL_HINTS["add_arc_active_mid"])
             else:
                 print("Arc end cannot be same as start")
         
@@ -656,5 +680,8 @@ class CanvasToolsMixin:
             self.arc_start = None
             self.arc_end = None
             self.arc_preview_point = None
+            
+            from ..Resources.tool_hints import TOOL_HINTS
+            self.update_hint(TOOL_HINTS["add_arc"])
             
         self.queue_draw()
