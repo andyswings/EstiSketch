@@ -5,7 +5,6 @@
 - [ ] Add right click menu option to convert curved walls to straight walls and vice versa (should obviously only be available when a wall or walls are selected)
 - [ ] Add automatic room area calculations
 - [ ] Add Stairs tool (straight, L-shaped, U-shaped, spiral)
-- [ ] Add polyline tab to properties panel
 
 ## ✨ Core Features (essential functionality)
 
@@ -158,6 +157,8 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] When multiple objects of different types are selected, the properties panel enables all applicable tabs. (2026-01-12)
+- [x] Added polyline tab to properties panel (2026-01-12)
 - [x] Added context-aware tool usage hints to the status bar (2026-01-09)
 - [x] Added "dirty" indicator to the left side of the status bar (green circle when clean, red circle when dirty) (2026-01-09)
 - [x] Fixed dimension moving - when you try to move the dimension it no longer resets the dimension to the original angle and length (2026-01-09)
@@ -216,4 +217,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2026-01-09_
+_Last updated: 2026-01-12_

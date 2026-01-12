@@ -1717,22 +1717,14 @@ class PropertiesDock(Gtk.Box):
             elif item_type == "polyline":
                 polyline_items.append(item)
 
-        wants_wall = len(wall_items) > 0 and len(text_items) == 0 and len(
-            dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0 and len(circle_items) == 0 and len(arc_items) == 0
-        wants_text = len(text_items) > 0 and len(wall_items) == 0 and len(
-            dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0 and len(circle_items) == 0 and len(arc_items) == 0
-        wants_dimension = len(dimension_items) > 0 and len(wall_items) == 0 and len(
-            text_items) == 0 and len(window_items) == 0 and len(door_items) == 0 and len(circle_items) == 0 and len(arc_items) == 0
-        wants_window = len(window_items) > 0 and len(wall_items) == 0 and len(
-            text_items) == 0 and len(dimension_items) == 0 and len(door_items) == 0 and len(circle_items) == 0 and len(arc_items) == 0
-        wants_door = len(door_items) > 0 and len(wall_items) == 0 and len(
-            text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0 and len(circle_items) == 0 and len(arc_items) == 0
-        wants_circle = len(circle_items) > 0 and len(wall_items) == 0 and len(
-            text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0 and len(arc_items) == 0
-        wants_arc = len(arc_items) > 0 and len(wall_items) == 0 and len(
-            text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0 and len(circle_items) == 0
-        wants_polyline = len(polyline_items) > 0 and len(wall_items) == 0 and len(
-            text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0 and len(circle_items) == 0 and len(arc_items) == 0
+        wants_wall = len(wall_items) > 0
+        wants_text = len(text_items) > 0
+        wants_dimension = len(dimension_items) > 0
+        wants_window = len(window_items) > 0
+        wants_door = len(door_items) > 0
+        wants_circle = len(circle_items) > 0
+        wants_arc = len(arc_items) > 0
+        wants_polyline = len(polyline_items) > 0
 
         # Enable/disable tabs based on selection
         self.tabs["wall"].set_sensitive(wants_wall)
@@ -1746,175 +1738,106 @@ class PropertiesDock(Gtk.Box):
         self.tabs["layers"].set_sensitive(True)  # Layers always active
 
         # Update content and activate appropriate tab
+        selection_count = (
+             (1 if wants_wall else 0) +
+             (1 if wants_text else 0) +
+             (1 if wants_dimension else 0) +
+             (1 if wants_window else 0) +
+             (1 if wants_door else 0) +
+             (1 if wants_circle else 0) +
+             (1 if wants_arc else 0) +
+             (1 if wants_polyline else 0)
+        )
+
+        has_selection = selection_count > 0
+
+        # Update all active content
         if wants_wall:
-            # Check if we're already showing the wall tab (to avoid animation)
-            already_on_wall = self.stack.get_visible_child_name() == "wall"
+             selected_walls = [item["object"] for item in wall_items]
+             self.wall_page.set_wall(selected_walls)
 
-            # Populate wall properties with ALL selected walls (not just first)
-            selected_walls = [item["object"] for item in wall_items]
-            self.wall_page.set_wall(selected_walls)
+        if wants_text:
+             selected_texts = [item["object"] for item in text_items]
+             self.text_page.set_text(selected_texts)
 
-            # If not already on wall tab, switch to it with animation
-            if not already_on_wall:
-                self.stack.set_visible_child_name("wall")
+        if wants_dimension:
+             selected_dimensions = [item["object"] for item in dimension_items]
+             self.dimension_page.set_dimension(selected_dimensions[0])
 
-            # Only set visible if not already visible (to avoid double
-            # animation)
-            if not self.stack.get_visible():
-                self.stack.set_visible(True)
-                self.toggle_button.set_child(self.toggle_open_image)
-            # Only set active tab if it's not already active
-            if not self.tabs["wall"].get_active():
-                self._set_active_tab("wall")
-        elif wants_text:
-            # Check if we're already showing the text tab (to avoid animation)
-            already_on_text = self.stack.get_visible_child_name() == "text"
+        if wants_window:
+             selected_windows = [(item["object"][1], item["object"][0]) for item in window_items] # window, wall tuple?
+             # Check what window_page expects. Standard is just object list or single object
+             # The existing code did: selected_window = window_items[0]["object"] (which is a tuple?)
+             # Let's check window_page.set_window. It likely takes the tuple (wall, window, ratio) or just window
+             # Looking at previous code line 1711: wall, window, ratio = item["object"]
+             # So item["object"] is the tuple.
+             # existing code: self.window_page.set_window(selected_window)
+             self.window_page.set_window(window_items[0]["object"])
 
-            # Populate text properties with ALL selected texts (not just first)
-            selected_texts = [item["object"] for item in text_items]
-            self.text_page.set_text(selected_texts)
+        if wants_door:
+             self.door_page.set_door(door_items[0]["object"])
 
-            # If not already on text tab, switch to it with animation
-            if not already_on_text:
-                self.stack.set_visible_child_name("text")
+        if wants_circle:
+             selected_circles = [item["object"] for item in circle_items]
+             self.circle_page.set_circle(selected_circles)
 
-            # Only set visible if not already visible (to avoid double
-            # animation)
-            if not self.stack.get_visible():
-                self.stack.set_visible(True)
-                self.toggle_button.set_child(self.toggle_open_image)
-            # Only set active tab if it's not already active
-            if not self.tabs["text"].get_active():
-                self._set_active_tab("text")
-        elif wants_dimension:
-            # Check if we're already showing the dimension tab (to avoid
-            # animation)
-            already_on_dimension = self.stack.get_visible_child_name() == "dimension"
+        if wants_arc:
+             selected_arcs = [item["object"] for item in arc_items]
+             self.arc_page.set_arc(selected_arcs)
 
-            # Populate dimension properties with first selected dimension
-            selected_dimension = dimension_items[0]["object"]
-            self.dimension_page.set_dimension(selected_dimension)
+        if wants_polyline:
+             selected_polylines = [item["object"] for item in polyline_items]
+             self.polyline_page.set_polyline(selected_polylines)
 
-            # If not already on dimension tab, switch to it with animation
-            if not already_on_dimension:
-                self.stack.set_visible_child_name("dimension")
-
-            # Only set visible if not already visible (to avoid double
-            # animation)
-            if not self.stack.get_visible():
-                self.stack.set_visible(True)
-                self.toggle_button.set_child(self.toggle_open_image)
-            # Only set active tab if it's not already active
-            if not self.tabs["dimension"].get_active():
-                self._set_active_tab("dimension")
-        elif wants_window:
-            # Check if we're already showing the window tab (to avoid
-            # animation)
-            already_on_window = self.stack.get_visible_child_name() == "window"
-
-            # Populate window properties with ALL selected windows (as tuples)
-            # window_items contain {"type": "window", "object": (wall, window,
-            # ratio)}
-            selected_windows = [item["object"] for item in window_items]
-            self.window_page.set_window(selected_windows)
-
-            # If not already on window tab, switch to it with animation
-            if not already_on_window:
-                self.stack.set_visible_child_name("window")
-
-            # Only set visible if not already visible (to avoid double
-            # animation)
-            if not self.stack.get_visible():
-                self.stack.set_visible(True)
-                self.toggle_button.set_child(self.toggle_open_image)
-            # Only set active tab if it's not already active
-            if not self.tabs["window"].get_active():
-                self._set_active_tab("window")
-        elif wants_door:
-            # Check if we're already showing the door tab (to avoid animation)
-            already_on_door = self.stack.get_visible_child_name() == "door"
-
-            # Populate door properties with ALL selected doors (as tuples)
-            # door_items contain {"type": "door", "object": (wall, door,
-            # ratio)}
-            selected_doors = [item["object"] for item in door_items]
-            self.door_page.set_door(selected_doors)
-
-            # If not already on door tab, switch to it with animation
-            if not already_on_door:
-                self.stack.set_visible_child_name("door")
-
-            # Only set visible if not already visible (to avoid double
-            # animation)
-            if not self.stack.get_visible():
-                self.stack.set_visible(True)
-                self.toggle_button.set_child(self.toggle_open_image)
-            # Only set active tab if it's not already active
-            if not self.tabs["door"].get_active():
-                self._set_active_tab("door")
-        elif wants_circle:
-            already_on_circle = self.stack.get_visible_child_name() == "circle"
-            selected_circles = [item["object"] for item in circle_items]
-            self.circle_page.set_circle(selected_circles)
-            if not already_on_circle:
-                self.stack.set_visible_child_name("circle")
-            if not self.stack.get_visible():
-                self.stack.set_visible(True)
-                self.toggle_button.set_child(self.toggle_open_image)
-            if not self.tabs["circle"].get_active():
-                self._set_active_tab("circle")
-        elif wants_arc:
-            already_on_arc = self.stack.get_visible_child_name() == "arc"
-            selected_arcs = [item["object"] for item in arc_items]
-            self.arc_page.set_arc(selected_arcs)
-            if not already_on_arc:
-                self.stack.set_visible_child_name("arc")
-            if not self.stack.get_visible():
-                self.stack.set_visible(True)
-                self.toggle_button.set_child(self.toggle_open_image)
-            if not self.tabs["arc"].get_active():
-                self._set_active_tab("arc")
-        elif wants_polyline:
-            already_on_polyline = self.stack.get_visible_child_name() == "polyline"
-            selected_polylines = [item["object"] for item in polyline_items]
-            self.polyline_page.set_polyline(selected_polylines)
-            if not already_on_polyline:
-                self.stack.set_visible_child_name("polyline")
-            if not self.stack.get_visible():
-                self.stack.set_visible(True)
-                self.toggle_button.set_child(self.toggle_open_image)
-            if not self.tabs["polyline"].get_active():
-                self._set_active_tab("polyline")
+        # Tab Switching Logic
+        if has_selection:
+             # Make sure dock is visible
+             if not self.stack.get_visible():
+                  self.stack.set_visible(True)
+                  self.toggle_button.set_child(self.toggle_open_image)
+             
+             # Decide which tab to show
+             current_tab = self.stack.get_visible_child_name()
+             
+             # If current tab is still valid, keep it
+             keep_current = False
+             if current_tab == "wall" and wants_wall: keep_current = True
+             elif current_tab == "text" and wants_text: keep_current = True
+             elif current_tab == "dimension" and wants_dimension: keep_current = True
+             elif current_tab == "window" and wants_window: keep_current = True
+             elif current_tab == "door" and wants_door: keep_current = True
+             elif current_tab == "circle" and wants_circle: keep_current = True
+             elif current_tab == "arc" and wants_arc: keep_current = True
+             elif current_tab == "polyline" and wants_polyline: keep_current = True
+             
+             if not keep_current:
+                  # Switch to first available
+                  if wants_wall: self._set_active_tab("wall"); self.stack.set_visible_child_name("wall")
+                  elif wants_text: self._set_active_tab("text"); self.stack.set_visible_child_name("text")
+                  elif wants_dimension: self._set_active_tab("dimension"); self.stack.set_visible_child_name("dimension")
+                  elif wants_window: self._set_active_tab("window"); self.stack.set_visible_child_name("window")
+                  elif wants_door: self._set_active_tab("door"); self.stack.set_visible_child_name("door")
+                  elif wants_circle: self._set_active_tab("circle"); self.stack.set_visible_child_name("circle")
+                  elif wants_arc: self._set_active_tab("arc"); self.stack.set_visible_child_name("arc")
+                  elif wants_polyline: self._set_active_tab("polyline"); self.stack.set_visible_child_name("polyline")
+             else:
+                  # Just ensure the tab button is active visually
+                  if not self.tabs[current_tab].get_active():
+                       self._set_active_tab(current_tab)
         else:
-            # Nothing selected - show blank and hide panel
-            # Check if we were on layers? If on layers, stay on layers?
-            # User expectation: if I have layers open, it should stay open even if I deselect text?
-            # But behavior for properties is usually "context sensitive".
-            # If I want to see layers, I click layers.
+             # Nothing selected
+             pass
+             # We might want to auto-hide or just stay open?
+             # Existing logic was to hide if nothing selected?
+             # "else: # Nothing selected - show blank and hide panel"
+             if self.stack.get_visible():
+                  self.stack.set_visible(False)
+                  self.toggle_button.set_child(self.toggle_close_image)
+                  # Unpress all tabs
+                  for btn in self.tabs.values():
+                       btn.set_active(False)
 
-            # If current is layers, DO NOT switch to blank.
-            current_name = self.stack.get_visible_child_name()
-            if current_name == "layers" and self.stack.get_visible():
-                pass  # Stay on layers
-            else:
-                self.stack.set_visible_child_name("blank")
-                self.stack.set_visible(False)
-                self.toggle_button.set_child(self.toggle_close_image)
-                # Deactivate all tabs except layers?
-                # Actually, untoggling active tab is enough.
-                # But if we stay on layers, we should keep layers toggle
-                # active.
-                pass
 
-            # Deactivate all tabs (except possibly layers if it was active?)
-            # Simplified: just deactivate all context tabs. If layers is
-            # active, keep it.
-            for name, tab_btn in self.tabs.items():
-                if name == "layers" and tab_btn.get_active() and self.stack.get_visible():
-                    continue
-                tab_btn.handler_block(tab_btn.handler_id)
-                tab_btn.set_active(False)
-                tab_btn.handler_unblock(tab_btn.handler_id)
 
     def _set_active_tab(self, active_name):
         """Set the active tab while blocking signal handlers to prevent recursion."""
