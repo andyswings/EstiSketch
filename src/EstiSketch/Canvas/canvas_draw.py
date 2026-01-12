@@ -239,7 +239,9 @@ class CanvasDrawMixin:
                 if hasattr(self, 'get_object_opacity'):
                     opacity = self.get_object_opacity(pl)
 
-                cr.set_source_rgba(0, 0, 0, opacity)
+                # Use polyline color if available, default to black
+                color = getattr(pl, 'color', (0.0, 0.0, 0.0))
+                cr.set_source_rgba(color[0], color[1], color[2], opacity)
 
                 if pl.style == "dashed":
                     cr.set_dash([4 / self.zoom, 4 / self.zoom])
@@ -259,7 +261,9 @@ class CanvasDrawMixin:
                 if hasattr(self, 'get_object_opacity'):
                     opacity = self.get_object_opacity(pl)
 
-                cr.set_source_rgba(0, 0, 0, opacity)
+                # Use polyline color if available, default to black
+                color = getattr(pl, 'color', (0.0, 0.0, 0.0))
+                cr.set_source_rgba(color[0], color[1], color[2], opacity)
 
                 if pl.style == "dashed":
                     cr.set_dash([4 / self.zoom, 4 / self.zoom])

@@ -1441,6 +1441,90 @@ class ArcPropertiesWidget(Gtk.Box):
         self._block_updates = False
 
 
+class PolylinePropertiesWidget(Gtk.Box):
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.current_polylines = []
+        self._block_updates = False
+
+        # Frame
+        frame = Gtk.Frame(label="Polyline Properties")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        frame.set_child(box)
+        self.append(frame)
+
+        # Line Style
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Line Style:"))
+        self.line_style_combo = Gtk.ComboBoxText()
+        self.line_style_combo.append_text("solid")
+        self.line_style_combo.append_text("dashed")
+        self.line_style_combo.connect("changed", self.on_line_style_changed)
+        row.append(self.line_style_combo)
+        box.append(row)
+
+        # Color
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Color:"))
+        self.color_button = Gtk.ColorButton()
+        self.color_button.connect("color-set", self.on_color_changed)
+        row.append(self.color_button)
+        box.append(row)
+
+    def on_line_style_changed(self, combo):
+        if self._block_updates or not self.current_polylines:
+            return
+        style = combo.get_active_text()
+        if style:
+            for pl in self.current_polylines:
+                pl.style = style
+        self.emit_property_changed()
+
+    def on_color_changed(self, color_button):
+        if self._block_updates or not self.current_polylines:
+            return
+        rgba = color_button.get_rgba()
+        color = (rgba.red, rgba.green, rgba.blue)
+        for pl in self.current_polylines:
+            pl.color = color
+        self.emit_property_changed()
+
+    def emit_property_changed(self):
+        if hasattr(self, "canvas") and self.canvas:
+            self.canvas.queue_draw()
+
+    def set_polyline(self, polylines):
+        self._block_updates = True
+        if not isinstance(polylines, list):
+            polylines = [polylines]
+        self.current_polylines = polylines
+
+        if not polylines:
+            self._block_updates = False
+            return
+
+        first = polylines[0]
+
+        # Line Style
+        style = getattr(first, 'style', 'solid')
+        if style == 'dashed':
+            self.line_style_combo.set_active(1)
+        else:
+            self.line_style_combo.set_active(0)
+
+        # Color
+        color = getattr(first, 'color', (0.0, 0.0, 0.0))
+        from gi.repository import Gdk
+        rgba = Gdk.RGBA()
+        rgba.red, rgba.green, rgba.blue, rgba.alpha = color[0], color[1], color[2], 1.0
+        self.color_button.set_rgba(rgba)
+
+        self._block_updates = False
+
 class PropertiesDock(Gtk.Box):
 
     __gsignals__ = {
@@ -1571,6 +1655,14 @@ class PropertiesDock(Gtk.Box):
         self.icon_bar.append(arc_btn)
         self.tabs["arc"] = arc_btn
 
+        self.polyline_page = PolylinePropertiesWidget()
+        self.polyline_page.canvas = canvas
+        self.stack.add_titled(self.polyline_page, "polyline", "Polyline Properties")
+
+        polyline_btn = self._make_tab_button("polyline", icon_dir, "add_polyline")
+        self.icon_bar.append(polyline_btn)
+        self.tabs["polyline"] = polyline_btn
+
     def _make_tab_button(self, name, icon_dir, icon_name):
         btn = Gtk.ToggleButton()
         image = Gtk.Image.new_from_file(
@@ -1597,6 +1689,7 @@ class PropertiesDock(Gtk.Box):
         door_items = []
         circle_items = []
         arc_items = []
+        polyline_items = []
 
         for item in selected_items:
             item_type = item["type"]
@@ -1621,6 +1714,8 @@ class PropertiesDock(Gtk.Box):
                 circle_items.append(item)
             elif item_type == "arc":
                 arc_items.append(item)
+            elif item_type == "polyline":
+                polyline_items.append(item)
 
         wants_wall = len(wall_items) > 0 and len(text_items) == 0 and len(
             dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0 and len(circle_items) == 0 and len(arc_items) == 0
@@ -1636,6 +1731,8 @@ class PropertiesDock(Gtk.Box):
             text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0 and len(arc_items) == 0
         wants_arc = len(arc_items) > 0 and len(wall_items) == 0 and len(
             text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0 and len(circle_items) == 0
+        wants_polyline = len(polyline_items) > 0 and len(wall_items) == 0 and len(
+            text_items) == 0 and len(dimension_items) == 0 and len(window_items) == 0 and len(door_items) == 0 and len(circle_items) == 0 and len(arc_items) == 0
 
         # Enable/disable tabs based on selection
         self.tabs["wall"].set_sensitive(wants_wall)
@@ -1645,6 +1742,7 @@ class PropertiesDock(Gtk.Box):
         self.tabs["door"].set_sensitive(wants_door)
         self.tabs["circle"].set_sensitive(wants_circle)
         self.tabs["arc"].set_sensitive(wants_arc)
+        self.tabs["polyline"].set_sensitive(wants_polyline)
         self.tabs["layers"].set_sensitive(True)  # Layers always active
 
         # Update content and activate appropriate tab
@@ -1776,6 +1874,17 @@ class PropertiesDock(Gtk.Box):
                 self.toggle_button.set_child(self.toggle_open_image)
             if not self.tabs["arc"].get_active():
                 self._set_active_tab("arc")
+        elif wants_polyline:
+            already_on_polyline = self.stack.get_visible_child_name() == "polyline"
+            selected_polylines = [item["object"] for item in polyline_items]
+            self.polyline_page.set_polyline(selected_polylines)
+            if not already_on_polyline:
+                self.stack.set_visible_child_name("polyline")
+            if not self.stack.get_visible():
+                self.stack.set_visible(True)
+                self.toggle_button.set_child(self.toggle_open_image)
+            if not self.tabs["polyline"].get_active():
+                self._set_active_tab("polyline")
         else:
             # Nothing selected - show blank and hide panel
             # Check if we were on layers? If on layers, stay on layers?

@@ -9,16 +9,6 @@
 
 ## ✨ Core Features (essential functionality)
 
-### Drawing Tools (more of a parametric cad tool set) (long term)
-- [ ] Rectangle/Square tool
-- [ ] Polygon tool  
-- [ ] Offset tool (parallel lines at distance)
-- [ ] Trim/Extend tool
-- [ ] Mirror tool
-- [ ] Scale tool
-- [ ] Align/Distribute tools
-- [ ] Hatching/Fill patterns
-
 ### Architectural Elements
 - [ ] Roof design (gable, hip, flat, custom pitches)
 - [ ] Roof components (trusses, rafters, ridges, valleys)

@@ -61,12 +61,13 @@ class Wall:
 
 @dataclass
 class Polyline:
-    def __init__(self, start, end, identifier="", layer_id: str = ""):
+    def __init__(self, start, end, identifier="", layer_id: str = "", color: tuple = (0.0, 0.0, 0.0)):
         self.identifier = identifier  # unique string identifier
         self.layer_id = layer_id  # layer this polyline belongs to
         self.start = start  # tuple of (x, y)
         self.end = end      # tuple of (x, y)
         self.style = "solid"  # or "dashed"
+        self.color = color
 
 
 @dataclass

@@ -1,5 +1,5 @@
 import xml.etree.ElementTree as ET
-from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level
+from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc
 
 
 def save_project(canvas, window_width, window_height, filepath):
@@ -211,6 +211,60 @@ def save_project(canvas, window_width, window_height, filepath):
         d_elem.set("color_r", str(color[0]))
         d_elem.set("color_g", str(color[1]))
         d_elem.set("color_b", str(color[2]))
+
+
+    # Save Polylines
+    # Canvas stores polylines as list-of-lists (sets of connected segments)
+    # We will flatten this for XML or keep structure? Keeping structure is better
+    # Structure: <PolylineSets><PolylineSet><Polyline .../><Polyline .../></PolylineSet></PolylineSets>
+    polyline_sets_elem = ET.SubElement(root, "PolylineSets")
+    for poly_set in canvas.polyline_sets:
+        set_elem = ET.SubElement(polyline_sets_elem, "PolylineSet")
+        for pl in poly_set:
+            pl_elem = ET.SubElement(set_elem, "Polyline")
+            pl_elem.set("start_x", str(pl.start[0]))
+            pl_elem.set("start_y", str(pl.start[1]))
+            pl_elem.set("end_x", str(pl.end[0]))
+            pl_elem.set("end_y", str(pl.end[1]))
+            pl_elem.set("identifier", pl.identifier)
+            pl_elem.set("layer_id", getattr(pl, 'layer_id', ''))
+            pl_elem.set("style", pl.style)
+            color = getattr(pl, 'color', (0.0, 0.0, 0.0))
+            pl_elem.set("color_r", str(color[0]))
+            pl_elem.set("color_g", str(color[1]))
+            pl_elem.set("color_b", str(color[2]))
+
+    # Save Circles
+    circles_elem = ET.SubElement(root, "Circles")
+    for circle in getattr(canvas, 'circles', []):
+        c_elem = ET.SubElement(circles_elem, "Circle")
+        c_elem.set("center_x", str(circle.center[0]))
+        c_elem.set("center_y", str(circle.center[1]))
+        c_elem.set("radius", str(circle.radius))
+        c_elem.set("identifier", circle.identifier)
+        c_elem.set("layer_id", getattr(circle, 'layer_id', ''))
+        c_elem.set("line_style", getattr(circle, 'line_style', 'solid'))
+        color = getattr(circle, 'color', (0.0, 0.0, 0.0))
+        c_elem.set("color_r", str(color[0]))
+        c_elem.set("color_g", str(color[1]))
+        c_elem.set("color_b", str(color[2]))
+
+    # Save Arcs
+    arcs_elem = ET.SubElement(root, "Arcs")
+    for arc in getattr(canvas, 'arcs', []):
+        a_elem = ET.SubElement(arcs_elem, "Arc")
+        a_elem.set("center_x", str(arc.center[0]))
+        a_elem.set("center_y", str(arc.center[1]))
+        a_elem.set("radius", str(arc.radius))
+        a_elem.set("start_angle", str(arc.start_angle))
+        a_elem.set("end_angle", str(arc.end_angle))
+        a_elem.set("identifier", arc.identifier)
+        a_elem.set("layer_id", getattr(arc, 'layer_id', ''))
+        a_elem.set("line_style", getattr(arc, 'line_style', 'solid'))
+        color = getattr(arc, 'color', (0.0, 0.0, 0.0))
+        a_elem.set("color_r", str(color[0]))
+        a_elem.set("color_g", str(color[1]))
+        a_elem.set("color_b", str(color[2]))
 
     # Write out the XML to the given file (with declaration and proper
     # encoding).
@@ -455,6 +509,76 @@ def open_project(canvas, filepath):
             dimension_obj.layer_id = d_elem.get("layer_id", "")
 
             canvas.dimensions.append(dimension_obj)
+
+    # --- Restore Polylines ---
+    if hasattr(canvas, 'polyline_sets'):
+        canvas.polyline_sets.clear()
+        polyline_sets_elem = root.find("PolylineSets")
+        if polyline_sets_elem is not None:
+            for set_elem in polyline_sets_elem.findall("PolylineSet"):
+                poly_set = []
+                for pl_elem in set_elem.findall("Polyline"):
+                    start = (float(pl_elem.get("start_x")), float(pl_elem.get("start_y")))
+                    end = (float(pl_elem.get("end_x")), float(pl_elem.get("end_y")))
+                    identifier = pl_elem.get("identifier", "")
+                    
+                    # Create Polyline - allow init to handle new args
+                    # Handle color manually if not in init or after init
+                    pl = Polyline(start, end, identifier)
+                    pl.layer_id = pl_elem.get("layer_id", "")
+                    pl.style = pl_elem.get("style", "solid")
+                    
+                    color_r = float(pl_elem.get("color_r", "0.0"))
+                    color_g = float(pl_elem.get("color_g", "0.0"))
+                    color_b = float(pl_elem.get("color_b", "0.0"))
+                    pl.color = (color_r, color_g, color_b)
+                    
+                    poly_set.append(pl)
+                canvas.polyline_sets.append(poly_set)
+
+    # --- Restore Circles ---
+    if hasattr(canvas, 'circles'):
+        canvas.circles.clear()
+        circles_elem = root.find("Circles")
+        if circles_elem is not None:
+            for c_elem in circles_elem.findall("Circle"):
+                center = (float(c_elem.get("center_x")), float(c_elem.get("center_y")))
+                radius = float(c_elem.get("radius"))
+                identifier = c_elem.get("identifier", "")
+                
+                c = Circle(center, radius, identifier)
+                c.layer_id = c_elem.get("layer_id", "")
+                c.line_style = c_elem.get("line_style", "solid")
+                
+                color_r = float(c_elem.get("color_r", "0.0"))
+                color_g = float(c_elem.get("color_g", "0.0"))
+                color_b = float(c_elem.get("color_b", "0.0"))
+                c.color = (color_r, color_g, color_b)
+                
+                canvas.circles.append(c)
+
+    # --- Restore Arcs ---
+    if hasattr(canvas, 'arcs'):
+        canvas.arcs.clear()
+        arcs_elem = root.find("Arcs")
+        if arcs_elem is not None:
+            for a_elem in arcs_elem.findall("Arc"):
+                center = (float(a_elem.get("center_x")), float(a_elem.get("center_y")))
+                radius = float(a_elem.get("radius"))
+                start_angle = float(a_elem.get("start_angle"))
+                end_angle = float(a_elem.get("end_angle"))
+                identifier = a_elem.get("identifier", "")
+                
+                a = Arc(center, radius, start_angle, end_angle, identifier)
+                a.layer_id = a_elem.get("layer_id", "")
+                a.line_style = a_elem.get("line_style", "solid")
+                
+                color_r = float(a_elem.get("color_r", "0.0"))
+                color_g = float(a_elem.get("color_g", "0.0"))
+                color_b = float(a_elem.get("color_b", "0.0"))
+                a.color = (color_r, color_g, color_b)
+                
+                canvas.arcs.append(a)
 
     # Return the saved window size.
     return window_width, window_height
