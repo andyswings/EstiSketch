@@ -1161,6 +1161,7 @@ class CanvasDrawMixin:
         cx, cy = circle.center
         
         cr.save()
+        cr.new_path()  # Clear any leftover path state from previous drawing operations
         
         # Selection check
         is_selected = False
@@ -1220,6 +1221,7 @@ class CanvasDrawMixin:
         cx, cy = arc.center
         
         cr.save()
+        cr.new_path()  # Clear any leftover path state from previous drawing operations
         
         # Selection check
         is_selected = False

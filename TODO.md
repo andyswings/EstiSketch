@@ -3,8 +3,7 @@
 ## 🚀 High Priority (do next)
 - [ ] Add Curved Walls tool (new tool? or just add to existing wall tool?)
 - [ ] Add right click menu option to convert curved walls to straight walls and vice versa (should obviously only be available when a wall or walls are selected)
-- [ ] Add automatic room area calculations
-- [ ] Add Stairs tool (straight, L-shaped, U-shaped, spiral)
+- [ ] Add Interior / Exterior toolbar selector (Toggle button maybe? or maybe a dropdown menu so that I can add more toolsets like engineering, landscape, etc. in the future?) (It should switch the toolset between Interior and Exterior tools. ie. Interior tools are only available and shown when the Interior toolbar is toggled and Exterior tools are only available and shown when the Exterior toolbar is toggled) (This should be an option that is always visible somewhere that makes sense in the toolbar)
 
 ## ✨ Core Features (essential functionality)
 
@@ -15,6 +14,7 @@
 - [ ] Beams
 - [ ] Foundations (slab, crawlspace, basement)
 - [ ] Ceiling types (dropped, vaulted, cathedral)
+- [ ] Add Stairs tool (straight, L-shaped, U-shaped, spiral)
 - [ ] Railings/Guardrails (deck, stair, balcony)
 - [ ] Add Cabinet Tool
 - [ ] Countertops (custom shapes)
@@ -22,6 +22,7 @@
 - [ ] Moldings (crown, base, chair rail, casing)
 
 ### Dimensions & Annotations
+- [ ] Add automatic room area calculations
 - [ ] Dimension chains (continuous dimensions)
 - [ ] Radial/diameter dimensions
 - [ ] Angular dimensions
@@ -157,7 +158,8 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
-- [x] When multiple objects of different types are selected, the properties panel enables all applicable tabs. (2026-01-12)
+- [x] Fixed rendering artifact where circles/arcs displayed unwanted lines to dimensions (2026-01-13)
+- [x] Fixed when multiple objects of different types are selected, the properties panel now enables all applicable tabs. (2026-01-12)
 - [x] Added polyline tab to properties panel (2026-01-12)
 - [x] Added context-aware tool usage hints to the status bar (2026-01-09)
 - [x] Added "dirty" indicator to the left side of the status bar (green circle when clean, red circle when dirty) (2026-01-09)
