@@ -69,10 +69,64 @@ def draw_walls(self, cr):
                 cr.set_source_rgba(0, 0, 0, current_opacity)
                 cr.move_to(wall.start[0], wall.start[1])
                 path_start_point = wall.start
-                cr.line_to(wall.end[0], wall.end[1])
+                
+                # Draw first wall segment (could be straight or curved)
+                if wall.is_curved and wall.arc_center and wall.arc_radius:
+                    # Draw curved wall as an arc
+                    import math
+                    cx, cy = wall.arc_center
+                    radius = wall.arc_radius
+                    
+                    # Calculate angles for start and end points
+                    start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
+                    end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
+                    
+                    # Determine arc direction
+                    angle_diff = end_angle - start_angle
+                    # Normalize to -2π to 2π range
+                    while angle_diff > math.pi:
+                        angle_diff -= 2 * math.pi
+                    while angle_diff < -math.pi:
+                        angle_diff += 2 * math.pi
+                    
+                    # Draw the arc
+                    if angle_diff < 0:
+                        cr.arc_negative(cx, cy, radius, start_angle, end_angle)
+                    else:
+                        cr.arc(cx, cy, radius, start_angle, end_angle)
+                else:
+                    # Draw straight wall
+                    cr.line_to(wall.end[0], wall.end[1])
+                    
                 path_active = True
             else:
-                cr.line_to(wall.end[0], wall.end[1])
+                # Draw wall segment (straight or curved)
+                if wall.is_curved and wall.arc_center and wall.arc_radius:
+                    # Draw curved wall as an arc
+                    import math
+                    cx, cy = wall.arc_center
+                    radius = wall.arc_radius
+                    
+                    # Calculate angles for start and end points
+                    start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
+                    end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
+                    
+                    # Determine arc direction
+                    angle_diff = end_angle - start_angle
+                    # Normalize to -2π to 2π range
+                    while angle_diff > math.pi:
+                        angle_diff -= 2 * math.pi
+                    while angle_diff < -math.pi:
+                        angle_diff += 2 * math.pi
+                    
+                    # Draw the arc with proper width
+                    if angle_diff < 0:
+                        cr.arc_negative(cx, cy, radius, start_angle, end_angle)
+                    else:
+                        cr.arc(cx, cy, radius, start_angle, end_angle)
+                else:
+                    # Draw straight wall  
+                    cr.line_to(wall.end[0], wall.end[1])
 
         if path_active:
             cur_pt = cr.get_current_point()
@@ -134,10 +188,57 @@ def draw_walls(self, cr):
                 cr.set_source_rgba(0, 0, 0, current_opacity)
                 cr.move_to(wall.start[0], wall.start[1])
                 path_start_point = wall.start
-                cr.line_to(wall.end[0], wall.end[1])
+                
+                # Draw first wall segment (could be straight or curved)
+                if wall.is_curved and wall.arc_center and wall.arc_radius:
+                    import math
+                    cx, cy = wall.arc_center
+                    radius = wall.arc_radius
+                    start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
+                    end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
+                    
+                    angle_diff = end_angle - start_angle
+                    while angle_diff > math.pi:
+                        angle_diff -= 2 * math.pi
+                    while angle_diff < -math.pi:
+                        angle_diff += 2 * math.pi
+                    
+                    if angle_diff < 0:
+                        cr.arc_negative(cx, cy, radius, start_angle, end_angle)
+                    else:
+                        cr.arc(cx, cy, radius, start_angle, end_angle)
+                else:
+                    cr.line_to(wall.end[0], wall.end[1])
+                    
                 path_active = True
             else:
-                cr.line_to(wall.end[0], wall.end[1])
+                # Draw wall segment (straight or curved)
+                if wall.is_curved and wall.arc_center and wall.arc_radius:
+                    # Draw curved wall as an arc
+                    import math
+                    cx, cy = wall.arc_center
+                    radius = wall.arc_radius
+                    
+                    # Calculate angles for start and end points
+                    start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
+                    end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
+                    
+                    # Determine arc direction
+                    angle_diff = end_angle - start_angle
+                    # Normalize to -2π to 2π range
+                    while angle_diff > math.pi:
+                        angle_diff -= 2 * math.pi
+                    while angle_diff < -math.pi:
+                        angle_diff += 2 * math.pi
+                    
+                    # Draw the arc with proper width
+                    if angle_diff < 0:
+                        cr.arc_negative(cx, cy, radius, start_angle, end_angle)
+                    else:
+                        cr.arc(cx, cy, radius, start_angle, end_angle)
+                else:
+                    # Draw straight wall
+                    cr.line_to(wall.end[0], wall.end[1])
 
         if path_active:
             cur_pt = cr.get_current_point()
@@ -146,6 +247,78 @@ def draw_walls(self, cr):
                abs(cur_pt[1] - path_start_point[1]) < 1e-4:
                 cr.close_path()
             cr.stroke()
+
+    # Draw curved wall preview if in curve mode
+    if (hasattr(self, 'wall_curve_mode') and self.wall_curve_mode and 
+        hasattr(self, 'wall_curve_point') and self.wall_curve_point and 
+        hasattr(self, 'walls') and self.walls):
+        
+        last_wall = self.walls[-1]
+        bulge_point = self.wall_curve_point
+        
+        # Calculate arc from 3 points
+        geom = self.get_circle_from_3_points(
+            last_wall.start, last_wall.end, bulge_point
+        )
+        
+        if geom:
+            import math
+            (cx, cy), radius = geom
+            
+            # Draw preview arc in blue
+            cr.save()
+            cr.set_source_rgba(0, 0, 1, 0.6)  # Blue preview
+            cr.set_line_width(self.config.DEFAULT_WALL_WIDTH)
+            
+            start_angle = math.atan2(last_wall.start[1] - cy, last_wall.start[0] - cx)
+            end_angle = math.atan2(last_wall.end[1] - cy, last_wall.end[0] - cx)
+            mid_angle = math.atan2(bulge_point[1] - cy, bulge_point[0] - cx)
+            
+            # Determine direction using the middle point
+            a_mid_rel = (mid_angle - start_angle) % (2 * math.pi)
+            a_end_rel = (end_angle - start_angle) % (2 * math.pi)
+            
+            cr.new_path()
+            if a_mid_rel < a_end_rel:
+                cr.arc(cx, cy, radius, start_angle, end_angle)
+            else:
+                cr.arc_negative(cx, cy, radius, start_angle, end_angle)
+            cr.stroke()
+            
+            # Draw radius label near cursor (bulge point)
+            if hasattr(self, 'converter'):
+                pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                radius_str = self.converter.format_measurement(radius, use_fraction=False)
+                
+                # Position label near the bulge point (cursor), offset slightly
+                offset = 10 / (self.zoom * pixels_per_inch)
+                label_x = bulge_point[0] + offset
+                label_y = bulge_point[1] - offset
+                
+                cr.set_source_rgba(0, 0, 1, 0.8)
+                cr.select_font_face("Sans", 0, 1)  # Bold
+                cr.set_font_size(14 / (self.zoom * pixels_per_inch))
+                
+                text = f"R: {radius_str}"
+                extents = cr.text_extents(text)
+                
+                # Draw background rectangle for better visibility
+                padding = 2 / (self.zoom * pixels_per_inch)
+                cr.set_source_rgba(1, 1, 1, 0.9)  # White background
+                cr.rectangle(
+                    label_x - padding,
+                    label_y - extents.height - padding,
+                    extents.width + 2 * padding,
+                    extents.height + 2 * padding
+                )
+                cr.fill()
+                
+                # Draw text
+                cr.set_source_rgba(0, 0, 1, 1.0)  # Blue text
+                cr.move_to(label_x, label_y)
+                cr.show_text(text)
+            
+            cr.restore()
 
 
 def draw_rooms(self, cr, zoom_transform):

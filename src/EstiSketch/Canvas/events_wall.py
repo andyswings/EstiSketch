@@ -13,6 +13,7 @@ class CanvasWallMixin:
 
         This method is called when the user clicks while the wall drawing tool is active.
         On a single click, it starts or extends a wall segment, snapping and aligning the endpoint.
+        Hold Ctrl after second click to create a curved wall (3-point arc).
         On a double click, it finalizes the wall chain, closes the wall set, and resets the drawing state.
         If not currently drawing, a double click inside a room will auto-create walls along the room's outline.
 
@@ -49,7 +50,36 @@ class CanvasWallMixin:
         if n_press == 1:
             self.auto_dimension_mode = False
             wall_instance = None
-            if not self.drawing_wall:
+            
+            # Check if we're in curve mode (waiting for 3rd point)
+            if self.wall_curve_mode:
+                # Third click: complete the curved wall
+                if self.walls and len(self.walls) > 0:
+                    last_wall = self.walls[-1]
+                    bulge_point = (snapped_x, snapped_y)
+                    
+                    # Calculate arc from 3 points: start, end, bulge
+                    geom = self.get_circle_from_3_points(
+                        last_wall.start, last_wall.end, bulge_point
+                    )
+                    
+                    if geom:
+                        (arc_cx, arc_cy), arc_radius = geom
+                        # Update the last wall to be curved
+                        last_wall.is_curved = True
+                        last_wall.arc_center = (arc_cx, arc_cy)
+                        last_wall.arc_radius = arc_radius
+                    pass
+                    
+                # Exit curve mode and continue normal wall drawing
+                self.wall_curve_mode = False
+                self.wall_curve_point = None
+                # Continue from the END of the curved wall, not the bulge point
+                self.current_wall.start = last_wall.end
+                self.queue_draw()
+                
+            elif not self.drawing_wall:
+                # First click: start wall
                 self.drawing_wall = True
                 self.current_wall = self.Wall(
                     (snapped_x, snapped_y), (snapped_x, snapped_y),
@@ -58,17 +88,17 @@ class CanvasWallMixin:
                     layer_id=self.active_layer_id
                 )
             else:
+                # Second (or subsequent) click: create wall segment
                 wall_instance = self.Wall(
                     self.current_wall.start,
-                    (snapped_x,
-                     snapped_y),
+                    (snapped_x, snapped_y),
                     self.config.DEFAULT_WALL_WIDTH,
                     self.config.DEFAULT_WALL_HEIGHT,
                     identifier=self.generate_identifier(
                         "wall",
                         self.existing_ids),
                     layer_id=self.active_layer_id)
-            if wall_instance:
+                    
                 self.existing_ids.append(wall_instance.identifier)
                 self.walls.append(wall_instance)
 
@@ -149,6 +179,27 @@ class CanvasWallMixin:
         elif self.tool_mode == "draw_walls":
              self.update_hint(TOOL_HINTS["draw_walls"])
 
+        self.queue_draw()
+
+    def toggle_wall_curve_mode(self):
+        """Toggle curved wall mode on/off. Call after placing second wall point."""
+        if self.tool_mode != "draw_walls" or not self.drawing_wall:
+            return
+        
+        # Only allow entering curve mode if we just placed a wall segment
+        if not self.walls or len(self.walls) == 0:
+            return
+            
+        if not self.wall_curve_mode:
+            # Enter curve mode - waiting for 3rd point (bulge)
+            self.wall_curve_mode = True
+            self.update_hint("Click to set arc bulge point for curved wall (Shift+C to cancel)")
+        else:
+            # Exit curve mode - wall stays straight
+            self.wall_curve_mode = False
+            self.wall_curve_point = None
+            from ..Resources.tool_hints import TOOL_HINTS
+            self.update_hint(TOOL_HINTS["draw_walls_active"])
         self.queue_draw()
 
     def enter_wall_length(self):

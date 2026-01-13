@@ -33,7 +33,10 @@ class Wall:
             height,
             exterior_wall=False,
             identifier="",
-            layer_id: str = ""):
+            layer_id: str = "",
+            is_curved=False,
+            arc_center=None,
+            arc_radius=None):
         self.identifier = identifier  # unique string identifier
         self.layer_id = layer_id  # layer this wall belongs to
         self.start = start  # tuple of (x, y)
@@ -41,6 +44,11 @@ class Wall:
         self.width = width  # integer (inches)
         self.height = height  # integer (inches)
         self.exterior_wall = exterior_wall  # boolean
+
+        # Curved wall properties
+        self.is_curved = is_curved  # True if this is a curved/arc wall
+        self.arc_center = arc_center if is_curved else None  # (x, y) center of arc
+        self.arc_radius = arc_radius if is_curved else None  # radius of arc in inches
 
         # Footer properties
         self.footer = False

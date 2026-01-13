@@ -1,7 +1,6 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add Curved Walls tool (new tool? or just add to existing wall tool?)
 - [ ] Add right click menu option to convert curved walls to straight walls and vice versa (should obviously only be available when a wall or walls are selected)
 - [ ] Add Interior / Exterior toolbar selector (Toggle button maybe? or maybe a dropdown menu so that I can add more toolsets like engineering, landscape, etc. in the future?) (It should switch the toolset between Interior and Exterior tools. ie. Interior tools are only available and shown when the Interior toolbar is toggled and Exterior tools are only available and shown when the Exterior toolbar is toggled) (This should be an option that is always visible somewhere that makes sense in the toolbar)
 
@@ -151,6 +150,8 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
+- [ ] Curved walls are not selectable on the curve. They are only selectable at the endpoints or in the straight line between the endpoints. 
+- [ ] Adding Windows or Doors to a curved wall does not work. The window/door is added to the straight line between the endpoints.
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -158,6 +159,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Added **Curved Walls** feature - integrated into wall tool, press Shift+C after 2nd point to create 3-point arc walls with live preview and radius display (2026-01-13)
 - [x] Fixed rendering artifact where circles/arcs displayed unwanted lines to dimensions (2026-01-13)
 - [x] Fixed when multiple objects of different types are selected, the properties panel now enables all applicable tabs. (2026-01-12)
 - [x] Added polyline tab to properties panel (2026-01-12)

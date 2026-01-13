@@ -85,6 +85,10 @@ class CanvasArea(Gtk.DrawingArea,
         self.drawing_wall = False
         self.wall_sets = []
 
+        # Curved wall state (for 3-point arc walls)
+        self.wall_curve_mode = False  # True when waiting for arc bulge point (3rd click)
+        self.wall_curve_point = None  # The arc bulge point for preview
+
         self.auto_dimension_mode = False
         self.last_wall_angle = None
 

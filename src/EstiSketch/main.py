@@ -559,6 +559,11 @@ class EstimatorApp(Gtk.Application):
             if keyname == "a":
                 self.tool_buttons["add_arc"].set_active(True)
                 return True
+            elif keyname == "c":
+                # Toggle curved wall mode during wall drawing
+                if self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall and self.canvas.walls:
+                    self.canvas.toggle_wall_curve_mode()
+                    return True
 
         if ctrl_pressed and not shift_pressed:
             if keyname == "z":

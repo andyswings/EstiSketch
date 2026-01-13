@@ -255,7 +255,11 @@ class CanvasEventsMixin:
             snapped_x, snapped_y = aligned_x, aligned_y
             self.alignment_candidate = candidate
 
-            self.current_wall.end = (snapped_x, snapped_y)
+            # Check if we're in curve mode - update curve preview point
+            if self.wall_curve_mode:
+                self.wall_curve_point = (snapped_x, snapped_y)
+            else:
+                self.current_wall.end = (snapped_x, snapped_y)
             self.queue_draw()
 
         # Live preview for polylines

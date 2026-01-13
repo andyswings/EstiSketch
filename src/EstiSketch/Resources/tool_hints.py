@@ -6,7 +6,7 @@ TOOL_HINTS = {
     "pointer": "Click to select object, Drag to box select | Drag objects to move",
     "panning": "Click and drag to pan the view",
     "draw_walls": "Click to start drawing wall",
-    "draw_walls_active": "Click to end wall segment (Ctrl to snap) | Press Enter to set length | Esc to finish",
+    "draw_walls_active": "Click to end wall segment | Shift+C for curved wall | Enter for exact length | Esc to finish",
     "draw_rooms": "Click to start drawing room",
     "draw_rooms_active": "Click to add room corner | Esc to finish",
     "add_doors": "Click on a wall to add a door",
