@@ -1,6 +1,111 @@
 import math
 
 
+def get_point_on_wall(wall, ratio):
+    """
+    Calculate a point along a wall (straight or curved) at the given ratio.
+    
+    Args:
+        wall: Wall object
+        ratio: Position along wall (0.0 = start, 1.0 = end)
+    
+    Returns:
+        tuple: (x, y) coordinates of the point
+    """
+    if wall.is_curved and wall.arc_center and wall.arc_radius:
+        # Curved wall - calculate point on arc
+        cx, cy = wall.arc_center
+        start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
+        end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
+        
+        # Normalize angles
+        def normalize(a):
+            while a < 0: a += 2 * math.pi
+            while a >= 2 * math.pi: a -= 2 * math.pi
+            return a
+        
+        start_angle = normalize(start_angle)
+        end_angle = normalize(end_angle)
+        
+        # Interpolate angle
+        if start_angle < end_angle:
+            angle = start_angle + ratio * (end_angle - start_angle)
+        else:  # Arc crosses 0
+            arc_span = (2 * math.pi - start_angle) + end_angle
+            angle = start_angle + ratio * arc_span
+            if angle >= 2 * math.pi:
+                angle -= 2 * math.pi
+        
+        # Calculate point on arc
+        x = cx + wall.arc_radius * math.cos(angle)
+        y = cy + wall.arc_radius * math.sin(angle)
+        return (x, y)
+    else:
+        # Straight wall - linear interpolation
+        A = wall.start
+        B = wall.end
+        return (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
+
+
+def get_wall_direction(wall, ratio):
+    """
+    Calculate the tangent direction vector at a point along a wall.
+    
+    For curved walls, this is the tangent to the arc.
+    For straight walls, this is the wall direction.
+    
+    Args:
+        wall: Wall object
+        ratio: Position along wall (0.0 = start, 1.0 = end)
+    
+    Returns:
+        tuple: (dx, dy) unit direction vector at that point
+    """
+    if wall.is_curved and wall.arc_center and wall.arc_radius:
+        # Curved wall - calculate tangent direction at this point
+        cx, cy = wall.arc_center
+        start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
+        end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
+        
+        # Normalize angles
+        def normalize(a):
+            while a < 0: a += 2 * math.pi
+            while a >= 2 * math.pi: a -= 2 * math.pi
+            return a
+        
+        start_angle = normalize(start_angle)
+        end_angle = normalize(end_angle)
+        
+        # Interpolate angle
+        if start_angle < end_angle:
+            angle = start_angle + ratio * (end_angle - start_angle)
+        else:  # Arc crosses 0
+            arc_span = (2 * math.pi - start_angle) + end_angle
+            angle = start_angle + ratio * arc_span
+            if angle >= 2 * math.pi:
+                angle -= 2 * math.pi
+        
+        # Tangent is perpendicular to radius
+        # For counterclockwise arc, tangent is 90° ahead of radius
+        tangent_angle = angle + math.pi / 2
+        dx = math.cos(tangent_angle)
+        dy = math.sin(tangent_angle)
+        
+        return (dx, dy)
+    else:
+        # Straight wall - direction is constant
+        A = wall.start
+        B = wall.end
+        dx = B[0] - A[0]
+        dy = B[1] - A[1]
+        length = math.hypot(dx, dy)
+        if length > 0:
+            return (dx / length, dy / length)
+        else:
+            return (1, 0)  # Default horizontal direction
+
+
+
 def draw_doors(self, cr, pixels_per_inch):
     # Draw doors
     cr.save()
@@ -27,12 +132,12 @@ def draw_doors(self, cr, pixels_per_inch):
 
         A = wall.start
         B = wall.end
-        H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio *
-             (B[1] - A[1]))  # Center of door opening
+        H = get_point_on_wall(wall, ratio)  # Center of door opening (arc-aware)
 
-        # Wall direction and perpendicular
-        dx = B[0] - A[0]
-        dy = B[1] - A[1]
+        # Wall direction and perpendicular (tangent-aware for curved walls)
+        d = get_wall_direction(wall, ratio)  # Tangent direction at this point
+        dx = d[0]
+        dy = d[1]
         length = math.hypot(dx, dy)
         if length == 0:
             continue
@@ -803,11 +908,12 @@ def draw_windows(self, cr, pixels_per_inch):
         A = wall.start  # wall.start and wall.end are tuples (x, y)
         B = wall.end
         # H is the center of the window opening
-        H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
+        H = get_point_on_wall(wall, ratio)  # Arc-aware position calculation
 
-        # Calculate wall direction and perpendicular
-        dx = B[0] - A[0]
-        dy = B[1] - A[1]
+        # Calculate wall direction and perpendicular (tangent-aware for curved walls)
+        d = get_wall_direction(wall, ratio)  # Tangent direction at this point
+        dx = d[0]
+        dy = d[1]
         length = math.hypot(dx, dy)  # Length of the wall segment
         if length == 0:  # Avoid division by zero if wall segment is degenerate
             continue

@@ -36,20 +36,68 @@ class CanvasToolsMixin:
 
         for wall_set in self.wall_sets:
             for wall in wall_set:
-                dist = self.distance_point_to_segment(
-                    click_pt, wall.start, wall.end)
+                # Check distance to wall (straight or curved)
+                if wall.is_curved and wall.arc_center and wall.arc_radius:
+                    # Curved wall - check distance to arc
+                    dist = self.distance_point_to_arc(
+                        click_pt, wall.arc_center, wall.arc_radius,
+                        math.atan2(wall.start[1] - wall.arc_center[1], wall.start[0] - wall.arc_center[0]),
+                        math.atan2(wall.end[1] - wall.arc_center[1], wall.end[0] - wall.arc_center[0])
+                    )
+                else:
+                    dist = self.distance_point_to_segment(
+                        click_pt, wall.start, wall.end)
+                
                 if dist < tolerance and dist < best_dist:
                     best_dist = dist
                     selected_wall = wall
-                    dx = wall.end[0] - wall.start[0]
-                    dy = wall.end[1] - wall.start[1]
-                    wall_length = math.hypot(dx, dy)
-                    if wall_length > 0:
-                        t = (
-                            (canvas_x - wall.start[0]) * dx + (canvas_y - wall.start[1]) * dy) / (wall_length ** 2)
-                        selected_ratio = max(0.0, min(1.0, t))
+                    
+                    # Calculate ratio along wall (arc length for curved, linear for straight)
+                    if wall.is_curved and wall.arc_center and wall.arc_radius:
+                        # For curved walls: find angle of closest point on arc
+                        cx, cy = wall.arc_center
+                        angle = math.atan2(canvas_y - cy, canvas_x - cx)
+                        start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
+                        end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
+                        
+                        # Normalize angles
+                        def normalize(a):
+                            while a < 0: a += 2 * math.pi
+                            while a >= 2 * math.pi: a -= 2 * math.pi
+                            return a
+                        
+                        angle = normalize(angle)
+                        start_angle = normalize(start_angle)
+                        end_angle = normalize(end_angle)
+                        
+                        # Calculate arc length ratio
+                        if start_angle < end_angle:
+                            arc_span = end_angle - start_angle
+                            if start_angle <= angle <= end_angle:
+                                selected_ratio = (angle - start_angle) / arc_span
+                            else:
+                                # Clamp to nearest endpoint
+                                selected_ratio = 0.0 if abs(angle - start_angle) < abs(angle - end_angle) else 1.0
+                        else:  # Arc crosses 0
+                            arc_span = (2 * math.pi - start_angle) + end_angle
+                            if angle >= start_angle:
+                                selected_ratio = (angle - start_angle) / arc_span
+                            elif angle <= end_angle:
+                                selected_ratio = (2 * math.pi - start_angle + angle) / arc_span
+                            else:
+                                selected_ratio = 0.5
+                        
+                        selected_ratio = max(0.0, min(1.0, selected_ratio))
                     else:
-                        selected_ratio = 0.5
+                        # Straight wall - linear projection
+                        dx = wall.end[0] - wall.start[0]
+                        dy = wall.end[1] - wall.start[1]
+                        wall_length = math.hypot(dx, dy)
+                        if wall_length > 0:
+                            t = ((canvas_x - wall.start[0]) * dx + (canvas_y - wall.start[1]) * dy) / (wall_length ** 2)
+                            selected_ratio = max(0.0, min(1.0, t))
+                        else:
+                            selected_ratio = 0.5
 
         if selected_wall is None:
             print("No wall was found near the click for door addition.")
@@ -117,20 +165,68 @@ class CanvasToolsMixin:
 
         for wall_set in self.wall_sets:
             for wall in wall_set:
-                dist = self.distance_point_to_segment(
-                    click_pt, wall.start, wall.end)
+                # Check distance to wall (straight or curved)
+                if wall.is_curved and wall.arc_center and wall.arc_radius:
+                    # Curved wall - check distance to arc
+                    dist = self.distance_point_to_arc(
+                        click_pt, wall.arc_center, wall.arc_radius,
+                        math.atan2(wall.start[1] - wall.arc_center[1], wall.start[0] - wall.arc_center[0]),
+                        math.atan2(wall.end[1] - wall.arc_center[1], wall.end[0] - wall.arc_center[0])
+                    )
+                else:
+                    dist = self.distance_point_to_segment(
+                        click_pt, wall.start, wall.end)
+                
                 if dist < tolerance and dist < best_dist:
                     best_dist = dist
                     selected_wall = wall
-                    dx = wall.end[0] - wall.start[0]
-                    dy = wall.end[1] - wall.start[1]
-                    wall_length = math.hypot(dx, dy)
-                    if wall_length > 0:
-                        t = (
-                            (canvas_x - wall.start[0]) * dx + (canvas_y - wall.start[1]) * dy) / (wall_length ** 2)
-                        selected_ratio = max(0.0, min(1.0, t))
+                    
+                    # Calculate ratio along wall (arc length for curved, linear for straight)
+                    if wall.is_curved and wall.arc_center and wall.arc_radius:
+                        # For curved walls: find angle of closest point on arc
+                        cx, cy = wall.arc_center
+                        angle = math.atan2(canvas_y - cy, canvas_x - cx)
+                        start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
+                        end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
+                        
+                        # Normalize angles
+                        def normalize(a):
+                            while a < 0: a += 2 * math.pi
+                            while a >= 2 * math.pi: a -= 2 * math.pi
+                            return a
+                        
+                        angle = normalize(angle)
+                        start_angle = normalize(start_angle)
+                        end_angle = normalize(end_angle)
+                        
+                        # Calculate arc length ratio
+                        if start_angle < end_angle:
+                            arc_span = end_angle - start_angle
+                            if start_angle <= angle <= end_angle:
+                                selected_ratio = (angle - start_angle) / arc_span
+                            else:
+                                # Clamp to nearest endpoint
+                                selected_ratio = 0.0 if abs(angle - start_angle) < abs(angle - end_angle) else 1.0
+                        else:  # Arc crosses 0
+                            arc_span = (2 * math.pi - start_angle) + end_angle
+                            if angle >= start_angle:
+                                selected_ratio = (angle - start_angle) / arc_span
+                            elif angle <= end_angle:
+                                selected_ratio = (2 * math.pi - start_angle + angle) / arc_span
+                            else:
+                                selected_ratio = 0.5
+                        
+                        selected_ratio = max(0.0, min(1.0, selected_ratio))
                     else:
-                        selected_ratio = 0.5
+                        # Straight wall - linear projection
+                        dx = wall.end[0] - wall.start[0]
+                        dy = wall.end[1] - wall.start[1]
+                        wall_length = math.hypot(dx, dy)
+                        if wall_length > 0:
+                            t = ((canvas_x - wall.start[0]) * dx + (canvas_y - wall.start[1]) * dy) / (wall_length ** 2)
+                            selected_ratio = max(0.0, min(1.0, t))
+                        else:
+                            selected_ratio = 0.5
 
         if selected_wall is None:
             print("No wall was found near the click for window addition.")

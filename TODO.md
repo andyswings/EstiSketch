@@ -150,8 +150,6 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Curved walls are not selectable on the curve. They are only selectable at the endpoints or in the straight line between the endpoints. 
-- [ ] Adding Windows or Doors to a curved wall does not work. The window/door is added to the straight line between the endpoints.
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -159,6 +157,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Fixed windows and doors are now drawn tangent to the curve on curved walls.
 - [x] Added **Curved Walls** feature - integrated into wall tool, press Shift+C after 2nd point to create 3-point arc walls with live preview and radius display (2026-01-13)
 - [x] Fixed rendering artifact where circles/arcs displayed unwanted lines to dimensions (2026-01-13)
 - [x] Fixed when multiple objects of different types are selected, the properties panel now enables all applicable tabs. (2026-01-12)

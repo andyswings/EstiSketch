@@ -136,3 +136,62 @@ class EventsHelpersMixin:
 
     def _points_close(self, p1, p2, tol):
         return math.hypot(p1[0] - p2[0], p1[1] - p2[1]) < tol
+    
+    def distance_point_to_arc(self, P, center, radius, start_angle, end_angle):
+        """
+        Calculate the shortest distance from a point to an arc.
+        
+        Args:
+            P: Point (x, y) in same coordinate space as arc
+            center: Arc center (cx, cy)  
+            radius: Arc radius
+            start_angle: Start angle in radians
+            end_angle: End angle in radians
+            
+        Returns:
+            float: Shortest distance from P to the arc
+        """
+        cx, cy = center
+        px, py = P
+        
+        # Distance from point to center
+        dist_to_center = math.hypot(px - cx, py - cy)
+        
+        # Angle of point relative to center
+        point_angle = math.atan2(py - cy, px - cx)
+        
+        # Normalize angles to 0-2π
+        def normalize(angle):
+            while angle < 0:
+                angle += 2 * math.pi
+            while angle >= 2 * math.pi:
+                angle -= 2 * math.pi
+            return angle
+        
+        point_angle = normalize(point_angle)
+        start_norm = normalize(start_angle)
+        end_norm = normalize(end_angle)
+        
+        # Check if point angle is within arc range
+        in_arc = False
+        if start_norm < end_norm:
+            if start_norm <= point_angle <= end_norm:
+                in_arc = True
+        else:  # Arc crosses 0
+            if point_angle >= start_norm or point_angle <= end_norm:
+                in_arc = True
+        
+        if in_arc:
+            # Point is within arc angular range - distance is radial
+            return abs(dist_to_center - radius)
+        else:
+            # Point is outside arc angular range - distance to nearest endpoint
+            start_x = cx + radius * math.cos(start_angle)
+            start_y = cy + radius * math.sin(start_angle)
+            end_x = cx + radius * math.cos(end_angle)
+            end_y = cy + radius * math.sin(end_angle)
+            
+            dist_to_start = math.hypot(px - start_x, py - start_y)
+            dist_to_end = math.hypot(px - end_x, py - end_y)
+            
+            return min(dist_to_start, dist_to_end)

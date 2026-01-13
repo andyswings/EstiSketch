@@ -408,12 +408,16 @@ class CanvasDrawMixin:
                     if wall is None:
                         continue
 
-                    A = wall.start
-                    B = wall.end
-                    H = (A[0] + ratio * (B[0] - A[0]),
-                         A[1] + ratio * (B[1] - A[1]))
-                    dx = B[0] - A[0]
-                    dy = B[1] - A[1]
+                    # Import arc-aware helpers
+                    from .door_window_renderer import get_point_on_wall, get_wall_direction
+                    
+                    # Calculate door position (arc-aware)
+                    H = get_point_on_wall(wall, ratio)
+                    
+                    # Calculate wall direction (tangent-aware for curved walls)
+                    d = get_wall_direction(wall, ratio)
+                    dx = d[0]
+                    dy = d[1]
                     length = math.hypot(dx, dy)
                     if length == 0:
                         continue
@@ -446,12 +450,16 @@ class CanvasDrawMixin:
                     if wall is None:
                         continue
 
-                    A = wall.start
-                    B = wall.end
-                    H = (A[0] + ratio * (B[0] - A[0]),
-                         A[1] + ratio * (B[1] - A[1]))
-                    dx = B[0] - A[0]
-                    dy = B[1] - A[1]
+                    # Import arc-aware helpers
+                    from .door_window_renderer import get_point_on_wall, get_wall_direction
+                    
+                    # Calculate window position (arc-aware)
+                    H = get_point_on_wall(wall, ratio)
+                    
+                    # Calculate wall direction (tangent-aware for curved walls)
+                    d = get_wall_direction(wall, ratio)
+                    dx = d[0]
+                    dy = d[1]
                     length = math.hypot(dx, dy)
                     if length == 0:
                         continue

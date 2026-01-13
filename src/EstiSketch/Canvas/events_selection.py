@@ -1,5 +1,7 @@
 import math
 from gi.repository import Gtk, Gdk
+from .door_window_renderer import get_point_on_wall, get_wall_direction
+
 
 
 class CanvasSelectionMixin:
@@ -226,11 +228,37 @@ class CanvasSelectionMixin:
                 if dist_end < fixed_threshold and dist_end < best_dist:
                     best_dist = dist_end
                     selected_item = {"type": "wall", "object": wall}
-                dist_seg = self.distance_point_to_segment(
-                    click_pt, start_widget, end_widget)
-                if dist_seg < fixed_threshold and dist_seg < best_dist:
-                    best_dist = dist_seg
-                    selected_item = {"type": "wall", "object": wall}
+                
+                # Check distance to wall path (straight or curved)
+                if wall.is_curved and wall.arc_center and wall.arc_radius:
+                    # Curved wall - check distance to arc
+                    # Convert center to widget coordinates
+                    center_widget = (
+                        (wall.arc_center[0] * T) + self.offset_x,
+                        (wall.arc_center[1] * T) + self.offset_y
+                    )
+                    radius_widget = wall.arc_radius * T
+                    
+                    # Calculate angles in widget space
+                    start_angle = math.atan2(start_widget[1] - center_widget[1], 
+                                            start_widget[0] - center_widget[0])
+                    end_angle = math.atan2(end_widget[1] - center_widget[1],
+                                          end_widget[0] - center_widget[0])
+                    
+                    dist_arc = self.distance_point_to_arc(
+                        click_pt, center_widget, radius_widget, start_angle, end_angle
+                    )
+                    
+                    if dist_arc < fixed_threshold and dist_arc < best_dist:
+                        best_dist = dist_arc
+                        selected_item = {"type": "wall", "object": wall}
+                else:
+                    # Straight wall - use line segment distance
+                    dist_seg = self.distance_point_to_segment(
+                        click_pt, start_widget, end_widget)
+                    if dist_seg < fixed_threshold and dist_seg < best_dist:
+                        best_dist = dist_seg
+                        selected_item = {"type": "wall", "object": wall}
 
         for room in self.rooms:
             if self.is_object_on_locked_layer(
@@ -326,11 +354,13 @@ class CanvasSelectionMixin:
                     door) or not self.is_object_on_visible_layer(door):
                 continue
 
-            A = wall.start
-            B = wall.end
-            H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
-            dx = B[0] - A[0]
-            dy = B[1] - A[1]
+            # Calculate door position (arc-aware)
+            H = get_point_on_wall(wall, ratio)
+            
+            # Calculate wall direction (tangent-aware for curved walls)
+            d = get_wall_direction(wall, ratio)
+            dx = d[0]
+            dy = d[1]
             length = math.hypot(dx, dy)
             if length == 0:
                 continue
@@ -365,11 +395,13 @@ class CanvasSelectionMixin:
                     window) or not self.is_object_on_visible_layer(window):
                 continue
 
-            A = wall.start
-            B = wall.end
-            H = (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
-            dx = B[0] - A[0]
-            dy = B[1] - A[1]
+            # Calculate window position (arc-aware)
+            H = get_point_on_wall(wall, ratio)
+            
+            # Calculate wall direction (tangent-aware for curved walls)
+            d = get_wall_direction(wall, ratio)
+            dx = d[0]
+            dy = d[1]
             length = math.hypot(dx, dy)
             if length == 0:
                 continue
