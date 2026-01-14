@@ -357,36 +357,17 @@ class CanvasDrawMixin:
                         start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
                         end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
                         
-                        # Determine direction based on the original wall's definition
-                        # For selection, we just want to highlight the path
-                        # If the wall was created CW, draw CW, if CCW, draw CCW
-                        # This assumes the wall object stores enough info to recreate the arc direction
-                        # For simplicity, let's assume a default direction or re-calculate based on points
+                        # Use same arc direction logic as renderer
+                        angle_diff = end_angle - start_angle
+                        while angle_diff > math.pi:
+                            angle_diff -= 2 * math.pi
+                        while angle_diff < -math.pi:
+                            angle_diff += 2 * math.pi
                         
-                        # A more robust solution would store the arc direction (e.g., clockwise boolean)
-                        # For now, let's try to infer or use a consistent drawing method.
-                        # If the wall object itself has a 'clockwise' attribute:
-                        # if wall.clockwise:
-                        #     cr.arc(cx, cy, radius, start_angle, end_angle)
-                        # else:
-                        #     cr.arc_negative(cx, cy, radius, start_angle, end_angle)
-                        
-                        # Without explicit direction, we might need to re-evaluate based on a mid-point
-                        # or just draw the shortest arc. For selection, a simple arc is often sufficient.
-                        
-                        # Let's use the same logic as the preview for determining direction if a mid-point was involved
-                        # or just draw the arc. If the wall object has a 'mid_point_on_arc' or similar:
-                        # if wall.mid_point_on_arc:
-                        #     mid_angle = math.atan2(wall.mid_point_on_arc[1] - cy, wall.mid_point_on_arc[0] - cx)
-                        #     a_mid_rel = (mid_angle - start_angle) % (2 * math.pi)
-                        #     a_end_rel = (end_angle - start_angle) % (2 * math.pi)
-                        #     if a_mid_rel < a_end_rel:
-                        #         cr.arc(cx, cy, radius, start_angle, end_angle)
-                        #     else:
-                        #         cr.arc_negative(cx, cy, radius, start_angle, end_angle)
-                        # else:
-                        # Default to CW if no other info
-                        cr.arc(cx, cy, radius, start_angle, end_angle)
+                        if angle_diff < 0:
+                            cr.arc_negative(cx, cy, radius, start_angle, end_angle)
+                        else:
+                            cr.arc(cx, cy, radius, start_angle, end_angle)
                     else:
                         cr.move_to(wall.start[0], wall.start[1])
                         cr.line_to(wall.end[0], wall.end[1])

@@ -1,7 +1,7 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add right click menu option to convert curved walls to straight walls and vice versa (should obviously only be available when a wall or walls are selected)
+- [ ] Add ability to edit curved walls via click and drag or by using the properties panel (radius, arc length, etc.)
 - [ ] Add Interior / Exterior toolbar selector (Toggle button maybe? or maybe a dropdown menu so that I can add more toolsets like engineering, landscape, etc. in the future?) (It should switch the toolset between Interior and Exterior tools. ie. Interior tools are only available and shown when the Interior toolbar is toggled and Exterior tools are only available and shown when the Exterior toolbar is toggled) (This should be an option that is always visible somewhere that makes sense in the toolbar)
 
 ## ✨ Core Features (essential functionality)
@@ -157,7 +157,8 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
-- [x] Fixed windows and doors are now drawn tangent to the curve on curved walls.
+- [x] Added right-click context menu options to convert between curved and straight walls (2026-01-14)
+- [x] Fixed windows and doors are now drawn tangent to the curve on curved walls. (2026-01-13)
 - [x] Added **Curved Walls** feature - integrated into wall tool, press Shift+C after 2nd point to create 3-point arc walls with live preview and radius display (2026-01-13)
 - [x] Fixed rendering artifact where circles/arcs displayed unwanted lines to dimensions (2026-01-13)
 - [x] Fixed when multiple objects of different types are selected, the properties panel now enables all applicable tabs. (2026-01-12)
@@ -220,4 +221,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2026-01-12_
+_Last updated: 2026-01-14_

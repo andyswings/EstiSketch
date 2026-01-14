@@ -160,7 +160,16 @@ class EventsHelpersMixin:
         # Angle of point relative to center
         point_angle = math.atan2(py - cy, px - cx)
         
-        # Normalize angles to 0-2π
+        # Determine arc direction (same logic as renderer)
+        angle_diff = end_angle - start_angle
+        while angle_diff > math.pi:
+            angle_diff -= 2 * math.pi
+        while angle_diff < -math.pi:
+            angle_diff += 2 * math.pi
+        
+        is_ccw = angle_diff >= 0  # Counter-clockwise if positive
+        
+        # Normalize angles to 0-2π for comparison
         def normalize(angle):
             while angle < 0:
                 angle += 2 * math.pi
@@ -168,18 +177,24 @@ class EventsHelpersMixin:
                 angle -= 2 * math.pi
             return angle
         
-        point_angle = normalize(point_angle)
+        point_norm = normalize(point_angle)
         start_norm = normalize(start_angle)
         end_norm = normalize(end_angle)
         
-        # Check if point angle is within arc range
+        # Check if point angle is within arc range based on direction
         in_arc = False
-        if start_norm < end_norm:
-            if start_norm <= point_angle <= end_norm:
-                in_arc = True
-        else:  # Arc crosses 0
-            if point_angle >= start_norm or point_angle <= end_norm:
-                in_arc = True
+        if is_ccw:
+            # Counter-clockwise: go from start to end increasing angles
+            if start_norm <= end_norm:
+                in_arc = start_norm <= point_norm <= end_norm
+            else:  # Arc crosses 0
+                in_arc = point_norm >= start_norm or point_norm <= end_norm
+        else:
+            # Clockwise: go from start to end decreasing angles
+            if start_norm >= end_norm:
+                in_arc = end_norm <= point_norm <= start_norm
+            else:  # Arc crosses 0
+                in_arc = point_norm <= start_norm or point_norm >= end_norm
         
         if in_arc:
             # Point is within arc angular range - distance is radial
@@ -195,3 +210,4 @@ class EventsHelpersMixin:
             dist_to_end = math.hypot(px - end_x, py - end_y)
             
             return min(dist_to_start, dist_to_end)
+

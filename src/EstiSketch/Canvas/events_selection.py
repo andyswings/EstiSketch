@@ -1527,6 +1527,29 @@ class CanvasSelectionMixin:
                     selected_walls, parent_popover, state=False))
             box.append(remove_foot_btn)
 
+        # Curved/Straight wall conversion options
+        use_convert_to_curved = False
+        use_convert_to_straight = False
+        for wall in selected_walls:
+            if wall["object"].is_curved:
+                use_convert_to_straight = True
+            else:
+                use_convert_to_curved = True
+
+        if use_convert_to_curved:
+            curved_btn = Gtk.Button(label="Convert to Curved")
+            curved_btn.connect(
+                "clicked", lambda btn: self.convert_walls_to_curved(
+                    selected_walls, parent_popover))
+            box.append(curved_btn)
+
+        if use_convert_to_straight:
+            straight_btn = Gtk.Button(label="Convert to Straight")
+            straight_btn.connect(
+                "clicked", lambda btn: self.convert_walls_to_straight(
+                    selected_walls, parent_popover))
+            box.append(straight_btn)
+
         # Create a button labeled "Join Walls"
         if len(selected_walls) >= 2:
             join_button = Gtk.Button(label="Join Walls")
@@ -2349,3 +2372,71 @@ class CanvasSelectionMixin:
         self.emit('selection-changed', self.selected_items)
         self.queue_draw()
         print(f"Cycled to: {candidates[next_idx]['type']}")
+
+    def convert_walls_to_curved(
+            self,
+            selected_walls: list,
+            popover: Gtk.Popover) -> None:
+        """
+        Convert straight walls to curved using a bulge at the midpoint.
+        
+        Creates a gentle arc by placing a bulge point perpendicular to
+        the wall's midpoint at 1/4 of the wall length offset.
+        
+        Args:
+            selected_walls: List of selected wall items
+            popover: The popover to close after the action
+        """
+        for item in selected_walls:
+            wall = item["object"]
+            if not wall.is_curved:
+                # Calculate midpoint
+                mid_x = (wall.start[0] + wall.end[0]) / 2
+                mid_y = (wall.start[1] + wall.end[1]) / 2
+                
+                # Get perpendicular direction
+                dx = wall.end[0] - wall.start[0]
+                dy = wall.end[1] - wall.start[1]
+                length = math.hypot(dx, dy)
+                
+                if length > 0:
+                    # Bulge point offset by 1/4 wall length perpendicular
+                    bulge_x = mid_x - dy / 4
+                    bulge_y = mid_y + dx / 4
+                    bulge = (bulge_x, bulge_y)
+                    
+                    # Calculate arc geometry
+                    geom = self.get_circle_from_3_points(wall.start, wall.end, bulge)
+                    if geom:
+                        (cx, cy), radius = geom
+                        wall.is_curved = True
+                        wall.arc_center = (cx, cy)
+                        wall.arc_radius = radius
+        
+        self.save_state()
+        self.queue_draw()
+        popover.popdown()
+
+    def convert_walls_to_straight(
+            self,
+            selected_walls: list,
+            popover: Gtk.Popover) -> None:
+        """
+        Convert curved walls to straight walls.
+        
+        Clears the arc properties while keeping the start and end points.
+        
+        Args:
+            selected_walls: List of selected wall items
+            popover: The popover to close after the action
+        """
+        for item in selected_walls:
+            wall = item["object"]
+            if wall.is_curved:
+                wall.is_curved = False
+                wall.arc_center = None
+                wall.arc_radius = None
+        
+        self.save_state()
+        self.queue_draw()
+        popover.popdown()
