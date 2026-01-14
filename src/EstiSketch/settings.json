@@ -1,5 +1,5 @@
 {
-    "WINDOW_TITLE": "Estimator App",
+    "WINDOW_TITLE": "EstiSketch",
     "WINDOW_WIDTH": 1028,
     "WINDOW_HEIGHT": 900,
     "SAVE_LABEL": "Save",
@@ -70,7 +70,7 @@
     "SHOW_PROPERTIES_PANEL": true,
     "JOINT_SNAP_TOLERANCE": 1,
     "MAX_WALL_PLATE_INCHES": 144,
-    "WINDOW_MAXIMIZED": true,
+    "WINDOW_MAXIMIZED": false,
     "SIDEBAR_WIDTH": 324,
     "DEFAULT_LEVEL_HEIGHT": 96.0
 }

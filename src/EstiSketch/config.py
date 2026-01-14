@@ -4,7 +4,7 @@ import os
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
 
 DEFAULT_SETTINGS = {
-    "WINDOW_TITLE": "Estimator App",
+    "WINDOW_TITLE": "EstiSketch",
     "WINDOW_WIDTH": 1024,
     "WINDOW_HEIGHT": 900,
     "SAVE_LABEL": "Save",
