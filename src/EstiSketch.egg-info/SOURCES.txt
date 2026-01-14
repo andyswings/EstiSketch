@@ -45,6 +45,8 @@ src/EstiSketch/Dialogs/length_input_dialog.py
 src/EstiSketch/Dialogs/manage_materials.py
 src/EstiSketch/Dialogs/properties_dock.py
 src/EstiSketch/Dialogs/settings_ui.py
+src/EstiSketch/Icons/add_arc.png
+src/EstiSketch/Icons/add_circle.png
 src/EstiSketch/Icons/add_dimension.png
 src/EstiSketch/Icons/add_doors.png
 src/EstiSketch/Icons/add_polyline.png
@@ -74,6 +76,7 @@ src/EstiSketch/Icons/zoom_out.png
 src/EstiSketch/Icons/zoom_reset.png
 src/EstiSketch/Resources/__init__.py
 src/EstiSketch/Resources/framing.py
+src/EstiSketch/Resources/tool_hints.py
 src/EstiSketch/Resources/window_door_sizes.json
 src/EstiSketch/Takeoff/__init__.py
 src/EstiSketch/Takeoff/framing_takeoff.py
