@@ -75,6 +75,42 @@ class CanvasSelectionMixin:
                         from ..Resources.tool_hints import TOOL_HINTS
                         self.update_hint(TOOL_HINTS["select_wall"])
                         break
+                
+                # Check for arc midpoint handle on curved walls
+                if selected_item is None and wall.is_curved and wall.arc_center and wall.arc_radius:
+                    cx, cy = wall.arc_center
+                    radius = wall.arc_radius
+                    start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
+                    end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
+                    
+                    # Calculate midpoint angle (same logic as drawing)
+                    angle_diff = end_angle - start_angle
+                    while angle_diff > math.pi:
+                        angle_diff -= 2 * math.pi
+                    while angle_diff < -math.pi:
+                        angle_diff += 2 * math.pi
+                    
+                    mid_angle = start_angle + angle_diff / 2
+                    arc_mid_x = cx + radius * math.cos(mid_angle)
+                    arc_mid_y = cy + radius * math.sin(mid_angle)
+                    
+                    arc_mid_widget = (
+                        (arc_mid_x * T) + self.offset_x,
+                        (arc_mid_y * T) + self.offset_y
+                    )
+                    dist = math.hypot(
+                        click_pt[0] - arc_mid_widget[0],
+                        click_pt[1] - arc_mid_widget[1])
+                    if dist < self.handle_radius:
+                        # Start editing this curved wall's arc
+                        self.editing_curved_wall = wall
+                        self.editing_curved_wall_handle = "arc_mid"
+                        selected_item = {
+                            "type": "curved_wall_handle", "object": (
+                                wall, "arc_mid")}
+                        self.update_hint("Drag to adjust arc curvature")
+                        break
+                        
             if selected_item:
                 break
 
@@ -984,6 +1020,13 @@ class CanvasSelectionMixin:
         if getattr(self, "editing_arc", None) and getattr(self, "editing_arc_handle", None):
             self.editing_arc = None
             self.editing_arc_handle = None
+            self.save_state()
+            return
+
+        # If we were editing a curved wall's arc, clear that state and save
+        if getattr(self, "editing_curved_wall", None) and getattr(self, "editing_curved_wall_handle", None):
+            self.editing_curved_wall = None
+            self.editing_curved_wall_handle = None
             self.save_state()
             return
 

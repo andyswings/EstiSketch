@@ -118,6 +118,34 @@ class CanvasEventsMixin:
                                     connected.append((w, "end"))
                         self.connected_endpoints = connected
 
+                        # Store sagitta for curved walls to maintain arc direction during drag
+                        self.curved_wall_sagittas = {}
+                        for w, ep in connected:
+                            if w.is_curved and w.arc_center and w.arc_radius:
+                                old_start = w.start
+                                old_end = w.end
+                                old_chord_mid_x = (old_start[0] + old_end[0]) / 2
+                                old_chord_mid_y = (old_start[1] + old_end[1]) / 2
+                                old_chord_dx = old_end[0] - old_start[0]
+                                old_chord_dy = old_end[1] - old_start[1]
+                                old_chord_len = math.hypot(old_chord_dx, old_chord_dy)
+                                
+                                if old_chord_len > 0:
+                                    old_perp_x = -old_chord_dy / old_chord_len
+                                    old_perp_y = old_chord_dx / old_chord_len
+                                    
+                                    old_cx, old_cy = w.arc_center
+                                    to_center_x = old_cx - old_chord_mid_x
+                                    to_center_y = old_cy - old_chord_mid_y
+                                    old_center_dist = math.hypot(to_center_x, to_center_y)
+                                    
+                                    center_side = old_perp_x * to_center_x + old_perp_y * to_center_y
+                                    sagitta = w.arc_radius - old_center_dist
+                                    if center_side < 0:
+                                        sagitta = -sagitta
+                                    
+                                    self.curved_wall_sagittas[id(w)] = sagitta
+
                         # You can still keep this for box-select if you like, but it's
                         # no longer used for endpoint movement math:
                         self.box_select_start = pt

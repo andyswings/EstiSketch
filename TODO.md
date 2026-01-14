@@ -1,8 +1,7 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add ability to edit curved walls via click and drag or by using the properties panel (radius, arc length, etc.)
-- [ ] Add Interior / Exterior toolbar selector (Toggle button maybe? or maybe a dropdown menu so that I can add more toolsets like engineering, landscape, etc. in the future?) (It should switch the toolset between Interior and Exterior tools. ie. Interior tools are only available and shown when the Interior toolbar is toggled and Exterior tools are only available and shown when the Exterior toolbar is toggled) (This should be an option that is always visible somewhere that makes sense in the toolbar)
+- [ ] Add toolset selector (Maybe a dropdown menu so that I can add more toolsets like engineering, landscape, etc. in the future?) (It should switch the toolset between Interior and Exterior tools or other toolsets. ie. Interior tools are only available and shown when the Interior toolbar is toggled and Exterior tools are only available and shown when the Exterior toolbar is toggled, etc.) (This should be an option that is always visible somewhere that makes sense in the toolbar)
 
 ## ✨ Core Features (essential functionality)
 
@@ -157,6 +156,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Added ability to edit curved walls via click and drag or by using the properties panel (radius, arc length, etc.) (2026-01-14)
 - [x] Added right-click context menu options to convert between curved and straight walls (2026-01-14)
 - [x] Fixed windows and doors are now drawn tangent to the curve on curved walls. (2026-01-13)
 - [x] Added **Curved Walls** feature - integrated into wall tool, press Shift+C after 2nd point to create 3-point arc walls with live preview and radius display (2026-01-13)

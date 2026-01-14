@@ -197,6 +197,50 @@ class WallPropertiesWidget(Gtk.Box):
         fire_row.append(self.fire_combo)
         struct_box.append(fire_row)
 
+        # ─────────── Curve Properties ───────────
+        curve_frame = Gtk.Frame(label="Curve Properties")
+        curve_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        curve_box.set_margin_top(6)
+        curve_box.set_margin_bottom(6)
+        curve_box.set_margin_start(6)
+        curve_box.set_margin_end(6)
+        curve_frame.set_child(curve_box)
+        self.append(curve_frame)
+        self.curve_frame = curve_frame  # Store reference for visibility control
+
+        # Is Curved toggle
+        curved_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        curved_row.append(Gtk.Label(label="Curved Wall:"))
+        self.curved_switch = Gtk.Switch()
+        curved_row.append(self.curved_switch)
+        curve_box.append(curved_row)
+
+        # Radius control
+        radius_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        radius_row.append(Gtk.Label(label="Radius:"))
+        self.radius_spin = Gtk.SpinButton.new_with_range(1, 10000, 1)
+        self.radius_spin.set_digits(1)
+        radius_row.append(self.radius_spin)
+        radius_row.append(Gtk.Label(label="in"))
+        curve_box.append(radius_row)
+
+        # Arc Length display (read-only)
+        arc_len_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        arc_len_row.append(Gtk.Label(label="Arc Length:"))
+        self.arc_length_label = Gtk.Label(label="—")
+        self.arc_length_label.set_halign(Gtk.Align.START)
+        arc_len_row.append(self.arc_length_label)
+        curve_box.append(arc_len_row)
+
+        # Sagitta/Bulge control
+        sagitta_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        sagitta_row.append(Gtk.Label(label="Bulge:"))
+        self.sagitta_spin = Gtk.SpinButton.new_with_range(-1000, 1000, 0.5)
+        self.sagitta_spin.set_digits(1)
+        sagitta_row.append(self.sagitta_spin)
+        sagitta_row.append(Gtk.Label(label="in"))
+        curve_box.append(sagitta_row)
+
         # ───── wire signals ─────
         self.height_combo.connect("changed", self.on_height_changed)
         self.exterior_switch.connect("state-set", self.on_exterior_toggled)
@@ -212,6 +256,9 @@ class WallPropertiesWidget(Gtk.Box):
         self.stud_combo.connect("changed", self.on_stud_spacing_changed)
         self.insulation_combo.connect("changed", self.on_insulation_changed)
         self.fire_combo.connect("changed", self.on_fire_rating_changed)
+        self.curved_switch.connect("state-set", self.on_curved_toggled)
+        self.radius_spin.connect("value-changed", self.on_radius_changed)
+        self.sagitta_spin.connect("value-changed", self.on_sagitta_changed)
 
     # ───── helpers ─────
 
@@ -367,6 +414,257 @@ class WallPropertiesWidget(Gtk.Box):
                 wall.fire_rating = rating
         self.emit_property_changed()
 
+    def on_curved_toggled(self, switch, gparam):
+        """Handle curved wall toggle."""
+        if self._block_updates or not self.current_walls:
+            return
+        import math
+        
+        is_curved = switch.get_active()
+        for wall in self.current_walls:
+            if is_curved and not wall.is_curved:
+                # Convert straight to curved - create default bulge
+                mid_x = (wall.start[0] + wall.end[0]) / 2
+                mid_y = (wall.start[1] + wall.end[1]) / 2
+                
+                dx = wall.end[0] - wall.start[0]
+                dy = wall.end[1] - wall.start[1]
+                length = math.hypot(dx, dy)
+                
+                if length > 0:
+                    # Default bulge at 1/4 wall length perpendicular
+                    bulge_x = mid_x - dy / 4
+                    bulge_y = mid_y + dx / 4
+                    
+                    # Calculate arc geometry using canvas method if available
+                    if hasattr(self.canvas, 'get_circle_from_3_points'):
+                        geom = self.canvas.get_circle_from_3_points(
+                            wall.start, wall.end, (bulge_x, bulge_y))
+                        if geom:
+                            (cx, cy), radius = geom
+                            wall.is_curved = True
+                            wall.arc_center = (cx, cy)
+                            wall.arc_radius = radius
+            elif not is_curved and wall.is_curved:
+                # Convert curved to straight
+                wall.is_curved = False
+                wall.arc_center = None
+                wall.arc_radius = None
+        
+        self._update_curve_controls()
+        self.emit_property_changed()
+
+    def on_radius_changed(self, spin):
+        """Handle radius value change - adjust arc while maintaining sagitta direction."""
+        if self._block_updates or not self.current_walls:
+            return
+        import math
+        
+        new_radius = spin.get_value()
+        
+        for wall in self.current_walls:
+            if not wall.is_curved or not wall.arc_center:
+                continue
+            
+            # Calculate chord geometry
+            start_x, start_y = wall.start
+            end_x, end_y = wall.end
+            chord_mid_x = (start_x + end_x) / 2
+            chord_mid_y = (start_y + end_y) / 2
+            half_chord = math.hypot(end_x - start_x, end_y - start_y) / 2
+            
+            # Can't have radius smaller than half chord
+            if new_radius < half_chord:
+                new_radius = half_chord + 0.1
+                self._block_updates = True
+                spin.set_value(new_radius)
+                self._block_updates = False
+            
+            # Get current arc direction (which side of chord is center)
+            old_cx, old_cy = wall.arc_center
+            chord_dx = end_x - start_x
+            chord_dy = end_y - start_y
+            chord_len = math.hypot(chord_dx, chord_dy)
+            
+            if chord_len > 0:
+                # Perpendicular direction
+                perp_x = -chord_dy / chord_len
+                perp_y = chord_dx / chord_len
+                
+                # Determine which side center is on
+                to_center_x = old_cx - chord_mid_x
+                to_center_y = old_cy - chord_mid_y
+                center_side = perp_x * to_center_x + perp_y * to_center_y
+                
+                # Calculate new center position with new radius
+                # Distance from chord midpoint to center = sqrt(r² - half_chord²)
+                if new_radius >= half_chord:
+                    center_dist = math.sqrt(new_radius**2 - half_chord**2)
+                    
+                    # Keep same side as before
+                    if center_side >= 0:
+                        new_cx = chord_mid_x + perp_x * center_dist
+                        new_cy = chord_mid_y + perp_y * center_dist
+                    else:
+                        new_cx = chord_mid_x - perp_x * center_dist
+                        new_cy = chord_mid_y - perp_y * center_dist
+                    
+                    wall.arc_center = (new_cx, new_cy)
+                    wall.arc_radius = new_radius
+        
+        self._update_arc_length_display()
+        self.emit_property_changed()
+
+    def on_sagitta_changed(self, spin):
+        """Handle sagitta/bulge value change."""
+        if self._block_updates or not self.current_walls:
+            return
+        import math
+        
+        sagitta = spin.get_value()
+        
+        for wall in self.current_walls:
+            if not wall.is_curved:
+                continue
+            
+            # Calculate chord geometry
+            start_x, start_y = wall.start
+            end_x, end_y = wall.end
+            chord_mid_x = (start_x + end_x) / 2
+            chord_mid_y = (start_y + end_y) / 2
+            half_chord = math.hypot(end_x - start_x, end_y - start_y) / 2
+            
+            chord_dx = end_x - start_x
+            chord_dy = end_y - start_y
+            chord_len = math.hypot(chord_dx, chord_dy)
+            
+            if chord_len > 0 and abs(sagitta) > 0.1:
+                # Perpendicular unit vector
+                perp_x = -chord_dy / chord_len
+                perp_y = chord_dx / chord_len
+                
+                # Calculate radius from sagitta: r = (s² + c²) / (2|s|)
+                new_radius = (sagitta**2 + half_chord**2) / (2 * abs(sagitta))
+                
+                # Distance from chord midpoint to center
+                center_dist = new_radius - abs(sagitta)
+                
+                # Position center based on sagitta sign
+                if sagitta > 0:
+                    new_cx = chord_mid_x - perp_x * center_dist
+                    new_cy = chord_mid_y - perp_y * center_dist
+                else:
+                    new_cx = chord_mid_x + perp_x * center_dist
+                    new_cy = chord_mid_y + perp_y * center_dist
+                
+                wall.arc_center = (new_cx, new_cy)
+                wall.arc_radius = new_radius
+        
+        self._update_radius_display()
+        self._update_arc_length_display()
+        self.emit_property_changed()
+
+    def _update_curve_controls(self):
+        """Update curve control values from current walls."""
+        if not self.current_walls:
+            return
+        
+        import math
+        first_wall = self.current_walls[0]
+        
+        self._block_updates = True
+        
+        # Update radius and sagitta sensitivity based on curved state
+        is_curved = first_wall.is_curved if first_wall else False
+        self.radius_spin.set_sensitive(is_curved)
+        self.sagitta_spin.set_sensitive(is_curved)
+        
+        if is_curved and first_wall.arc_radius:
+            self.radius_spin.set_value(first_wall.arc_radius)
+            
+            # Calculate sagitta
+            start_x, start_y = first_wall.start
+            end_x, end_y = first_wall.end
+            chord_mid_x = (start_x + end_x) / 2
+            chord_mid_y = (start_y + end_y) / 2
+            half_chord = math.hypot(end_x - start_x, end_y - start_y) / 2
+            
+            if first_wall.arc_center:
+                cx, cy = first_wall.arc_center
+                chord_dx = end_x - start_x
+                chord_dy = end_y - start_y
+                chord_len = math.hypot(chord_dx, chord_dy)
+                
+                if chord_len > 0:
+                    perp_x = -chord_dy / chord_len
+                    perp_y = chord_dx / chord_len
+                    
+                    # Sagitta = radius - center_dist (with sign based on direction)
+                    to_center_x = cx - chord_mid_x
+                    to_center_y = cy - chord_mid_y
+                    center_dist = math.hypot(to_center_x, to_center_y)
+                    
+                    # Determine sign based on which side of chord
+                    center_side = perp_x * to_center_x + perp_y * to_center_y
+                    sagitta = first_wall.arc_radius - center_dist
+                    if center_side < 0:
+                        sagitta = -sagitta
+                    
+                    self.sagitta_spin.set_value(sagitta)
+        else:
+            self.radius_spin.set_value(0)
+            self.sagitta_spin.set_value(0)
+        
+        self._update_arc_length_display()
+        self._block_updates = False
+
+    def _update_radius_display(self):
+        """Update radius spin from current wall."""
+        if not self.current_walls:
+            return
+        first_wall = self.current_walls[0]
+        if first_wall.is_curved and first_wall.arc_radius:
+            self._block_updates = True
+            self.radius_spin.set_value(first_wall.arc_radius)
+            self._block_updates = False
+
+    def _update_arc_length_display(self):
+        """Update arc length label from current wall geometry."""
+        import math
+        
+        if not self.current_walls:
+            self.arc_length_label.set_text("—")
+            return
+        
+        first_wall = self.current_walls[0]
+        if not first_wall.is_curved or not first_wall.arc_center or not first_wall.arc_radius:
+            self.arc_length_label.set_text("—")
+            return
+        
+        cx, cy = first_wall.arc_center
+        radius = first_wall.arc_radius
+        
+        # Calculate arc angle
+        start_angle = math.atan2(first_wall.start[1] - cy, first_wall.start[0] - cx)
+        end_angle = math.atan2(first_wall.end[1] - cy, first_wall.end[0] - cx)
+        
+        angle_diff = end_angle - start_angle
+        while angle_diff > math.pi:
+            angle_diff -= 2 * math.pi
+        while angle_diff < -math.pi:
+            angle_diff += 2 * math.pi
+        
+        arc_length = abs(angle_diff) * radius
+        
+        # Format display
+        if hasattr(self, 'canvas') and hasattr(self.canvas, 'converter'):
+            arc_str = self.canvas.converter.format_measurement(arc_length, use_fraction=False)
+        else:
+            arc_str = f"{arc_length:.1f}\""
+        
+        self.arc_length_label.set_text(arc_str)
+
+
     def emit_property_changed(self):
         """Notify the rest of the app that the model changed."""
         # you'll want to queue a redraw of the canvas:
@@ -465,6 +763,50 @@ class WallPropertiesWidget(Gtk.Box):
                 first_wall.insulation_type))
         self.fire_combo.set_active(self._find_combo_index(
             self.fire_combo, f"{int(first_wall.fire_rating)}"))
+
+        #
+        # Curved wall properties
+        #
+        is_curved = getattr(first_wall, 'is_curved', False)
+        self.curved_switch.set_active(is_curved)
+        self.radius_spin.set_sensitive(is_curved)
+        self.sagitta_spin.set_sensitive(is_curved)
+        
+        if is_curved and first_wall.arc_radius:
+            self.radius_spin.set_value(first_wall.arc_radius)
+            
+            # Calculate and display sagitta
+            import math
+            start_x, start_y = first_wall.start
+            end_x, end_y = first_wall.end
+            chord_mid_x = (start_x + end_x) / 2
+            chord_mid_y = (start_y + end_y) / 2
+            
+            if first_wall.arc_center:
+                cx, cy = first_wall.arc_center
+                chord_dx = end_x - start_x
+                chord_dy = end_y - start_y
+                chord_len = math.hypot(chord_dx, chord_dy)
+                
+                if chord_len > 0:
+                    perp_x = -chord_dy / chord_len
+                    perp_y = chord_dx / chord_len
+                    
+                    to_center_x = cx - chord_mid_x
+                    to_center_y = cy - chord_mid_y
+                    center_dist = math.hypot(to_center_x, to_center_y)
+                    
+                    center_side = perp_x * to_center_x + perp_y * to_center_y
+                    sagitta = first_wall.arc_radius - center_dist
+                    if center_side < 0:
+                        sagitta = -sagitta
+                    
+                    self.sagitta_spin.set_value(sagitta)
+        else:
+            self.radius_spin.set_value(0)
+            self.sagitta_spin.set_value(0)
+        
+        self._update_arc_length_display()
 
         # Done syncing, let change handlers run again
         self._block_updates = False

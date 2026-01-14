@@ -345,6 +345,36 @@ class CanvasDrawMixin:
                         cr.set_line_width(1.0 / self.zoom)
                         cr.stroke()
 
+                    # Draw arc midpoint handle for curved walls
+                    if wall.is_curved and wall.arc_center and wall.arc_radius:
+                        cx, cy = wall.arc_center
+                        radius = wall.arc_radius
+                        start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
+                        end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
+                        
+                        # Calculate midpoint angle (accounting for arc direction)
+                        angle_diff = end_angle - start_angle
+                        while angle_diff > math.pi:
+                            angle_diff -= 2 * math.pi
+                        while angle_diff < -math.pi:
+                            angle_diff += 2 * math.pi
+                        
+                        mid_angle = start_angle + angle_diff / 2
+                        
+                        # Arc midpoint position
+                        arc_mid_x = cx + radius * math.cos(mid_angle)
+                        arc_mid_y = cy + radius * math.sin(mid_angle)
+                        
+                        # Draw cyan/teal handle for arc midpoint
+                        cr.set_source_rgba(0, 0.8, 0.8, 1.0)  # Cyan handle
+                        cr.arc(arc_mid_x, arc_mid_y, handle_radius, 0, 2 * 3.14159)
+                        cr.fill()
+                        # Draw a border
+                        cr.set_source_rgba(0, 0, 0, 1.0)
+                        cr.arc(arc_mid_x, arc_mid_y, handle_radius, 0, 2 * 3.14159)
+                        cr.set_line_width(1.0 / self.zoom)
+                        cr.stroke()
+
                     # Set a red color with some opacity.
                     cr.set_source_rgba(1, 0, 0, 1.0)  # Opaque red.
                     # Set line width same as wall width for selection
@@ -551,6 +581,11 @@ class CanvasDrawMixin:
                 if item.get("type") == "wall":
                     walls_to_label.append(item["object"])
 
+        # Include wall being edited via arc midpoint handle
+        editing_curved_wall = getattr(self, "editing_curved_wall", None)
+        if editing_curved_wall and editing_curved_wall not in walls_to_label:
+            walls_to_label.append(editing_curved_wall)
+
         # Circles
         circles_to_label = []
         if self.tool_mode == "add_circle" and self.drawing_circle and self.circle_center and self.circle_radius_preview is not None:
@@ -612,6 +647,52 @@ class CanvasDrawMixin:
             cr.set_font_size(12 / (self.zoom * pixels_per_inch))
             cr.show_text(text)
             cr.restore()
+            
+            # Draw radius label for curved walls
+            if wall.is_curved and wall.arc_center and wall.arc_radius:
+                cx, cy = wall.arc_center
+                radius = wall.arc_radius
+                
+                # Calculate arc midpoint for label position
+                start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
+                end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
+                
+                angle_diff = end_angle - start_angle
+                while angle_diff > math.pi:
+                    angle_diff -= 2 * math.pi
+                while angle_diff < -math.pi:
+                    angle_diff += 2 * math.pi
+                
+                mid_angle = start_angle + angle_diff / 2
+                arc_mid_x = cx + radius * math.cos(mid_angle)
+                arc_mid_y = cy + radius * math.sin(mid_angle)
+                
+                # Format radius label
+                radius_str = self.converter.format_measurement(radius, use_fraction=False)
+                radius_text = f"R: {radius_str}"
+                
+                cr.save()
+                # Draw dashed line from center to arc midpoint
+                cr.set_source_rgb(0, 0, 1)  # Blue
+                cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+                cr.set_dash([4.0 / (self.zoom * pixels_per_inch), 4.0 / (self.zoom * pixels_per_inch)])
+                cr.move_to(cx, cy)
+                cr.line_to(arc_mid_x, arc_mid_y)
+                cr.stroke()
+                
+                # Draw radius label at midpoint of the radius line
+                label_x = (cx + arc_mid_x) / 2
+                label_y = (cy + arc_mid_y) / 2
+                
+                cr.set_dash([])  # Reset dash
+                cr.set_source_rgb(0, 0, 0)
+                cr.select_font_face("Sans", 0, 0)
+                cr.set_font_size(12 / (self.zoom * pixels_per_inch))
+                
+                extents = cr.text_extents(radius_text)
+                cr.move_to(label_x - extents.width / 2, label_y - 5 / (self.zoom * pixels_per_inch))
+                cr.show_text(radius_text)
+                cr.restore()
         
         # Determine font size for other labels
         font_size = 12 / (self.zoom * pixels_per_inch)

@@ -18,23 +18,16 @@ def get_point_on_wall(wall, ratio):
         start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
         end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
         
-        # Normalize angles
-        def normalize(a):
-            while a < 0: a += 2 * math.pi
-            while a >= 2 * math.pi: a -= 2 * math.pi
-            return a
+        # Use the same arc direction logic as wall rendering
+        # Normalize angle difference to (-π, π]
+        angle_diff = end_angle - start_angle
+        while angle_diff > math.pi:
+            angle_diff -= 2 * math.pi
+        while angle_diff < -math.pi:
+            angle_diff += 2 * math.pi
         
-        start_angle = normalize(start_angle)
-        end_angle = normalize(end_angle)
-        
-        # Interpolate angle
-        if start_angle < end_angle:
-            angle = start_angle + ratio * (end_angle - start_angle)
-        else:  # Arc crosses 0
-            arc_span = (2 * math.pi - start_angle) + end_angle
-            angle = start_angle + ratio * arc_span
-            if angle >= 2 * math.pi:
-                angle -= 2 * math.pi
+        # Interpolate angle using the actual arc span (which may go CW or CCW)
+        angle = start_angle + ratio * angle_diff
         
         # Calculate point on arc
         x = cx + wall.arc_radius * math.cos(angle)
@@ -67,27 +60,25 @@ def get_wall_direction(wall, ratio):
         start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
         end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
         
-        # Normalize angles
-        def normalize(a):
-            while a < 0: a += 2 * math.pi
-            while a >= 2 * math.pi: a -= 2 * math.pi
-            return a
+        # Use the same arc direction logic as wall rendering
+        # Normalize angle difference to (-π, π]
+        angle_diff = end_angle - start_angle
+        while angle_diff > math.pi:
+            angle_diff -= 2 * math.pi
+        while angle_diff < -math.pi:
+            angle_diff += 2 * math.pi
         
-        start_angle = normalize(start_angle)
-        end_angle = normalize(end_angle)
-        
-        # Interpolate angle
-        if start_angle < end_angle:
-            angle = start_angle + ratio * (end_angle - start_angle)
-        else:  # Arc crosses 0
-            arc_span = (2 * math.pi - start_angle) + end_angle
-            angle = start_angle + ratio * arc_span
-            if angle >= 2 * math.pi:
-                angle -= 2 * math.pi
+        # Interpolate angle using the actual arc span
+        angle = start_angle + ratio * angle_diff
         
         # Tangent is perpendicular to radius
-        # For counterclockwise arc, tangent is 90° ahead of radius
-        tangent_angle = angle + math.pi / 2
+        # For CW arc (angle_diff < 0), tangent is 90° behind radius (-π/2)
+        # For CCW arc (angle_diff > 0), tangent is 90° ahead of radius (+π/2)
+        if angle_diff >= 0:
+            tangent_angle = angle + math.pi / 2  # CCW: tangent is 90° ahead
+        else:
+            tangent_angle = angle - math.pi / 2  # CW: tangent is 90° behind
+        
         dx = math.cos(tangent_angle)
         dy = math.sin(tangent_angle)
         

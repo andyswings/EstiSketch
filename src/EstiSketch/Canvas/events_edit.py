@@ -259,11 +259,114 @@ class EditEventsMixin:
             # Move all connected endpoints to this joint position
             for wall_obj, endpoint_name in getattr(
                     self, "connected_endpoints", []):
+                # Get stored sagitta for curved walls (stored at drag start)
+                stored_sagitta = getattr(self, 'curved_wall_sagittas', {}).get(id(wall_obj))
+
+                # Move endpoint
                 if endpoint_name == "start":
                     wall_obj.start = new_point
                 else:
                     wall_obj.end = new_point
 
+                # Recalculate arc geometry for curved walls to maintain sagitta
+                if wall_obj.is_curved and stored_sagitta is not None:
+                    new_start = wall_obj.start
+                    new_end = wall_obj.end
+                    new_chord_mid_x = (new_start[0] + new_end[0]) / 2
+                    new_chord_mid_y = (new_start[1] + new_end[1]) / 2
+                    new_half_chord = math.hypot(new_end[0] - new_start[0], new_end[1] - new_start[1]) / 2
+                    
+                    new_chord_dx = new_end[0] - new_start[0]
+                    new_chord_dy = new_end[1] - new_start[1]
+                    new_chord_len = math.hypot(new_chord_dx, new_chord_dy)
+                    
+                    if new_chord_len > 0 and abs(stored_sagitta) > 0.1:
+                        # Perpendicular unit vector for new chord
+                        new_perp_x = -new_chord_dy / new_chord_len
+                        new_perp_y = new_chord_dx / new_chord_len
+                        
+                        # Calculate new radius from preserved sagitta (using absolute value)
+                        new_radius = (stored_sagitta**2 + new_half_chord**2) / (2 * abs(stored_sagitta))
+                        
+                        # Distance from chord midpoint to center
+                        new_center_dist = new_radius - abs(stored_sagitta)
+                        
+                        # Position center based on stored sagitta sign (preserved from drag start)
+                        if stored_sagitta > 0:
+                            new_cx = new_chord_mid_x - new_perp_x * new_center_dist
+                            new_cy = new_chord_mid_y - new_perp_y * new_center_dist
+                        else:
+                            new_cx = new_chord_mid_x + new_perp_x * new_center_dist
+                            new_cy = new_chord_mid_y + new_perp_y * new_center_dist
+                        
+                        wall_obj.arc_center = (new_cx, new_cy)
+                        wall_obj.arc_radius = new_radius
+
+            self.queue_draw()
+            return
+
+        # Handle curved wall arc editing (arc midpoint handle)
+        if getattr(self, "editing_curved_wall", None) and getattr(
+                self, "editing_curved_wall_handle", None) == "arc_mid":
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            T = self.zoom * pixels_per_inch
+            
+            # Calculate current mouse position in model coordinates
+            current_device_x = self.drag_start_x + offset_x if hasattr(self, 'drag_start_x') else offset_x
+            current_device_y = self.drag_start_y + offset_y if hasattr(self, 'drag_start_y') else offset_y
+            new_x, new_y = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            
+            wall = self.editing_curved_wall
+            
+            # Calculate chord geometry
+            start_x, start_y = wall.start
+            end_x, end_y = wall.end
+            chord_mid_x = (start_x + end_x) / 2
+            chord_mid_y = (start_y + end_y) / 2
+            half_chord = math.hypot(end_x - start_x, end_y - start_y) / 2
+            
+            # Perpendicular direction to chord
+            chord_dx = end_x - start_x
+            chord_dy = end_y - start_y
+            chord_len = math.hypot(chord_dx, chord_dy)
+            
+            if chord_len > 0 and half_chord > 0:
+                # Perpendicular unit vector
+                perp_x = -chord_dy / chord_len
+                perp_y = chord_dx / chord_len
+                
+                # Project mouse position onto perpendicular line through chord midpoint
+                to_mouse_x = new_x - chord_mid_x
+                to_mouse_y = new_y - chord_mid_y
+                sagitta = perp_x * to_mouse_x + perp_y * to_mouse_y
+                
+                # Ensure minimum sagitta to avoid degenerate arcs
+                min_sagitta = 0.5  # Half inch minimum
+                if abs(sagitta) < min_sagitta:
+                    if sagitta >= 0:
+                        sagitta = min_sagitta
+                    else:
+                        sagitta = -min_sagitta
+                
+                # Calculate new radius: r = (sagitta² + half_chord²) / (2 * |sagitta|)
+                new_radius = (sagitta**2 + half_chord**2) / (2 * abs(sagitta))
+                
+                if new_radius > 0:
+                    # Distance from chord midpoint to center
+                    center_dist = new_radius - abs(sagitta)
+                    
+                    # Position center based on sagitta direction
+                    if sagitta > 0:
+                        new_cx = chord_mid_x - perp_x * center_dist
+                        new_cy = chord_mid_y - perp_y * center_dist
+                    else:
+                        new_cx = chord_mid_x + perp_x * center_dist
+                        new_cy = chord_mid_y + perp_y * center_dist
+                    
+                    # Update wall arc properties
+                    wall.arc_center = (new_cx, new_cy)
+                    wall.arc_radius = new_radius
+            
             self.queue_draw()
             return
 
