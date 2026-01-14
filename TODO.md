@@ -1,12 +1,11 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add toolset selector (Maybe a dropdown menu so that I can add more toolsets like engineering, landscape, etc. in the future?) (It should switch the toolset between Interior and Exterior tools or other toolsets. ie. Interior tools are only available and shown when the Interior toolbar is toggled and Exterior tools are only available and shown when the Exterior toolbar is toggled, etc.) (This should be an option that is always visible somewhere that makes sense in the toolbar)
+- [ ] Roof design (gable, hip, flat, custom pitches)
 
 ## ✨ Core Features (essential functionality)
 
 ### Architectural Elements
-- [ ] Roof design (gable, hip, flat, custom pitches)
 - [ ] Roof components (trusses, rafters, ridges, valleys)
 - [ ] Columns/Posts
 - [ ] Beams
@@ -156,6 +155,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Added **Toolset Selector** - dropdown in toolbar to switch between tool categories: Basic, Annotation, Foundation, Roof, Interior Design (2026-01-14)
 - [x] Added ability to edit curved walls via click and drag or by using the properties panel (radius, arc length, etc.) (2026-01-14)
 - [x] Added right-click context menu options to convert between curved and straight walls (2026-01-14)
 - [x] Fixed windows and doors are now drawn tangent to the curve on curved walls. (2026-01-13)

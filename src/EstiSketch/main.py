@@ -325,9 +325,13 @@ class EstimatorApp(Gtk.Application):
             "add_circle": on_add_circle_toggled,
             "add_arc": on_add_arc_toggled
         }
-        toolbar_box, self.tool_buttons, extra_buttons = toolbar.create_toolbar(
+        toolbar_box, self.tool_buttons, extra_buttons, self.toolset_info = toolbar.create_toolbar(
             self.config, callbacks, self.canvas)
         vbox.append(toolbar_box)
+
+        # Connect toolset dropdown to switch handler
+        self.toolset_info["dropdown"].connect(
+            "notify::selected", self.on_toolset_changed)
 
         main_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         main_paned.set_start_child(self.canvas)
@@ -442,6 +446,25 @@ class EstimatorApp(Gtk.Application):
     def on_status_update(self, canvas, message):
         """Update the status bar text."""
         self.status_label.set_label(message)
+
+    def on_toolset_changed(self, dropdown, pspec):
+        """Handle toolset dropdown selection change."""
+        selected_index = dropdown.get_selected()
+        toolset_names = list(self.toolset_info["definitions"].keys())
+        
+        if selected_index < len(toolset_names):
+            toolset_name = toolset_names[selected_index]
+            visible_tools = self.toolset_info["definitions"][toolset_name]
+            
+            # Check if current tool mode is in the new toolset
+            current_mode = self.canvas.tool_mode
+            if current_mode and current_mode not in visible_tools:
+                # Switch to pointer if current tool is not in new toolset
+                self.tool_buttons["pointer"].set_active(True)
+            
+            # Update visibility
+            self.toolset_info["set_visibility"](toolset_name)
+            print(f"Switched to toolset: {toolset_name}")
     
     def update_dirty_state(self, is_dirty: bool):
         """Update the application dirty state and the UI indicator."""

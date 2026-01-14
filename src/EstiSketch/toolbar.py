@@ -49,6 +49,22 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
 
     tb.append(Gtk.Separator.new(Gtk.Orientation.VERTICAL))
 
+    # ─── Toolset Definitions ───
+    TOOLSETS = {
+        "Basic": ["pointer", "panning", "draw_walls", "draw_rooms", "add_doors", "add_windows", "add_dimension", "add_text"],
+        "Annotation": ["pointer", "panning", "add_polyline", "add_dimension", "add_text", "add_circle", "add_arc"],
+        "Foundation": ["pointer", "panning", "draw_walls", "add_dimension"],  # Placeholder
+        "Roof": ["pointer", "panning", "add_dimension"],  # Placeholder
+        "Interior Design": ["pointer", "panning", "draw_walls", "draw_rooms", "add_doors", "add_windows", "add_dimension", "add_text"],  # Placeholder
+    }
+    
+    # ─── Toolset Dropdown ───
+    toolset_names = list(TOOLSETS.keys())
+    toolset_model = Gtk.StringList.new(toolset_names)
+    toolset_dropdown = Gtk.DropDown(model=toolset_model)
+    toolset_dropdown.set_tooltip_text("Select Toolset")
+    tb.append(toolset_dropdown)
+
     # Spacer to push tools to center
     left_spacer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
     left_spacer.set_hexpand(True)
@@ -146,4 +162,31 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
                 tool_buttons[key], Gtk.ToggleButton):
             tool_buttons[key].connect("toggled", callback)
 
-    return tb, tool_buttons, extra_buttons
+    # Function to set tool visibility based on toolset
+    def set_toolset_visibility(toolset_name):
+        """Show/hide tool buttons based on selected toolset."""
+        if toolset_name not in TOOLSETS:
+            return
+        
+        visible_tools = TOOLSETS[toolset_name]
+        
+        # List of all toggle tool buttons that can be shown/hidden
+        all_tools = ["pointer", "panning", "draw_walls", "draw_rooms", 
+                     "add_doors", "add_windows", "add_polyline", 
+                     "add_dimension", "add_text", "add_circle", "add_arc"]
+        
+        for tool_name in all_tools:
+            if tool_name in tool_buttons:
+                tool_buttons[tool_name].set_visible(tool_name in visible_tools)
+    
+    # Set initial visibility to Basic
+    set_toolset_visibility("Basic")
+    
+    # Package toolset info
+    toolset_info = {
+        "dropdown": toolset_dropdown,
+        "definitions": TOOLSETS,
+        "set_visibility": set_toolset_visibility
+    }
+
+    return tb, tool_buttons, extra_buttons, toolset_info
