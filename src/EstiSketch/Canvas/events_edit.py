@@ -978,7 +978,7 @@ class EditEventsMixin:
             self.offset_x = self.last_offset_x + offset_x
             self.offset_y = self.last_offset_y + offset_y
             self.queue_draw()
-        elif self.tool_mode == "pointer" and self.box_selecting:
+        elif self.tool_mode in ("pointer", "design_roof") and self.box_selecting:
             current_x = self.box_select_start[0] + \
                 (offset_x / (self.zoom * pixels_per_inch))
             current_y = self.box_select_start[1] + \

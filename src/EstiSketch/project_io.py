@@ -1,5 +1,6 @@
 import xml.etree.ElementTree as ET
 from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc
+from .roof_components import Roof, RoofEdge
 
 
 def save_project(canvas, window_width, window_height, filepath):
@@ -265,6 +266,56 @@ def save_project(canvas, window_width, window_height, filepath):
         a_elem.set("color_r", str(color[0]))
         a_elem.set("color_g", str(color[1]))
         a_elem.set("color_b", str(color[2]))
+
+    # Save Roofs
+    roofs_elem = ET.SubElement(root, "Roofs")
+    for roof in getattr(canvas, 'roofs', []):
+        r_elem = ET.SubElement(roofs_elem, "Roof")
+        r_elem.set("identifier", roof.identifier)
+        r_elem.set("layer_id", getattr(roof, 'layer_id', ''))
+        r_elem.set("roof_type", roof.roof_type)
+        r_elem.set("pitch_rise", str(roof.pitch_rise))
+        r_elem.set("pitch_run", str(roof.pitch_run))
+        r_elem.set("overhang", str(roof.overhang))
+        r_elem.set("material", roof.material)
+        
+        # Save edges
+        edges_elem = ET.SubElement(r_elem, "Edges")
+        for edge in roof.edges:
+            e_elem = ET.SubElement(edges_elem, "Edge")
+            e_elem.set("wall_identifier", edge.wall_identifier)
+            e_elem.set("edge_type", edge.edge_type)
+        
+        # Save calculated geometry (for faster loading, can be recalculated)
+        ridge_elem = ET.SubElement(r_elem, "RidgeLines")
+        for (p1, p2) in roof.ridge_lines:
+            line_elem = ET.SubElement(ridge_elem, "Line")
+            line_elem.set("x1", str(p1[0]))
+            line_elem.set("y1", str(p1[1]))
+            line_elem.set("x2", str(p2[0]))
+            line_elem.set("y2", str(p2[1]))
+        
+        hip_elem = ET.SubElement(r_elem, "HipLines")
+        for (p1, p2) in roof.hip_lines:
+            line_elem = ET.SubElement(hip_elem, "Line")
+            line_elem.set("x1", str(p1[0]))
+            line_elem.set("y1", str(p1[1]))
+            line_elem.set("x2", str(p2[0]))
+            line_elem.set("y2", str(p2[1]))
+        
+        valley_elem = ET.SubElement(r_elem, "ValleyLines")
+        for (p1, p2) in roof.valley_lines:
+            line_elem = ET.SubElement(valley_elem, "Line")
+            line_elem.set("x1", str(p1[0]))
+            line_elem.set("y1", str(p1[1]))
+            line_elem.set("x2", str(p2[0]))
+            line_elem.set("y2", str(p2[1]))
+        
+        outline_elem = ET.SubElement(r_elem, "Outline")
+        for pt in roof.outline_points:
+            pt_elem = ET.SubElement(outline_elem, "Point")
+            pt_elem.set("x", str(pt[0]))
+            pt_elem.set("y", str(pt[1]))
 
     # Write out the XML to the given file (with declaration and proper
     # encoding).
@@ -579,6 +630,77 @@ def open_project(canvas, filepath):
                 a.color = (color_r, color_g, color_b)
                 
                 canvas.arcs.append(a)
+
+    # --- Restore Roofs ---
+    if hasattr(canvas, 'roofs'):
+        canvas.roofs.clear()
+        roofs_elem = root.find("Roofs")
+        if roofs_elem is not None:
+            for r_elem in roofs_elem.findall("Roof"):
+                identifier = r_elem.get("identifier", "")
+                layer_id = r_elem.get("layer_id", "")
+                roof_type = r_elem.get("roof_type", "gable")
+                pitch_rise = int(r_elem.get("pitch_rise", "6"))
+                pitch_run = int(r_elem.get("pitch_run", "12"))
+                overhang = float(r_elem.get("overhang", "12.0"))
+                material = r_elem.get("material", "asphalt_shingle")
+                
+                # Load edges
+                edges = []
+                edges_elem = r_elem.find("Edges")
+                if edges_elem is not None:
+                    for e_elem in edges_elem.findall("Edge"):
+                        edges.append(RoofEdge(
+                            wall_identifier=e_elem.get("wall_identifier", ""),
+                            edge_type=e_elem.get("edge_type", "eave")
+                        ))
+                
+                # Load geometry
+                ridge_lines = []
+                ridge_elem = r_elem.find("RidgeLines")
+                if ridge_elem is not None:
+                    for line_elem in ridge_elem.findall("Line"):
+                        p1 = (float(line_elem.get("x1")), float(line_elem.get("y1")))
+                        p2 = (float(line_elem.get("x2")), float(line_elem.get("y2")))
+                        ridge_lines.append((p1, p2))
+                
+                hip_lines = []
+                hip_elem = r_elem.find("HipLines")
+                if hip_elem is not None:
+                    for line_elem in hip_elem.findall("Line"):
+                        p1 = (float(line_elem.get("x1")), float(line_elem.get("y1")))
+                        p2 = (float(line_elem.get("x2")), float(line_elem.get("y2")))
+                        hip_lines.append((p1, p2))
+                
+                valley_lines = []
+                valley_elem = r_elem.find("ValleyLines")
+                if valley_elem is not None:
+                    for line_elem in valley_elem.findall("Line"):
+                        p1 = (float(line_elem.get("x1")), float(line_elem.get("y1")))
+                        p2 = (float(line_elem.get("x2")), float(line_elem.get("y2")))
+                        valley_lines.append((p1, p2))
+                
+                outline_points = []
+                outline_elem = r_elem.find("Outline")
+                if outline_elem is not None:
+                    for pt_elem in outline_elem.findall("Point"):
+                        outline_points.append((float(pt_elem.get("x")), float(pt_elem.get("y"))))
+                
+                roof = Roof(
+                    identifier=identifier,
+                    layer_id=layer_id,
+                    edges=edges,
+                    roof_type=roof_type,
+                    pitch_rise=pitch_rise,
+                    pitch_run=pitch_run,
+                    overhang=overhang,
+                    ridge_lines=ridge_lines,
+                    hip_lines=hip_lines,
+                    valley_lines=valley_lines,
+                    outline_points=outline_points,
+                    material=material
+                )
+                canvas.roofs.append(roof)
 
     # Return the saved window size.
     return window_width, window_height

@@ -1899,7 +1899,7 @@ class PropertiesDock(Gtk.Box):
         self.toggle_close_image = Gtk.Image.new_from_file(
             os.path.join(icon_dir, "right_panel_close.png"))
         self.toggle_button.set_child(
-            self.toggle_close_image)  # Start with close icon
+            self.toggle_close_image)  # Start with close icon (panel starts closed)
         self.toggle_button.set_tooltip_text("Toggle Sidebar")
         self.toggle_button.connect('clicked', self._on_toggle_sidebar)
         self.icon_bar.append(self.toggle_button)

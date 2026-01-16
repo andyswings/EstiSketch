@@ -35,6 +35,9 @@ class CanvasEventsMixin:
             self._handle_window_click(n_press, x, y)
         elif self.tool_mode == "pointer":
             self._handle_pointer_click(gesture, n_press, x, y)
+        elif self.tool_mode == "design_roof":
+            # Design roof uses pointer-like selection for marking walls
+            self._handle_pointer_click(gesture, n_press, x, y)
         elif self.tool_mode == "add_polyline":
             self._handle_polyline_click(n_press, x, y)
         elif self.tool_mode == "add_dimension":
@@ -78,7 +81,7 @@ class CanvasEventsMixin:
         # If a selected wall handle was pressed, set editing state and record
         # the model-space start point for the drag logic (box_select_start).
 
-        if self.tool_mode != "pointer":
+        if self.tool_mode not in ("pointer", "design_roof"):
             return
 
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)

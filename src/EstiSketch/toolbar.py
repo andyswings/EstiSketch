@@ -54,8 +54,8 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
         "Basic": ["pointer", "panning", "draw_walls", "draw_rooms", "add_doors", "add_windows", "add_dimension", "add_text"],
         "Annotation": ["pointer", "panning", "add_polyline", "add_dimension", "add_text", "add_circle", "add_arc"],
         "Foundation": ["pointer", "panning", "draw_walls", "add_dimension"],  # Placeholder
-        "Roof": ["pointer", "panning", "add_dimension"],  # Placeholder
-        "Interior Design": ["pointer", "panning", "draw_walls", "draw_rooms", "add_doors", "add_windows", "add_dimension", "add_text"],  # Placeholder
+        "Roof": ["panning", "design_roof", "add_dimension"],
+        "Interior Design": ["pointer", "panning", "add_doors", "add_windows", "add_dimension", "add_text"],  # Placeholder
     }
     
     # ─── Toolset Dropdown ───
@@ -92,6 +92,8 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
         "add_circle", "Add Circle (C)")
     tool_buttons["add_arc"] = create_icon_toggle_button(
         "add_arc", "Add Arc (Shift+A)")
+    tool_buttons["design_roof"] = create_icon_toggle_button(
+        "roof", "Design Roof")
 
     # Set up toggle button group
     tool_buttons["panning"].set_group(tool_buttons["pointer"])  # Add to group
@@ -104,6 +106,7 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
     tool_buttons["add_text"].set_group(tool_buttons["pointer"])
     tool_buttons["add_circle"].set_group(tool_buttons["pointer"])
     tool_buttons["add_arc"].set_group(tool_buttons["pointer"])
+    tool_buttons["design_roof"].set_group(tool_buttons["pointer"])
 
     # Add tool buttons to toolbar
     tb.append(tool_buttons["pointer"])
@@ -117,6 +120,7 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
     tb.append(tool_buttons["add_text"])
     tb.append(tool_buttons["add_circle"])
     tb.append(tool_buttons["add_arc"])
+    tb.append(tool_buttons["design_roof"])
 
     # Zoom buttons (after tools)
     tool_buttons["zoom_in"] = create_icon_button("zoom_in", "Zoom In (Ctrl+=)")
@@ -173,7 +177,7 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
         # List of all toggle tool buttons that can be shown/hidden
         all_tools = ["pointer", "panning", "draw_walls", "draw_rooms", 
                      "add_doors", "add_windows", "add_polyline", 
-                     "add_dimension", "add_text", "add_circle", "add_arc"]
+                     "add_dimension", "add_text", "add_circle", "add_arc", "design_roof"]
         
         for tool_name in all_tools:
             if tool_name in tool_buttons:

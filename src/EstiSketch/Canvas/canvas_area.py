@@ -1,11 +1,13 @@
 from ..components import Layer
 from ..components import Layer, Level
+from ..roof_components import Roof, RoofEdge
 from .events_helpers import EventsHelpersMixin
 from .utils import UtilsMixin
 from .events_edit import EditEventsMixin
 from .events_tools import CanvasToolsMixin
 from .events_room import CanvasRoomMixin
 from .events_wall import CanvasWallMixin
+from .events_roof import CanvasRoofEventsMixin
 from .events_selection import CanvasSelectionMixin
 from .canvas_tool import CanvasToolMixin
 from .canvas_geometry import CanvasGeometryMixin
@@ -28,6 +30,7 @@ class CanvasArea(Gtk.DrawingArea,
                  CanvasToolMixin,
                  CanvasSelectionMixin,
                  CanvasWallMixin,
+                 CanvasRoofEventsMixin,
                  CanvasRoomMixin,
                  CanvasToolsMixin,
                  EditEventsMixin,
@@ -169,6 +172,11 @@ class CanvasArea(Gtk.DrawingArea,
         self.arc_start = None
         self.arc_end = None
         self.arc_preview_point = None
+
+        # Roof state
+        self.roofs = []  # List of Roof objects
+        self.Roof = Roof
+        self.RoofEdge = RoofEdge
 
         # Initialize snapping manager
         self.snap_manager = SnappingManager(

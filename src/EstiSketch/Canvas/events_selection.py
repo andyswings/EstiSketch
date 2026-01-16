@@ -691,7 +691,7 @@ class CanvasSelectionMixin:
             self.drag_start_y = start_y
             self.last_offset_x = self.offset_x
             self.last_offset_y = self.offset_y
-        elif self.tool_mode == "pointer":
+        elif self.tool_mode in ("pointer", "design_roof"):
             self.box_selecting = True
             self.box_select_start = ((start_x -
                                       self.offset_x) /
@@ -1145,7 +1145,7 @@ class CanvasSelectionMixin:
             self.queue_draw()
             return
 
-        if self.tool_mode == "pointer" and self.box_selecting:
+        if self.tool_mode in ("pointer", "design_roof") and self.box_selecting:
             x1 = min(self.box_select_start[0], self.box_select_end[0])
             y1 = min(self.box_select_start[1], self.box_select_end[1])
             x2 = max(self.box_select_start[0], self.box_select_end[0])
@@ -1418,8 +1418,11 @@ class CanvasSelectionMixin:
             None
         """
         # If nothing is selected and clipboard is empty, don't show any menu
+        # Exception: design_roof mode can show menu when markings exist
+        has_roof_markings = hasattr(self, 'get_walls_marked_for_roof') and self.get_walls_marked_for_roof()
         if len(self.selected_items) == 0 and not self.clipboard:
-            return
+            if not (self.tool_mode == "design_roof" and has_roof_markings):
+                return
 
         # Filter selected items
         selected_walls = [
@@ -1441,6 +1444,58 @@ class CanvasSelectionMixin:
         # Create a vertical box to hold the menu item(s)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         parent_popover.set_child(box)
+
+        # ─── Design Roof Tool: Show ONLY roof-related options ───
+        if self.tool_mode == "design_roof":
+            # Check current marking status
+            markings = self.get_walls_marked_for_roof() if hasattr(self, 'get_walls_marked_for_roof') else {}
+            
+            if len(selected_walls) > 0:
+                mark_eave_btn = Gtk.Button(label="Mark as Eave")
+                mark_eave_btn.connect(
+                    "clicked", lambda btn: (
+                        self.mark_walls_as_eave([w["object"] for w in selected_walls]),
+                        parent_popover.popdown()))
+                box.append(mark_eave_btn)
+
+                mark_gable_btn = Gtk.Button(label="Mark as Gable")
+                mark_gable_btn.connect(
+                    "clicked", lambda btn: (
+                        self.mark_walls_as_gable([w["object"] for w in selected_walls]),
+                        parent_popover.popdown()))
+                box.append(mark_gable_btn)
+
+            # Generate Roof button (if we have markings)
+            if markings:
+                separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+                box.append(separator)
+
+                generate_roof_btn = Gtk.Button(label="Generate Roof")
+                generate_roof_btn.connect(
+                    "clicked", lambda btn: (
+                        self.generate_roof_from_marked_walls(),
+                        parent_popover.popdown()))
+                box.append(generate_roof_btn)
+
+                clear_markings_btn = Gtk.Button(label="Clear All Markings")
+                clear_markings_btn.connect(
+                    "clicked", lambda btn: (
+                        self.clear_roof_markings(),
+                        parent_popover.popdown()))
+                box.append(clear_markings_btn)
+            
+            # Show menu if we have walls selected or markings exist
+            has_content = len(selected_walls) > 0 or markings
+            if has_content:
+                rect = Gdk.Rectangle()
+                rect.x = int(x)
+                rect.y = int(y)
+                rect.width = 1
+                rect.height = 1
+                parent_popover.set_pointing_to(rect)
+                parent_popover.set_parent(self)
+                parent_popover.popup()
+            return  # Early return - don't show normal menu for design_roof
 
         # Standard Edit Operations (Copy/Cut/Paste)
         # Paste - Available if clipboard has content
@@ -1620,6 +1675,49 @@ class CanvasSelectionMixin:
             split_button.connect(
                 "clicked", lambda btn: self.split_wall(parent_popover))
             box.append(split_button)
+
+        # Roof marking options (only when design_roof tool is active AND walls are selected)
+        if len(selected_walls) > 0 and self.tool_mode == "design_roof":
+            roof_separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            box.append(roof_separator)
+
+            # Check current marking status
+            markings = self.get_walls_marked_for_roof() if hasattr(self, 'get_walls_marked_for_roof') else {}
+            selected_wall_ids = [w["object"].identifier for w in selected_walls]
+            
+            # Show current marking status
+            any_marked_eave = any(markings.get(wid) == "eave" for wid in selected_wall_ids)
+            any_marked_gable = any(markings.get(wid) == "gable" for wid in selected_wall_ids)
+
+            mark_eave_btn = Gtk.Button(label="Mark as Eave (Roof)")
+            mark_eave_btn.connect(
+                "clicked", lambda btn: (
+                    self.mark_walls_as_eave([w["object"] for w in selected_walls]),
+                    parent_popover.popdown()))
+            box.append(mark_eave_btn)
+
+            mark_gable_btn = Gtk.Button(label="Mark as Gable (Roof)")
+            mark_gable_btn.connect(
+                "clicked", lambda btn: (
+                    self.mark_walls_as_gable([w["object"] for w in selected_walls]),
+                    parent_popover.popdown()))
+            box.append(mark_gable_btn)
+
+            # Generate Roof button (if we have markings)
+            if markings:
+                generate_roof_btn = Gtk.Button(label="Generate Roof")
+                generate_roof_btn.connect(
+                    "clicked", lambda btn: (
+                        self.generate_roof_from_marked_walls(),
+                        parent_popover.popdown()))
+                box.append(generate_roof_btn)
+
+                clear_markings_btn = Gtk.Button(label="Clear Roof Markings")
+                clear_markings_btn.connect(
+                    "clicked", lambda btn: (
+                        self.clear_roof_markings(),
+                        parent_popover.popdown()))
+                box.append(clear_markings_btn)
 
         # Door-specific options
         if selected_doors:

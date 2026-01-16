@@ -1,7 +1,10 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Roof design (gable, hip, flat, custom pitches)
+- [ ] The properties panel should be minimized when the application starts
+- [ ] When switching toolsets, the properties panel should be cleared and closed
+- [ ] When switching toolsets, the tool mode should be reset to the first tool in the set
+- [ ] Roof design - Hip roofs, flat roofs, custom pitches
 
 ## ✨ Core Features (essential functionality)
 
@@ -149,12 +152,14 @@
 
 ## 🐛 Known Bugs / FIXMEs
 
+
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
 - [ ] Build Cost Estimator
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Implemented roof design - Gable roofs (basic implementation complete) (2026-01-15)
 - [x] Added **Toolset Selector** - dropdown in toolbar to switch between tool categories: Basic, Annotation, Foundation, Roof, Interior Design (2026-01-14)
 - [x] Added ability to edit curved walls via click and drag or by using the properties panel (radius, arc length, etc.) (2026-01-14)
 - [x] Added right-click context menu options to convert between curved and straight walls (2026-01-14)
@@ -221,4 +226,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2026-01-14_
+_Last updated: 2026-01-15_
