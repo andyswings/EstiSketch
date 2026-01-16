@@ -475,11 +475,24 @@ class EstimatorApp(Gtk.Application):
             toolset_name = toolset_names[selected_index]
             visible_tools = self.toolset_info["definitions"][toolset_name]
             
-            # Check if current tool mode is in the new toolset
-            current_mode = self.canvas.tool_mode
-            if current_mode and current_mode not in visible_tools:
-                # Switch to pointer if current tool is not in new toolset
-                self.tool_buttons["pointer"].set_active(True)
+            # Clear selection when switching toolsets
+            self.canvas.selected_items = []
+            self.canvas.queue_draw()
+            
+            # Close and clear the properties panel
+            if hasattr(self, 'properties_dock') and self.properties_dock:
+                # Hide the content stack (collapse sidebar)
+                self.properties_dock.stack.set_visible(False)
+                self.properties_dock.toggle_button.set_child(
+                    self.properties_dock.toggle_close_image)
+                # Unpress all tab buttons
+                for btn in self.properties_dock.tabs.values():
+                    btn.set_active(False)
+            
+            # Always reset to first tool in the new toolset
+            first_tool = visible_tools[0] if visible_tools else "pointer"
+            if first_tool in self.tool_buttons:
+                self.tool_buttons[first_tool].set_active(True)
             
             # Update visibility
             self.toolset_info["set_visibility"](toolset_name)

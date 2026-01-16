@@ -1,9 +1,7 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] The properties panel should be minimized when the application starts
-- [ ] When switching toolsets, the properties panel should be cleared and closed
-- [ ] When switching toolsets, the tool mode should be reset to the first tool in the set
+- [ ] When nothing is selected, the properties panel should be hidden
 - [ ] Roof design - Hip roofs, flat roofs, custom pitches
 
 ## ✨ Core Features (essential functionality)
@@ -159,6 +157,8 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Toolset switching now clears selection, closes properties panel, and resets to first tool in set (2026-01-15)
+- [x] Properties panel now starts minimized on application launch (2026-01-15)
 - [x] Implemented roof design - Gable roofs (basic implementation complete) (2026-01-15)
 - [x] Added **Toolset Selector** - dropdown in toolbar to switch between tool categories: Basic, Annotation, Foundation, Roof, Interior Design (2026-01-14)
 - [x] Added ability to edit curved walls via click and drag or by using the properties panel (radius, arc length, etc.) (2026-01-14)
