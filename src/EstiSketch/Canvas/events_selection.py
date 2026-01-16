@@ -645,7 +645,10 @@ class CanvasSelectionMixin:
                 self.selected_items = []
                 
         # Update generic selection hint if an item was selected but no specific hint set yet
-        if selected_item and not shift_pressed: 
+        if self.tool_mode == "design_roof":
+             from ..Resources.tool_hints import TOOL_HINTS
+             self.update_hint(TOOL_HINTS["design_roof"])
+        elif selected_item and not shift_pressed: 
              # We might want more specific hints based on type, but for now generic:
              from ..Resources.tool_hints import TOOL_HINTS
              if selected_item["type"] == "wall":
@@ -1346,6 +1349,20 @@ class CanvasSelectionMixin:
                 
                 if start_in or end_in:
                     new_selection.append({"type": "arc", "object": arc})
+
+
+            # Check Roofs
+            for roof in getattr(self, "roofs", []):
+                 if self.is_object_on_locked_layer(roof) or not self.is_object_on_visible_layer(roof):
+                     continue
+                 
+                 # Check if any point of the roof is inside the selection box
+                 # or if the roof polygon intersects the box.
+                 # For simplicity, we check if any vertex is inside.
+                 for pt in roof.outline_points:
+                     if (x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2):
+                         new_selection.append({"type": "roof", "object": roof})
+                         break
 
             if hasattr(self, "box_select_extend") and self.box_select_extend:
                 for item in new_selection:

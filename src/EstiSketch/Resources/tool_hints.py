@@ -24,4 +24,5 @@ TOOL_HINTS = {
     "select_wall": "Drag endpoints to resize | Drag wall to move",
     "select_room": "Drag corners to reshape | Drag room to move",
     "select_object": "Drag object to move | Delete to remove",
+    "design_roof": "Select walls and right-click to mark as Eave/Gable | Click Generate to create roof",
 }
