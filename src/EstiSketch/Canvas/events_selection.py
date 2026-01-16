@@ -607,6 +607,25 @@ class CanvasSelectionMixin:
                         selected_item = {"type": "arc", "object": arc}
                         break
 
+        # Check Roofs
+        if selected_item is None:
+            for roof in getattr(self, 'roofs', []):
+                 if self.is_object_on_locked_layer(roof) or not self.is_object_on_visible_layer(roof):
+                     continue
+                 
+                 # Convert outline to widget coords
+                 poly_widget = [
+                     self.model_to_device(pt[0], pt[1], pixels_per_inch)
+                     for pt in roof.outline_points
+                 ]
+                 
+                 if self._point_in_polygon(click_pt, poly_widget):
+                     selected_item = {"type": "roof", "object": roof}
+                     from ..Resources.tool_hints import TOOL_HINTS
+                     # Need to ensure hint exists or use generic
+                     self.update_hint("Click to select roof, Drag to move (not impl)")
+                     break
+
         event = gesture.get_current_event()
         state = event.get_modifier_state() if hasattr(
             event, "get_modifier_state") else event.state

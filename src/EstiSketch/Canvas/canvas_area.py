@@ -237,6 +237,60 @@ class CanvasArea(Gtk.DrawingArea,
         """Emit status-update signal with message."""
         self.emit('status-update', message)
 
+    def clear(self):
+        """Clear all drawing elements from the canvas."""
+        self.walls = []
+        self.wall_sets = []
+        self.rooms = []
+        self.doors = []
+        self.windows = []
+        self.polylines = []
+        self.polyline_sets = []
+        self.dimensions = []
+        self.texts = []
+        self.circles = []
+        self.arcs = []
+        self.roofs = []
+
+        # Clear selection
+        self.selected_items = []
+
+        # Reset drawing states
+        self.current_wall = None
+        self.drawing_wall = False
+        self.current_room_points = []
+        self.current_room_preview = None
+        self.current_polyline_start = None
+        self.current_polyline_preview = None
+        self.drawing_polyline = False
+        self.drawing_dimension = False
+        self.dimension_start = None
+        self.dimension_end = None
+        self.dimension_offset_preview = None
+        self.drawing_circle = False
+        self.circle_center = None
+        self.circle_radius_preview = None
+        self.drawing_arc = False
+        self.arc_start = None
+        self.arc_end = None
+        self.arc_preview_point = None
+
+        # Clear undo/redo stacks
+        self.undo_stack = []
+        self.redo_stack = []
+
+        # Clear existing IDs (if applicable, depends on how IDs are managed)
+        self.existing_ids = []
+
+        # Load levels and layers from config (assuming this method re-initializes them)
+        # If _initialize_levels_and_layers() is meant to be called here, it should be defined.
+        # For now, assuming it's a placeholder or will be added elsewhere.
+        # self._initialize_levels_and_layers()
+
+        self.queue_draw()
+        self.emit('selection-changed', self.selected_items)
+
+
     # ─────────────────────────────────────────────────────────────────────────
     # Layer Management Methods
     # ─────────────────────────────────────────────────────────────────────────
@@ -408,6 +462,14 @@ class CanvasArea(Gtk.DrawingArea,
 
         self.queue_draw()
 
+    def _initialize_levels_and_layers(self):
+        """Initializes levels and layers, typically called on clear or load."""
+        # This method was referenced in the provided snippet for 'clear',
+        # but not defined in the original document.
+        # Assuming it would handle setting up default levels and layers.
+        # For now, it's an empty placeholder.
+        pass
+
     def _ensure_valid_active_layer(self):
         """Ensure the active layer belongs to the active level or is global."""
         active_layer = self.get_layer_by_id(self.active_layer_id)
@@ -451,8 +513,10 @@ class CanvasArea(Gtk.DrawingArea,
         room_vertices_to_delete = {}  # room_identifier -> list of indices
 
         for item in list(self.selected_items):
+            item_type = item.get("type") # Get type once for cleaner checks
+
             # Walls
-            if item["type"] == "wall":
+            if item_type == "wall":
                 selected_id = item["object"].identifier
                 for wall_set in self.wall_sets:
                     for wall in wall_set:
@@ -464,7 +528,7 @@ class CanvasArea(Gtk.DrawingArea,
                         self.wall_sets.remove(wall_set)
 
             # Rooms
-            if item["type"] == "vertex":
+            elif item_type == "vertex":
                 # item["object"] is (room, index)
                 room = item["object"][0]
                 index = item["object"][1]
@@ -473,7 +537,7 @@ class CanvasArea(Gtk.DrawingArea,
                 room_vertices_to_delete[room.identifier].append(index)
 
             # Polylines: search and remove from polyline_sets (list of lists)
-            if item["type"] == "polyline":
+            elif item_type == "polyline":
                 # selection entries may come from click (object only) or
                 # box-select (object + identifier)
                 selected_obj = item.get("object")
@@ -494,41 +558,47 @@ class CanvasArea(Gtk.DrawingArea,
                     if len(poly_list) == 0:
                         self.polyline_sets.remove(poly_list)
             # Doors
-            if item["type"] == "door":
+            elif item_type == "door":
                 # item["object"] is (wall, door, ratio) tuple
                 door_tuple = item["object"]
                 if door_tuple in self.doors:
                     self.doors.remove(door_tuple)
             # Windows
-            if item["type"] == "window":
+            elif item_type == "window":
                 # item["object"] is (wall, window, ratio) tuple
                 window_tuple = item["object"]
                 if window_tuple in self.windows:
                     self.windows.remove(window_tuple)
 
             # Text
-            if item["type"] == "text":
+            elif item_type == "text":
                 text_obj = item["object"]
                 if text_obj in self.texts:
                     self.texts.remove(text_obj)
 
             # Dimension
-            if item["type"] == "dimension":
+            elif item_type == "dimension":
                 dim_obj = item["object"]
                 if dim_obj in self.dimensions:
                     self.dimensions.remove(dim_obj)
 
             # Circle
-            if item["type"] == "circle":
+            elif item_type == "circle":
                 circle_obj = item["object"]
                 if circle_obj in self.circles:
                     self.circles.remove(circle_obj)
 
             # Arc
-            if item["type"] == "arc":
+            elif item_type == "arc":
                 arc_obj = item["object"]
                 if arc_obj in self.arcs:
-                    self.arcs.remove(arc_obj)
+                        self.arcs.remove(arc_obj)
+            elif item_type == "roof":
+                target_roof = item["object"]
+                if hasattr(self, 'delete_roof'): # Prefer specialized delete if available
+                    self.delete_roof(target_roof)
+                elif target_roof in getattr(self, 'roofs', []): # Fallback to direct list removal
+                     self.roofs.remove(target_roof)
 
         # Process room vertex deletions
         for room_id, indices in room_vertices_to_delete.items():
@@ -625,6 +695,11 @@ class CanvasArea(Gtk.DrawingArea,
         for arc in self.arcs:
             if not self.is_object_on_locked_layer(arc) and self.is_object_on_visible_layer(arc):
                 self.selected_items.append({"type": "arc", "object": arc})
+
+        # Select all roofs
+        for roof in getattr(self, 'roofs', []):
+            if not self.is_object_on_locked_layer(roof) and self.is_object_on_visible_layer(roof):
+                self.selected_items.append({"type": "roof", "object": roof})
 
         self.queue_draw()
         self.emit('selection-changed', self.selected_items)

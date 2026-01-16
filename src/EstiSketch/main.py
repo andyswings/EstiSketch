@@ -612,10 +612,15 @@ class EstimatorApp(Gtk.Application):
                     self.canvas.cycle_selection_at_mouse()
                 return True
 
-        if shift_pressed and not ctrl_pressed:
+        elif shift_pressed and not ctrl_pressed:
             if keyname == "a":
-                self.tool_buttons["add_arc"].set_active(True)
-                return True
+                 # Shift+A for Arc
+                 self.tool_buttons["add_arc"].set_active(True)
+                 return True
+            elif keyname == "r":
+                 # Shift+R for Roof
+                 self.tool_buttons["design_roof"].set_active(True)
+                 return True
             elif keyname == "c":
                 # Toggle curved wall mode during wall drawing
                 if self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall and self.canvas.walls:

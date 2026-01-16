@@ -524,6 +524,19 @@ class CanvasDrawMixin:
                     cr.move_to(pl.start[0], pl.start[1])
                     cr.line_to(pl.end[0], pl.end[1])
                     cr.stroke()
+
+                elif item["type"] == "roof":
+                    roof = item["object"]
+                    if roof.outline_points:
+                        cr.set_source_rgba(1, 0, 0, 0.5) # Red highlight
+                        cr.set_line_width(2.0 / self.zoom)
+                        
+                        p0 = roof.outline_points[0]
+                        cr.move_to(p0[0], p0[1])
+                        for p in roof.outline_points[1:]:
+                            cr.line_to(p[0], p[1])
+                        cr.close_path()
+                        cr.stroke()
             cr.restore()
 
         self.draw_live_measurements(cr, pixels_per_inch)

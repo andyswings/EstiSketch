@@ -181,38 +181,148 @@ class CanvasRoofEventsMixin:
         if len(eave_walls) != 4:
             return [], [], []
         
-        # Sort walls by length to find the longer sides
-        walls_with_length = [(w, self._get_wall_length(w)) for w in eave_walls]
-        walls_with_length.sort(key=lambda x: x[1], reverse=True)
+        # Identify opposite wall pairs
+        # We assume 4 walls forming a closed loop
         
-        # Longer walls are the eave sides, shorter are the hip ends
-        long_walls = [walls_with_length[0][0], walls_with_length[1][0]]
-        short_walls = [walls_with_length[2][0], walls_with_length[3][0]]
+        # Helper to check if walls share a vertex
+        def share_vertex(w1, w2):
+             tol = 1.0
+             return (self._points_close(w1.start, w2.start, tol) or 
+                     self._points_close(w1.start, w2.end, tol) or 
+                     self._points_close(w1.end, w2.start, tol) or 
+                     self._points_close(w1.end, w2.end, tol))
         
-        # Get midpoints of shorter walls (ridge endpoints)
+        wall0 = eave_walls[0]
+        opposite_to_0 = None
+        other_pair = []
+        
+        for w in eave_walls[1:]:
+             if not share_vertex(wall0, w):
+                  opposite_to_0 = w
+             else:
+                  other_pair.append(w)
+        
+        # Fallback if topology is weird (should show error, but handled robustly)
+        if not opposite_to_0:
+             # Just take the last one if fails
+             opposite_to_0 = eave_walls[-1]
+             other_pair = eave_walls[1:-1]
+             
+        pair1 = [wall0, opposite_to_0]
+        pair2 = other_pair
+        
+        # Determine which pair is "long" (ridge runs parallel) and "short" (ridge ends point to)
+        # Compare average lengths
+        len1 = (self._get_wall_length(pair1[0]) + self._get_wall_length(pair1[1])) / 2
+        len2 = (self._get_wall_length(pair2[0]) + self._get_wall_length(pair2[1])) / 2
+        
+        if len1 >= len2:
+             long_walls = pair1
+             short_walls = pair2
+        else:
+             long_walls = pair2
+             short_walls = pair1
+        
+        # Get width (length of short walls)
+        width = self._get_wall_length(short_walls[0])
+        inset = width / 2.0
+        
+        # Get midpoints of shorter walls (base ridge endpoints)
         short1_mid = self._get_wall_midpoint(short_walls[0])
         short2_mid = self._get_wall_midpoint(short_walls[1])
         
-        # Ridge line
-        ridge_lines = [(short1_mid, short2_mid)]
+        # Calculate ridge direction vector
+        dx = short2_mid[0] - short1_mid[0]
+        dy = short2_mid[1] - short1_mid[1]
+        dist = math.sqrt(dx * dx + dy * dy)
         
-        # Collect all corner points from walls
-        corners = set()
-        for wall in eave_walls:
-            corners.add(wall.start)
-            corners.add(wall.end)
-        corners = list(corners)
-        
-        # Hip lines from ridge endpoints to corners
-        # Each ridge endpoint connects to the 2 nearest corners
+        ridge_lines = []
         hip_lines = []
-        for ridge_pt in [short1_mid, short2_mid]:
-            # Find 2 closest corners
-            corner_dists = [(c, math.hypot(c[0] - ridge_pt[0], c[1] - ridge_pt[1])) 
-                           for c in corners]
-            corner_dists.sort(key=lambda x: x[1])
-            for corner, _ in corner_dists[:2]:
-                hip_lines.append((ridge_pt, corner))
+        
+        if dist > 0:
+            ux = dx / dist
+            uy = dy / dist
+            
+            # Calculate actual ridge endpoints by insetting from the Short walls
+            # The hips normally rise at 45 degrees in plan view (equal pitch), 
+            # so the ridge starts at distance = width/2 from the end.
+            
+            if dist <= width:
+                 # Square or "tall" rectangle where hips meet at a point or overlap
+                 # For a perfect square, dist should be approx width (actually dist is length, so dist = width)
+                 # Ridge is a single point at the center
+                 center_x = (short1_mid[0] + short2_mid[0]) / 2
+                 center_y = (short1_mid[1] + short2_mid[1]) / 2
+                 ridge_start = (center_x, center_y)
+                 ridge_end = (center_x, center_y)
+                 # No ridge line, just a point (pyramid roof)
+            else:
+                 # Normal rectangular hip roof
+                 ridge_start = (short1_mid[0] + ux * inset, short1_mid[1] + uy * inset)
+                 ridge_end = (short2_mid[0] - ux * inset, short2_mid[1] - uy * inset)
+                 ridge_lines.append((ridge_start, ridge_end))
+            
+            # Hip lines connect ridge endpoints to OUTLINE corners
+            # We need to find which outline corners correspond to the wall corners
+            
+            # Helper to find closest point in a list to a target point
+            def find_closest_point(target, points):
+                best_p = None
+                min_d = float('inf')
+                for p in points:
+                    d = math.hypot(p[0] - target[0], p[1] - target[1])
+                    if d < min_d:
+                        min_d = d
+                        best_p = p
+                return best_p
+
+            # We need to pass the outline points to this function or calculate them
+            # Since outline is calculated later, we can estimate the corner position
+            # by offsetting the wall corner outward along the corner bisector.
+            # But simpler: calculate outline first in generate_roof and pass it here?
+            # Or just calculate the offset corner locally.
+            
+            # Local calculation of offset corners for hip lines
+            # For a 90 degree corner, the offset distance to the corner is overhang * sqrt(2)
+            # The direction is the vector from building center to corner (approx)
+            
+            # Better approach: pass outline points to this function
+            # But changing signature requires update in call site.
+            # Let's try to find the corresponding outline corners if we had them.
+            
+            # Alternative: calculate vector from ridge end to wall corner, and extend it?
+            # No, that changes pitch.
+            
+            # Correct vector: The hip line in plan view is the bisector of the corner angle.
+            # For a rectangle, it's 45 degrees.
+            # So we can just extend the line from ridge_end through wall_corner by overhang * sqrt(2)
+            
+            extension = overhang * math.sqrt(2)
+            
+            # Helper to get corners of a wall
+            def get_wall_corners(wall):
+                return [wall.start, wall.end]
+            
+            # Helper to extend point
+            def extend_corner(start, corner):
+                vx = corner[0] - start[0]
+                vy = corner[1] - start[1]
+                vlen = math.sqrt(vx*vx + vy*vy)
+                if vlen > 0:
+                    ux = vx / vlen
+                    uy = vy / vlen
+                    return (corner[0] + ux * extension, corner[1] + uy * extension)
+                return corner
+
+            # Corners for first hip end
+            for corner in get_wall_corners(short_walls[0]):
+                extended = extend_corner(ridge_start, corner)
+                hip_lines.append((ridge_start, extended))
+                
+            # Corners for second hip end
+            for corner in get_wall_corners(short_walls[1]):
+                extended = extend_corner(ridge_end, corner)
+                hip_lines.append((ridge_end, extended))
         
         valley_lines = []
         
@@ -366,6 +476,12 @@ class CanvasRoofEventsMixin:
         Returns:
             The created Roof object, or None if validation fails.
         """
+        if pitch_run != 12:
+            print("Warning: Non-standard pitch run. Using normalized pitch.")
+        
+        # Infer missing markings if user only marked 2 walls
+        self._infer_missing_roof_markings()
+        
         # Validate configuration
         is_valid, roof_type, error = self.validate_roof_configuration()
         if not is_valid:
@@ -486,4 +602,75 @@ class CanvasRoofEventsMixin:
         """Remove a roof from the canvas."""
         if roof in self.roofs:
             self.roofs.remove(roof)
+            self.queue_draw()
+    def _infer_missing_roof_markings(self):
+        """
+        Attempt to infer missing roof markings.
+        If user marked exactly 2 walls as eave/gable, and they are opposite in a 4-wall loop,
+        mark the other two walls as the alternate type.
+        """
+        markings = self.get_walls_marked_for_roof()
+        if len(markings) != 2:
+            return
+
+        # Get the two marked walls
+        marked_ids = list(markings.keys())
+        w1 = self.get_wall_by_identifier(marked_ids[0])
+        w2 = self.get_wall_by_identifier(marked_ids[1])
+        
+        if not w1 or not w2:
+            return
+            
+        # Check if they are in the same wall set
+        target_wall_set = None
+        for wall_set in self.wall_sets:
+            if w1 in wall_set and w2 in wall_set:
+                target_wall_set = wall_set
+                break
+        
+        if not target_wall_set:
+            return
+            
+        # Check that wall set has exactly 4 walls (Phase 1 constraint)
+        if len(target_wall_set) != 4:
+            return
+            
+        # Check if marked walls are opposite (do not share a vertex)
+        # Helper to check proximity
+        def share_vertex(wa, wb):
+             tol = 1.0
+             return (self._points_close(wa.start, wb.start, tol) or 
+                     self._points_close(wa.start, wb.end, tol) or 
+                     self._points_close(wa.end, wb.start, tol) or 
+                     self._points_close(wa.end, wb.end, tol))
+                     
+        if share_vertex(w1, w2):
+            self.update_hint("Warning: Marked walls are adjacent. Cannot infer complex roof.")
+            return
+
+        # They are opposite. Infer the other two.
+        type1 = markings[w1.identifier]
+        type2 = markings[w2.identifier]
+        
+        # Usually types should be same for simple gable inference (2 eaves OR 2 gables)
+        # If they mixed types (1 eave, 1 gable opposite), that's a valid shed roof or skewed gable?
+        # But for this feature "2 eaves -> assume gables" implies types match.
+        
+        if type1 != type2:
+            return # Mixed types, user might be doing something specific
+            
+        # Determine target type for missing walls
+        target_type = "gable" if type1 == "eave" else "eave"
+        
+        # Find missing walls
+        missing_walls = [w for w in target_wall_set if w not in [w1, w2]]
+        
+        # Mark them
+        count = 0
+        for w in missing_walls:
+            markings[w.identifier] = target_type
+            count += 1
+            
+        if count > 0:
+            print(f"Inferred {count} walls as {target_type} based on 2 {type1} walls.")
             self.queue_draw()
