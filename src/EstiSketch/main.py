@@ -126,8 +126,10 @@ class EstimatorApp(Gtk.Application):
 
         self.canvas.connect(
             'selection-changed',
-            lambda canvas,
-            selected: self.properties_dock.refresh_tabs(selected))
+            lambda canvas, selected: (
+                hasattr(self, 'properties_dock') and 
+                self.properties_dock and 
+                self.properties_dock.refresh_tabs(selected)))
 
         # Define toggle callbacks.
         def on_pointer_toggled(toggle_button):

@@ -1,7 +1,6 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] When nothing is selected, the properties panel should be hidden
 - [ ] Roof design - Hip roofs, flat roofs, custom pitches
 
 ## ✨ Core Features (essential functionality)
@@ -157,6 +156,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Properties panel now automatically hides when selection is cleared (2026-01-15)
 - [x] Toolset switching now clears selection, closes properties panel, and resets to first tool in set (2026-01-15)
 - [x] Properties panel now starts minimized on application launch (2026-01-15)
 - [x] Implemented roof design - Gable roofs (basic implementation complete) (2026-01-15)

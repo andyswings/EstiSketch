@@ -2131,12 +2131,13 @@ class PropertiesDock(Gtk.Box):
              selected_polylines = [item["object"] for item in polyline_items]
              self.polyline_page.set_polyline(selected_polylines)
 
-        # Tab Switching Logic
+         # Tab Switching Logic
         if has_selection:
              # Make sure dock is visible
              if not self.stack.get_visible():
                   self.stack.set_visible(True)
                   self.toggle_button.set_child(self.toggle_open_image)
+                  self.emit('sidebar-toggled', True)
              
              # Decide which tab to show
              current_tab = self.stack.get_visible_child_name()
@@ -2168,13 +2169,10 @@ class PropertiesDock(Gtk.Box):
                        self._set_active_tab(current_tab)
         else:
              # Nothing selected
-             pass
-             # We might want to auto-hide or just stay open?
-             # Existing logic was to hide if nothing selected?
-             # "else: # Nothing selected - show blank and hide panel"
              if self.stack.get_visible():
                   self.stack.set_visible(False)
                   self.toggle_button.set_child(self.toggle_close_image)
+                  self.emit('sidebar-toggled', False)
                   # Unpress all tabs
                   for btn in self.tabs.values():
                        btn.set_active(False)
