@@ -5,7 +5,6 @@
 - [ ] Foundation - Footers
 - [ ] Foundation - Slabs
 - [ ] When a layer is selected, the layers under it should be set to 25% opacity
-- [ ] Don't allow objects to be placed or edited on a locked layer.
 
 ## ✨ Core Features (essential functionality)
 
@@ -160,6 +159,7 @@
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Objects can no longer be placed or edited on a locked layer. (2026-01-18)
 - [x] Fixed wall loops are not always mitered correctly between the last and first wall and the issue is not fixed by joining the walls or joining connected walls. (2026-01-18)
 - [x] Implemented custom roof pitches (editable pitch, overhang, material) (2026-01-18)
 - [x] Added tool hint for the roof design tool (2026-01-15)

@@ -25,6 +25,26 @@ class CanvasEventsMixin:
         Returns:
             None
         """
+        # Check if active layer is locked for creation tools
+        creating_tools = [
+            "draw_walls", "draw_rooms", "add_doors", "add_windows", 
+            "add_polyline", "add_dimension", "add_text", 
+            "add_circle", "add_arc", "design_roof"
+        ]
+        
+        if self.tool_mode in creating_tools:
+             active_layer = self.get_layer_by_id(self.active_layer_id)
+             if active_layer and active_layer.locked:
+                 # Check if we are adding a door/window to an EXISTING wall
+                 # If so, we should also check if the TARGET wall is on a locked layer?
+                 # Actually, door/window addition usually implies clicking on a wall.
+                 # If the wall is locked, we probably shouldn't add to it.
+                 # But first, prevent creating NEW objects on the locked active layer.
+                 
+                 print("Active layer is locked")
+                 self.update_hint("Cannot place objects on a locked layer.")
+                 return
+
         if self.tool_mode == "draw_walls":
             self._handle_wall_click(n_press, x, y)
         elif self.tool_mode == "draw_rooms":
@@ -93,6 +113,8 @@ class CanvasEventsMixin:
         for item in self.selected_items:
             if item.get("type") == "wall":
                 wall = item.get("object")
+                if self.is_object_on_locked_layer(wall):
+                    continue
                 for handle_name, pt in [
                         ("start", wall.start), ("end", wall.end)]:
                     pt_widget = (

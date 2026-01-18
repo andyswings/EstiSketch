@@ -196,6 +196,8 @@ class CanvasSelectionMixin:
             for item in self.selected_items:
                 if item["type"] == "circle":
                     circle = item["object"]
+                    if self.is_object_on_locked_layer(circle):
+                        continue
                     cx, cy = circle.center
                     hx = cx + circle.radius
                     hy = cy
@@ -212,6 +214,8 @@ class CanvasSelectionMixin:
                         
                 elif item["type"] == "arc":
                     arc = item["object"]
+                    if self.is_object_on_locked_layer(arc):
+                        continue
                     cx, cy = arc.center
                     
                     # Handles: start, end, mid
@@ -748,7 +752,7 @@ class CanvasSelectionMixin:
                 item = self.selected_items[0]
                 if item["type"] in ["door", "window"]:
                     wall, obj, ratio = item["object"]
-                    if wall is not None:  # Only drag if on a wall
+                    if wall is not None and not self.is_object_on_locked_layer(obj):  # Only drag if on a wall and not locked
                         self.dragging_door_window = item
                         self.dragging_door_window_start_ratio = ratio
 
@@ -780,59 +784,60 @@ class CanvasSelectionMixin:
                 # door/window)
                 elif item["type"] == "wall" and not getattr(self, "dragging_door_window", None):
                     wall = item["object"]
-                    self.dragging_wall = wall
-
-                    # Store original wall positions
-                    self.wall_drag_original_start = wall.start
-                    self.wall_drag_original_end = wall.end
-
-                    # Store drag start coordinates (device space)
-                    self.drag_start_x = start_x
-                    self.drag_start_y = start_y
-
-                    # Convert drag start to model coordinates
-                    pixels_per_inch = getattr(
-                        self.config, "PIXELS_PER_INCH", 2.0)
-                    self.wall_drag_start_model = self.device_to_model(
-                        start_x, start_y, pixels_per_inch)
-
-                    # Find all walls connected to this wall's endpoints
-                    connected_start = []
-                    connected_end = []
-                    tol = getattr(self.config, "JOINT_SNAP_TOLERANCE", 0.25)
-
-                    for wall_set in self.wall_sets:
-                        for w in wall_set:
-                            if w is not wall:  # Don't include the dragged wall itself
-                                # Check if other wall's start connects to
-                                # dragged wall's start
-                                if self._points_close(
-                                        w.start, wall.start, tol):
-                                    connected_start.append((w, "start"))
-                                # Check if other wall's end connects to dragged
-                                # wall's start
-                                if self._points_close(w.end, wall.start, tol):
-                                    connected_start.append((w, "end"))
-                                # Check if other wall's start connects to
-                                # dragged wall's end
-                                if self._points_close(w.start, wall.end, tol):
-                                    connected_end.append((w, "start"))
-                                # Check if other wall's end connects to dragged
-                                # wall's end
-                                if self._points_close(w.end, wall.end, tol):
-                                    connected_end.append((w, "end"))
-
-                    self.wall_drag_connected_start = connected_start
-                    self.wall_drag_connected_end = connected_end
-
-                    self.box_selecting = False
+                    if not self.is_object_on_locked_layer(wall):
+                        self.dragging_wall = wall
+    
+                        # Store original wall positions
+                        self.wall_drag_original_start = wall.start
+                        self.wall_drag_original_end = wall.end
+    
+                        # Store drag start coordinates (device space)
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+    
+                        # Convert drag start to model coordinates
+                        pixels_per_inch = getattr(
+                            self.config, "PIXELS_PER_INCH", 2.0)
+                        self.wall_drag_start_model = self.device_to_model(
+                            start_x, start_y, pixels_per_inch)
+    
+                        # Find all walls connected to this wall's endpoints
+                        connected_start = []
+                        connected_end = []
+                        tol = getattr(self.config, "JOINT_SNAP_TOLERANCE", 0.25)
+    
+                        for wall_set in self.wall_sets:
+                            for w in wall_set:
+                                if w is not wall:  # Don't include the dragged wall itself
+                                    # Check if other wall's start connects to
+                                    # dragged wall's start
+                                    if self._points_close(
+                                            w.start, wall.start, tol):
+                                        connected_start.append((w, "start"))
+                                    # Check if other wall's end connects to dragged
+                                    # wall's start
+                                    if self._points_close(w.end, wall.start, tol):
+                                        connected_start.append((w, "end"))
+                                    # Check if other wall's start connects to
+                                    # dragged wall's end
+                                    if self._points_close(w.start, wall.end, tol):
+                                        connected_end.append((w, "start"))
+                                    # Check if other wall's end connects to dragged
+                                    # wall's end
+                                    if self._points_close(w.end, wall.end, tol):
+                                        connected_end.append((w, "end"))
+    
+                        self.wall_drag_connected_start = connected_start
+                        self.wall_drag_connected_end = connected_end
+    
+                        self.box_selecting = False
 
                 # Check for vertex (room point) dragging - supports multiple
                 # selected vertices
                 elif item["type"] == "vertex" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None):
                     # Collect all selected vertices
                     selected_vertices = [
-                        i for i in self.selected_items if i["type"] == "vertex"]
+                        i for i in self.selected_items if i["type"] == "vertex" and not self.is_object_on_locked_layer(i["object"][0])]
 
                     if selected_vertices:
                         self.dragging_vertices = []
@@ -861,7 +866,7 @@ class CanvasSelectionMixin:
                 elif item["type"] == "dimension" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None):
                     # Collect all selected dimensions
                     selected_dims = [
-                        i for i in self.selected_items if i["type"] == "dimension"]
+                        i for i in self.selected_items if i["type"] == "dimension" and not self.is_object_on_locked_layer(i["object"])]
 
                     if selected_dims:
                         self.dragging_dimensions = []
@@ -922,7 +927,7 @@ class CanvasSelectionMixin:
                 elif item["type"] == "polyline" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "editing_polyline", None):
                     # Collect all selected polylines
                     selected_polys = [
-                        i for i in self.selected_items if i["type"] == "polyline"]
+                        i for i in self.selected_items if i["type"] == "polyline" and not self.is_object_on_locked_layer(i["object"])]
 
                     if selected_polys:
                         self.dragging_polylines = []
@@ -950,45 +955,48 @@ class CanvasSelectionMixin:
                 elif item["type"] == "room" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None):
                     room = item["object"]
 
-                    # Store all original vertex positions
-                    self.dragging_room = room
-                    self.dragging_room_original_points = [
-                        pt for pt in room.points]
-
-                    # Store drag start coordinates
-                    self.drag_start_x = start_x
-                    self.drag_start_y = start_y
-
-                    # Convert drag start to model coordinates
-                    pixels_per_inch = getattr(
-                        self.config, "PIXELS_PER_INCH", 2.0)
-                    self.room_drag_start_model = self.device_to_model(
-                        start_x, start_y, pixels_per_inch)
-
-                    self.box_selecting = False
+                    if not self.is_object_on_locked_layer(room):
+                        # Store all original vertex positions
+                        self.dragging_room = room
+                        self.dragging_room_original_points = [
+                            pt for pt in room.points]
+    
+                        # Store drag start coordinates
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+    
+                        # Convert drag start to model coordinates
+                        pixels_per_inch = getattr(
+                            self.config, "PIXELS_PER_INCH", 2.0)
+                        self.room_drag_start_model = self.device_to_model(
+                            start_x, start_y, pixels_per_inch)
+    
+                        self.box_selecting = False
 
                 # Check for circle dragging
                 elif item["type"] == "circle" and not getattr(self, "editing_circle", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None):
-                    self.dragging_circle = item["object"]
-                    self.drag_start_x = start_x
-                    self.drag_start_y = start_y
-                    # Initial center
-                    self.circle_drag_original_center = self.dragging_circle.center
-                    
-                    pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
-                    self.circle_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
-                    self.box_selecting = False
+                    if not self.is_object_on_locked_layer(item["object"]):
+                        self.dragging_circle = item["object"]
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        # Initial center
+                        self.circle_drag_original_center = self.dragging_circle.center
+                        
+                        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                        self.circle_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                        self.box_selecting = False
 
                 # Check for arc dragging
                 elif item["type"] == "arc" and not getattr(self, "editing_arc", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_circle", None):
-                    self.dragging_arc = item["object"]
-                    self.drag_start_x = start_x
-                    self.drag_start_y = start_y
-                    self.arc_drag_original_center = self.dragging_arc.center
-                    
-                    pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
-                    self.arc_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
-                    self.box_selecting = False
+                    if not self.is_object_on_locked_layer(item["object"]):
+                        self.dragging_arc = item["object"]
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        self.arc_drag_original_center = self.dragging_arc.center
+                        
+                        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                        self.arc_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                        self.box_selecting = False
 
         elif self.tool_mode == "add_text":
             self.drag_start_x = start_x
