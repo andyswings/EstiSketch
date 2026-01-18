@@ -338,6 +338,16 @@ class CanvasWallMixin:
                         changed = True
                         break
 
+
+            # Check if the component forms a loop and snap the closure
+            head_pt = component_walls[0].start
+            tail_pt = component_walls[-1].end
+            tol = (getattr(self.config, "WALL_JOIN_TOLERANCE", 5.0)) / self.zoom
+            
+            if len(component_walls) > 1 and self._points_close(head_pt, tail_pt, tol):
+                 # Snap tail to head
+                 component_walls[-1].end = head_pt
+
             sets.append(component_walls)
         return sets
 
@@ -358,12 +368,14 @@ class CanvasWallMixin:
             last_point = joined[-1].end
             for wall in remaining:
                 if self._points_close(wall.start, last_point, tol):
+                    wall.start = last_point  # Snap
                     joined.append(wall)
                     remaining.remove(wall)
                     extended = True
                     break
                 elif self._points_close(wall.end, last_point, tol):
                     wall.start, wall.end = wall.end, wall.start
+                    wall.start = last_point  # Snap
                     joined.append(wall)
                     remaining.remove(wall)
                     extended = True
@@ -375,16 +387,25 @@ class CanvasWallMixin:
             first_point = joined[0].start
             for wall in remaining:
                 if self._points_close(wall.end, first_point, tol):
+                    wall.end = first_point  # Snap
                     joined.insert(0, wall)
                     remaining.remove(wall)
                     extended = True
                     break
                 elif self._points_close(wall.start, first_point, tol):
                     wall.start, wall.end = wall.end, wall.start
+                    wall.end = first_point  # Snap
                     joined.insert(0, wall)
                     remaining.remove(wall)
                     extended = True
                     break
+                    
+        # Check for loop closure
+        if len(joined) > 1:
+            head_pt = joined[0].start
+            tail_pt = joined[-1].end
+            if self._points_close(head_pt, tail_pt, tol):
+                joined[-1].end = head_pt
 
         # Any remaining walls are disjoint from the main chain we found.
         # We'll just append them (butt joins likely) to avoid losing data.
