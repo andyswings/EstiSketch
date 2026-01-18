@@ -8,6 +8,146 @@ gi.require_version('Gtk', '4.0')
 # Stub widgets—you can flesh these out with real controls
 
 
+
+class RoofPropertiesWidget(Gtk.Box):
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.current_roofs = []
+        self._block_updates = False
+
+        # Frame
+        frame = Gtk.Frame(label="Roof Properties")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        frame.set_child(box)
+        self.append(frame)
+
+        # Pitch Rise
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Pitch Rise:"))
+        self.pitch_rise_spin = Gtk.SpinButton.new_with_range(0, 24, 1)
+        self.pitch_rise_spin.connect("value-changed", self.on_pitch_changed)
+        row.append(self.pitch_rise_spin)
+        row.append(Gtk.Label(label="/"))
+        
+        # Pitch Run (12 or 10)
+        self.pitch_run_combo = Gtk.ComboBoxText()
+        self.pitch_run_combo.append_text("12")
+        self.pitch_run_combo.append_text("10")
+        self.pitch_run_combo.set_active(0) # Default to 12
+        self.pitch_run_combo.connect("changed", self.on_pitch_changed)
+        row.append(self.pitch_run_combo)
+        
+        box.append(row)
+        
+        # Overhang
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Overhang:"))
+        self.overhang_spin = Gtk.SpinButton.new_with_range(0, 100, 1) # Inches
+        self.overhang_spin.connect("value-changed", self.on_overhang_changed)
+        row.append(self.overhang_spin)
+        row.append(Gtk.Label(label="in"))
+        box.append(row)
+        
+        # Material
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Material:"))
+        self.material_combo = Gtk.ComboBoxText()
+        for mat in ["asphalt_shingle", "metal", "tile", "slate"]:
+            self.material_combo.append_text(mat)
+        self.material_combo.connect("changed", self.on_material_changed)
+        row.append(self.material_combo)
+        box.append(row)
+
+    def on_pitch_changed(self, widget):
+        if self._block_updates or not self.current_roofs:
+            return
+            
+        rise = int(self.pitch_rise_spin.get_value())
+        run_text = self.pitch_run_combo.get_active_text()
+        run = int(run_text) if run_text else 12
+        
+        for roof in self.current_roofs:
+            roof.pitch_rise = rise
+            roof.pitch_run = run
+            
+        self.emit_property_changed()
+
+    def on_overhang_changed(self, spin):
+        if self._block_updates or not self.current_roofs:
+            return
+            
+        overhang = spin.get_value()
+        for roof in self.current_roofs:
+            roof.overhang = overhang
+            # Trigger recalculation of outline
+            if hasattr(self, "canvas"):
+                self.canvas.recalculate_roof(roof)
+                
+        self.emit_property_changed()
+
+    def on_material_changed(self, combo):
+        if self._block_updates or not self.current_roofs:
+            return
+            
+        material = combo.get_active_text()
+        if material:
+            for roof in self.current_roofs:
+                roof.material = material
+        self.emit_property_changed()
+
+    def emit_property_changed(self):
+        if hasattr(self, "canvas") and self.canvas:
+            self.canvas.queue_draw()
+
+    def set_roof(self, roofs):
+        self._block_updates = True
+        if not isinstance(roofs, list):
+            roofs = [roofs]
+        self.current_roofs = roofs
+
+        if not roofs:
+            self._block_updates = False
+            return
+
+        first = roofs[0]
+
+        # Pitch
+        self.pitch_rise_spin.set_value(first.pitch_rise)
+        
+        run_str = str(first.pitch_run)
+        found = False
+        model = self.pitch_run_combo.get_model()
+        for i, row in enumerate(model):
+            if row[0] == run_str:
+                self.pitch_run_combo.set_active(i)
+                found = True
+                break
+        if not found:
+             self.pitch_run_combo.set_active(0) # Default 12
+
+        # Overhang
+        self.overhang_spin.set_value(first.overhang)
+        
+        # Material
+        mat = getattr(first, 'material', 'asphalt_shingle')
+        # Find index
+        found = False
+        model = self.material_combo.get_model()
+        for i, row in enumerate(model):
+            if row[0] == mat:
+                self.material_combo.set_active(i)
+                found = True
+                break
+        if not found:
+             self.material_combo.set_active(0)
+
+        self._block_updates = False
+
+
 class WallPropertiesWidget(Gtk.Box):
     def __init__(self):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -2005,6 +2145,14 @@ class PropertiesDock(Gtk.Box):
         self.icon_bar.append(polyline_btn)
         self.tabs["polyline"] = polyline_btn
 
+        self.roof_page = RoofPropertiesWidget()
+        self.roof_page.canvas = canvas
+        self.stack.add_titled(self.roof_page, "roof", "Roof Properties")
+
+        roof_btn = self._make_tab_button("roof", icon_dir, "roof")
+        self.icon_bar.append(roof_btn)
+        self.tabs["roof"] = roof_btn
+
     def _make_tab_button(self, name, icon_dir, icon_name):
         btn = Gtk.ToggleButton()
         image = Gtk.Image.new_from_file(
@@ -2032,6 +2180,7 @@ class PropertiesDock(Gtk.Box):
         circle_items = []
         arc_items = []
         polyline_items = []
+        roof_items = []
 
         for item in selected_items:
             item_type = item["type"]
@@ -2058,6 +2207,8 @@ class PropertiesDock(Gtk.Box):
                 arc_items.append(item)
             elif item_type == "polyline":
                 polyline_items.append(item)
+            elif item_type == "roof":
+                roof_items.append(item)
 
         wants_wall = len(wall_items) > 0
         wants_text = len(text_items) > 0
@@ -2067,6 +2218,7 @@ class PropertiesDock(Gtk.Box):
         wants_circle = len(circle_items) > 0
         wants_arc = len(arc_items) > 0
         wants_polyline = len(polyline_items) > 0
+        wants_roof = len(roof_items) > 0
 
         # Enable/disable tabs based on selection
         self.tabs["wall"].set_sensitive(wants_wall)
@@ -2077,6 +2229,7 @@ class PropertiesDock(Gtk.Box):
         self.tabs["circle"].set_sensitive(wants_circle)
         self.tabs["arc"].set_sensitive(wants_arc)
         self.tabs["polyline"].set_sensitive(wants_polyline)
+        self.tabs["roof"].set_sensitive(wants_roof)
         self.tabs["layers"].set_sensitive(True)  # Layers always active
 
         # Update content and activate appropriate tab
@@ -2088,7 +2241,8 @@ class PropertiesDock(Gtk.Box):
              (1 if wants_door else 0) +
              (1 if wants_circle else 0) +
              (1 if wants_arc else 0) +
-             (1 if wants_polyline else 0)
+             (1 if wants_polyline else 0) +
+             (1 if wants_roof else 0)
         )
 
         has_selection = selection_count > 0
@@ -2131,6 +2285,10 @@ class PropertiesDock(Gtk.Box):
              selected_polylines = [item["object"] for item in polyline_items]
              self.polyline_page.set_polyline(selected_polylines)
 
+        if wants_roof:
+             selected_roofs = [item["object"] for item in roof_items]
+             self.roof_page.set_roof(selected_roofs)
+
          # Tab Switching Logic
         if has_selection:
              # Make sure dock is visible
@@ -2152,6 +2310,7 @@ class PropertiesDock(Gtk.Box):
              elif current_tab == "circle" and wants_circle: keep_current = True
              elif current_tab == "arc" and wants_arc: keep_current = True
              elif current_tab == "polyline" and wants_polyline: keep_current = True
+             elif current_tab == "roof" and wants_roof: keep_current = True
              
              if not keep_current:
                   # Switch to first available
@@ -2163,6 +2322,7 @@ class PropertiesDock(Gtk.Box):
                   elif wants_circle: self._set_active_tab("circle"); self.stack.set_visible_child_name("circle")
                   elif wants_arc: self._set_active_tab("arc"); self.stack.set_visible_child_name("arc")
                   elif wants_polyline: self._set_active_tab("polyline"); self.stack.set_visible_child_name("polyline")
+                  elif wants_roof: self._set_active_tab("roof"); self.stack.set_visible_child_name("roof")
              else:
                   # Just ensure the tab button is active visually
                   if not self.tabs[current_tab].get_active():

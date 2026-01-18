@@ -1,7 +1,7 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Roof design - Hip roofs, flat roofs, custom pitches
+- [ ] Roof design - Complex roof shapes
 
 ## ✨ Core Features (essential functionality)
 
@@ -148,7 +148,6 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Selection of roofs with box select does not work
 
 ## 💡 Currently Working On
 - [ ] Finish Material Estimator
@@ -156,6 +155,7 @@
 - [ ] Implement Footer rendering
 
 ## Done ✅ (latest first)
+- [x] Implemented custom roof pitches (editable pitch, overhang, material) (2026-01-18)
 - [x] Added tool hint for the roof design tool (2026-01-15)
 - [x] Added shift + R as shortcut for roof design tool (2026-01-15)
 - [x] Added smart inference for roof design only requires 2 walls to be marked to create a gable roof (2026-01-15)
@@ -230,4 +230,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2026-01-15_
+_Last updated: 2026-01-18_
