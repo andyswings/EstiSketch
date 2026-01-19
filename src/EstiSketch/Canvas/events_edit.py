@@ -40,6 +40,7 @@ class EditEventsMixin:
 
         # Cleanup
         self.selected_items = []
+        self.emit('content-changed')
         self.queue_draw()
         popover.popdown()
 
@@ -57,6 +58,7 @@ class EditEventsMixin:
         self.wall_sets = self._group_walls_into_sets(all_walls)
 
         self.selected_items = []
+        self.emit('content-changed')
         self.queue_draw()
         try:
             popover.popdown()
@@ -106,6 +108,7 @@ class EditEventsMixin:
 
         # Clear selection and redraw
         self.selected_items = []
+        self.emit('content-changed')
         self.queue_draw()
         try:
             popover.popdown()
@@ -181,6 +184,7 @@ class EditEventsMixin:
 
         if found:
             self.selected_items = []
+            self.emit('content-changed')
             self.queue_draw()
 
         try:

@@ -23,6 +23,7 @@ class LayersPanel(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.canvas = canvas
         self.canvas.connect("config-changed", lambda w: self.refresh_layers())
+        self.canvas.connect("content-changed", lambda w: self.refresh_layer_contents())
         self.set_margin_start(6)
         self.set_margin_end(6)
         self.set_margin_top(6)
@@ -62,6 +63,9 @@ class LayersPanel(Gtk.Box):
         button_row.append(remove_btn)
 
         self.append(button_row)
+        
+        # Store expanders to preserve state
+        self.layer_expanders = {} 
 
         # Initial population
         self.refresh_level_ui()
@@ -311,6 +315,11 @@ class LayersPanel(Gtk.Box):
             if child is None:
                 break
             self.layer_list.remove(child)
+            
+        # Clear stored expanders references for removed/recreated rows
+        # Actually we might want to preserve expansion state by ID
+        old_expanded_states = {lid: exp.get_expanded() for lid, exp in self.layer_expanders.items()}
+        self.layer_expanders = {}
 
         # Build layer rows (in reverse order so top layer is at top of list)
         for layer in reversed(self.canvas.layers):
@@ -319,79 +328,178 @@ class LayersPanel(Gtk.Box):
             is_active_level = (layer.level_id == self.canvas.active_level_id)
 
             if self.canvas.show_all_levels or is_global or is_active_level:
-                row = self._create_layer_row(layer)
-                self.layer_list.append(row)
+                row_expander = self._create_layer_row(layer)
+                
+                # Restore expansion state
+                if layer.id in old_expanded_states:
+                    row_expander.set_expanded(old_expanded_states[layer.id])
+                    
+                self.layer_list.append(row_expander)
+                self.layer_expanders[layer.id] = row_expander
+                
+    def refresh_layer_contents(self):
+        """Refresh only the object lists within existing layer expanders."""
+        # This is more efficient than full rebuild.
+        # However, if layers changed order or count, we need full rebuild.
+        # Assuming content-changed doesn't change layer list itself usually.
+        # But for simplicity, let's just trigger update of the listboxes.
+        
+        for layer in self.canvas.layers:
+            if layer.id in self.layer_expanders:
+                expander = self.layer_expanders[layer.id]
+                # The child of expander is the object list box
+                object_list_box = expander.get_child()
+                if object_list_box:
+                    self._populate_object_list(object_list_box, layer)
 
     def _create_layer_row(self, layer):
-        """Create a row widget for a layer."""
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        row.set_margin_top(2)
-        row.set_margin_bottom(2)
+        """Create a row widget for a layer (Expander with header)."""
+        
+        # Main Container (Expander)
+        expander = Gtk.Expander()
+        
+        # Header Box (Layer Controls)
+        header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        header_row.set_margin_top(2)
+        header_row.set_margin_bottom(2)
+        
+        # We need to set the label widget of the expander to be our custom header_row
+        expander.set_label_widget(header_row)
 
         # Visibility toggle (eye icon)
         visibility_btn = Gtk.ToggleButton()
-        visibility_btn.set_has_frame(False)  # Make it look like an icon
+        visibility_btn.set_has_frame(False)
         visibility_btn.set_active(layer.visible)
         visibility_btn.set_label("👁" if layer.visible else "○")
-        visibility_btn.set_tooltip_text("Toggle visibility")
+        visibility_btn.set_tooltip_text("Toggle layer visibility")
         visibility_btn.connect("toggled", self.on_visibility_toggled, layer)
-        row.append(visibility_btn)
+        header_row.append(visibility_btn)
 
         # Lock toggle
         lock_btn = Gtk.ToggleButton()
-        lock_btn.set_has_frame(False)  # Make it look like an icon
+        lock_btn.set_has_frame(False)
         lock_btn.set_active(layer.locked)
         lock_btn.set_label("🔒" if layer.locked else "🔓")
-        lock_btn.set_tooltip_text("Toggle lock")
+        lock_btn.set_tooltip_text("Toggle layer lock")
         lock_btn.connect("toggled", self.on_lock_toggled, layer)
-        row.append(lock_btn)
+        header_row.append(lock_btn)
 
         # Layer name (as button to select active layer)
         name_btn = Gtk.Button()
         name_lbl = Gtk.Label(label=layer.name)
         name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-        name_lbl.set_xalign(0)  # Left align text
+        name_lbl.set_xalign(0)
         name_btn.set_child(name_lbl)
-
         name_btn.set_hexpand(True)
-        # name_btn.set_halign(Gtk.Align.FILL)
         name_btn.connect("clicked", self.on_layer_selected, layer)
 
         # Add right-click controller for renaming
         right_click = Gtk.GestureClick()
         right_click.set_button(3)
-        right_click.connect(
-            "pressed",
-            self.on_layer_right_click,
-            layer,
-            name_btn)
+        right_click.connect("pressed", self.on_layer_right_click, layer, name_btn)
         name_btn.add_controller(right_click)
 
         # Highlight active layer
         if layer.id == self.canvas.active_layer_id:
             name_btn.add_css_class("suggested-action")
 
-        row.append(name_btn)
+        header_row.append(name_btn)
 
         # Opacity scale (small)
-        opacity_adj = Gtk.Adjustment(
-            value=layer.opacity,
-            lower=0.0,
-            upper=1.0,
-            step_increment=0.1)
-        opacity_scale = Gtk.Scale(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            adjustment=opacity_adj)
+        opacity_adj = Gtk.Adjustment(value=layer.opacity, lower=0.0, upper=1.0, step_increment=0.1)
+        opacity_scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=opacity_adj)
         opacity_scale.set_draw_value(False)
         opacity_scale.set_size_request(60, -1)
         opacity_scale.set_tooltip_text(f"Opacity: {int(layer.opacity * 100)}%")
         opacity_scale.connect("value-changed", self.on_opacity_changed, layer)
         
-        # Only show slider if Focus Mode is OFF
         if not getattr(self.canvas.config, "LAYER_FOCUS_MODE", False):
-            row.append(opacity_scale)
+            header_row.append(opacity_scale)
+            
+        # Object List (Expander Child)
+        object_list_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        object_list_box.set_margin_start(20) # Indent
+        
+        self._populate_object_list(object_list_box, layer)
+        
+        expander.set_child(object_list_box)
 
-        return row
+        return expander
+
+    def _populate_object_list(self, list_box, layer):
+        """Populate the list box with objects for the given layer."""
+        # Clear existing
+        while True:
+            child = list_box.get_first_child()
+            if not child:
+                break
+            list_box.remove(child)
+            
+        objects = self.canvas.get_objects_by_layer_id(layer.id)
+        if not objects:
+            return
+
+        for type_name, obj in objects:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            
+            # Object Visibility
+            vis_btn = Gtk.ToggleButton()
+            vis_btn.set_has_frame(False)
+            is_vis = getattr(obj, 'visible', True)
+            vis_btn.set_active(is_vis)
+            vis_btn.set_label("👁" if is_vis else "○")
+            vis_btn.set_tooltip_text("Toggle object visibility")
+            vis_btn.connect("toggled", self.on_obj_visibility_toggled, obj)
+            row.append(vis_btn)
+            
+            # Object Lock
+            lock_btn = Gtk.ToggleButton()
+            lock_btn.set_has_frame(False)
+            is_locked = getattr(obj, 'locked', False)
+            lock_btn.set_active(is_locked)
+            lock_btn.set_label("🔒" if is_locked else "🔓")
+            lock_btn.connect("toggled", self.on_obj_lock_toggled, obj)
+            row.append(lock_btn)
+            
+            # Object Label
+            ident = getattr(obj, 'identifier', '')
+            if not ident:
+                ident = str(id(obj))
+            
+            # Nice display name
+            display_name = f"{type_name.capitalize()} {ident}"
+            lbl = Gtk.Label(label=display_name)
+            lbl.set_xalign(0)
+            lbl.set_hexpand(True)
+            lbl.set_ellipsize(Pango.EllipsizeMode.END)
+            row.append(lbl)
+            
+            list_box.append(row)
+
+    def on_obj_visibility_toggled(self, btn, obj):
+        if hasattr(obj, 'visible'):
+            obj.visible = btn.get_active()
+            btn.set_label("👁" if obj.visible else "○")
+            self.canvas.queue_draw()
+            # self.emit('content-changed') # This might cause loop if we listen to it?
+            # actually we listen to content-changed to refresh list.
+            # changing visibility doesn't add/remove objects so maybe we don't need full refresh.
+            
+    def on_obj_lock_toggled(self, btn, obj):
+        if hasattr(obj, 'locked'):
+            obj.locked = btn.get_active()
+            btn.set_label("🔒" if obj.locked else "🔓")
+            # If we lock it, maybe deselect it?
+            if obj.locked and hasattr(self.canvas, 'selected_items'):
+                # Check if selected
+                # simple check
+                for item in self.canvas.selected_items:
+                     if item.get('object') == obj:
+                         self.canvas.deselect_items_on_layer("") # hack or just clear selection
+                         self.canvas.selected_items = [i for i in self.canvas.selected_items if i.get('object') != obj]
+                         self.canvas.emit('selection-changed', self.canvas.selected_items)
+                         self.canvas.queue_draw()
+                         break
 
     def on_visibility_toggled(self, button, layer):
         """Handle visibility toggle."""

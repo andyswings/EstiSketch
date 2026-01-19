@@ -133,6 +133,7 @@ class CanvasToolsMixin:
                 layer_id=self.active_layer_id)
         self.existing_ids.append(door_identifier)
         self.doors.append((selected_wall, new_door, selected_ratio))
+        self.emit('content-changed')
         self.queue_draw()
 
     def _handle_window_click(self, n_press: int, x: float, y: float) -> None:
@@ -243,6 +244,7 @@ class CanvasToolsMixin:
             layer_id=self.active_layer_id)
         self.existing_ids.append(window_identifier)
         self.windows.append((selected_wall, new_window, selected_ratio))
+        self.emit('content-changed')
         self.queue_draw()
 
     def _handle_polyline_click(self, n_press: int, x: float, y: float) -> None:
@@ -304,9 +306,8 @@ class CanvasToolsMixin:
                     seg.style = "solid"
                 self.polylines.append(seg)
                 self.current_polyline_start = snapped
-                from ..Resources.tool_hints import TOOL_HINTS
                 self.update_hint(TOOL_HINTS["add_polyline_active"])
-
+                self.emit('content-changed')
             self.queue_draw()
             self.current_polyline_preview = None
 
@@ -318,6 +319,8 @@ class CanvasToolsMixin:
             self.drawing_polyline = False
             self.current_polyline_start = None
             self.polylines = []
+            self.polylines = []
+            self.emit('content-changed')
             self.queue_draw()
             self.current_polyline_preview = None
 
@@ -360,6 +363,7 @@ class CanvasToolsMixin:
         self.selected_items = [{"type": "text", "object": new_text}]
         self.emit('selection-changed', self.selected_items)
         self.save_state()
+        self.emit('content-changed')
         self.queue_draw()
 
     def _handle_dimension_click(
@@ -432,6 +436,7 @@ class CanvasToolsMixin:
             print(f"Dimension created with offset {offset}")
             self.save_state()
             self.save_state()
+            self.emit('content-changed')
             self.queue_draw()
 
             from ..Resources.tool_hints import TOOL_HINTS
@@ -541,6 +546,7 @@ class CanvasToolsMixin:
                 edge_start} to {
                 edge_end}")
         self.save_state()
+        self.emit('content-changed')
         self.queue_draw()
 
 
@@ -663,6 +669,9 @@ class CanvasToolsMixin:
              from ..Resources.tool_hints import TOOL_HINTS
              self.update_hint(TOOL_HINTS["add_circle"])
         
+        
+        if not self.drawing_circle:
+             self.emit('content-changed')
         self.queue_draw()
 
     def _handle_arc_click(self, n_press: int, x: float, y: float) -> None:
@@ -780,4 +789,7 @@ class CanvasToolsMixin:
             from ..Resources.tool_hints import TOOL_HINTS
             self.update_hint(TOOL_HINTS["add_arc"])
             
+        # Emit change if we just finished an arc
+        if not self.drawing_arc:
+            self.emit('content-changed')
         self.queue_draw()

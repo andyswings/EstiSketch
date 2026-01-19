@@ -80,6 +80,7 @@ class CanvasRoomMixin:
                         break
             if room_created:
                 self.save_state()
+                self.emit('content-changed')
             self.queue_draw()
 
     def finalize_room(self):
@@ -98,4 +99,5 @@ class CanvasRoomMixin:
         
         from ..Resources.tool_hints import TOOL_HINTS
         self.update_hint(TOOL_HINTS["draw_rooms"])
+        self.emit('content-changed')
         self.queue_draw()

@@ -2075,6 +2075,8 @@ class PropertiesDock(Gtk.Box):
         # Layers Page
         self.layers_page = LayersPanel(canvas)
         self.stack.add_titled(self.layers_page, "layers", "Layers")
+        # self.layers_page = Gtk.Label(label="Layers Panel Disabled via Debug")
+        # self.stack.add_titled(self.layers_page, "layers", "Layers")
 
         # Pre-create all pages and tabs upfront
         self.wall_page = WallPropertiesWidget()

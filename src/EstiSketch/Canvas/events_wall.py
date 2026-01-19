@@ -131,7 +131,10 @@ class CanvasWallMixin:
                     self.snap_type = "none"
                     self.alignment_candidate = None
                     self.raw_current_end = None
+                    self.alignment_candidate = None
+                    self.raw_current_end = None
                     self.save_state()  # Save after cleanup to avoid state duplication
+                    self.emit('content-changed')
             else:
                 # Double-click when NOT drawing walls: create walls from room
                 test_point = (snapped_x, snapped_y)
@@ -166,6 +169,7 @@ class CanvasWallMixin:
                     self.alignment_candidate = None
                     self.raw_current_end = None
                     self.save_state()
+                    self.emit('content-changed')
                     
                     from ..Resources.tool_hints import TOOL_HINTS
                     self.update_hint(TOOL_HINTS["draw_walls"])
@@ -278,7 +282,7 @@ class CanvasWallMixin:
         self.current_wall.start = (end_x, end_y)
         self.current_wall.end = (end_x, end_y)
         self.last_wall_angle = angle
-
+        self.emit('content-changed')
         self.queue_draw()
 
     def _group_walls_into_sets(self, walls: List[Wall]) -> List[List[Wall]]:

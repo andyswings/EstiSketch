@@ -45,6 +45,8 @@ class CanvasArea(Gtk.DrawingArea,
         'status-update': (GObject.SignalFlags.RUN_FIRST, None, (str,)),
         # when configuration changes
         'config-changed': (GObject.SignalFlags.RUN_FIRST, None, ()),
+        # when canvas content changes (objects added/removed/properties changed)
+        'content-changed': (GObject.SignalFlags.RUN_FIRST, None, ()),
     }
 
     def __init__(self, config_constants):
@@ -382,6 +384,10 @@ class CanvasArea(Gtk.DrawingArea,
         if not layer.visible:
             return False
 
+        # Check object-level visibility
+        if hasattr(obj, 'visible') and not obj.visible:
+            return False
+
         # Check level filtering
         if self.show_all_levels:
             return True
@@ -394,9 +400,13 @@ class CanvasArea(Gtk.DrawingArea,
         return layer.level_id == self.active_level_id
 
     def is_object_on_locked_layer(self, obj) -> bool:
-        """Check if an object is on a locked layer. Objects with no layer_id are never locked."""
+        """Check if an object is on a locked layer or is individually locked."""
+        # Check object-level lock
+        if hasattr(obj, 'locked') and obj.locked:
+            return True
+
         layer_id = getattr(obj, 'layer_id', '')
-        if not layer_id:  # Empty layer_id means not locked
+        if not layer_id:  # Empty layer_id means not locked by layer
             return False
         return layer_id in self.get_locked_layer_ids()
 
@@ -431,6 +441,66 @@ class CanvasArea(Gtk.DrawingArea,
             # Normal Mode: use layer opacity
             return layer.opacity
         return 1.0
+
+    def get_objects_by_layer_id(self, layer_id: str):
+        """Return a list of (type_name, object) tuples for all objects on the given layer."""
+        objects = []
+        
+        # Walls
+        for wall_set in self.wall_sets:
+            for wall in wall_set:
+                if wall.layer_id == layer_id:
+                    objects.append(("wall", wall))
+                    
+        # Rooms
+        for room in self.rooms:
+            if room.layer_id == layer_id:
+                objects.append(("room", room))
+                
+        # Doors
+        for item in self.doors:
+            # item is (wall, door, ratio)
+            if item[1].layer_id == layer_id:
+                objects.append(("door", item[1]))
+                
+        # Windows
+        for item in self.windows:
+            if item[1].layer_id == layer_id:
+                objects.append(("window", item[1]))
+                
+        # Text
+        for text in self.texts:
+            if text.layer_id == layer_id:
+                objects.append(("text", text))
+                
+        # Dimensions
+        for dim in self.dimensions:
+            if dim.layer_id == layer_id:
+                objects.append(("dimension", dim))
+                
+        # Polylines
+        for poly_set in self.polyline_sets:
+            for poly in poly_set:
+                if poly.layer_id == layer_id:
+                    objects.append(("polyline", poly))
+
+        # Circles
+        for circle in self.circles:
+            if circle.layer_id == layer_id:
+                objects.append(("circle", circle))
+
+        # Arcs
+        for arc in self.arcs:
+            if arc.layer_id == layer_id:
+                objects.append(("arc", arc))
+                
+        # Roofs
+        if hasattr(self, 'roofs'):
+            for roof in self.roofs:
+                 if getattr(roof, 'layer_id', '') == layer_id:
+                    objects.append(("roof", roof))
+
+        return objects
 
     # ─────────────────────────────────────────────────────────────────────────
     # Level Management Methods
@@ -651,6 +721,7 @@ class CanvasArea(Gtk.DrawingArea,
         self.selected_items.clear()
         self.queue_draw()
         self.emit('selection-changed', self.selected_items)
+        self.emit('content-changed')
 
     def select_all(self):
         """Select all objects on the canvas"""

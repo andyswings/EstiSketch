@@ -6,6 +6,10 @@
 - [ ] Foundation - Slabs
 - [ ] In the layer panel, each layer should have a list of objects on that layer that can be selected and edited, and the list should be updated in real time as objects are added or removed from the layer. Next to each object in the list should be a way to lock or unlock the object, and a way to hide or show the object. The list should be scrollable if there are more objects than can fit in the panel. The list should also be collapsible vertically to clean up the view if desired.
 
+
+## Ideas to think about
+- [ ] Instead of closing the properties panel when we deselect objects, should we just by default switch to the layer panel?
+
 ## ✨ Core Features (essential functionality)
 
 ### Architectural Elements

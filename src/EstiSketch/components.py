@@ -36,9 +36,13 @@ class Wall:
             layer_id: str = "",
             is_curved=False,
             arc_center=None,
-            arc_radius=None):
+            arc_radius=None,
+            visible=True,
+            locked=False):
         self.identifier = identifier  # unique string identifier
         self.layer_id = layer_id  # layer this wall belongs to
+        self.visible = visible
+        self.locked = locked
         self.start = start  # tuple of (x, y)
         self.end = end      # tuple of (x, y)
         self.width = width  # integer (inches)
@@ -69,9 +73,11 @@ class Wall:
 
 @dataclass
 class Polyline:
-    def __init__(self, start, end, identifier="", layer_id: str = "", color: tuple = (0.0, 0.0, 0.0)):
+    def __init__(self, start, end, identifier="", layer_id: str = "", color: tuple = (0.0, 0.0, 0.0), visible=True, locked=False):
         self.identifier = identifier  # unique string identifier
         self.layer_id = layer_id  # layer this polyline belongs to
+        self.visible = visible
+        self.locked = locked
         self.start = start  # tuple of (x, y)
         self.end = end      # tuple of (x, y)
         self.style = "solid"  # or "dashed"
@@ -85,9 +91,13 @@ class Room:
                                     float]],
                  height: float = 96.0,
                  identifier="",
-                 layer_id: str = ""):
+                 layer_id: str = "",
+                 visible=True,
+                 locked=False):
         self.identifier = identifier  # unique string identifier
         self.layer_id = layer_id  # layer this room belongs to
+        self.visible = visible
+        self.locked = locked
         # List of (x, y) tuples defining the room vertices
         self.points = points
         self.height = height  # Room height in inches
@@ -107,9 +117,13 @@ class Door:
             swing: str,
             orientation: str,
             identifier="",
-            layer_id: str = ""):
+            layer_id: str = "",
+            visible=True,
+            locked=False):
         self.identifier = identifier  # unique string identifier
         self.layer_id = layer_id  # layer this door belongs to
+        self.visible = visible
+        self.locked = locked
         self.door_type = door_type  # Type of door
         self.width = width  # Door width in inches
         self.height = height    # Door height in inches
@@ -128,9 +142,13 @@ class Window:
             height: float,
             window_type: str,
             identifier="",
-            layer_id: str = ""):
+            layer_id: str = "",
+            visible=True,
+            locked=False):
         self.identifier = identifier  # unique string identifier
         self.layer_id = layer_id  # layer this window belongs to
+        self.visible = visible
+        self.locked = locked
         self.width = width  # Window width in inches
         self.height = height  # Window height in inches
         self.window_type = window_type  # Type of window
@@ -147,6 +165,8 @@ class Text:
     height: float = 50.0
     identifier: str = ""
     layer_id: str = ""  # layer this text belongs to
+    visible: bool = True
+    locked: bool = False
     font_size: float = 12.0
     font_family: str = "Sans"
     bold: bool = False
@@ -163,6 +183,8 @@ class Dimension:
     offset: float  # Perpendicular distance from measured line (in inches)
     identifier: str = ""
     layer_id: str = ""  # layer this dimension belongs to
+    visible: bool = True
+    locked: bool = False
     text_size: float = 12.0  # Font size for dimension text
     show_arrows: bool = True  # Whether to show extension arrows
     line_style: str = "solid"  # "solid" or "dashed"
@@ -175,6 +197,8 @@ class Circle:
     radius: float  # in inches
     identifier: str = ""
     layer_id: str = ""
+    visible: bool = True
+    locked: bool = False
     line_style: str = "solid"
     color: tuple = (0.0, 0.0, 0.0)
 
@@ -187,5 +211,7 @@ class Arc:
     end_angle: float  # radians
     identifier: str = ""
     layer_id: str = ""
+    visible: bool = True
+    locked: bool = False
     line_style: str = "solid"
     color: tuple = (0.0, 0.0, 0.0)
