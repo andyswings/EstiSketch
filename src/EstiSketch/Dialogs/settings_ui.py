@@ -98,6 +98,7 @@ def create_settings_dialog(parent, config_constants, canvas):
         ("Enable Centerline Snapping", "ENABLE_CENTERLINE_SNAPPING"),
         ("Enable Undo/Redo Limit", "ENABLE_UNDO_REDO_LIMIT"),
         ("Include Cost Estimate in Export", "INCLUDE_COST_ESTIMATE_IN_EXPORT"),
+        ("Layer Focus Mode", "LAYER_FOCUS_MODE"),
     ]
 
     switches = {}
@@ -130,7 +131,8 @@ def create_settings_dialog(parent, config_constants, canvas):
         if hasattr(canvas, 'snap_manager'):
             canvas.snap_manager.snap_enabled = config_constants.SNAP_ENABLED
             canvas.snap_manager.snap_threshold = config_constants.SNAP_THRESHOLD
-
+        
+        canvas.emit('config-changed')
         canvas.queue_draw()
 
     dialog.connect("response", lambda d, response: update_config()

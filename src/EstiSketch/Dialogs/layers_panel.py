@@ -22,6 +22,7 @@ class LayersPanel(Gtk.Box):
     def __init__(self, canvas):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.canvas = canvas
+        self.canvas.connect("config-changed", lambda w: self.refresh_layers())
         self.set_margin_start(6)
         self.set_margin_end(6)
         self.set_margin_top(6)
@@ -385,7 +386,10 @@ class LayersPanel(Gtk.Box):
         opacity_scale.set_size_request(60, -1)
         opacity_scale.set_tooltip_text(f"Opacity: {int(layer.opacity * 100)}%")
         opacity_scale.connect("value-changed", self.on_opacity_changed, layer)
-        row.append(opacity_scale)
+        
+        # Only show slider if Focus Mode is OFF
+        if not getattr(self.canvas.config, "LAYER_FOCUS_MODE", False):
+            row.append(opacity_scale)
 
         return row
 

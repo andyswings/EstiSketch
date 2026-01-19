@@ -43,6 +43,8 @@ class CanvasArea(Gtk.DrawingArea,
         'selection-changed': (GObject.SignalFlags.RUN_FIRST, None, (object,)),
         # when tool hint needs updating
         'status-update': (GObject.SignalFlags.RUN_FIRST, None, (str,)),
+        # when configuration changes
+        'config-changed': (GObject.SignalFlags.RUN_FIRST, None, ()),
     }
 
     def __init__(self, config_constants):
@@ -350,6 +352,7 @@ class CanvasArea(Gtk.DrawingArea,
         layer = self.get_layer_by_id(layer_id)
         if layer:
             self.active_layer_id = layer_id
+            self.queue_draw()
             return True
         return False
 
@@ -402,8 +405,30 @@ class CanvasArea(Gtk.DrawingArea,
         layer_id = getattr(obj, 'layer_id', '')
         if not layer_id:
             return 1.0
+
         layer = self.get_layer_by_id(layer_id)
         if layer:
+            # Focus Mode Logic
+            if getattr(self.config, "LAYER_FOCUS_MODE", False):
+                # If active layer is not found (shouldn't happen), default to 1.0
+                active_layer = self.get_layer_by_id(self.active_layer_id)
+                if not active_layer:
+                    return 1.0
+
+                # Determine if object's layer is active or above/below
+                # Layers are ordered bottom to top in self.layers
+                try:
+                    obj_layer_index = self.layers.index(layer)
+                    active_layer_index = self.layers.index(active_layer)
+
+                    if obj_layer_index < active_layer_index:
+                        return 0.25  # Below active layer -> dimmed
+                    else:
+                        return 1.0   # Active or above -> full opacity
+                except ValueError:
+                    return 1.0 # Fallback if layer not in list
+
+            # Normal Mode: use layer opacity
             return layer.opacity
         return 1.0
 
