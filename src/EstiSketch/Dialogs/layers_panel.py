@@ -439,10 +439,15 @@ class LayersPanel(Gtk.Box):
         if not objects:
             return
 
+        # Track room count for numbering
+        room_counter = 1
+        
         for type_name, obj in objects:
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+            row.set_margin_top(1)
+            row.set_margin_bottom(1)
             
-            # Object Visibility
+            # Object Visibility (smaller)
             vis_btn = Gtk.ToggleButton()
             vis_btn.set_has_frame(False)
             is_vis = getattr(obj, 'visible', True)
@@ -452,29 +457,183 @@ class LayersPanel(Gtk.Box):
             vis_btn.connect("toggled", self.on_obj_visibility_toggled, obj)
             row.append(vis_btn)
             
-            # Object Lock
+            # Object Lock (smaller)
             lock_btn = Gtk.ToggleButton()
             lock_btn.set_has_frame(False)
             is_locked = getattr(obj, 'locked', False)
             lock_btn.set_active(is_locked)
             lock_btn.set_label("🔒" if is_locked else "🔓")
+            lock_btn.set_tooltip_text("Toggle object lock")
             lock_btn.connect("toggled", self.on_obj_lock_toggled, obj)
             row.append(lock_btn)
             
-            # Object Label
-            ident = getattr(obj, 'identifier', '')
-            if not ident:
-                ident = str(id(obj))
+            # Generate smart display name
+            display_name = self._get_object_display_name(type_name, obj, room_counter)
+            if type_name == "room":
+                room_counter += 1
             
-            # Nice display name
-            display_name = f"{type_name.capitalize()} {ident}"
-            lbl = Gtk.Label(label=display_name)
-            lbl.set_xalign(0)
-            lbl.set_hexpand(True)
-            lbl.set_ellipsize(Pango.EllipsizeMode.END)
-            row.append(lbl)
+            # Object Label Button (clickable for selection, right-clickable for rename)
+            name_btn = Gtk.Button()
+            name_lbl = Gtk.Label(label=display_name)
+            name_lbl.set_xalign(0)
+            name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+            # Smaller font using CSS
+            name_lbl.add_css_class("caption")
+            name_btn.set_child(name_lbl)
+            name_btn.set_has_frame(False)
+            name_btn.set_hexpand(True)
+            name_btn.set_tooltip_text(display_name)
+            
+            # Right-click for rename
+            right_click = Gtk.GestureClick()
+            right_click.set_button(3)
+            right_click.connect("pressed", self.on_object_right_click, obj, type_name, name_btn)
+            name_btn.add_controller(right_click)
+            
+            row.append(name_btn)
             
             list_box.append(row)
+
+    def _get_object_display_name(self, type_name, obj, room_counter=1):
+        """Generate a smart display name for an object based on its type and properties."""
+        import math
+        
+        # Check for custom name first
+        custom_name = getattr(obj, 'custom_name', None)
+        if custom_name:
+            return custom_name
+            
+        if type_name == "wall":
+            # Wall - length
+            start = getattr(obj, 'start', (0, 0))
+            end = getattr(obj, 'end', (0, 0))
+            length = math.hypot(end[0] - start[0], end[1] - start[1])
+            length_str = self.canvas.converter.format_measurement(length, use_fraction=False)
+            return f"Wall - {length_str}"
+            
+        elif type_name == "room":
+            # Room - numbered order
+            return f"Room - #{room_counter}"
+            
+        elif type_name == "door":
+            # Door - size (width x height)
+            width = getattr(obj, 'width', 36)
+            height = getattr(obj, 'height', 80)
+            return f"Door - {int(width)}\"×{int(height)}\""
+            
+        elif type_name == "window":
+            # Window - size (width x height)
+            width = getattr(obj, 'width', 36)
+            height = getattr(obj, 'height', 48)
+            return f"Window - {int(width)}\"×{int(height)}\""
+            
+        elif type_name == "circle":
+            # Circle - radius
+            radius = getattr(obj, 'radius', 0)
+            radius_str = self.canvas.converter.format_measurement(radius, use_fraction=False)
+            return f"Circle - R:{radius_str}"
+            
+        elif type_name == "arc":
+            # Arc - radius
+            radius = getattr(obj, 'radius', 0)
+            radius_str = self.canvas.converter.format_measurement(radius, use_fraction=False)
+            return f"Arc - R:{radius_str}"
+            
+        elif type_name == "polyline":
+            # Polyline - length
+            start = getattr(obj, 'start', (0, 0))
+            end = getattr(obj, 'end', (0, 0))
+            length = math.hypot(end[0] - start[0], end[1] - start[1])
+            length_str = self.canvas.converter.format_measurement(length, use_fraction=False)
+            return f"Line - {length_str}"
+            
+        elif type_name == "text":
+            # Text - first few chars of content
+            content = getattr(obj, 'content', 'Text')
+            preview = content[:15] + "..." if len(content) > 15 else content
+            return f"Text - \"{preview}\""
+            
+        elif type_name == "dimension":
+            # Dimension - measurement value
+            start = getattr(obj, 'start', (0, 0))
+            end = getattr(obj, 'end', (0, 0))
+            length = math.hypot(end[0] - start[0], end[1] - start[1])
+            length_str = self.canvas.converter.format_measurement(length, use_fraction=False)
+            return f"Dim - {length_str}"
+            
+        elif type_name == "roof":
+            # Roof - identifier or simple name
+            ident = getattr(obj, 'identifier', '')
+            return f"Roof - {ident}" if ident else "Roof"
+            
+        else:
+            # Fallback
+            ident = getattr(obj, 'identifier', '')
+            if ident:
+                return f"{type_name.capitalize()} - {ident}"
+            return type_name.capitalize()
+
+    def on_object_right_click(self, gesture, n_press, x, y, obj, type_name, button):
+        """Show context menu for object rename."""
+        popover = Gtk.Popover()
+        popover.set_parent(button)
+
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        vbox.set_margin_start(8)
+        vbox.set_margin_end(8)
+        vbox.set_margin_top(8)
+        vbox.set_margin_bottom(8)
+        popover.set_child(vbox)
+
+        # Rename Section
+        lbl = Gtk.Label(label="Rename Object")
+        lbl.add_css_class("heading")
+        vbox.append(lbl)
+
+        # Get current custom name or generate default
+        current_name = getattr(obj, 'custom_name', None)
+        if not current_name:
+            current_name = self._get_object_display_name(type_name, obj)
+
+        entry = Gtk.Entry()
+        entry.set_text(current_name)
+        entry.connect(
+            "activate",
+            lambda e: self._perform_object_rename(obj, entry.get_text(), popover))
+        vbox.append(entry)
+
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        
+        rename_btn = Gtk.Button(label="Rename")
+        rename_btn.connect(
+            "clicked",
+            lambda b: self._perform_object_rename(obj, entry.get_text(), popover))
+        btn_box.append(rename_btn)
+        
+        reset_btn = Gtk.Button(label="Reset")
+        reset_btn.set_tooltip_text("Reset to default name")
+        reset_btn.connect(
+            "clicked",
+            lambda b: self._reset_object_name(obj, popover))
+        btn_box.append(reset_btn)
+        
+        vbox.append(btn_box)
+
+        popover.popup()
+
+    def _perform_object_rename(self, obj, new_name, popover):
+        """Rename an object with a custom name."""
+        if new_name.strip():
+            obj.custom_name = new_name.strip()
+            popover.popdown()
+            self.refresh_layer_contents()
+
+    def _reset_object_name(self, obj, popover):
+        """Reset object to default name by clearing custom_name."""
+        if hasattr(obj, 'custom_name'):
+            delattr(obj, 'custom_name')
+        popover.popdown()
+        self.refresh_layer_contents()
 
     def on_obj_visibility_toggled(self, btn, obj):
         if hasattr(obj, 'visible'):
