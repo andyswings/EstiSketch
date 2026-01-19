@@ -4,11 +4,10 @@
 - [ ] Foundation design tools
 - [ ] Foundation - Footers
 - [ ] Foundation - Slabs
-- [ ] In the layer panel, each layer should have a list of objects on that layer that can be selected and edited, and the list should be updated in real time as objects are added or removed from the layer. Next to each object in the list should be a way to lock or unlock the object, and a way to hide or show the object. The list should be scrollable if there are more objects than can fit in the panel. The list should also be collapsible vertically to clean up the view if desired.
-
 
 ## Ideas to think about
 - [ ] Instead of closing the properties panel when we deselect objects, should we just by default switch to the layer panel?
+- [ ] Hiding or showing the properties panel is clunky. Maybe we should always start the application with the panel open, and then leave it up to the user to hide or show it at their discretion? (in other words selecting an object would not automatically open the properties panel, but if the panel is already open it would switch to the tab for the selected object)
 
 ## ✨ Core Features (essential functionality)
 
@@ -163,6 +162,7 @@
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Added object list per layer in the layers panel. (2026-01-18)
 - [x] When a layer is selected, it and the layers above are set to 100% opacity and the layers below are set to 25% opacity. (2026-01-18)
 - [x] Objects can no longer be placed or edited on a locked layer. (2026-01-18)
 - [x] Fixed wall loops are not always mitered correctly between the last and first wall and the issue is not fixed by joining the walls or joining connected walls. (2026-01-18)

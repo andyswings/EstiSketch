@@ -2292,12 +2292,19 @@ class PropertiesDock(Gtk.Box):
              self.roof_page.set_roof(selected_roofs)
 
          # Tab Switching Logic
+        # Skip tab switching if selection came from layers panel
+        from_layers_panel = getattr(self.canvas, '_selection_from_layers_panel', False)
+        
         if has_selection:
-             # Make sure dock is visible
-             if not self.stack.get_visible():
+             # Make sure dock is visible (but don't change tabs if from layers panel)
+             if not self.stack.get_visible() and not from_layers_panel:
                   self.stack.set_visible(True)
                   self.toggle_button.set_child(self.toggle_open_image)
                   self.emit('sidebar-toggled', True)
+             
+             # Skip the rest of tab switching if from layers panel
+             if from_layers_panel:
+                  return
              
              # Decide which tab to show
              current_tab = self.stack.get_visible_child_name()

@@ -415,6 +415,22 @@ class LayersPanel(Gtk.Box):
         
         if not getattr(self.canvas.config, "LAYER_FOCUS_MODE", False):
             header_row.append(opacity_scale)
+        
+        # Select All button (small)
+        select_all_btn = Gtk.Button()
+        select_all_btn.set_label("☑")
+        select_all_btn.set_has_frame(False)
+        select_all_btn.set_tooltip_text("Select all objects in this layer")
+        select_all_btn.connect("clicked", self.on_select_all_layer, layer)
+        header_row.append(select_all_btn)
+        
+        # Deselect All button (small)  
+        deselect_all_btn = Gtk.Button()
+        deselect_all_btn.set_label("☐")
+        deselect_all_btn.set_has_frame(False)
+        deselect_all_btn.set_tooltip_text("Deselect all objects in this layer")
+        deselect_all_btn.connect("clicked", self.on_deselect_all_layer, layer)
+        header_row.append(deselect_all_btn)
             
         # Object List (Expander Child)
         object_list_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -425,6 +441,102 @@ class LayersPanel(Gtk.Box):
         expander.set_child(object_list_box)
 
         return expander
+    
+    def on_select_all_layer(self, button, layer):
+        """Select all objects on this layer."""
+        objects = self.canvas.get_objects_by_layer_id(layer.id)
+        if not objects:
+            return
+            
+        # Use special flag to prevent tab switching
+        self.canvas._selection_from_layers_panel = True
+        
+        for type_name, obj in objects:
+            # Skip locked or hidden objects
+            if getattr(obj, 'locked', False) or not getattr(obj, 'visible', True):
+                continue
+            self._add_to_selection(type_name, obj)
+        
+        self.canvas.emit('selection-changed', self.canvas.selected_items)
+        self.canvas.queue_draw()
+        self.refresh_layer_contents()
+        # Reset flag AFTER signal is processed
+        self.canvas._selection_from_layers_panel = False
+    
+    def on_deselect_all_layer(self, button, layer):
+        """Deselect all objects on this layer."""
+        objects = self.canvas.get_objects_by_layer_id(layer.id)
+        if not objects:
+            return
+        
+        for type_name, obj in objects:
+            self._remove_from_selection(obj)
+        
+        self.canvas.emit('selection-changed', self.canvas.selected_items)
+        self.canvas.queue_draw()
+        self.refresh_layer_contents()
+    
+    def _add_to_selection(self, type_name, obj):
+        """Add an object to the canvas selection if not already selected."""
+        # Check if already selected
+        for item in self.canvas.selected_items:
+            item_obj = item.get("object")
+            # Handle tuples (door/window)
+            if isinstance(item_obj, tuple) and len(item_obj) >= 2:
+                if item_obj[1] == obj:
+                    return  # Already selected
+            elif item_obj == obj:
+                return  # Already selected
+        
+        # Create selection item based on type
+        if type_name == "door":
+            # Find the door tuple
+            for wall, door, ratio in self.canvas.doors:
+                if door == obj:
+                    self.canvas.selected_items.append({
+                        "type": "door",
+                        "object": (wall, door, ratio)
+                    })
+                    return
+        elif type_name == "window":
+            # Find the window tuple
+            for wall, window, ratio in self.canvas.windows:
+                if window == obj:
+                    self.canvas.selected_items.append({
+                        "type": "window", 
+                        "object": (wall, window, ratio)
+                    })
+                    return
+        else:
+            self.canvas.selected_items.append({
+                "type": type_name,
+                "object": obj
+            })
+    
+    def _remove_from_selection(self, obj):
+        """Remove an object from the canvas selection."""
+        new_selection = []
+        for item in self.canvas.selected_items:
+            item_obj = item.get("object")
+            # Handle tuples (door/window)
+            if isinstance(item_obj, tuple) and len(item_obj) >= 2:
+                if item_obj[1] != obj:
+                    new_selection.append(item)
+            elif item_obj != obj:
+                new_selection.append(item)
+        self.canvas.selected_items = new_selection
+    
+    def _is_object_selected(self, obj):
+        """Check if an object is currently selected."""
+        for item in self.canvas.selected_items:
+            item_obj = item.get("object")
+            # Handle tuples (door/window)
+            if isinstance(item_obj, tuple) and len(item_obj) >= 2:
+                if item_obj[1] == obj:
+                    return True
+            elif item_obj == obj:
+                return True
+        return False
 
     def _populate_object_list(self, list_box, layer):
         """Populate the list box with objects for the given layer."""
@@ -446,6 +558,13 @@ class LayersPanel(Gtk.Box):
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
             row.set_margin_top(1)
             row.set_margin_bottom(1)
+            
+            # Selection Checkbox
+            select_check = Gtk.CheckButton()
+            select_check.set_active(self._is_object_selected(obj))
+            select_check.set_tooltip_text("Toggle selection")
+            select_check.connect("toggled", self.on_obj_selection_toggled, obj, type_name)
+            row.append(select_check)
             
             # Object Visibility (smaller)
             vis_btn = Gtk.ToggleButton()
@@ -483,6 +602,9 @@ class LayersPanel(Gtk.Box):
             name_btn.set_has_frame(False)
             name_btn.set_hexpand(True)
             name_btn.set_tooltip_text(display_name)
+            
+            # Left-click to toggle selection
+            name_btn.connect("clicked", self.on_obj_name_clicked, obj, type_name, select_check)
             
             # Right-click for rename
             right_click = Gtk.GestureClick()
@@ -634,6 +756,28 @@ class LayersPanel(Gtk.Box):
             delattr(obj, 'custom_name')
         popover.popdown()
         self.refresh_layer_contents()
+
+    def on_obj_selection_toggled(self, check_button, obj, type_name):
+        """Handle selection checkbox toggle."""
+        # Set flag to prevent tab switching
+        self.canvas._selection_from_layers_panel = True
+        
+        if check_button.get_active():
+            # Add to selection
+            self._add_to_selection(type_name, obj)
+        else:
+            # Remove from selection
+            self._remove_from_selection(obj)
+        
+        self.canvas.emit('selection-changed', self.canvas.selected_items)
+        self.canvas.queue_draw()
+        # Reset flag AFTER signal is processed
+        self.canvas._selection_from_layers_panel = False
+
+    def on_obj_name_clicked(self, button, obj, type_name, check_button):
+        """Handle clicking on object name to toggle selection."""
+        # Toggle the checkbox state
+        check_button.set_active(not check_button.get_active())
 
     def on_obj_visibility_toggled(self, btn, obj):
         if hasattr(obj, 'visible'):
