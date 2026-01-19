@@ -85,11 +85,35 @@ class EstimatorApp(Gtk.Application):
         exit_action.connect("activate", self.on_exit)
         self.add_action(exit_action)
 
-        # Load CSS for status indicator
+        # Load CSS for status indicator and layers panel
         css_provider = Gtk.CssProvider()
         css = b"""
         .success { color: #33d17a; }
         .error { color: #e01b24; }
+        
+        /* Layer controls (slightly smaller than default) */
+        .layer-control {
+            font-size: 13px;
+            min-height: 22px;
+            min-width: 22px;
+            padding: 1px;
+        }
+        
+        /* Object controls (smaller than layers) */
+        .object-control {
+            font-size: 12px;
+            min-height: 18px;
+            min-width: 18px;
+            padding: 0px;
+            margin: 0px;
+        }
+        .object-row {
+            padding: 0px;
+            margin: 0px;
+        }
+        .object-label {
+            font-size: 11px;
+        }
         """
         css_provider.load_from_data(css)
         Gtk.StyleContext.add_provider_for_display(

@@ -372,6 +372,7 @@ class LayersPanel(Gtk.Box):
         visibility_btn.set_active(layer.visible)
         visibility_btn.set_label("👁" if layer.visible else "○")
         visibility_btn.set_tooltip_text("Toggle layer visibility")
+        visibility_btn.add_css_class("layer-control")
         visibility_btn.connect("toggled", self.on_visibility_toggled, layer)
         header_row.append(visibility_btn)
 
@@ -381,6 +382,7 @@ class LayersPanel(Gtk.Box):
         lock_btn.set_active(layer.locked)
         lock_btn.set_label("🔒" if layer.locked else "🔓")
         lock_btn.set_tooltip_text("Toggle layer lock")
+        lock_btn.add_css_class("layer-control")
         lock_btn.connect("toggled", self.on_lock_toggled, layer)
         header_row.append(lock_btn)
 
@@ -555,14 +557,16 @@ class LayersPanel(Gtk.Box):
         room_counter = 1
         
         for type_name, obj in objects:
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
-            row.set_margin_top(1)
-            row.set_margin_bottom(1)
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=1)
+            row.set_margin_top(0)
+            row.set_margin_bottom(0)
+            row.add_css_class("object-row")
             
-            # Selection Checkbox
+            # Selection Checkbox (compact)
             select_check = Gtk.CheckButton()
             select_check.set_active(self._is_object_selected(obj))
             select_check.set_tooltip_text("Toggle selection")
+            select_check.add_css_class("object-control")
             select_check.connect("toggled", self.on_obj_selection_toggled, obj, type_name)
             row.append(select_check)
             
@@ -571,9 +575,12 @@ class LayersPanel(Gtk.Box):
             vis_btn.set_has_frame(False)
             is_vis = getattr(obj, 'visible', True)
             vis_btn.set_active(is_vis)
-            vis_btn.set_label("👁" if is_vis else "○")
+            vis_lbl = Gtk.Label(label="👁" if is_vis else "○")
+            vis_lbl.add_css_class("object-control")
+            vis_btn.set_child(vis_lbl)
+            vis_btn.add_css_class("object-control")
             vis_btn.set_tooltip_text("Toggle object visibility")
-            vis_btn.connect("toggled", self.on_obj_visibility_toggled, obj)
+            vis_btn.connect("toggled", self.on_obj_visibility_toggled, obj, vis_lbl)
             row.append(vis_btn)
             
             # Object Lock (smaller)
@@ -581,9 +588,12 @@ class LayersPanel(Gtk.Box):
             lock_btn.set_has_frame(False)
             is_locked = getattr(obj, 'locked', False)
             lock_btn.set_active(is_locked)
-            lock_btn.set_label("🔒" if is_locked else "🔓")
+            lock_lbl = Gtk.Label(label="🔒" if is_locked else "🔓")
+            lock_lbl.add_css_class("object-control")
+            lock_btn.set_child(lock_lbl)
+            lock_btn.add_css_class("object-control")
             lock_btn.set_tooltip_text("Toggle object lock")
-            lock_btn.connect("toggled", self.on_obj_lock_toggled, obj)
+            lock_btn.connect("toggled", self.on_obj_lock_toggled, obj, lock_lbl)
             row.append(lock_btn)
             
             # Generate smart display name
@@ -596,8 +606,7 @@ class LayersPanel(Gtk.Box):
             name_lbl = Gtk.Label(label=display_name)
             name_lbl.set_xalign(0)
             name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-            # Smaller font using CSS
-            name_lbl.add_css_class("caption")
+            name_lbl.add_css_class("object-label")
             name_btn.set_child(name_lbl)
             name_btn.set_has_frame(False)
             name_btn.set_hexpand(True)
@@ -779,23 +788,19 @@ class LayersPanel(Gtk.Box):
         # Toggle the checkbox state
         check_button.set_active(not check_button.get_active())
 
-    def on_obj_visibility_toggled(self, btn, obj):
+    def on_obj_visibility_toggled(self, btn, obj, lbl):
         if hasattr(obj, 'visible'):
             obj.visible = btn.get_active()
-            btn.set_label("👁" if obj.visible else "○")
+            lbl.set_label("👁" if obj.visible else "○")
             self.canvas.queue_draw()
-            # self.emit('content-changed') # This might cause loop if we listen to it?
-            # actually we listen to content-changed to refresh list.
-            # changing visibility doesn't add/remove objects so maybe we don't need full refresh.
             
-    def on_obj_lock_toggled(self, btn, obj):
+    def on_obj_lock_toggled(self, btn, obj, lbl):
         if hasattr(obj, 'locked'):
             obj.locked = btn.get_active()
-            btn.set_label("🔒" if obj.locked else "🔓")
+            lbl.set_label("🔒" if obj.locked else "🔓")
             # If we lock it, maybe deselect it?
             if obj.locked and hasattr(self.canvas, 'selected_items'):
                 # Check if selected
-                # simple check
                 for item in self.canvas.selected_items:
                      if item.get('object') == obj:
                          self.canvas.deselect_items_on_layer("") # hack or just clear selection
