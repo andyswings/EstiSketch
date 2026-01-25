@@ -155,6 +155,16 @@
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+
+### v0.3.0-alpha (2026-01-25)
+- [x] Added footing and slab properties to Wall and Room data models (2026-01-25)
+- [x] Implemented footer rendering with smart corner joining and extensions (2026-01-25)
+- [x] Implemented slab rendering with concrete hatching (2026-01-25)
+- [x] Added 'Symbolic' wall option for footer-only display (2026-01-25)
+- [x] Added RoomPropertiesWidget to edit slab settings (2026-01-25)
+- [x] Refactored 'Basic' toolset to 'Main' and merge Foundation tools (2026-01-25)
+- [x] Update serialization for new properties (2026-01-25)
+- [x] Fix footer rendering offset and remove miter lines (2026-01-25)
 - [x] Refactored sidebar to always show Layers on top with Properties below. Added resizable paned split, empty state for no selection, and persist panel sizes between restarts. (2026-01-24)
 - [x] Added object list per layer in the layers panel. (2026-01-18)
 - [x] When a layer is selected, it and the layers above are set to 100% opacity and the layers below are set to 25% opacity. (2026-01-18)
@@ -235,4 +245,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2026-01-24_
+_Last updated: 2026-01-25_

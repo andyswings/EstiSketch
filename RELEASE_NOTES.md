@@ -1,5 +1,28 @@
 # EstiSketch Alpha Release Notes
 
+## Version 0.3.0-alpha
+**Date:** 2026-01-25
+
+### Highlights
+- **Foundation Design**: comprehensive tools for designing footers and concrete slabs.
+- **Improved Workflow**: Refactored toolsets with "Main" category streamlining access to core tools.
+- **Rendering Upgrades**: Seamless footer connections and concrete material hatching.
+
+### New Features
+- **Foundation Footers**: Configure footers on walls with adjustable width and depth.
+- **Symbolic Walls**: Option to render only the footer (hides wall body) for foundation plans.
+- **Concrete Slabs**: "Draw Rooms" tool now supports Slab mode with hatching, thickness, and reinforcement settings.
+- **Interactive Foundations**: Footers and slabs are selectable and editable via the properties panel.
+- **Refactored Toolsets**: Renamed "Basic" to "Main" and integrated Foundation tools for a unified workflow.
+
+### Bug Fixes
+- Fixed footer rendering position (removed double transformation offset).
+- Removed internal miter lines for seamless footer corner connections.
+- Corrected footer extension logic for free-standing wall ends.
+
+---
+
+
 ## Version 0.2.0-alpha
 **Date:** 2026-01-14
 

@@ -11,7 +11,7 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
 - **Pan (P)**: Smoothly navigate the canvas.
 - **Zoom**: Controls for Zoom In (Ctrl+=), Out (Ctrl+-), and Reset (Ctrl+0). Mouse wheel and pinch gestures supported.
 - **Undo/Redo**: Full undo history (Ctrl+Z / Ctrl+Y).
-- **Toolset Selector**: Dropdown to switch between tool categories (Basic, Annotation, Foundation, Roof, Interior Design).
+- **Toolset Selector**: Dropdown to switch between tool categories (Main, Annotation, Roof, Interior Design).
 
 ### Wall & Room System
 - **Draw Walls (W)**: Rendered with high-quality mitered corners. Live snapping to grid/endpoints and real-time measurement labels.
@@ -23,6 +23,11 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
     - **Join Walls**: Strictly merge selected segments.
     - **Join Connected Walls**: Automatically repair/merge all touching wall chains.
 - **Convert Walls**: Right-click to convert between curved and straight walls.
+    
+### Foundation Design
+- **Interactive Footers**: Toggle footers on walls, configure offsets/depth, with seamless corner joining.
+- **Concrete Slabs**: Create slabs using the Room tool with hatching, thickness, and reinforcement properties.
+- **Symbolic Walls**: Option to display only footers for dedicated foundation plans.
 
 ### Openings & Attributes
 - **Add Doors (D) & Windows (A)**: Place openings on walls (including curved walls).
@@ -54,7 +59,6 @@ EstiSketch is an evolving, lightweight tool designed for contractors and designe
 ## Planned Features
 - **Roof Design Tools**: Gable, hip, flat, custom pitches
 - **Export**: Robust export to standard document formats.
-- **Foundation Design Tools**: Slab, crawlspace, basement layouts
 
 ## Installation and Usage
 
