@@ -136,7 +136,6 @@
 ## 🎓 Help & Learning
 - [ ] Keyboard shortcuts cheat sheet
 - [ ] Built-in tutorials
-- [ ] Tooltips (hover help)
 - [ ] Video tutorials
 - [ ] Sample projects
 - [ ] Help documentation
@@ -145,21 +144,25 @@
 ## 🎨 Presentation & Visualization
 - [ ] Line weights/types control
 - [ ] Colors by layer
-- [ ] Transparency
 - [ ] 2D shadows
 - [ ] Rendering styles (sketch, blueprint, presentation)
 - [ ] Dark mode toggle
 - [ ] Themes
 
 ## 🛠️ Tech Debt / Refactoring
+- [ ] Remove or hide all non-functioning UI elements until they are implemented (export, etc)
+- [ ] Tabs in the properties panel should be vertical instead of horizontal
 
 ## 🐛 Known Bugs / FIXMEs
+- [ ] Shift + click to select only extends selection, should also subtract from selection if already selected
+- [ ] Roof should auto update when walls are moved after roof is created
 
 ## 💡 Takeoffs
 - [ ] Material Estimator
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Refactored sidebar to always show Layers on top with Properties below. Added resizable paned split, empty state for no selection, and persist panel sizes between restarts. (2026-01-24)
 - [x] Added object list per layer in the layers panel. (2026-01-18)
 - [x] When a layer is selected, it and the layers above are set to 100% opacity and the layers below are set to 25% opacity. (2026-01-18)
 - [x] Objects can no longer be placed or edited on a locked layer. (2026-01-18)
@@ -239,4 +242,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2026-01-18_
+_Last updated: 2026-01-24_

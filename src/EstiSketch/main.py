@@ -1,6 +1,7 @@
 import gi
+import os
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gdk, Gio
+from gi.repository import Gtk, Gdk, Gio, GdkPixbuf
 
 
 from .project_io import save_project, open_project
@@ -133,6 +134,18 @@ class EstimatorApp(Gtk.Application):
             
         if getattr(self.config, 'WINDOW_MAXIMIZED', False):
             self.window.maximize()
+
+        # Set application icon
+        icon_path = os.path.join(os.path.dirname(__file__), 'Icons', 'estisketch.png')
+        if os.path.exists(icon_path):
+            self.window.set_icon_name(None)  # Clear any theme icon
+            # Load the icon as a paintable and set it
+            icon_file = Gio.File.new_for_path(icon_path)
+            icon_texture = Gdk.Texture.new_from_file(icon_file)
+            # GTK4 uses the icon theme; we need to add our icon to the search path
+            icon_theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+            icon_theme.add_search_path(os.path.join(os.path.dirname(__file__), 'Icons'))
+            self.window.set_icon_name('estisketch')
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.window.set_child(vbox)
