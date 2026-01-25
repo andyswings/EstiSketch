@@ -2013,10 +2013,11 @@ class PropertiesDock(Gtk.Box):
         'sidebar-toggled': (GObject.SignalFlags.RUN_FIRST, None, (bool,)),
     }
 
-    def __init__(self, canvas):
+    def __init__(self, canvas, config=None):
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL)
 
         self.canvas = canvas
+        self.config = config
 
         # Go up one level from Dialogs to root, then into Icons
         icon_dir = os.path.join(
@@ -2024,7 +2025,7 @@ class PropertiesDock(Gtk.Box):
                 os.path.dirname(__file__)),
             "Icons")
 
-        # Icon bar (fixed width, icon-only buttons)
+        # Icon bar (fixed width, just toggle button)
         self.icon_bar = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.icon_bar.set_margin_top(48)
@@ -2038,141 +2039,195 @@ class PropertiesDock(Gtk.Box):
             os.path.join(icon_dir, "right_panel_open.png"))
         self.toggle_close_image = Gtk.Image.new_from_file(
             os.path.join(icon_dir, "right_panel_close.png"))
-        self.toggle_button.set_child(
-            self.toggle_close_image)  # Start with close icon (panel starts closed)
+        self.toggle_button.set_child(self.toggle_open_image)  # Start with open icon (panel starts visible)
         self.toggle_button.set_tooltip_text("Toggle Sidebar")
         self.toggle_button.connect('clicked', self._on_toggle_sidebar)
         self.icon_bar.append(self.toggle_button)
 
-        # Add a separator after the toggle button
-        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        self.icon_bar.append(separator)
+        # ─── Main Content Area (Paned for resizable split) ───
+        self.content_paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        self.content_paned.set_size_request(280, -1)
+        self.content_paned.set_wide_handle(True)
+        self.append(self.content_paned)
 
-        # Layers Tab (Always visible)
-        self.layers_btn = self._make_tab_button("layers", icon_dir, "layers")
-        self.icon_bar.append(self.layers_btn)
-        self.tabs = {}  # Initialize tabs dict before adding layers
-        self.tabs["layers"] = self.layers_btn
-
-        # Content stack
-        self.stack = Gtk.Stack(
-            transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT,
-            transition_duration=200)
-        # Set width of content area (total will be 300 with icon bar)
-        self.stack.set_size_request(260, -1)
-        self.append(self.stack)
-        self.stack.set_visible(False)  # Start hidden (sidebar collapsed)
-
-        # Track tabs (layers already added)
-        # self.tabs = {}
-
-        # Add blank/default page for when nothing is selected
-        blank_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        blank_label = Gtk.Label(label="")
-        blank_page.append(blank_label)
-        self.stack.add_titled(blank_page, "blank", "No Selection")
-
-        # Layers Page
+        # ─── Layers Section (Top) ───
+        layers_frame = Gtk.Frame(label="Layers")
+        layers_frame.set_vexpand(True)
         self.layers_page = LayersPanel(canvas)
-        self.stack.add_titled(self.layers_page, "layers", "Layers")
-        # self.layers_page = Gtk.Label(label="Layers Panel Disabled via Debug")
-        # self.stack.add_titled(self.layers_page, "layers", "Layers")
+        
+        # Wrap in scrolled window for long layer lists
+        layers_scroll = Gtk.ScrolledWindow()
+        layers_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        layers_scroll.set_child(self.layers_page)
+        layers_frame.set_child(layers_scroll)
+        
+        self.content_paned.set_start_child(layers_frame)
+        self.content_paned.set_resize_start_child(True)
+        self.content_paned.set_shrink_start_child(False)
 
-        # Pre-create all pages and tabs upfront
+        # ─── Properties Section (Bottom) ───
+        properties_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        properties_box.set_vexpand(True)
+
+        # Properties header with tab buttons
+        properties_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        properties_header.set_margin_start(4)
+        properties_header.set_margin_end(4)
+        properties_header.set_margin_top(4)
+        properties_header.set_margin_bottom(4)
+        
+        # Label for Properties section
+        props_label = Gtk.Label(label="Properties")
+        props_label.set_xalign(0)
+        props_label.set_hexpand(False)
+        properties_header.append(props_label)
+        
+        # Separator to push tabs to the right
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        properties_header.append(spacer)
+        
+        properties_box.append(properties_header)
+        
+        # Tab button bar for property types
+        self.tab_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        self.tab_bar.set_margin_start(4)
+        self.tab_bar.set_margin_end(4)
+        self.tab_bar.set_margin_bottom(4)
+        properties_box.append(self.tab_bar)
+        
+        # Properties content stack
+        self.stack = Gtk.Stack(
+            transition_type=Gtk.StackTransitionType.CROSSFADE,
+            transition_duration=150)
+        self.stack.set_vexpand(True)
+        
+        # Wrap in scrolled window
+        props_scroll = Gtk.ScrolledWindow()
+        props_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        props_scroll.set_child(self.stack)
+        properties_box.append(props_scroll)
+        
+        self.content_paned.set_end_child(properties_box)
+        self.content_paned.set_resize_end_child(True)
+        self.content_paned.set_shrink_end_child(False)
+        
+        # Set initial split position from config or default
+        split_pos = 200  # Default
+        if self.config:
+            split_pos = getattr(self.config, 'LAYERS_PROPERTIES_SPLIT', 200)
+        self.content_paned.set_position(split_pos)
+
+        # Track tabs
+        self.tabs = {}
+
+        # ─── Add empty state page ───
+        empty_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        empty_page.set_valign(Gtk.Align.CENTER)
+        empty_page.set_halign(Gtk.Align.CENTER)
+        empty_page.set_margin_top(40)
+        empty_page.set_margin_bottom(40)
+        
+        empty_icon = Gtk.Image.new_from_icon_name("edit-select-all-symbolic")
+        empty_icon.set_pixel_size(48)
+        empty_icon.set_opacity(0.4)
+        empty_page.append(empty_icon)
+        
+        empty_label = Gtk.Label(label="No Selection")
+        empty_label.add_css_class("dim-label")
+        empty_page.append(empty_label)
+        
+        empty_hint = Gtk.Label(label="Select an object to view\nits properties")
+        empty_hint.set_justify(Gtk.Justification.CENTER)
+        empty_hint.set_opacity(0.6)
+        empty_page.append(empty_hint)
+        
+        self.stack.add_titled(empty_page, "empty", "No Selection")
+
+        # ─── Pre-create all property pages and tab buttons ───
         self.wall_page = WallPropertiesWidget()
         self.wall_page.canvas = canvas
         self.stack.add_titled(self.wall_page, "wall", "Wall Properties")
-
         wall_btn = self._make_tab_button("wall", icon_dir, "wall_properties")
-        self.icon_bar.append(wall_btn)
+        self.tab_bar.append(wall_btn)
         self.tabs["wall"] = wall_btn
 
         self.text_page = TextPropertiesWidget()
         self.text_page.canvas = canvas
         self.stack.add_titled(self.text_page, "text", "Text Properties")
-
         text_btn = self._make_tab_button("text", icon_dir, "add_text")
-        self.icon_bar.append(text_btn)
+        self.tab_bar.append(text_btn)
         self.tabs["text"] = text_btn
 
         self.dimension_page = DimensionPropertiesWidget()
         self.dimension_page.canvas = canvas
-        self.stack.add_titled(
-            self.dimension_page,
-            "dimension",
-            "Dimension Properties")
-
-        dimension_btn = self._make_tab_button(
-            "dimension", icon_dir, "add_dimension")
-        self.icon_bar.append(dimension_btn)
+        self.stack.add_titled(self.dimension_page, "dimension", "Dimension Properties")
+        dimension_btn = self._make_tab_button("dimension", icon_dir, "add_dimension")
+        self.tab_bar.append(dimension_btn)
         self.tabs["dimension"] = dimension_btn
 
         self.window_page = WindowPropertiesWidget()
         self.window_page.canvas = canvas
         self.stack.add_titled(self.window_page, "window", "Window Properties")
-
         window_btn = self._make_tab_button("window", icon_dir, "add_windows")
-        self.icon_bar.append(window_btn)
+        self.tab_bar.append(window_btn)
         self.tabs["window"] = window_btn
 
         self.door_page = DoorPropertiesWidget()
         self.door_page.canvas = canvas
         self.stack.add_titled(self.door_page, "door", "Door Properties")
-
         door_btn = self._make_tab_button("door", icon_dir, "add_doors")
-        self.icon_bar.append(door_btn)
+        self.tab_bar.append(door_btn)
         self.tabs["door"] = door_btn
 
         self.circle_page = CirclePropertiesWidget()
         self.circle_page.canvas = canvas
         self.stack.add_titled(self.circle_page, "circle", "Circle Properties")
-
         circle_btn = self._make_tab_button("circle", icon_dir, "add_circle")
-        self.icon_bar.append(circle_btn)
+        self.tab_bar.append(circle_btn)
         self.tabs["circle"] = circle_btn
 
         self.arc_page = ArcPropertiesWidget()
         self.arc_page.canvas = canvas
         self.stack.add_titled(self.arc_page, "arc", "Arc Properties")
-
         arc_btn = self._make_tab_button("arc", icon_dir, "add_arc")
-        self.icon_bar.append(arc_btn)
+        self.tab_bar.append(arc_btn)
         self.tabs["arc"] = arc_btn
 
         self.polyline_page = PolylinePropertiesWidget()
         self.polyline_page.canvas = canvas
         self.stack.add_titled(self.polyline_page, "polyline", "Polyline Properties")
-
         polyline_btn = self._make_tab_button("polyline", icon_dir, "add_polyline")
-        self.icon_bar.append(polyline_btn)
+        self.tab_bar.append(polyline_btn)
         self.tabs["polyline"] = polyline_btn
 
         self.roof_page = RoofPropertiesWidget()
         self.roof_page.canvas = canvas
         self.stack.add_titled(self.roof_page, "roof", "Roof Properties")
-
         roof_btn = self._make_tab_button("roof", icon_dir, "roof")
-        self.icon_bar.append(roof_btn)
+        self.tab_bar.append(roof_btn)
         self.tabs["roof"] = roof_btn
+
+        # Start with empty state
+        self.stack.set_visible_child_name("empty")
 
     def _make_tab_button(self, name, icon_dir, icon_name):
         btn = Gtk.ToggleButton()
         image = Gtk.Image.new_from_file(
             os.path.join(icon_dir, f"{icon_name}.png"))
-
+        # Make icons smaller for tab bar
+        image.set_pixel_size(20)
         btn.set_child(image)
         btn.set_tooltip_text(name.capitalize())
+        btn.set_sensitive(False)  # Start disabled until selection includes this type
         handler_id = btn.connect(
             'toggled',
-            lambda b: self._on_tab_toggled(
-                b,
-                name))
-        # Store handler ID so we can block it when setting active
-        # programmatically
+            lambda b: self._on_tab_toggled(b, name))
         btn.handler_id = handler_id
         return btn
 
     def refresh_tabs(self, selected_items):
+        """Update properties panel based on selection. Does NOT auto-open/close sidebar."""
         # Detect what types are selected
         wall_items = []
         text_items = []
@@ -2186,7 +2241,6 @@ class PropertiesDock(Gtk.Box):
 
         for item in selected_items:
             item_type = item["type"]
-
             if item_type == "wall":
                 wall_items.append(item)
             elif item_type == "text":
@@ -2194,15 +2248,9 @@ class PropertiesDock(Gtk.Box):
             elif item_type == "dimension":
                 dimension_items.append(item)
             elif item_type == "door":
-                # Extract door object (works for both wall-attached and
-                # floating)
-                wall, door, ratio = item["object"]
-                door_items.append(item)  # Keep the full tuple for callbacks
+                door_items.append(item)
             elif item_type == "window":
-                # Extract window object (works for both wall-attached and
-                # floating)
-                wall, window, ratio = item["object"]
-                window_items.append(item)  # Keep the full tuple for callbacks
+                window_items.append(item)
             elif item_type == "circle":
                 circle_items.append(item)
             elif item_type == "arc":
@@ -2232,121 +2280,91 @@ class PropertiesDock(Gtk.Box):
         self.tabs["arc"].set_sensitive(wants_arc)
         self.tabs["polyline"].set_sensitive(wants_polyline)
         self.tabs["roof"].set_sensitive(wants_roof)
-        self.tabs["layers"].set_sensitive(True)  # Layers always active
 
-        # Update content and activate appropriate tab
-        selection_count = (
-             (1 if wants_wall else 0) +
-             (1 if wants_text else 0) +
-             (1 if wants_dimension else 0) +
-             (1 if wants_window else 0) +
-             (1 if wants_door else 0) +
-             (1 if wants_circle else 0) +
-             (1 if wants_arc else 0) +
-             (1 if wants_polyline else 0) +
-             (1 if wants_roof else 0)
-        )
-
-        has_selection = selection_count > 0
-
-        # Update all active content
+        # Update content for each type
         if wants_wall:
-             selected_walls = [item["object"] for item in wall_items]
-             self.wall_page.set_wall(selected_walls)
+            selected_walls = [item["object"] for item in wall_items]
+            self.wall_page.set_wall(selected_walls)
 
         if wants_text:
-             selected_texts = [item["object"] for item in text_items]
-             self.text_page.set_text(selected_texts)
+            selected_texts = [item["object"] for item in text_items]
+            self.text_page.set_text(selected_texts)
 
         if wants_dimension:
-             selected_dimensions = [item["object"] for item in dimension_items]
-             self.dimension_page.set_dimension(selected_dimensions[0])
+            selected_dimensions = [item["object"] for item in dimension_items]
+            self.dimension_page.set_dimension(selected_dimensions[0])
 
         if wants_window:
-             selected_windows = [(item["object"][1], item["object"][0]) for item in window_items] # window, wall tuple?
-             # Check what window_page expects. Standard is just object list or single object
-             # The existing code did: selected_window = window_items[0]["object"] (which is a tuple?)
-             # Let's check window_page.set_window. It likely takes the tuple (wall, window, ratio) or just window
-             # Looking at previous code line 1711: wall, window, ratio = item["object"]
-             # So item["object"] is the tuple.
-             # existing code: self.window_page.set_window(selected_window)
-             self.window_page.set_window(window_items[0]["object"])
+            self.window_page.set_window(window_items[0]["object"])
 
         if wants_door:
-             self.door_page.set_door(door_items[0]["object"])
+            self.door_page.set_door(door_items[0]["object"])
 
         if wants_circle:
-             selected_circles = [item["object"] for item in circle_items]
-             self.circle_page.set_circle(selected_circles)
+            selected_circles = [item["object"] for item in circle_items]
+            self.circle_page.set_circle(selected_circles)
 
         if wants_arc:
-             selected_arcs = [item["object"] for item in arc_items]
-             self.arc_page.set_arc(selected_arcs)
+            selected_arcs = [item["object"] for item in arc_items]
+            self.arc_page.set_arc(selected_arcs)
 
         if wants_polyline:
-             selected_polylines = [item["object"] for item in polyline_items]
-             self.polyline_page.set_polyline(selected_polylines)
+            selected_polylines = [item["object"] for item in polyline_items]
+            self.polyline_page.set_polyline(selected_polylines)
 
         if wants_roof:
-             selected_roofs = [item["object"] for item in roof_items]
-             self.roof_page.set_roof(selected_roofs)
+            selected_roofs = [item["object"] for item in roof_items]
+            self.roof_page.set_roof(selected_roofs)
 
-         # Tab Switching Logic
-        # Skip tab switching if selection came from layers panel
+        # Tab Switching Logic
+        # Skip if selection came from layers panel (don't steal focus)
         from_layers_panel = getattr(self.canvas, '_selection_from_layers_panel', False)
-        
+        if from_layers_panel:
+            return
+
+        has_selection = (wants_wall or wants_text or wants_dimension or 
+                        wants_window or wants_door or wants_circle or 
+                        wants_arc or wants_polyline or wants_roof)
+
         if has_selection:
-             # Make sure dock is visible (but don't change tabs if from layers panel)
-             if not self.stack.get_visible() and not from_layers_panel:
-                  self.stack.set_visible(True)
-                  self.toggle_button.set_child(self.toggle_open_image)
-                  self.emit('sidebar-toggled', True)
-             
-             # Skip the rest of tab switching if from layers panel
-             if from_layers_panel:
-                  return
-             
-             # Decide which tab to show
-             current_tab = self.stack.get_visible_child_name()
-             
-             # If current tab is still valid, keep it
-             keep_current = False
-             if current_tab == "wall" and wants_wall: keep_current = True
-             elif current_tab == "text" and wants_text: keep_current = True
-             elif current_tab == "dimension" and wants_dimension: keep_current = True
-             elif current_tab == "window" and wants_window: keep_current = True
-             elif current_tab == "door" and wants_door: keep_current = True
-             elif current_tab == "circle" and wants_circle: keep_current = True
-             elif current_tab == "arc" and wants_arc: keep_current = True
-             elif current_tab == "polyline" and wants_polyline: keep_current = True
-             elif current_tab == "roof" and wants_roof: keep_current = True
-             
-             if not keep_current:
-                  # Switch to first available
-                  if wants_wall: self._set_active_tab("wall"); self.stack.set_visible_child_name("wall")
-                  elif wants_text: self._set_active_tab("text"); self.stack.set_visible_child_name("text")
-                  elif wants_dimension: self._set_active_tab("dimension"); self.stack.set_visible_child_name("dimension")
-                  elif wants_window: self._set_active_tab("window"); self.stack.set_visible_child_name("window")
-                  elif wants_door: self._set_active_tab("door"); self.stack.set_visible_child_name("door")
-                  elif wants_circle: self._set_active_tab("circle"); self.stack.set_visible_child_name("circle")
-                  elif wants_arc: self._set_active_tab("arc"); self.stack.set_visible_child_name("arc")
-                  elif wants_polyline: self._set_active_tab("polyline"); self.stack.set_visible_child_name("polyline")
-                  elif wants_roof: self._set_active_tab("roof"); self.stack.set_visible_child_name("roof")
-             else:
-                  # Just ensure the tab button is active visually
-                  if not self.tabs[current_tab].get_active():
-                       self._set_active_tab(current_tab)
+            # Decide which tab to show
+            current_tab = self.stack.get_visible_child_name()
+            
+            # If current tab is still valid, keep it
+            keep_current = False
+            if current_tab == "wall" and wants_wall: keep_current = True
+            elif current_tab == "text" and wants_text: keep_current = True
+            elif current_tab == "dimension" and wants_dimension: keep_current = True
+            elif current_tab == "window" and wants_window: keep_current = True
+            elif current_tab == "door" and wants_door: keep_current = True
+            elif current_tab == "circle" and wants_circle: keep_current = True
+            elif current_tab == "arc" and wants_arc: keep_current = True
+            elif current_tab == "polyline" and wants_polyline: keep_current = True
+            elif current_tab == "roof" and wants_roof: keep_current = True
+            
+            if not keep_current:
+                # Switch to first available type
+                if wants_wall: self._set_active_tab("wall"); self.stack.set_visible_child_name("wall")
+                elif wants_text: self._set_active_tab("text"); self.stack.set_visible_child_name("text")
+                elif wants_dimension: self._set_active_tab("dimension"); self.stack.set_visible_child_name("dimension")
+                elif wants_window: self._set_active_tab("window"); self.stack.set_visible_child_name("window")
+                elif wants_door: self._set_active_tab("door"); self.stack.set_visible_child_name("door")
+                elif wants_circle: self._set_active_tab("circle"); self.stack.set_visible_child_name("circle")
+                elif wants_arc: self._set_active_tab("arc"); self.stack.set_visible_child_name("arc")
+                elif wants_polyline: self._set_active_tab("polyline"); self.stack.set_visible_child_name("polyline")
+                elif wants_roof: self._set_active_tab("roof"); self.stack.set_visible_child_name("roof")
+            else:
+                # Ensure tab button is visually active
+                if not self.tabs[current_tab].get_active():
+                    self._set_active_tab(current_tab)
         else:
-             # Nothing selected
-             if self.stack.get_visible():
-                  self.stack.set_visible(False)
-                  self.toggle_button.set_child(self.toggle_close_image)
-                  self.emit('sidebar-toggled', False)
-                  # Unpress all tabs
-                  for btn in self.tabs.values():
-                       btn.set_active(False)
-
-
+            # Nothing selected - show empty state
+            self.stack.set_visible_child_name("empty")
+            # Unpress all tab buttons
+            for btn in self.tabs.values():
+                btn.handler_block(btn.handler_id)
+                btn.set_active(False)
+                btn.handler_unblock(btn.handler_id)
 
     def _set_active_tab(self, active_name):
         """Set the active tab while blocking signal handlers to prevent recursion."""
@@ -2358,9 +2376,6 @@ class PropertiesDock(Gtk.Box):
     def _on_tab_toggled(self, button, name):
         if button.get_active():
             self.stack.set_visible_child_name(name)
-            self.stack.set_visible(True)
-            # Update toggle button icon when opening sidebar
-            self.toggle_button.set_child(self.toggle_open_image)
             # Untoggle others using signal blocking
             for n, b in self.tabs.items():
                 if n != name:
@@ -2375,8 +2390,8 @@ class PropertiesDock(Gtk.Box):
 
     def _on_toggle_sidebar(self, button):
         """Toggle the visibility of the sidebar content."""
-        is_visible = self.stack.get_visible()
-        self.stack.set_visible(not is_visible)
+        is_visible = self.content_paned.get_visible()
+        self.content_paned.set_visible(not is_visible)
 
         # Update the icon based on the new state
         if not is_visible:
@@ -2385,8 +2400,6 @@ class PropertiesDock(Gtk.Box):
         else:
             # Sidebar is now closed
             self.toggle_button.set_child(self.toggle_close_image)
-            # Untoggle all tab buttons when closing
-            for n, b in self.tabs.items():
-                b.set_active(False)
 
         self.emit('sidebar-toggled', not is_visible)
+

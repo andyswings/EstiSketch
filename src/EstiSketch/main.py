@@ -385,7 +385,7 @@ class EstimatorApp(Gtk.Application):
         # Only show properties panel if enabled in config
         if getattr(self.config, 'SHOW_PROPERTIES_PANEL', False):
             # Add Properties Dock
-            self.properties_dock = PropertiesDock(self.canvas)
+            self.properties_dock = PropertiesDock(self.canvas, self.config)
             # Give canvas a reference to properties dock so it can update
             # sidebar values
             self.canvas.properties_dock = self.properties_dock
@@ -398,14 +398,15 @@ class EstimatorApp(Gtk.Application):
 
             # Set initial position based on config
 
-            # Gtk.Paned position is from left edge. We need (total_width - sidebar_width)
-            # But initial allocation isn't done yet, so this might be tricky.
-            # Instead, we set the position after realization or just rely on default.
-            # Actually, standard way is setting position.
-            # Start minimized by default - push handle to far right
-            # Using a large number ensures it is clamped to the maximum allowed position
-            # respecting the minimum size of the end child (sidebar icon bar)
-            main_paned.set_position(100000)
+            # Defer position setting until window is mapped (realized)
+            # This ensures we get the correct window dimensions
+            def set_initial_position(*args):
+                width = self.window.get_width()
+                if width > 0:
+                    main_paned.set_position(width - 320)
+                return False  # Disconnect the handler
+            
+            self.window.connect('map', set_initial_position)
 
             # Update toggle behavior to use paned
             self.properties_dock.connect(
@@ -504,16 +505,6 @@ class EstimatorApp(Gtk.Application):
             # Clear selection when switching toolsets
             self.canvas.selected_items = []
             self.canvas.queue_draw()
-            
-            # Close and clear the properties panel
-            if hasattr(self, 'properties_dock') and self.properties_dock:
-                # Hide the content stack (collapse sidebar)
-                self.properties_dock.stack.set_visible(False)
-                self.properties_dock.toggle_button.set_child(
-                    self.properties_dock.toggle_close_image)
-                # Unpress all tab buttons
-                for btn in self.properties_dock.tabs.values():
-                    btn.set_active(False)
             
             # Always reset to first tool in the new toolset
             first_tool = visible_tools[0] if visible_tools else "pointer"
@@ -1127,6 +1118,12 @@ class EstimatorApp(Gtk.Application):
                 width = self.window.get_allocated_width() - self.main_paned.get_position()
                 if width > 50:  # Sanity check
                     self.config.SIDEBAR_WIDTH = width
+            
+            # Save the internal Layers/Properties split position
+            if hasattr(self, 'properties_dock') and hasattr(self.properties_dock, 'content_paned'):
+                split_pos = self.properties_dock.content_paned.get_position()
+                if split_pos > 0:
+                    self.config.LAYERS_PROPERTIES_SPLIT = split_pos
 
             # Save window state
             w, h = self.window.get_default_size()
@@ -1156,6 +1153,10 @@ class EstimatorApp(Gtk.Application):
                 self.config,
                 "SIDEBAR_WIDTH",
                 300),
+            "LAYERS_PROPERTIES_SPLIT": getattr(
+                self.config,
+                "LAYERS_PROPERTIES_SPLIT",
+                200),
             "SHOW_PROPERTIES_PANEL": getattr(
                 self.config,
                 "SHOW_PROPERTIES_PANEL",

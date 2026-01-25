@@ -6,8 +6,6 @@
 - [ ] Foundation - Slabs
 
 ## Ideas to think about
-- [ ] Instead of closing the properties panel when we deselect objects, should we just by default switch to the layer panel?
-- [ ] Hiding or showing the properties panel is clunky. Maybe we should always start the application with the panel open, and then leave it up to the user to hide or show it at their discretion? (in other words selecting an object would not automatically open the properties panel, but if the panel is already open it would switch to the tab for the selected object)
 
 ## ✨ Core Features (essential functionality)
 
