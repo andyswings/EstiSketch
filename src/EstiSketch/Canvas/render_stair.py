@@ -3,7 +3,7 @@ Stair rendering logic for EstiSketch canvas.
 """
 import math
 import cairo
-from ..stair_components import Stair
+from ..components import Stair
 
 
 class CanvasStairRendererMixin:

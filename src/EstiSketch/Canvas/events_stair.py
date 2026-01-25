@@ -6,8 +6,7 @@ including automatic calculation of dimensions based on levels.
 """
 import math
 from typing import Tuple, Dict
-from ..stair_components import Stair
-from ..components import Level
+from ..components import Stair, Level
 
 
 class CanvasStairEventsMixin:

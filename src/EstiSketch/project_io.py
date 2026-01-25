@@ -1,7 +1,6 @@
 import xml.etree.ElementTree as ET
-from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc
+from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair
 from .roof_components import Roof, RoofEdge
-from .stair_components import Stair
 
 
 def save_project(canvas, window_width, window_height, filepath):
