@@ -24,7 +24,7 @@ from types import SimpleNamespace
 
 class EstimatorApp(Gtk.Application):
     def __init__(self, config_constants):
-        super().__init__(application_id="com.estisketch.EstiSketch")
+        super().__init__(application_id="com.example.estimator")
         self.config = config_constants
         # Remember where the current project is saved
         self.current_filepath = None

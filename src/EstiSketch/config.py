@@ -1,7 +1,10 @@
 import json
 import os
+from pathlib import Path
 
-CONFIG_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
+# Use XDG config directory for settings (writable location)
+CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "estisketch")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "settings.json")
 
 DEFAULT_SETTINGS = {
     "WINDOW_TITLE": "EstiSketch",
