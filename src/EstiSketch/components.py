@@ -9,6 +9,7 @@ class Level:
     name: str = "Level 1"
     elevation: float = 0.0
     height: float = 96.0  # Default 8ft
+    floor_thickness: float = 10.0  # Thickness of floor structure
 
 
 @dataclass

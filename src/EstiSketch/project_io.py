@@ -1,6 +1,7 @@
 import xml.etree.ElementTree as ET
 from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc
 from .roof_components import Roof, RoofEdge
+from .stair_components import Stair
 
 
 def save_project(canvas, window_width, window_height, filepath):
@@ -327,8 +328,44 @@ def save_project(canvas, window_width, window_height, filepath):
         outline_elem = ET.SubElement(r_elem, "Outline")
         for pt in roof.outline_points:
             pt_elem = ET.SubElement(outline_elem, "Point")
+            pt_elem = ET.SubElement(outline_elem, "Point")
             pt_elem.set("x", str(pt[0]))
             pt_elem.set("y", str(pt[1]))
+
+    # Save Stairs
+    stairs_elem = ET.SubElement(root, "Stairs")
+    for stair in getattr(canvas, 'stairs', []):
+        s_elem = ET.SubElement(stairs_elem, "Stair")
+        s_elem.set("identifier", stair.identifier)
+        s_elem.set("layer_id", getattr(stair, 'layer_id', ''))
+        
+        # Placement
+        s_elem.set("start_x", str(stair.start_point[0]))
+        s_elem.set("start_y", str(stair.start_point[1]))
+        s_elem.set("direction_angle", str(stair.direction_angle))
+        
+        # Level IDs
+        s_elem.set("start_level_id", str(stair.start_level_id))
+        s_elem.set("end_level_id", str(stair.end_level_id))
+        
+        # Type & Dimensions
+        s_elem.set("stair_type", stair.stair_type)
+        s_elem.set("width", str(stair.width))
+        s_elem.set("total_rise", str(stair.total_rise))
+        s_elem.set("riser_height", str(stair.riser_height))
+        s_elem.set("num_steps", str(stair.num_steps))
+        s_elem.set("tread_depth", str(stair.tread_depth))
+        s_elem.set("total_run", str(stair.total_run))
+        s_elem.set("nosing", str(stair.nosing))
+        
+        # Railings
+        s_elem.set("has_left_rail", str(stair.has_left_rail))
+        s_elem.set("has_right_rail", str(stair.has_right_rail))
+        s_elem.set("rail_height", str(stair.rail_height))
+        
+        # Visual
+        s_elem.set("show_up_arrow", str(stair.show_up_arrow))
+        s_elem.set("show_step_count", str(stair.show_step_count))
 
     # Write out the XML to the given file (with declaration and proper
     # encoding).
@@ -664,6 +701,11 @@ def open_project(canvas, filepath):
     # --- Restore Roofs ---
     if hasattr(canvas, 'roofs'):
         canvas.roofs.clear()
+        
+    if hasattr(canvas, 'stairs'):
+        canvas.stairs.clear()
+        
+    # --- Restore Roofs ---
         roofs_elem = root.find("Roofs")
         if roofs_elem is not None:
             for r_elem in roofs_elem.findall("Roof"):
@@ -731,6 +773,48 @@ def open_project(canvas, filepath):
                     material=material
                 )
                 canvas.roofs.append(roof)
+
+    # --- Restore Stairs ---
+    stairs_elem = root.find("Stairs")
+    if stairs_elem is not None:
+        if not hasattr(canvas, 'stairs'):
+             canvas.stairs = []
+             
+        for s_elem in stairs_elem.findall("Stair"):
+            identifier = s_elem.get("identifier", "")
+            layer_id = s_elem.get("layer_id", "")
+            
+            start_x = float(s_elem.get("start_x", "0.0"))
+            start_y = float(s_elem.get("start_y", "0.0"))
+            direction_angle = float(s_elem.get("direction_angle", "0.0"))
+            
+            stair = Stair(
+                identifier=identifier,
+                layer_id=layer_id,
+                start_point=(start_x, start_y),
+                direction_angle=direction_angle
+            )
+            
+            stair.start_level_id = s_elem.get("start_level_id", "")
+            stair.end_level_id = s_elem.get("end_level_id", "")
+            
+            stair.stair_type = s_elem.get("stair_type", "straight")
+            stair.width = float(s_elem.get("width", "36.0"))
+            stair.total_rise = float(s_elem.get("total_rise", "106.0"))
+            stair.riser_height = float(s_elem.get("riser_height", "7.57"))
+            stair.num_steps = int(s_elem.get("num_steps", "14"))
+            stair.tread_depth = float(s_elem.get("tread_depth", "11.0"))
+            stair.total_run = float(s_elem.get("total_run", "143.0"))
+            stair.nosing = float(s_elem.get("nosing", "1.0"))
+            
+            stair.has_left_rail = s_elem.get("has_left_rail", "True") == "True"
+            stair.has_right_rail = s_elem.get("has_right_rail", "True") == "True"
+            stair.rail_height = float(s_elem.get("rail_height", "36.0"))
+            
+            stair.show_up_arrow = s_elem.get("show_up_arrow", "True") == "True"
+            stair.show_step_count = s_elem.get("show_step_count", "True") == "True"
+            
+            canvas.stairs.append(stair)
 
     # Return the saved window size.
     return window_width, window_height

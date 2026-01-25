@@ -179,6 +179,7 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["add_polyline"].set_active(False)
                 self.tool_buttons["add_dimension"].set_active(False)
                 self.tool_buttons["add_text"].set_active(False)
+                self.tool_buttons["add_stair"].set_active(False)
                 self.canvas.set_tool_mode("pointer")
                 print("Pointer mode activated")
             else:
@@ -194,6 +195,7 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["add_polyline"].set_active(False)
                 self.tool_buttons["add_dimension"].set_active(False)
                 self.tool_buttons["add_text"].set_active(False)
+                self.tool_buttons["add_stair"].set_active(False)
                 self.canvas.set_tool_mode("panning")
                 cursor = Gdk.Cursor.new_from_name("grab", None)
                 self.canvas.set_cursor(cursor)
@@ -212,6 +214,7 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["add_polyline"].set_active(False)
                 self.tool_buttons["add_dimension"].set_active(False)
                 self.tool_buttons["add_text"].set_active(False)
+                self.tool_buttons["add_stair"].set_active(False)
                 self.canvas.set_tool_mode("draw_walls")
                 print("Draw walls mode activated")
             else:
@@ -226,7 +229,9 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["add_doors"].set_active(False)
                 self.tool_buttons["add_polyline"].set_active(False)
                 self.tool_buttons["add_dimension"].set_active(False)
+                self.tool_buttons["add_dimension"].set_active(False)
                 self.tool_buttons["add_text"].set_active(False)
+                self.tool_buttons["add_stair"].set_active(False)
                 self.canvas.set_tool_mode("add_windows")
                 print("Add windows mode activated")
             else:
@@ -241,7 +246,9 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["add_windows"].set_active(False)
                 self.tool_buttons["add_polyline"].set_active(False)
                 self.tool_buttons["add_dimension"].set_active(False)
+                self.tool_buttons["add_dimension"].set_active(False)
                 self.tool_buttons["add_text"].set_active(False)
+                self.tool_buttons["add_stair"].set_active(False)
                 self.canvas.set_tool_mode("draw_rooms")
                 print("Draw rooms mode activated")
             else:
@@ -257,7 +264,10 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["add_windows"].set_active(False)
                 self.tool_buttons["add_polyline"].set_active(False)
                 self.tool_buttons["add_dimension"].set_active(False)
+                self.tool_buttons["add_polyline"].set_active(False)
+                self.tool_buttons["add_dimension"].set_active(False)
                 self.tool_buttons["add_text"].set_active(False)
+                self.tool_buttons["add_stair"].set_active(False)
                 # Activate add_doors mode.
                 self.canvas.set_tool_mode("add_doors")
                 print("Add doors mode activated")
@@ -274,7 +284,10 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["add_doors"].set_active(False)
                 self.tool_buttons["add_windows"].set_active(False)
                 self.tool_buttons["add_dimension"].set_active(False)
+                self.tool_buttons["add_windows"].set_active(False)
+                self.tool_buttons["add_dimension"].set_active(False)
                 self.tool_buttons["add_text"].set_active(False)
+                self.tool_buttons["add_stair"].set_active(False)
                 # Activate add_polyline mode.
                 self.canvas.set_tool_mode("add_polyline")
                 print("Add polyline mode activated")
@@ -291,7 +304,10 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["add_doors"].set_active(False)
                 self.tool_buttons["add_windows"].set_active(False)
                 self.tool_buttons["add_polyline"].set_active(False)
+                self.tool_buttons["add_windows"].set_active(False)
+                self.tool_buttons["add_polyline"].set_active(False)
                 self.tool_buttons["add_text"].set_active(False)
+                self.tool_buttons["add_stair"].set_active(False)
                 # Activate add_dimension mode.
                 self.canvas.set_tool_mode("add_dimension")
                 print("Add dimension mode activated")
@@ -308,7 +324,9 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["add_doors"].set_active(False)
                 self.tool_buttons["add_windows"].set_active(False)
                 self.tool_buttons["add_polyline"].set_active(False)
+                self.tool_buttons["add_polyline"].set_active(False)
                 self.tool_buttons["add_dimension"].set_active(False)
+                self.tool_buttons["add_stair"].set_active(False)
                 # Activate add_text mode.
                 self.canvas.set_tool_mode("add_text")
                 print("Add text mode activated")
@@ -369,6 +387,24 @@ class EstimatorApp(Gtk.Application):
             else:
                 self.canvas.set_tool_mode(None)
 
+        def on_add_stair_toggled(toggle_button):
+            if toggle_button.get_active():
+                # Deactivate other tools
+                self.tool_buttons["pointer"].set_active(False)
+                self.tool_buttons["panning"].set_active(False)
+                self.tool_buttons["draw_walls"].set_active(False)
+                self.tool_buttons["draw_rooms"].set_active(False)
+                self.tool_buttons["add_doors"].set_active(False)
+                self.tool_buttons["add_windows"].set_active(False)
+                self.tool_buttons["add_polyline"].set_active(False)
+                self.tool_buttons["add_dimension"].set_active(False)
+                self.tool_buttons["add_text"].set_active(False)
+                # Activate add_stair mode
+                self.canvas.set_tool_mode("add_stair")
+                print("Add stair mode activated")
+            else:
+                self.canvas.set_tool_mode(None)
+
         callbacks = {
             "pointer": on_pointer_toggled,
             "panning": on_panning_toggled,
@@ -381,7 +417,8 @@ class EstimatorApp(Gtk.Application):
             "add_text": on_add_text_toggled,
             "add_circle": on_add_circle_toggled,
             "add_arc": on_add_arc_toggled,
-            "design_roof": on_design_roof_toggled
+            "design_roof": on_design_roof_toggled,
+            "add_stair": on_add_stair_toggled
         }
         toolbar_box, self.tool_buttons, extra_buttons, self.toolset_info = toolbar.create_toolbar(
             self.config, callbacks, self.canvas)
@@ -584,6 +621,9 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "m":
                 self.tool_buttons["add_dimension"].set_active(True)
                 return True
+            elif keyname == "s":
+                self.tool_buttons["add_stair"].set_active(True)
+                return True
             elif keyname == "escape":
                 if self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall:
                     print("Esc pressed: Finalizing wall drawing")
@@ -683,9 +723,16 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "j":
                 self.canvas.join_selected_walls()
                 return True
-            elif keyname == "s":
-                self.show_save_dialog()
                 return True
+            # elif keyname == "s": # Replaced by stair shortcut
+            #    self.show_save_dialog()
+            #    return True
+            # Ctrl+S is standard save, let's keep it but maybe "S" alone is stairs?
+            # on_key_pressed has dedicated Ctrl check block
+            elif keyname == "s": 
+                 # This block is for CTRL pressed. So Ctrl+S is Save.
+                 self.show_save_dialog()
+                 return True
             elif keyname == "o":
                 self.show_open_dialog()
                 return True

@@ -131,6 +131,43 @@ class CanvasDrawMixin:
         # Draw roofs
         self.draw_roofs(cr)
 
+        # Draw stairs
+        self.draw_stairs(cr)
+
+        # Draw stairs
+        # Note: Stairs are also handled in canvas_area.py loop, but that logic seems to be partial.
+        # Actually canvas_area.py overrides on_draw entirely? 
+        # No, canvas_area.py sets set_draw_func(self.on_draw) which points to THIS method
+        # if DrawMixin is inherited.
+        
+        # We need to iterate self.stairs and draw them.
+        # However, canvas_area logic in recent edit loop handles generic object iteration?
+        # Let's check...
+        # The previous edit to canvas_area.py was mostly imports and list initialization. 
+        # Unlike Walls/Rooms which have dedicated modules (wr.draw_walls), 
+        # Stairs uses mixin method _draw_stair directly on self.
+        
+        # Let's add explicit stair drawing here to be safe and consistent.
+        # We need to handle layer visibility and order.
+        
+        # Correct approach:
+        # Since on_draw orchestrates everything, we should call the rendering logic here.
+        # But wait, self.stairs is on 'self' (CanvasArea).
+        
+        for stair in getattr(self, 'stairs', []):
+            # Check visibility
+            if not self.is_object_on_visible_layer(stair):
+                continue
+                
+            # Render
+            if hasattr(self, '_draw_stair'):
+                self._draw_stair(cr, stair, zoom_transform)
+                
+        # Draw temporary stair preview
+        if getattr(self, 'tool_mode', None) == "add_stair" and getattr(self, 'temp_object', None):
+             if hasattr(self, '_draw_stair') and hasattr(self.temp_object, 'stair_type'):
+                  self._draw_stair(cr, self.temp_object, zoom_transform)
+
         # Draw text preview
         if self.tool_mode == "add_text" and hasattr(
                 self, "current_text_preview"):
@@ -1415,26 +1452,42 @@ class CanvasDrawMixin:
             # Angles increase clockwise in cairo (y down).
             # So start_angle to end_angle is the "positive" direction (Clockwise).
             
-            # We just take average for visual handle?
-            mid_angle = (arc.start_angle + arc.end_angle) / 2
-            # Needs to be on the drawn arc.
-            # If start < end and difference is < 180, it's fine.
-            # But what if proper arc goes through 0?
-            
+            mid_angle = start_angle + angle_diff / 2
             mx = cx + arc.radius * math.cos(mid_angle)
             my = cy + arc.radius * math.sin(mid_angle)
 
-            for hx, hy in [(sx, sy), (ex, ey), (mx, my)]:
+            handles = [(sx, sy), (ex, ey), (mx, my)]
+            
+            for hx, hy in handles:
                 cr.set_source_rgba(1, 1, 0, 1.0)
                 cr.arc(hx, hy, handle_radius, 0, 2 * math.pi)
                 cr.fill()
-                
                 cr.set_source_rgba(0, 0, 0, 1.0)
                 cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
                 cr.arc(hx, hy, handle_radius, 0, 2 * math.pi)
                 cr.stroke()
         
         cr.restore()
+        
+    def draw_stairs(self, cr):
+        """Draw all stairs on the canvas."""
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        scale = self.zoom * pixels_per_inch
+
+        # Draw committed stairs
+        if hasattr(self, 'stairs'):
+             for stair in self.stairs:
+                 # Check simple layer visibility
+                 if self.is_object_on_visible_layer(stair):
+                     self._draw_stair(cr, stair, scale)
+                     
+        # Draw temporary stair if placing
+        if self.tool_mode == "add_stair" and getattr(self, 'temp_object', None):
+             # Draw with some transparency/highlight? 
+             # For now just draw it normally, _draw_stair handles it
+             self._draw_stair(cr, self.temp_object, scale)
+            
+
 
     def draw_roofs(self, cr):
         """

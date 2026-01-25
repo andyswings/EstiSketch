@@ -9,6 +9,8 @@ from .events_room import CanvasRoomMixin
 from .events_wall import CanvasWallMixin
 from .events_roof import CanvasRoofEventsMixin
 from .events_selection import CanvasSelectionMixin
+from .events_stair import CanvasStairEventsMixin
+from .render_stair import CanvasStairRendererMixin
 from .canvas_tool import CanvasToolMixin
 from .canvas_geometry import CanvasGeometryMixin
 from .canvas_state import CanvasStateMixin
@@ -31,6 +33,8 @@ class CanvasArea(Gtk.DrawingArea,
                  CanvasSelectionMixin,
                  CanvasWallMixin,
                  CanvasRoofEventsMixin,
+                 CanvasStairEventsMixin,
+                 CanvasStairRendererMixin,
                  CanvasRoomMixin,
                  CanvasToolsMixin,
                  EditEventsMixin,
@@ -182,6 +186,9 @@ class CanvasArea(Gtk.DrawingArea,
         self.Roof = Roof
         self.RoofEdge = RoofEdge
 
+        # Stair state
+        self.stairs = []  # List of Stair objects
+
         # Initialize snapping manager
         self.snap_manager = SnappingManager(
             snap_enabled=self.config.SNAP_ENABLED,
@@ -254,7 +261,9 @@ class CanvasArea(Gtk.DrawingArea,
         self.texts = []
         self.circles = []
         self.arcs = []
+        self.arcs = []
         self.roofs = []
+        self.stairs = []
 
         # Clear selection
         self.selected_items = []
@@ -600,7 +609,7 @@ class CanvasArea(Gtk.DrawingArea,
     def delete_selected(self):
         """
         Delete the currently selected object(s) from the canvas.
-        Supports walls, rooms, polylines, doors, and windows.
+        Supports walls, rooms, polylines, doors, windows, and stairs.
         """
         if not self.selected_items:
             return
@@ -694,6 +703,11 @@ class CanvasArea(Gtk.DrawingArea,
                     self.delete_roof(target_roof)
                 elif target_roof in getattr(self, 'roofs', []): # Fallback to direct list removal
                      self.roofs.remove(target_roof)
+            
+            elif item_type == "stair":
+                target_stair = item["object"]
+                if target_stair in getattr(self, 'stairs', []):
+                    self.stairs.remove(target_stair)
 
         # Process room vertex deletions
         for room_id, indices in room_vertices_to_delete.items():

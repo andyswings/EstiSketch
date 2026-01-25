@@ -1,4 +1,5 @@
 from .layers_panel import LayersPanel
+from .properties_stair import StairPropertiesWidget
 from gi.repository import Gtk, GObject
 import gi
 import os
@@ -2440,6 +2441,13 @@ class PropertiesDock(Gtk.Box):
         self.tab_bar.append(roof_btn)
         self.tabs["roof"] = roof_btn
 
+        self.stair_page = StairPropertiesWidget()
+        self.stair_page.canvas = canvas
+        self.stack.add_titled(self.stair_page, "stair", "Stair Properties")
+        stair_btn = self._make_tab_button("stair", icon_dir, "stairs")
+        self.tab_bar.append(stair_btn)
+        self.tabs["stair"] = stair_btn
+
         # Start with empty state
         self.stack.set_visible_child_name("empty")
 
@@ -2469,7 +2477,9 @@ class PropertiesDock(Gtk.Box):
         circle_items = []
         arc_items = []
         polyline_items = []
+        polyline_items = []
         roof_items = []
+        stair_items = []
         room_items = []
 
         for item in selected_items:
@@ -2492,6 +2502,8 @@ class PropertiesDock(Gtk.Box):
                 polyline_items.append(item)
             elif item_type == "roof":
                 roof_items.append(item)
+            elif item_type == "stair":
+                stair_items.append(item)
             elif item_type == "room":
                 room_items.append(item)
             elif item_type == "vertex":
@@ -2511,6 +2523,7 @@ class PropertiesDock(Gtk.Box):
         wants_arc = len(arc_items) > 0
         wants_polyline = len(polyline_items) > 0
         wants_roof = len(roof_items) > 0
+        wants_stair = len(stair_items) > 0
         wants_room = len(room_items) > 0
 
         # Enable/disable tabs based on selection
@@ -2523,6 +2536,7 @@ class PropertiesDock(Gtk.Box):
         self.tabs["arc"].set_sensitive(wants_arc)
         self.tabs["polyline"].set_sensitive(wants_polyline)
         self.tabs["roof"].set_sensitive(wants_roof)
+        self.tabs["stair"].set_sensitive(wants_stair)
         self.tabs["room"].set_sensitive(wants_room)
 
         # Update content for each type
@@ -2560,6 +2574,10 @@ class PropertiesDock(Gtk.Box):
             selected_roofs = [item["object"] for item in roof_items]
             self.roof_page.set_roof(selected_roofs)
 
+        if wants_stair:
+            selected_stairs = [item["object"] for item in stair_items]
+            self.stair_page.set_stairs(selected_stairs)
+
         if wants_room:
             idx_seen = set()
             unique_rooms = []
@@ -2578,7 +2596,7 @@ class PropertiesDock(Gtk.Box):
 
         has_selection = (wants_wall or wants_text or wants_dimension or 
                         wants_window or wants_door or wants_circle or 
-                        wants_arc or wants_polyline or wants_roof or wants_room)
+                        wants_arc or wants_polyline or wants_roof or wants_stair or wants_room)
 
         if has_selection:
             # Decide which tab to show
@@ -2595,6 +2613,7 @@ class PropertiesDock(Gtk.Box):
             elif current_tab == "arc" and wants_arc: keep_current = True
             elif current_tab == "polyline" and wants_polyline: keep_current = True
             elif current_tab == "roof" and wants_roof: keep_current = True
+            elif current_tab == "stair" and wants_stair: keep_current = True
             elif current_tab == "room" and wants_room: keep_current = True
             
             if not keep_current:
@@ -2608,6 +2627,7 @@ class PropertiesDock(Gtk.Box):
                 elif wants_arc: self._set_active_tab("arc"); self.stack.set_visible_child_name("arc")
                 elif wants_polyline: self._set_active_tab("polyline"); self.stack.set_visible_child_name("polyline")
                 elif wants_roof: self._set_active_tab("roof"); self.stack.set_visible_child_name("roof")
+                elif wants_stair: self._set_active_tab("stair"); self.stack.set_visible_child_name("stair")
                 elif wants_room: self._set_active_tab("room"); self.stack.set_visible_child_name("room")
             else:
                 # Ensure tab button is visually active

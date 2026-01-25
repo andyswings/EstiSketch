@@ -627,6 +627,49 @@ class CanvasSelectionMixin:
                      self.update_hint("Click to select roof, Drag to move (not impl)")
                      break
 
+        # Check Stairs  
+        if selected_item is None:
+            for stair in getattr(self, 'stairs', []):
+                 if self.is_object_on_locked_layer(stair) or not self.is_object_on_visible_layer(stair):
+                     continue
+                 
+                 # Calculate stair bounding box in model coordinates
+                 start_x, start_y = stair.start_point
+                 angle = stair.direction_angle
+                 width = stair.width
+                 run = stair.total_run
+                 
+                 # Get the four corners of the stair rectangle
+                 # Corner offsets in local coordinates (before rotation)
+                 half_width = width / 2.0
+                 corners_local = [
+                     (0, -half_width),
+                     (run, -half_width),
+                     (run, half_width),
+                     (0, half_width)
+                 ]
+                 
+                 # Rotate and translate to world coordinates
+                 cos_a = math.cos(angle)
+                 sin_a = math.sin(angle)
+                 corners_world = []
+                 for lx, ly in corners_local:
+                     wx = start_x + lx * cos_a - ly * sin_a
+                     wy = start_y + lx * sin_a + ly * cos_a
+                     corners_world.append((wx, wy))
+                 
+                 # Convert to widget coords
+                 poly_widget = [
+                     self.model_to_device(pt[0], pt[1], pixels_per_inch)
+                     for pt in corners_world
+                 ]
+                 
+                 if self._point_in_polygon(click_pt, poly_widget):
+                     selected_item = {"type": "stair", "object": stair}
+                     from ..Resources.tool_hints import TOOL_HINTS
+                     self.update_hint("Click to select stair")
+                     break
+
         event = gesture.get_current_event()
         state = event.get_modifier_state() if hasattr(
             event, "get_modifier_state") else event.state
@@ -1397,6 +1440,38 @@ class CanvasSelectionMixin:
                  for pt in roof.outline_points:
                      if (x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2):
                          new_selection.append({"type": "roof", "object": roof})
+                         break
+
+            # Check Stairs
+            for stair in getattr(self, "stairs", []):
+                 if self.is_object_on_locked_layer(stair) or not self.is_object_on_visible_layer(stair):
+                     continue
+                 
+                 # Calculate stair corners
+                 start_x, start_y = stair.start_point
+                 angle = stair.direction_angle
+                 width = stair.width
+                 run = stair.total_run
+                 
+                 half_width = width / 2.0
+                 corners_local = [
+                     (0, -half_width),
+                     (run, -half_width),
+                     (run, half_width),
+                     (0, half_width)
+                 ]
+                 
+                 # Rotate and translate
+                 cos_a = math.cos(angle)
+                 sin_a = math.sin(angle)
+                 
+                 # Check if any corner is inside box
+                 for lx, ly in corners_local:
+                     wx = start_x + lx * cos_a - ly * sin_a
+                     wy = start_y + lx * sin_a + ly * cos_a
+                     
+                     if (x1 <= wx <= x2) and (y1 <= wy <= y2):
+                         new_selection.append({"type": "stair", "object": stair})
                          break
 
             if hasattr(self, "box_select_extend") and self.box_select_extend:

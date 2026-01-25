@@ -29,18 +29,12 @@ class CanvasEventsMixin:
         creating_tools = [
             "draw_walls", "draw_rooms", "add_doors", "add_windows", 
             "add_polyline", "add_dimension", "add_text", 
-            "add_circle", "add_arc", "design_roof"
+            "add_circle", "add_arc", "add_stair", "design_roof"
         ]
         
         if self.tool_mode in creating_tools:
              active_layer = self.get_layer_by_id(self.active_layer_id)
              if active_layer and active_layer.locked:
-                 # Check if we are adding a door/window to an EXISTING wall
-                 # If so, we should also check if the TARGET wall is on a locked layer?
-                 # Actually, door/window addition usually implies clicking on a wall.
-                 # If the wall is locked, we probably shouldn't add to it.
-                 # But first, prevent creating NEW objects on the locked active layer.
-                 
                  print("Active layer is locked")
                  self.update_hint("Cannot place objects on a locked layer.")
                  return
@@ -72,6 +66,8 @@ class CanvasEventsMixin:
             self._handle_circle_click(n_press, x, y)
         elif self.tool_mode == "add_arc":
             self._handle_arc_click(n_press, x, y)
+        elif self.tool_mode == "add_stair":
+            self._handle_stair_click(n_press, x, y)
 
     def on_click_pressed(
             self,
@@ -175,8 +171,6 @@ class CanvasEventsMixin:
                                     
                                     self.curved_wall_sagittas[id(w)] = sagitta
 
-                        # You can still keep this for box-select if you like, but it's
-                        # no longer used for endpoint movement math:
                         self.box_select_start = pt
 
                         # Snapshot state for undo.
@@ -399,6 +393,9 @@ class CanvasEventsMixin:
                  # _last_mouse_pos is updated at start of on_motion
                  print("DEBUG: Arc preview dragging end point")
                  self.queue_draw()
+
+        elif self.tool_mode == "add_stair":
+            self._handle_stair_motion(x, y)
 
     def on_zoom_changed(
             self,
