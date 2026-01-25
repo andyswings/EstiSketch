@@ -1,6 +1,6 @@
 # EstiSketch ![Status](https://img.shields.io/badge/Status-Alpha-orange)
 
-> **Alpha Release (v0.2.0-alpha)**: This software is currently in the alpha testing phase. Features may be incomplete and bugs may be present. Please report issues on our tracker.
+> **Alpha Release (v0.3.0-alpha)**: This software is currently in the alpha testing phase. Features may be incomplete and bugs may be present. Please report issues on our tracker.
 
 EstiSketch is an evolving, lightweight tool designed for contractors and designers to quickly sketch building plans and perform preliminary cost estimates. Built with an intuitive interface and essential drawing features, EstiSketch aims to help you lay out walls with precision and get immediate visual feedback on dimensions and alignments.
 
