@@ -1,7 +1,7 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add Stairs tool (straight, L-shaped, U-shaped, spiral)
+- [ ] Add Stairs tool (L-shaped, U-shaped, spiral)
 - [ ] Asymetrical roof pitches
 - [ ] Roof design - Complex roof shapes
 
@@ -149,6 +149,7 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
+- [ ] Dragging stairs does not currently work
 
 ## 💡 Takeoffs
 - [ ] Material Estimator
@@ -157,6 +158,7 @@
 ## Done ✅ (latest first)
 
 ### v0.3.0-alpha (2026-01-25)
+- [x] Added initial basic stair tool (supports straight stairs) (2026-01-25)
 - [x] Added footing and slab properties to Wall and Room data models (2026-01-25)
 - [x] Implemented footer rendering with smart corner joining and extensions (2026-01-25)
 - [x] Implemented slab rendering with concrete hatching (2026-01-25)

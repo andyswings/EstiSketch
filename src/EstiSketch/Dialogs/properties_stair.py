@@ -68,6 +68,59 @@ class StairPropertiesWidget(Gtk.Box):
         row_tread.append(self.spin_tread)
         dim_box.append(row_tread)
         
+        # --- Stair Type Frame ---
+        type_frame = Gtk.Frame(label="Stair Type")
+        type_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        type_box.set_margin_start(6)
+        type_box.set_margin_end(6)
+        type_box.set_margin_top(6)
+        type_box.set_margin_bottom(6)
+        type_frame.set_child(type_box)
+        self.append(type_frame)
+        
+        # Stair Type Dropdown
+        row_type = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        lbl_type = Gtk.Label(label="Type:")
+        lbl_type.set_xalign(0)
+        self.dropdown_type = Gtk.DropDown.new_from_strings(["Straight", "L-shaped"])
+        self.dropdown_type.connect("notify::selected", self.on_type_changed)
+        row_type.append(lbl_type)
+        row_type.append(self.dropdown_type)
+        type_box.append(row_type)
+        
+        # Turn Direction (for L-shaped only)
+        row_turn = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        lbl_turn = Gtk.Label(label="Turn Direction:")
+        lbl_turn.set_xalign(0)
+        self.dropdown_turn = Gtk.DropDown.new_from_strings(["Left", "Right"])
+        self.dropdown_turn.connect("notify::selected", self.on_turn_changed)
+        row_turn.append(lbl_turn)
+        row_turn.append(self.dropdown_turn)
+        type_box.append(row_turn)
+        self.row_turn = row_turn  # Save reference for show/hide
+        
+        # Landing Depth (for L-shaped only)
+        row_landing = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        lbl_landing = Gtk.Label(label="Landing Depth (in):")
+        lbl_landing.set_xalign(0)
+        self.spin_landing = Gtk.SpinButton.new_with_range(30.0, 72.0, 6.0)
+        self.spin_landing.connect("value-changed", self.on_landing_changed)
+        row_landing.append(lbl_landing)
+        row_landing.append(self.spin_landing)
+        type_box.append(row_landing)
+        self.row_landing = row_landing  # Save reference for show/hide
+        
+        # Steps Before Landing (for L-shaped only)
+        row_steps_before = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        lbl_steps_before = Gtk.Label(label="Steps (1st flight):")
+        lbl_steps_before.set_xalign(0)
+        self.spin_steps_before = Gtk.SpinButton.new_with_range(1, 50, 1)
+        self.spin_steps_before.connect("value-changed", self.on_steps_before_changed)
+        row_steps_before.append(lbl_steps_before)
+        row_steps_before.append(self.spin_steps_before)
+        type_box.append(row_steps_before)
+        self.row_steps_before = row_steps_before  # Save reference
+        
         # --- Railings Frame ---
         rail_frame = Gtk.Frame(label="Railings")
         rail_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -120,6 +173,27 @@ class StairPropertiesWidget(Gtk.Box):
         
         self.check_left_rail.set_active(stair.has_left_rail)
         self.check_right_rail.set_active(stair.has_right_rail)
+        
+        # Set stair type
+        stair_type = getattr(stair, 'stair_type', 'straight')
+        self.dropdown_type.set_selected(0 if stair_type == 'straight' else 1)
+        
+        # Set L-shaped specific controls
+        is_l_shaped = (stair_type == 'L-shaped')
+        self.row_turn.set_visible(is_l_shaped)
+        self.row_landing.set_visible(is_l_shaped)
+        self.row_steps_before.set_visible(is_l_shaped)
+        
+        if is_l_shaped:
+            turn_dir = getattr(stair, 'turn_direction', 'left')
+            self.dropdown_turn.set_selected(0 if turn_dir == 'left' else 1)
+            
+            landing_depth = getattr(stair, 'landing_depth', 36.0)
+            self.spin_landing.set_value(landing_depth)
+            
+            # Steps before landing (calculated as half by default)
+            steps_before = stair.num_steps // 2
+            self.spin_steps_before.set_value(steps_before)
         
         self._update_compliance_display(stair)
         
@@ -196,4 +270,58 @@ class StairPropertiesWidget(Gtk.Box):
             # Use plain text instead of markup for multi-line warnings (bullets + newlines cause parsing issues)
             text = "⚠️ Compliance Warnings:\n" + "\n".join(warnings)
             self.lbl_compliance.set_text(text)
+    
+    def on_type_changed(self, dropdown, _param):
+        """Handle stair type change."""
+        if self._block_updates or not self.current_stairs:
+            return
+        
+        selected = dropdown.get_selected()
+        stair_type = "straight" if selected == 0 else "L-shaped"
+        
+        for stair in self.current_stairs:
+            stair.stair_type = stair_type
+        
+        # Show/hide L-shaped specific controls
+        is_l_shaped = (stair_type == "L-shaped")
+        self.row_turn.set_visible(is_l_shaped)
+        self.row_landing.set_visible(is_l_shaped)
+        self.row_steps_before.set_visible(is_l_shaped)
+        
+        self.emit_property_changed()
+    
+    def on_turn_changed(self, dropdown, _param):
+        """Handle turn direction change."""
+        if self._block_updates or not self.current_stairs:
+            return
+        
+        selected = dropdown.get_selected()
+        turn_direction = "left" if selected == 0 else "right"
+        
+        for stair in self.current_stairs:
+            stair.turn_direction = turn_direction
+        
+        self.emit_property_changed()
+    
+    def on_landing_changed(self, spin):
+        """Handle landing depth change."""
+        if self._block_updates or not self.current_stairs:
+            return
+        
+        val = spin.get_value()
+        for stair in self.current_stairs:
+            stair.landing_depth = val
+        
+        self.emit_property_changed()
+    
+    def on_steps_before_changed(self, spin):
+        """Handle steps before landing change."""
+        if self._block_updates or not self.current_stairs:
+            return
+        
+        # This is a UI-only property for now
+        # The renderer calculates it from total steps
+        # We could store it as a stair property if needed
+        self.emit_property_changed()
+
 

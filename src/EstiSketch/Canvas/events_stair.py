@@ -14,7 +14,6 @@ class CanvasStairEventsMixin:
 
     def _handle_stair_click(self, n_press, x, y):
         """Handle click events for stair tool."""
-        print(f"DEBUG: _handle_stair_click called with n_press={n_press}")
         # Convert to model coordinates
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         model_x, model_y = self.device_to_model(x, y, pixels_per_inch)
