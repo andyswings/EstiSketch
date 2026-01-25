@@ -9,6 +9,7 @@ src/EstiSketch/file_menu.py
 src/EstiSketch/main.py
 src/EstiSketch/measurement_utils.py
 src/EstiSketch/project_io.py
+src/EstiSketch/roof_components.py
 src/EstiSketch/settings.json
 src/EstiSketch/sh3d_importer.py
 src/EstiSketch/snapping_manager.py
@@ -30,6 +31,7 @@ src/EstiSketch/Canvas/canvas_tool.py
 src/EstiSketch/Canvas/door_window_renderer.py
 src/EstiSketch/Canvas/events_edit.py
 src/EstiSketch/Canvas/events_helpers.py
+src/EstiSketch/Canvas/events_roof.py
 src/EstiSketch/Canvas/events_room.py
 src/EstiSketch/Canvas/events_selection.py
 src/EstiSketch/Canvas/events_tools.py
@@ -57,6 +59,7 @@ src/EstiSketch/Icons/draw_rooms.png
 src/EstiSketch/Icons/draw_walls.png
 src/EstiSketch/Icons/estimate_cost.png
 src/EstiSketch/Icons/estimate_materials.png
+src/EstiSketch/Icons/estisketch.png
 src/EstiSketch/Icons/export.png
 src/EstiSketch/Icons/help.png
 src/EstiSketch/Icons/layers.png
@@ -67,6 +70,7 @@ src/EstiSketch/Icons/pointer.png
 src/EstiSketch/Icons/redo.png
 src/EstiSketch/Icons/right_panel_close.png
 src/EstiSketch/Icons/right_panel_open.png
+src/EstiSketch/Icons/roof.png
 src/EstiSketch/Icons/save.png
 src/EstiSketch/Icons/settings.png
 src/EstiSketch/Icons/undo.png
