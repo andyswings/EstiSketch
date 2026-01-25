@@ -110,6 +110,9 @@ class CanvasDrawMixin:
         # Draw rooms first (under walls)
         wr.draw_rooms(self, cr, zoom_transform)
 
+        # Draw footers (before walls to appear underneath)
+        wr.draw_footers(self, cr)
+
         # Draw walls on top of rooms
         wr.draw_walls(self, cr)
 

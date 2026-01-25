@@ -51,9 +51,8 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
 
     # ─── Toolset Definitions ───
     TOOLSETS = {
-        "Basic": ["pointer", "panning", "draw_walls", "draw_rooms", "add_doors", "add_windows", "add_dimension", "add_text"],
+        "Main": ["pointer", "panning", "draw_walls", "draw_rooms", "add_doors", "add_windows", "add_dimension", "add_text"],
         "Annotation": ["pointer", "panning", "add_polyline", "add_dimension", "add_text", "add_circle", "add_arc"],
-        "Foundation": ["pointer", "panning", "draw_walls", "add_dimension"],  # Placeholder
         "Roof": ["design_roof", "panning", "add_dimension"],
         "Interior Design": ["pointer", "panning", "add_doors", "add_windows", "add_dimension", "add_text"],  # Placeholder
     }
@@ -186,8 +185,8 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
             if tool_name in tool_buttons:
                 tool_buttons[tool_name].set_visible(tool_name in visible_tools)
     
-    # Set initial visibility to Basic
-    set_toolset_visibility("Basic")
+    # Set initial visibility to Main
+    set_toolset_visibility("Main")
     
     # Package toolset info
     toolset_info = {

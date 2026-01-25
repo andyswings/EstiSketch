@@ -225,6 +225,10 @@ class WallPropertiesWidget(Gtk.Box):
         self.footer_check = Gtk.CheckButton(label="Enable Footer")
         foot_box.append(self.footer_check)
 
+        # Symbolic (Footer Only) checkbox
+        self.symbolic_check = Gtk.CheckButton(label="Symbolic (Footer Only)")
+        foot_box.append(self.symbolic_check)
+
         # Left Offset
         left_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         left_row.append(Gtk.Label(label="Left Offset:"))
@@ -385,6 +389,7 @@ class WallPropertiesWidget(Gtk.Box):
         self.height_combo.connect("changed", self.on_height_changed)
         self.exterior_switch.connect("state-set", self.on_exterior_toggled)
         self.footer_check.connect("toggled", self.on_footer_toggled)
+        self.symbolic_check.connect("toggled", self.on_symbolic_toggled)
         self.footer_left_combo.connect("changed", self.on_footer_left_changed)
         self.footer_right_combo.connect(
             "changed", self.on_footer_right_changed)
@@ -465,6 +470,20 @@ class WallPropertiesWidget(Gtk.Box):
         has_footer = button.get_active()
         for wall in self.current_walls:
             wall.footer = has_footer
+        self.emit_property_changed()
+
+    def on_symbolic_toggled(self, button):
+        if self._block_updates or not self.current_walls:
+            return
+        is_symbolic = button.get_active()
+        for wall in self.current_walls:
+            wall.symbolic = is_symbolic
+            # If making symbolic, also enable footer automatically
+            if is_symbolic and not wall.footer:
+                wall.footer = True
+                self._block_updates = True
+                self.footer_check.set_active(True)
+                self._block_updates = False
         self.emit_property_changed()
 
     def on_footer_left_changed(self, combo):
@@ -876,6 +895,7 @@ class WallPropertiesWidget(Gtk.Box):
             self._find_combo_index(
                 self.footer_depth_combo, f'{
                     first_wall.footer_depth:.0f}"'))
+        self.symbolic_check.set_active(getattr(first_wall, 'symbolic', False))
 
         #
         # Materials & finishes
@@ -2007,6 +2027,213 @@ class PolylinePropertiesWidget(Gtk.Box):
 
         self._block_updates = False
 
+
+class RoomPropertiesWidget(Gtk.Box):
+    __gsignals__ = {
+        'property-changed': (GObject.SignalFlags.RUN_FIRST, None, ()),
+    }
+
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.current_rooms = []
+        self._block_updates = False
+
+        # Frame - Basic Properties
+        basic_frame = Gtk.Frame(label="Room Properties")
+        basic_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        basic_box.set_margin_top(6)
+        basic_box.set_margin_bottom(6)
+        basic_box.set_margin_start(6)
+        basic_box.set_margin_end(6)
+        basic_frame.set_child(basic_box)
+        self.append(basic_frame)
+
+        # Name
+        name_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        name_row.append(Gtk.Label(label="Name:"))
+        self.name_entry = Gtk.Entry()
+        self.name_entry.set_hexpand(True)
+        name_row.append(self.name_entry)
+        basic_box.append(name_row)
+
+        # Room Type
+        type_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        type_row.append(Gtk.Label(label="Type:"))
+        self.type_combo = Gtk.ComboBoxText()
+        for t in ["undefined", "living", "bedroom", "bathroom", "kitchen", "dining", "office", "garage", "storage"]:
+            self.type_combo.append_text(t)
+        self.type_combo.set_active(0)
+        type_row.append(self.type_combo)
+        basic_box.append(type_row)
+
+        # Floor Type
+        floor_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        floor_row.append(Gtk.Label(label="Floor:"))
+        self.floor_combo = Gtk.ComboBoxText()
+        for f in ["default", "hardwood", "tile", "carpet", "concrete", "laminate"]:
+            self.floor_combo.append_text(f)
+        self.floor_combo.set_active(0)
+        floor_row.append(self.floor_combo)
+        basic_box.append(floor_row)
+
+        # Frame - Foundation/Slab Properties
+        slab_frame = Gtk.Frame(label="Foundation (Slab)")
+        slab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        slab_box.set_margin_top(6)
+        slab_box.set_margin_bottom(6)
+        slab_box.set_margin_start(6)
+        slab_box.set_margin_end(6)
+        slab_frame.set_child(slab_box)
+        self.append(slab_frame)
+
+        # Use as Slab checkbox
+        self.slab_check = Gtk.CheckButton(label="Use as Slab")
+        slab_box.append(self.slab_check)
+
+        # Thickness
+        thickness_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        thickness_row.append(Gtk.Label(label="Thickness:"))
+        self.thickness_combo = Gtk.ComboBoxText()
+        for t in ['4"', '6"', '8"']:
+            self.thickness_combo.append_text(t)
+        self.thickness_combo.set_active(0)
+        thickness_row.append(self.thickness_combo)
+        slab_box.append(thickness_row)
+
+        # Reinforcement
+        reinforce_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        reinforce_row.append(Gtk.Label(label="Reinforcement:"))
+        self.reinforce_combo = Gtk.ComboBoxText()
+        for r in ["wire_mesh", "rebar_grid", "fiber"]:
+            self.reinforce_combo.append_text(r)
+        self.reinforce_combo.set_active(0)
+        reinforce_row.append(self.reinforce_combo)
+        slab_box.append(reinforce_row)
+
+        # Edge Type
+        edge_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        edge_row.append(Gtk.Label(label="Edge Type:"))
+        self.edge_combo = Gtk.ComboBoxText()
+        for e in ["thickened", "monolithic", "floating"]:
+            self.edge_combo.append_text(e)
+        self.edge_combo.set_active(0)
+        edge_row.append(self.edge_combo)
+        slab_box.append(edge_row)
+
+        # Wire signals
+        self.name_entry.connect("changed", self.on_name_changed)
+        self.type_combo.connect("changed", self.on_type_changed)
+        self.floor_combo.connect("changed", self.on_floor_changed)
+        self.slab_check.connect("toggled", self.on_slab_toggled)
+        self.thickness_combo.connect("changed", self.on_thickness_changed)
+        self.reinforce_combo.connect("changed", self.on_reinforce_changed)
+        self.edge_combo.connect("changed", self.on_edge_changed)
+
+    def _find_combo_index(self, combo, value):
+        model = combo.get_model()
+        for i, row in enumerate(model):
+            if row[0] == value:
+                return i
+        return 0
+
+    def on_name_changed(self, entry):
+        if self._block_updates or not self.current_rooms:
+            return
+        name = entry.get_text()
+        for room in self.current_rooms:
+            room.name = name
+        self.emit_property_changed()
+
+    def on_type_changed(self, combo):
+        if self._block_updates or not self.current_rooms:
+            return
+        room_type = combo.get_active_text()
+        for room in self.current_rooms:
+            room.room_type = room_type
+        self.emit_property_changed()
+
+    def on_floor_changed(self, combo):
+        if self._block_updates or not self.current_rooms:
+            return
+        floor_type = combo.get_active_text()
+        for room in self.current_rooms:
+            room.floor_type = floor_type
+        self.emit_property_changed()
+
+    def on_slab_toggled(self, button):
+        if self._block_updates or not self.current_rooms:
+            return
+        is_slab = button.get_active()
+        for room in self.current_rooms:
+            room.is_slab = is_slab
+        self.emit_property_changed()
+
+    def on_thickness_changed(self, combo):
+        if self._block_updates or not self.current_rooms:
+            return
+        text = combo.get_active_text().strip('"')
+        thickness = float(text)
+        for room in self.current_rooms:
+            room.slab_thickness = thickness
+        self.emit_property_changed()
+
+    def on_reinforce_changed(self, combo):
+        if self._block_updates or not self.current_rooms:
+            return
+        reinforcement = combo.get_active_text()
+        for room in self.current_rooms:
+            room.slab_reinforcement = reinforcement
+        self.emit_property_changed()
+
+    def on_edge_changed(self, combo):
+        if self._block_updates or not self.current_rooms:
+            return
+        edge_type = combo.get_active_text()
+        for room in self.current_rooms:
+            room.slab_edge_type = edge_type
+        self.emit_property_changed()
+
+    def emit_property_changed(self):
+        self.emit('property-changed')
+        if hasattr(self, 'canvas') and self.canvas:
+            self.canvas.save_state()
+            self.canvas.queue_draw()
+
+    def set_room(self, room_objs):
+        """Set room properties. Accepts either a single room or a list of rooms."""
+        self._block_updates = True
+
+        if not isinstance(room_objs, list):
+            room_objs = [room_objs]
+
+        self.current_rooms = room_objs
+
+        if not room_objs:
+            self._block_updates = False
+            return
+
+        first_room = room_objs[0]
+
+        # Basic properties
+        self.name_entry.set_text(first_room.name or "")
+        self.type_combo.set_active(self._find_combo_index(self.type_combo, first_room.room_type or "undefined"))
+        self.floor_combo.set_active(self._find_combo_index(self.floor_combo, first_room.floor_type or "default"))
+
+        # Slab properties
+        self.slab_check.set_active(getattr(first_room, 'is_slab', False))
+        
+        thickness_str = f'{int(getattr(first_room, "slab_thickness", 4.0))}"'
+        self.thickness_combo.set_active(self._find_combo_index(self.thickness_combo, thickness_str))
+        
+        self.reinforce_combo.set_active(self._find_combo_index(
+            self.reinforce_combo, getattr(first_room, 'slab_reinforcement', 'wire_mesh')))
+        
+        self.edge_combo.set_active(self._find_combo_index(
+            self.edge_combo, getattr(first_room, 'slab_edge_type', 'thickened')))
+
+        self._block_updates = False
+
+
 class PropertiesDock(Gtk.Box):
 
     __gsignals__ = {
@@ -2159,6 +2386,13 @@ class PropertiesDock(Gtk.Box):
         self.tab_bar.append(wall_btn)
         self.tabs["wall"] = wall_btn
 
+        self.room_page = RoomPropertiesWidget()
+        self.room_page.canvas = canvas
+        self.stack.add_titled(self.room_page, "room", "Room Properties")
+        room_btn = self._make_tab_button("room", icon_dir, "draw_rooms")
+        self.tab_bar.append(room_btn)
+        self.tabs["room"] = room_btn
+
         self.text_page = TextPropertiesWidget()
         self.text_page.canvas = canvas
         self.stack.add_titled(self.text_page, "text", "Text Properties")
@@ -2245,6 +2479,7 @@ class PropertiesDock(Gtk.Box):
         arc_items = []
         polyline_items = []
         roof_items = []
+        room_items = []
 
         for item in selected_items:
             item_type = item["type"]
@@ -2266,6 +2501,15 @@ class PropertiesDock(Gtk.Box):
                 polyline_items.append(item)
             elif item_type == "roof":
                 roof_items.append(item)
+            elif item_type == "room":
+                room_items.append(item)
+            elif item_type == "vertex":
+                # Only if it's a room vertex
+                obj = item["object"]
+                if isinstance(obj, tuple) and len(obj) == 2:
+                    room, idx = obj
+                    if hasattr(room, 'points'): # Verify it's a room
+                        room_items.append({"type": "room", "object": room})
 
         wants_wall = len(wall_items) > 0
         wants_text = len(text_items) > 0
@@ -2276,6 +2520,7 @@ class PropertiesDock(Gtk.Box):
         wants_arc = len(arc_items) > 0
         wants_polyline = len(polyline_items) > 0
         wants_roof = len(roof_items) > 0
+        wants_room = len(room_items) > 0
 
         # Enable/disable tabs based on selection
         self.tabs["wall"].set_sensitive(wants_wall)
@@ -2287,6 +2532,7 @@ class PropertiesDock(Gtk.Box):
         self.tabs["arc"].set_sensitive(wants_arc)
         self.tabs["polyline"].set_sensitive(wants_polyline)
         self.tabs["roof"].set_sensitive(wants_roof)
+        self.tabs["room"].set_sensitive(wants_room)
 
         # Update content for each type
         if wants_wall:
@@ -2323,6 +2569,16 @@ class PropertiesDock(Gtk.Box):
             selected_roofs = [item["object"] for item in roof_items]
             self.roof_page.set_roof(selected_roofs)
 
+        if wants_room:
+            idx_seen = set()
+            unique_rooms = []
+            for item in room_items:
+                room = item["object"]
+                if id(room) not in idx_seen:
+                    unique_rooms.append(room)
+                    idx_seen.add(id(room))
+            self.room_page.set_room(unique_rooms)
+
         # Tab Switching Logic
         # Skip if selection came from layers panel (don't steal focus)
         from_layers_panel = getattr(self.canvas, '_selection_from_layers_panel', False)
@@ -2331,7 +2587,7 @@ class PropertiesDock(Gtk.Box):
 
         has_selection = (wants_wall or wants_text or wants_dimension or 
                         wants_window or wants_door or wants_circle or 
-                        wants_arc or wants_polyline or wants_roof)
+                        wants_arc or wants_polyline or wants_roof or wants_room)
 
         if has_selection:
             # Decide which tab to show
@@ -2348,6 +2604,7 @@ class PropertiesDock(Gtk.Box):
             elif current_tab == "arc" and wants_arc: keep_current = True
             elif current_tab == "polyline" and wants_polyline: keep_current = True
             elif current_tab == "roof" and wants_roof: keep_current = True
+            elif current_tab == "room" and wants_room: keep_current = True
             
             if not keep_current:
                 # Switch to first available type
@@ -2360,6 +2617,7 @@ class PropertiesDock(Gtk.Box):
                 elif wants_arc: self._set_active_tab("arc"); self.stack.set_visible_child_name("arc")
                 elif wants_polyline: self._set_active_tab("polyline"); self.stack.set_visible_child_name("polyline")
                 elif wants_roof: self._set_active_tab("roof"); self.stack.set_visible_child_name("roof")
+                elif wants_room: self._set_active_tab("room"); self.stack.set_visible_child_name("room")
             else:
                 # Ensure tab button is visually active
                 if not self.tabs[current_tab].get_active():

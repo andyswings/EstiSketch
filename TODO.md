@@ -1,23 +1,20 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Foundation design tools
-- [ ] Foundation - Footers
-- [ ] Foundation - Slabs
+- [ ] Add Stairs tool (straight, L-shaped, U-shaped, spiral)
+- [ ] Asymetrical roof pitches
+- [ ] Roof design - Complex roof shapes
 
 ## Ideas to think about
 
 ## ✨ Core Features (essential functionality)
 
 ### Architectural Elements
-- [ ] Asymetrical roof pitches
-- [ ] Roof design - Complex roof shapes
 - [ ] Roof components (trusses, rafters, ridges, valleys)
 - [ ] Columns/Posts
 - [ ] Beams
 - [ ] Foundations (slab, crawlspace, basement)
 - [ ] Ceiling types (dropped, vaulted, cathedral)
-- [ ] Add Stairs tool (straight, L-shaped, U-shaped, spiral)
 - [ ] Railings/Guardrails (deck, stair, balcony)
 - [ ] Add Cabinet Tool
 - [ ] Countertops (custom shapes)

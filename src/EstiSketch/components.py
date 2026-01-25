@@ -60,6 +60,9 @@ class Wall:
         self.footer_right_offset = 6.0
         self.footer_depth = 8.0
 
+        # Symbolic wall - only renders footer, wall itself not shown
+        self.symbolic = False
+
         # Material properties
         self.material = "wood"
         self.interior_finish = "drywall"
@@ -105,6 +108,12 @@ class Room:
         self.wall_finish = "default"
         self.room_type = "undefined"
         self.name = ""
+
+        # Foundation slab properties
+        self.is_slab = False  # True if this room represents a foundation slab
+        self.slab_thickness = 4.0  # inches (typical 4" slab)
+        self.slab_reinforcement = "wire_mesh"  # wire_mesh, rebar_grid, fiber
+        self.slab_edge_type = "thickened"  # thickened, monolithic, floating
 
 
 @dataclass

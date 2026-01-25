@@ -99,6 +99,13 @@ def save_project(canvas, window_width, window_height, filepath):
                 "InsulationType").text = wall.insulation_type
             ET.SubElement(wall_elem, "FireRating").text = wall.fire_rating
 
+            # Save footer properties
+            ET.SubElement(wall_elem, "Footer").text = str(wall.footer)
+            ET.SubElement(wall_elem, "FooterLeftOffset").text = str(wall.footer_left_offset)
+            ET.SubElement(wall_elem, "FooterRightOffset").text = str(wall.footer_right_offset)
+            ET.SubElement(wall_elem, "FooterDepth").text = str(wall.footer_depth)
+            ET.SubElement(wall_elem, "Symbolic").text = str(getattr(wall, 'symbolic', False))
+
     # Save rooms along with their vertex points and other properties.
     rooms_elem = ET.SubElement(root, "Rooms")
     for room in canvas.rooms:
@@ -117,6 +124,12 @@ def save_project(canvas, window_width, window_height, filepath):
             room,
             'layer_id',
             '')
+
+        # Save slab properties
+        ET.SubElement(room_elem, "IsSlab").text = str(getattr(room, 'is_slab', False))
+        ET.SubElement(room_elem, "SlabThickness").text = str(getattr(room, 'slab_thickness', 4.0))
+        ET.SubElement(room_elem, "SlabReinforcement").text = getattr(room, 'slab_reinforcement', 'wire_mesh')
+        ET.SubElement(room_elem, "SlabEdgeType").text = getattr(room, 'slab_edge_type', 'thickened')
 
     # Save doors. In addition to their properties and attachment ratio, also
     # save a wall reference.
@@ -437,6 +450,15 @@ def open_project(canvas, filepath):
                 wall.insulation_type = wall_elem.find("InsulationType").text
                 wall.fire_rating = wall_elem.find("FireRating").text
 
+                # Restore footer properties (with defaults for legacy files)
+                footer_elem = wall_elem.find("Footer")
+                wall.footer = footer_elem is not None and footer_elem.text.lower() == "true"
+                wall.footer_left_offset = float(wall_elem.find("FooterLeftOffset").text) if wall_elem.find("FooterLeftOffset") is not None else 6.0
+                wall.footer_right_offset = float(wall_elem.find("FooterRightOffset").text) if wall_elem.find("FooterRightOffset") is not None else 6.0
+                wall.footer_depth = float(wall_elem.find("FooterDepth").text) if wall_elem.find("FooterDepth") is not None else 8.0
+                symbolic_elem = wall_elem.find("Symbolic")
+                wall.symbolic = symbolic_elem is not None and symbolic_elem.text.lower() == "true"
+
                 wall_set.append(wall)
             canvas.wall_sets.append(wall_set)
 
@@ -459,6 +481,14 @@ def open_project(canvas, filepath):
             room.name = room_elem.find("Name").text
             room.layer_id = room_elem.find("LayerId").text if room_elem.find(
                 "LayerId") is not None else ""
+
+            # Restore slab properties (with defaults for legacy files)
+            is_slab_elem = room_elem.find("IsSlab")
+            room.is_slab = is_slab_elem is not None and is_slab_elem.text.lower() == "true"
+            room.slab_thickness = float(room_elem.find("SlabThickness").text) if room_elem.find("SlabThickness") is not None else 4.0
+            room.slab_reinforcement = room_elem.find("SlabReinforcement").text if room_elem.find("SlabReinforcement") is not None else "wire_mesh"
+            room.slab_edge_type = room_elem.find("SlabEdgeType").text if room_elem.find("SlabEdgeType") is not None else "thickened"
+
             canvas.rooms.append(room)
 
     # --- Restore Doors ---
