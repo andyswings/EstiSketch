@@ -883,18 +883,9 @@ class WallPropertiesWidget(Gtk.Box):
         # Footer fields
         #
         self.footer_check.set_active(first_wall.footer)
-        self.footer_left_combo.set_active(
-            self._find_combo_index(
-                self.footer_left_combo, f'{
-                    first_wall.footer_left_offset:.0f}"'))
-        self.footer_right_combo.set_active(
-            self._find_combo_index(
-                self.footer_right_combo, f'{
-                    first_wall.footer_right_offset:.0f}"'))
-        self.footer_depth_combo.set_active(
-            self._find_combo_index(
-                self.footer_depth_combo, f'{
-                    first_wall.footer_depth:.0f}"'))
+        self.footer_left_combo.set_active(self._find_combo_index(self.footer_left_combo, f'{first_wall.footer_left_offset:.0f}"'))
+        self.footer_right_combo.set_active(self._find_combo_index(self.footer_right_combo, f'{first_wall.footer_right_offset:.0f}"'))
+        self.footer_depth_combo.set_active(self._find_combo_index(self.footer_depth_combo, f'{first_wall.footer_depth:.0f}"'))
         self.symbolic_check.set_active(getattr(first_wall, 'symbolic', False))
 
         #

@@ -136,10 +136,7 @@ def import_sh3d(sh3d_file_path: str, canvas_area: CanvasArea) -> dict:
             # Use a tolerance of 10 inches to decide if the door/window is
             # close enough to a wall.
             if best_dist > 10:
-                print(
-                    f"{
-                        element_type.title()} at {center} is too far from any wall (distance {
-                        best_dist:.2f} in). Skipping.")
+                print(f"{element_type.title()} at {center} is too far from any wall (distance {best_dist:.2f} in). Skipping.")
                 continue
 
             if element_type == "door":

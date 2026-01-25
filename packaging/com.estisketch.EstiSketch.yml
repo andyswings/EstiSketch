@@ -1,0 +1,45 @@
+app-id: com.estisketch.EstiSketch
+runtime: org.gnome.Platform
+runtime-version: '45'
+sdk: org.gnome.Sdk
+command: estisketch
+finish-args:
+  # X11 + Wayland access
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  # GPU access
+  - --device=dri
+  # Filesystem access - for opening/saving files
+  - --filesystem=host
+
+modules:
+  - name: estisketch
+    buildsystem: simple
+    build-commands:
+      # Create directories
+      - mkdir -p /app/bin
+      - mkdir -p /app/lib/python3.11/site-packages
+      - mkdir -p /app/share/applications
+      - mkdir -p /app/share/icons/hicolor/128x128/apps
+      
+      # Copy Source
+      - cp -r src/EstiSketch /app/lib/python3.11/site-packages/
+      
+      # Create executable wrapper
+      - echo "#!/bin/sh" > /app/bin/estisketch
+      - echo "export PYTHONPATH=/app/lib/python3.11/site-packages" >> /app/bin/estisketch
+      - echo "exec python3 -m EstiSketch.main \"\$@\"" >> /app/bin/estisketch
+      - chmod +x /app/bin/estisketch
+      
+      # Install resources
+      # We rename the desktop file and icon to match the App ID for export
+      - cp packaging/estisketch.desktop /app/share/applications/com.estisketch.EstiSketch.desktop
+      # Update the Icon field in desktop file to match App ID
+      - sed -i 's/Icon=estisketch/Icon=com.estisketch.EstiSketch/' /app/share/applications/com.estisketch.EstiSketch.desktop
+      
+      - cp packaging/estisketch_128.png /app/share/icons/hicolor/128x128/apps/com.estisketch.EstiSketch.png
+
+    sources:
+      - type: dir
+        path: ..

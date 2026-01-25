@@ -536,15 +536,9 @@ class CanvasToolsMixin:
             end=edge_end,
             offset=final_offset,
             identifier=dim_id,
-            layer_id=self.active_layer_id
-        )
+            layer_id=self.active_layer_id)
         self.dimensions.append(new_dimension)
         self.existing_ids.append(dim_id)
-
-        print(
-            f"Auto-dimension created for wall from {
-                edge_start} to {
-                edge_end}")
         self.save_state()
         self.emit('content-changed')
         self.queue_draw()

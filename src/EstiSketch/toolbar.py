@@ -145,8 +145,7 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
     tool_buttons["manage_materials"] = create_icon_button(
         "manage_materials", f"{config_constants.MANAGE_MATERIALS_LABEL} (Ctrl+M)")
     tool_buttons["estimate_materials"] = create_icon_button(
-        "estimate_materials", f"{
-            config_constants.ESTIMATE_MATERIALS_LABEL} (Ctrl+Shift+M)")
+        "estimate_materials", f"{config_constants.ESTIMATE_MATERIALS_LABEL} (Ctrl+Shift+M)")
     tool_buttons["estimate_cost"] = create_icon_button(
         "estimate_cost", f"{config_constants.ESTIMATE_COST_LABEL} (Ctrl+Shift+C)")
     settings_button = create_icon_button(

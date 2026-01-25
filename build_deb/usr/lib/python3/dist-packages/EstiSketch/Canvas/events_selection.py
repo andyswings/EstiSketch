@@ -1,0 +1,2657 @@
+import math
+from gi.repository import Gtk, Gdk
+from .door_window_renderer import get_point_on_wall, get_wall_direction
+
+
+
+class CanvasSelectionMixin:
+    def _handle_pointer_click(
+            self,
+            gesture: Gtk.GestureClick,
+            n_press: int,
+            x: float,
+            y: float) -> None:
+        """
+        Handle pointer-tool clicks to select canvas items or begin wall-handle editing.
+
+        Summary:
+        - If the click is on a handle of an already-selected wall endpoint, start endpoint editing:
+          sets self.editing_wall and self.editing_handle ("start" or "end"). The selection entry for
+          this is {"type": "wall_handle", "object": (wall, handle_name)}.
+        - Otherwise detect and select the nearest canvas object (wall segment or endpoint, room vertex,
+          door, window, or polyline segment) using device-space thresholds and snapping-aware transforms.
+        - Polyline selection entries include "identifier" and "_obj_id" when available to allow robust
+          deletion/matching.
+        - Small pointer movement between press and click is ignored to avoid accidental drags.
+        - Supports multi-selection when Shift is held; without Shift selection is replaced.
+
+        Args:
+            gesture (Gtk.GestureClick): The gesture object for the click event.
+            n_press (int): The number of presses (usually 1 for a single click).
+            x (float): The x-coordinate of the click in widget coordinates.
+            y (float): The y-coordinate of the click in widget coordinates.
+
+        Returns:
+            None
+        """
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        if hasattr(self, "click_start"):
+            dx = x - self.click_start[0]
+            dy = y - self.click_start[1]
+            if math.hypot(dx, dy) > 5:
+                return
+
+        click_pt = (x, y)
+        print(f"DEBUG: Click at {click_pt}")
+        fixed_threshold = 10      # device pixels for walls
+        vertex_threshold = 15     # device pixels for vertices
+        best_dist = float('inf')
+        selected_item = None
+
+        # Check for wall handle clicks (for editing)
+        T = self.zoom * pixels_per_inch
+        for item in self.selected_items:
+            if item["type"] == "wall":
+                wall = item["object"]
+                if self.is_object_on_locked_layer(wall):
+                    continue
+                for handle_name, pt in [
+                        ("start", wall.start), ("end", wall.end)]:
+                    pt_widget = (
+                        (pt[0] * T) + self.offset_x,
+                        (pt[1] * T) + self.offset_y
+                    )
+                    dist = math.hypot(
+                        click_pt[0] - pt_widget[0],
+                        click_pt[1] - pt_widget[1])
+                    if dist < self.handle_radius:
+                        # Start editing this wall's handle
+                        self.editing_wall = wall
+                        self.editing_handle = handle_name
+                        selected_item = {
+                            "type": "wall_handle", "object": (
+                                wall, handle_name)}
+                        
+                        from ..Resources.tool_hints import TOOL_HINTS
+                        self.update_hint(TOOL_HINTS["select_wall"])
+                        break
+                
+                # Check for arc midpoint handle on curved walls
+                if selected_item is None and wall.is_curved and wall.arc_center and wall.arc_radius:
+                    cx, cy = wall.arc_center
+                    radius = wall.arc_radius
+                    start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
+                    end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
+                    
+                    # Calculate midpoint angle (same logic as drawing)
+                    angle_diff = end_angle - start_angle
+                    while angle_diff > math.pi:
+                        angle_diff -= 2 * math.pi
+                    while angle_diff < -math.pi:
+                        angle_diff += 2 * math.pi
+                    
+                    mid_angle = start_angle + angle_diff / 2
+                    arc_mid_x = cx + radius * math.cos(mid_angle)
+                    arc_mid_y = cy + radius * math.sin(mid_angle)
+                    
+                    arc_mid_widget = (
+                        (arc_mid_x * T) + self.offset_x,
+                        (arc_mid_y * T) + self.offset_y
+                    )
+                    dist = math.hypot(
+                        click_pt[0] - arc_mid_widget[0],
+                        click_pt[1] - arc_mid_widget[1])
+                    if dist < self.handle_radius:
+                        # Start editing this curved wall's arc
+                        self.editing_curved_wall = wall
+                        self.editing_curved_wall_handle = "arc_mid"
+                        selected_item = {
+                            "type": "curved_wall_handle", "object": (
+                                wall, "arc_mid")}
+                        self.update_hint("Drag to adjust arc curvature")
+                        break
+                        
+            if selected_item:
+                break
+
+        # Check for dimension endpoint clicks (for editing)
+        if selected_item is None:
+            for item in self.selected_items:
+                if item["type"] == "dimension":
+                    dim = item["object"]
+                    if self.is_object_on_locked_layer(dim):
+                        continue
+                    offset = dim.offset
+
+                    # Calculate perpendicular offset
+                    dx = dim.end[0] - dim.start[0]
+                    dy = dim.end[1] - dim.start[1]
+                    length = math.hypot(dx, dy)
+                    if length > 0:
+                        px = -dy / length
+                        py = dx / length
+                    else:
+                        px, py = 0, 0
+
+                    # Dimension line endpoints (with offset applied)
+                    dim_start = (
+                        dim.start[0] + offset * px,
+                        dim.start[1] + offset * py)
+                    dim_end = (
+                        dim.end[0] + offset * px,
+                        dim.end[1] + offset * py)
+
+                    for handle_name, pt in [
+                            ("start", dim_start), ("end", dim_end)]:
+                        pt_widget = (
+                            (pt[0] * T) + self.offset_x,
+                            (pt[1] * T) + self.offset_y
+                        )
+                        dist = math.hypot(
+                            click_pt[0] - pt_widget[0],
+                            click_pt[1] - pt_widget[1])
+                        if dist < self.handle_radius:
+                            # Start editing this dimension's endpoint
+                            self.editing_dimension = dim
+                            self.editing_dimension_handle = handle_name
+                            self.editing_dimension_original_start = dim.start
+                            self.editing_dimension_original_end = dim.end
+                            selected_item = {
+                                "type": "dimension_handle", "object": (
+                                    dim, handle_name)}
+                            break
+                if selected_item:
+                    break
+
+        # Check for polyline endpoint clicks (for editing)
+        if selected_item is None:
+            for item in self.selected_items:
+                if item["type"] == "polyline":
+                    poly = item["object"]
+                    if self.is_object_on_locked_layer(poly):
+                        continue
+
+                    for handle_name, pt in [
+                            ("start", poly.start), ("end", poly.end)]:
+                        pt_widget = (
+                            (pt[0] * T) + self.offset_x,
+                            (pt[1] * T) + self.offset_y
+                        )
+                        dist = math.hypot(
+                            click_pt[0] - pt_widget[0],
+                            click_pt[1] - pt_widget[1])
+                        if dist < self.handle_radius:
+                            # Start editing this polyline's endpoint
+                            self.editing_polyline = poly
+                            self.editing_polyline_handle = handle_name
+                            selected_item = {
+                                "type": "polyline_handle", "object": (
+                                    poly, handle_name)}
+                            break
+                if selected_item:
+                    break
+
+        # Check for circle/arc handle clicks
+        if selected_item is None:
+            for item in self.selected_items:
+                if item["type"] == "circle":
+                    circle = item["object"]
+                    if self.is_object_on_locked_layer(circle):
+                        continue
+                    cx, cy = circle.center
+                    hx = cx + circle.radius
+                    hy = cy
+                    
+                    tx = (hx * T) + self.offset_x
+                    ty = (hy * T) + self.offset_y
+                    
+                    dist = math.hypot(click_pt[0] - tx, click_pt[1] - ty)
+                    if dist < self.handle_radius:
+                        self.editing_circle = circle
+                        self.editing_circle_handle = "radius"
+                        selected_item = {"type": "circle_handle", "object": (circle, "radius")}
+                        break
+                        
+                elif item["type"] == "arc":
+                    arc = item["object"]
+                    if self.is_object_on_locked_layer(arc):
+                        continue
+                    cx, cy = arc.center
+                    
+                    # Handles: start, end, mid
+                    sx = cx + arc.radius * math.cos(arc.start_angle)
+                    sy = cy + arc.radius * math.sin(arc.start_angle)
+                    
+                    ex = cx + arc.radius * math.cos(arc.end_angle)
+                    ey = cy + arc.radius * math.sin(arc.end_angle)
+                    
+                    mid_angle = (arc.start_angle + arc.end_angle) / 2
+                    mx = cx + arc.radius * math.cos(mid_angle)
+                    my = cy + arc.radius * math.sin(mid_angle)
+                    
+                    handles = [("start", sx, sy), ("end", ex, ey), ("mid", mx, my)]
+                    
+                    for h_name, hx, hy in handles:
+                        tx = (hx * T) + self.offset_x
+                        ty = (hy * T) + self.offset_y
+                        
+                        dist = math.hypot(click_pt[0] - tx, click_pt[1] - ty)
+                        if dist < self.handle_radius:
+                            self.editing_arc = arc
+                            self.editing_arc_handle = h_name
+                            selected_item = {"type": "arc_handle", "object": (arc, h_name)}
+                            break
+                    if selected_item:
+                        break
+
+        # T = self.zoom * pixels_per_inch
+        for wall_set in self.wall_sets:
+            for wall in wall_set:
+                if self.is_object_on_locked_layer(
+                        wall) or not self.is_object_on_visible_layer(wall):
+                    continue
+                start_widget = (
+                    (wall.start[0] * T) + self.offset_x,
+                    (wall.start[1] * T) + self.offset_y
+                )
+                end_widget = (
+                    (wall.end[0] * T) + self.offset_x,
+                    (wall.end[1] * T) + self.offset_y
+                )
+                dist_start = math.hypot(click_pt[0] - start_widget[0],
+                                        click_pt[1] - start_widget[1])
+                dist_end = math.hypot(click_pt[0] - end_widget[0],
+                                      click_pt[1] - end_widget[1])
+                if dist_start < fixed_threshold and dist_start < best_dist:
+                    best_dist = dist_start
+                    selected_item = {"type": "wall", "object": wall}
+                if dist_end < fixed_threshold and dist_end < best_dist:
+                    best_dist = dist_end
+                    selected_item = {"type": "wall", "object": wall}
+                
+                # Check distance to wall path (straight or curved)
+                if wall.is_curved and wall.arc_center and wall.arc_radius:
+                    # Curved wall - check distance to arc
+                    # Convert center to widget coordinates
+                    center_widget = (
+                        (wall.arc_center[0] * T) + self.offset_x,
+                        (wall.arc_center[1] * T) + self.offset_y
+                    )
+                    radius_widget = wall.arc_radius * T
+                    
+                    # Calculate angles in widget space
+                    start_angle = math.atan2(start_widget[1] - center_widget[1], 
+                                            start_widget[0] - center_widget[0])
+                    end_angle = math.atan2(end_widget[1] - center_widget[1],
+                                          end_widget[0] - center_widget[0])
+                    
+                    dist_arc = self.distance_point_to_arc(
+                        click_pt, center_widget, radius_widget, start_angle, end_angle
+                    )
+                    
+                    if dist_arc < fixed_threshold and dist_arc < best_dist:
+                        best_dist = dist_arc
+                        selected_item = {"type": "wall", "object": wall}
+                else:
+                    # Straight wall - use line segment distance
+                    dist_seg = self.distance_point_to_segment(
+                        click_pt, start_widget, end_widget)
+                    if dist_seg < fixed_threshold and dist_seg < best_dist:
+                        best_dist = dist_seg
+                        selected_item = {"type": "wall", "object": wall}
+
+        for room in self.rooms:
+            if self.is_object_on_locked_layer(
+                    room) or not self.is_object_on_visible_layer(room):
+                continue
+            for idx, pt in enumerate(room.points):
+                pt_widget = (
+                    (pt[0] * T) + self.offset_x,
+                    (pt[1] * T) + self.offset_y
+                )
+                dist_pt = math.hypot(click_pt[0] - pt_widget[0],
+                                     click_pt[1] - pt_widget[1])
+                if dist_pt < vertex_threshold and dist_pt < best_dist:
+                    best_dist = dist_pt
+                    selected_item = {"type": "vertex", "object": (room, idx)}
+                    
+                    from ..Resources.tool_hints import TOOL_HINTS
+                    self.update_hint(TOOL_HINTS["select_room"])
+
+        # Check for clicks on room edges (between vertices) - double-click to
+        # insert vertex
+        edge_threshold = 10  # device pixels for edge detection
+        if n_press == 2 and selected_item is None:  # Only on double-click, and if not clicking on a vertex
+            for room in self.rooms:
+                if self.is_object_on_locked_layer(
+                        room) or not self.is_object_on_visible_layer(room):
+                    continue
+                num_pts = len(room.points)
+                for i in range(num_pts):
+                    # Get edge from point i to point (i+1) % num_pts (closed
+                    # polygon)
+                    p1 = room.points[i]
+                    p2 = room.points[(i + 1) % num_pts]
+
+                    # Convert to widget coordinates
+                    p1_widget = (
+                        (p1[0] * T) + self.offset_x,
+                        (p1[1] * T) + self.offset_y)
+                    p2_widget = (
+                        (p2[0] * T) + self.offset_x,
+                        (p2[1] * T) + self.offset_y)
+
+                    # Check distance from click to this edge
+                    dist = self.distance_point_to_segment(
+                        click_pt, p1_widget, p2_widget)
+
+                    if dist < edge_threshold:
+                        # Convert click to model coordinates for new vertex
+                        new_x, new_y = self.device_to_model(
+                            x, y, pixels_per_inch)
+
+                        # Insert new point at position (i+1) in the points list
+                        room.points.insert(i + 1, (new_x, new_y))
+
+                        # Select the new vertex for immediate editing
+                        selected_item = {
+                            "type": "vertex", "object": (
+                                room, i + 1)}
+
+                        print(
+                            f"Inserted new room vertex at ({
+                                new_x:.1f}, {
+                                new_y:.1f})")
+                        self.save_state()
+                        break
+                if selected_item:
+                    break
+
+        # Check for click inside room (for whole-room dragging)
+        if selected_item is None:
+            for room in self.rooms:
+                if self.is_object_on_locked_layer(
+                        room) or not self.is_object_on_visible_layer(room):
+                    continue
+                # Convert room points to widget coordinates
+                poly_widget = [
+                    ((pt[0] * T) + self.offset_x, (pt[1] * T) + self.offset_y)
+                    for pt in room.points
+                ]
+                if self._point_in_polygon(click_pt, poly_widget):
+                    selected_item = {"type": "room", "object": room}
+                    from ..Resources.tool_hints import TOOL_HINTS
+                    self.update_hint(TOOL_HINTS["select_room"])
+                    break
+
+        for door_item in self.doors:
+            wall, door, ratio = door_item
+
+            # Skip invalid entries or restricted layers
+            if wall is None:
+                continue
+            if self.is_object_on_locked_layer(
+                    door) or not self.is_object_on_visible_layer(door):
+                continue
+
+            # Calculate door position (arc-aware)
+            H = get_point_on_wall(wall, ratio)
+            
+            # Calculate wall direction (tangent-aware for curved walls)
+            d = get_wall_direction(wall, ratio)
+            dx = d[0]
+            dy = d[1]
+            length = math.hypot(dx, dy)
+            if length == 0:
+                continue
+            d = (dx / length, dy / length)
+            p = (-d[1], d[0])
+            n = (-p[0], -p[1]) if door.swing == "left" else (p[0], p[1])
+            w = door.width
+            t = self.config.DEFAULT_WALL_WIDTH
+            H_start = (H[0] - (w / 2) * d[0], H[1] - (w / 2) * d[1])
+            H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
+            P1 = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])
+            P2 = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])
+            P3 = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])
+            P4 = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])
+            P1_dev = self.model_to_device(P1[0], P1[1], pixels_per_inch)
+            P2_dev = self.model_to_device(P2[0], P2[1], pixels_per_inch)
+            P3_dev = self.model_to_device(P3[0], P3[1], pixels_per_inch)
+            P4_dev = self.model_to_device(P4[0], P4[1], pixels_per_inch)
+            door_poly = [P1_dev, P2_dev, P3_dev, P4_dev]
+            if self._point_in_polygon(click_pt, door_poly):
+                # print("Door selected")
+                selected_item = {"type": "door", "object": door_item}
+                break  # Exit loop
+        # Check windows
+        for window_item in self.windows:
+            wall, window, ratio = window_item
+
+            # Skip invalid entries or restricted layers
+            if wall is None:
+                continue
+            if self.is_object_on_locked_layer(
+                    window) or not self.is_object_on_visible_layer(window):
+                continue
+
+            # Calculate window position (arc-aware)
+            H = get_point_on_wall(wall, ratio)
+            
+            # Calculate wall direction (tangent-aware for curved walls)
+            d = get_wall_direction(wall, ratio)
+            dx = d[0]
+            dy = d[1]
+            length = math.hypot(dx, dy)
+            if length == 0:
+                continue
+            d = (dx / length, dy / length)
+            p = (-d[1], d[0])
+            w = window.width
+            t = self.config.DEFAULT_WALL_WIDTH
+            H_start = (H[0] - (w / 2) * d[0], H[1] - (w / 2) * d[1])
+            H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
+            P1 = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])
+            P2 = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])
+            P3 = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])
+            P4 = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])
+            P1_dev = self.model_to_device(P1[0], P1[1], pixels_per_inch)
+            P2_dev = self.model_to_device(P2[0], P2[1], pixels_per_inch)
+            P3_dev = self.model_to_device(P3[0], P3[1], pixels_per_inch)
+            P4_dev = self.model_to_device(P4[0], P4[1], pixels_per_inch)
+            window_poly = [P1_dev, P2_dev, P3_dev, P4_dev]
+            if self._point_in_polygon(click_pt, window_poly):
+                # print("Window selected")
+                selected_item = {"type": "window", "object": window_item}
+                break
+
+        for poly_list in self.polyline_sets:
+            for pl in poly_list:
+                if self.is_object_on_locked_layer(
+                        pl) or not self.is_object_on_visible_layer(pl):
+                    continue
+                # transform endpoints from model to widget coords
+                p1 = self.model_to_device(
+                    pl.start[0], pl.start[1], pixels_per_inch)
+                p2 = self.model_to_device(
+                    pl.end[0], pl.end[1], pixels_per_inch)
+                # distance from click to segment
+                if self.distance_point_to_segment(
+                        click_pt, p1, p2) < fixed_threshold:
+                    selected_item = {
+                        "type": "polyline",
+                        "object": pl,
+                        "identifier": getattr(pl, "identifier", None),
+                        "_obj_id": id(pl)
+                    }
+                    break
+                    break
+            if selected_item:
+                break
+
+        # Check Texts
+        if selected_item is None:
+            for text in self.texts:
+                if self.is_object_on_locked_layer(
+                        text) or not self.is_object_on_visible_layer(text):
+                    continue
+                # Text hit test: check if click is within bounding box
+                # text.x, text.y is top-left in model space
+                # text.width, text.height are dimensions in model space
+                # (inches)
+
+                x_dev, y_dev = self.model_to_device(
+                    text.x, text.y, pixels_per_inch)
+                w_dev = text.width * T
+                h_dev = text.height * T
+
+                # Simple AABB check
+                if (x_dev <= click_pt[0] <= x_dev +
+                    w_dev) and (y_dev <= click_pt[1] <= y_dev +
+                                h_dev):
+                    selected_item = {"type": "text", "object": text}
+                    break
+
+        # Check Dimensions
+        if selected_item is None:
+            for dimension in self.dimensions:
+                if self.is_object_on_locked_layer(
+                        dimension) or not self.is_object_on_visible_layer(dimension):
+                    continue
+                # Check if click is near the dimension line
+                # Calculate dimension line position
+                start = dimension.start
+                end = dimension.end
+                offset = dimension.offset
+
+                dx = end[0] - start[0]
+                dy = end[1] - start[1]
+                length = math.hypot(dx, dy)
+
+                if length == 0:
+                    continue
+
+                # Perpendicular unit vector
+                ux = dx / length
+                uy = dy / length
+                px = -uy
+                py = ux
+
+                # Dimension line endpoints
+                dim_start = (start[0] + offset * px, start[1] + offset * py)
+                dim_end = (end[0] + offset * px, end[1] + offset * py)
+
+                # Convert to device coordinates
+                dim_start_dev = self.model_to_device(
+                    dim_start[0], dim_start[1], pixels_per_inch)
+                dim_end_dev = self.model_to_device(
+                    dim_end[0], dim_end[1], pixels_per_inch)
+
+                # Check distance to dimension line
+                dist = self.distance_point_to_segment(
+                    click_pt, dim_start_dev, dim_end_dev)
+                if dist < fixed_threshold:
+                    selected_item = {"type": "dimension", "object": dimension}
+                    break
+
+        # Check Circles
+        if selected_item is None:
+            for circle in self.circles:
+                if self.is_object_on_locked_layer(circle) or not self.is_object_on_visible_layer(circle):
+                    continue
+                    
+                center_widget = self.model_to_device(circle.center[0], circle.center[1], pixels_per_inch)
+                radius_widget = circle.radius * T # T = zoom * ppi
+                
+                dist = math.hypot(click_pt[0] - center_widget[0], click_pt[1] - center_widget[1])
+                
+                # Check if click is near the circle edge (within threshold)
+                dist_to_edge = abs(dist - radius_widget)
+                if dist_to_edge < fixed_threshold:
+                    selected_item = {"type": "circle", "object": circle}
+                    break
+
+        # Check Arcs
+        if selected_item is None:
+            for arc in self.arcs:
+                if self.is_object_on_locked_layer(arc) or not self.is_object_on_visible_layer(arc):
+                    continue
+                    
+                center_widget = self.model_to_device(arc.center[0], arc.center[1], pixels_per_inch)
+                radius_widget = arc.radius * T
+                
+                dist = math.hypot(click_pt[0] - center_widget[0], click_pt[1] - center_widget[1])
+                dist_to_edge = abs(dist - radius_widget)
+                
+                if dist_to_edge < fixed_threshold:
+                    # Check angle
+                    angle = math.atan2(click_pt[1] - center_widget[1], click_pt[0] - center_widget[0])
+                    # Normalize to 0-2PI relative to start angle?
+                    # arc.start_angle / end_angle are in radians.
+                    # Need to check if 'angle' is between start and end in the arc's direction (CCW/CW)
+                    # We store arcs as CCW from start to end (see previous step decision)
+                    # OR we just check if angle is in [start, end] range normalized
+                    
+                    angle_norm = self.normalize_angle(angle)
+                    start_norm = self.normalize_angle(arc.start_angle)
+                    end_norm = self.normalize_angle(arc.end_angle)
+                    
+                    # Logic: if start < end, then angle must be in [start, end]
+                    # if start > end (crosses 0), then angle > start OR angle < end
+                    
+                    in_angle = False
+                    if start_norm < end_norm:
+                        if start_norm <= angle_norm <= end_norm:
+                            in_angle = True
+                    else:
+                        if angle_norm >= start_norm or angle_norm <= end_norm:
+                            in_angle = True
+                            
+                    if in_angle:
+                        selected_item = {"type": "arc", "object": arc}
+                        break
+
+        # Check Roofs
+        if selected_item is None:
+            for roof in getattr(self, 'roofs', []):
+                 if self.is_object_on_locked_layer(roof) or not self.is_object_on_visible_layer(roof):
+                     continue
+                 
+                 # Convert outline to widget coords
+                 poly_widget = [
+                     self.model_to_device(pt[0], pt[1], pixels_per_inch)
+                     for pt in roof.outline_points
+                 ]
+                 
+                 if self._point_in_polygon(click_pt, poly_widget):
+                     selected_item = {"type": "roof", "object": roof}
+                     from ..Resources.tool_hints import TOOL_HINTS
+                     # Need to ensure hint exists or use generic
+                     self.update_hint("Click to select roof, Drag to move (not impl)")
+                     break
+
+        event = gesture.get_current_event()
+        state = event.get_modifier_state() if hasattr(
+            event, "get_modifier_state") else event.state
+        shift_pressed = bool(state & Gdk.ModifierType.SHIFT_MASK)
+
+        if selected_item:
+            if shift_pressed:
+                # Check if item is already selected
+                existing_idx = None
+                for i, existing in enumerate(self.selected_items):
+                    if self.same_selection(existing["object"], selected_item["object"]):
+                        existing_idx = i
+                        break
+                if existing_idx is not None:
+                    # Remove from selection (toggle off)
+                    self.selected_items.pop(existing_idx)
+                else:
+                    # Add to selection
+                    self.selected_items.append(selected_item)
+            else:
+                self.selected_items = [selected_item]
+        else:
+            if not shift_pressed:
+                self.selected_items = []
+                
+        # Update generic selection hint if an item was selected but no specific hint set yet
+        if self.tool_mode == "design_roof":
+             from ..Resources.tool_hints import TOOL_HINTS
+             self.update_hint(TOOL_HINTS["design_roof"])
+        elif selected_item and not shift_pressed: 
+             # We might want more specific hints based on type, but for now generic:
+             from ..Resources.tool_hints import TOOL_HINTS
+             if selected_item["type"] == "wall":
+                  self.update_hint(TOOL_HINTS["select_wall"])
+             elif selected_item["type"] == "room":
+                  self.update_hint(TOOL_HINTS["select_room"])
+             else:
+                  self.update_hint(TOOL_HINTS["select_object"])
+        elif not selected_item:
+             # Reset to pointer hint if nothing selected
+             from ..Resources.tool_hints import TOOL_HINTS
+             self.update_hint(TOOL_HINTS["pointer"])
+
+        self.emit('selection-changed', self.selected_items)
+        self.queue_draw()
+
+    def on_drag_begin(
+            self,
+            gesture: Gtk.Gesture,
+            start_x: float,
+            start_y: float) -> None:
+        """
+        Handle the beginning of a drag gesture on the canvas.
+
+        This method is called when the user starts dragging with the mouse or pointer.
+        It initializes state for either panning (moving the canvas view) or box selection
+        (selecting multiple items with a rectangular area), depending on the current tool mode.
+        For box selection, it also checks if the Shift key is held to extend the selection.
+
+        Args:
+            gesture (Gtk.Gesture): The gesture object for the drag event.
+            start_x (float): The x-coordinate where the drag started.
+            start_y (float): The y-coordinate where the drag started.
+
+        Returns:
+            None
+        """
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        
+        # Always initialize drag start coordinates
+        self.drag_start_x = start_x
+        self.drag_start_y = start_y
+
+        # If we already entered handle-editing on press, don't overwrite
+        # box_select_start.
+        if (getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None)) or \
+           (getattr(self, "editing_circle", None) and getattr(self, "editing_circle_handle", None)) or \
+           (getattr(self, "editing_arc", None) and getattr(self, "editing_arc_handle", None)):
+            
+            # Initializing drag start coordinates for calculating drag offset
+            self.drag_start_x = start_x
+            self.drag_start_y = start_y
+
+            # Keep box_select_start set by on_click_pressed (model coords of endpoint).
+            # No further initialization required for editing; on_drag_update
+            # will handle motion.
+            return
+
+        if self.tool_mode == "panning":
+            self.drag_start_x = start_x
+            self.drag_start_y = start_y
+            self.last_offset_x = self.offset_x
+            self.last_offset_y = self.offset_y
+        elif self.tool_mode in ("pointer", "design_roof"):
+            self.box_selecting = True
+            self.box_select_start = ((start_x -
+                                      self.offset_x) /
+                                     (self.zoom *
+                                      pixels_per_inch), (start_y -
+                                                         self.offset_y) /
+                                     (self.zoom *
+                                      pixels_per_inch))
+            self.box_select_end = self.box_select_start
+            event = gesture.get_current_event()
+            state = event.get_modifier_state() if hasattr(
+                event, "get_modifier_state") else event.state
+            self.box_select_end = self.box_select_start
+            event = gesture.get_current_event()
+            state = event.get_modifier_state() if hasattr(
+                event, "get_modifier_state") else event.state
+            self.box_select_extend = bool(state & Gdk.ModifierType.SHIFT_MASK)
+
+            # If we are moving or rotating text, cancel box selection
+            if getattr(
+                    self,
+                    "moving_text",
+                    None) or getattr(
+                    self,
+                    "rotating_text",
+                    None):
+                self.box_selecting = False
+
+            # Check for door/window dragging
+            if len(self.selected_items) > 0:
+                # Handle single selection drag for doors/windows
+                item = self.selected_items[0]
+                if item["type"] in ["door", "window"]:
+                    wall, obj, ratio = item["object"]
+                    if wall is not None and not self.is_object_on_locked_layer(obj):  # Only drag if on a wall and not locked
+                        self.dragging_door_window = item
+                        self.dragging_door_window_start_ratio = ratio
+
+                        # Store drag start coordinates (device space)
+                        # explicitly
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+
+                        # Calculate the cursor position in model coords at drag
+                        # start
+                        pixels_per_inch = getattr(
+                            self.config, "PIXELS_PER_INCH", 2.0)
+                        start_model_x, start_model_y = self.device_to_model(
+                            start_x, start_y, pixels_per_inch)
+
+                        # Calculate current window center position
+                        A = wall.start
+                        B = wall.end
+                        window_center_x = A[0] + ratio * (B[0] - A[0])
+                        window_center_y = A[1] + ratio * (B[1] - A[1])
+
+                        # Store offset from click to window center
+                        self.drag_offset_x = window_center_x - start_model_x
+                        self.drag_offset_y = window_center_y - start_model_y
+
+                        self.box_selecting = False
+
+                # Check for wall dragging (only if not already dragging
+                # door/window)
+                elif item["type"] == "wall" and not getattr(self, "dragging_door_window", None):
+                    wall = item["object"]
+                    if not self.is_object_on_locked_layer(wall):
+                        self.dragging_wall = wall
+    
+                        # Store original wall positions
+                        self.wall_drag_original_start = wall.start
+                        self.wall_drag_original_end = wall.end
+    
+                        # Store drag start coordinates (device space)
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+    
+                        # Convert drag start to model coordinates
+                        pixels_per_inch = getattr(
+                            self.config, "PIXELS_PER_INCH", 2.0)
+                        self.wall_drag_start_model = self.device_to_model(
+                            start_x, start_y, pixels_per_inch)
+    
+                        # Find all walls connected to this wall's endpoints
+                        connected_start = []
+                        connected_end = []
+                        tol = getattr(self.config, "JOINT_SNAP_TOLERANCE", 0.25)
+    
+                        for wall_set in self.wall_sets:
+                            for w in wall_set:
+                                if w is not wall:  # Don't include the dragged wall itself
+                                    # Check if other wall's start connects to
+                                    # dragged wall's start
+                                    if self._points_close(
+                                            w.start, wall.start, tol):
+                                        connected_start.append((w, "start"))
+                                    # Check if other wall's end connects to dragged
+                                    # wall's start
+                                    if self._points_close(w.end, wall.start, tol):
+                                        connected_start.append((w, "end"))
+                                    # Check if other wall's start connects to
+                                    # dragged wall's end
+                                    if self._points_close(w.start, wall.end, tol):
+                                        connected_end.append((w, "start"))
+                                    # Check if other wall's end connects to dragged
+                                    # wall's end
+                                    if self._points_close(w.end, wall.end, tol):
+                                        connected_end.append((w, "end"))
+    
+                        self.wall_drag_connected_start = connected_start
+                        self.wall_drag_connected_end = connected_end
+    
+                        self.box_selecting = False
+
+                # Check for vertex (room point) dragging - supports multiple
+                # selected vertices
+                elif item["type"] == "vertex" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None):
+                    # Collect all selected vertices
+                    selected_vertices = [
+                        i for i in self.selected_items if i["type"] == "vertex" and not self.is_object_on_locked_layer(i["object"][0])]
+
+                    if selected_vertices:
+                        self.dragging_vertices = []
+                        for vertex_item in selected_vertices:
+                            room, idx = vertex_item["object"]
+                            self.dragging_vertices.append({
+                                "room": room,
+                                "index": idx,
+                                "original": room.points[idx]
+                            })
+
+                        # Store drag start coordinates
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+
+                        # Convert drag start to model coordinates
+                        pixels_per_inch = getattr(
+                            self.config, "PIXELS_PER_INCH", 2.0)
+                        self.vertex_drag_start_model = self.device_to_model(
+                            start_x, start_y, pixels_per_inch)
+
+                        self.box_selecting = False
+
+                # Check for dimension dragging - supports multiple selected
+                # dimensions
+                elif item["type"] == "dimension" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None):
+                    # Collect all selected dimensions
+                    selected_dims = [
+                        i for i in self.selected_items if i["type"] == "dimension" and not self.is_object_on_locked_layer(i["object"])]
+
+                    if selected_dims:
+                        self.dragging_dimensions = []
+                        for dim_item in selected_dims:
+                            dim = dim_item["object"]
+                            
+                            # Ensure we have the fresh object from self.dimensions
+                            # This handles cases where selected_items might hold a stale reference
+                            # (e.g. after undo/redo or state changes where deepcopy was used)
+                            found_dim = None
+                            
+                            # 1. Try to match by identifier (most robust)
+                            dim_id = getattr(dim, "identifier", None)
+                            if dim_id:
+                                for d in self.dimensions:
+                                    if getattr(d, "identifier", None) == dim_id:
+                                        found_dim = d
+                                        break
+                            
+                            # 2. If no identifier match, try identity (fast)
+                            if not found_dim:
+                                for d in self.dimensions:
+                                    if d is dim:
+                                        found_dim = d
+                                        break
+                            
+                            # 3. If no identity match, try equality (last resort)
+                            if not found_dim:
+                                for d in self.dimensions:
+                                    if d == dim:
+                                        found_dim = d
+                                        break
+
+                            if found_dim:
+                                dim = found_dim
+                                dim_item["object"] = dim  # Update selection to point to fresh object
+
+                            self.dragging_dimensions.append({
+                                "dimension": dim,
+                                "original_start": dim.start,
+                                "original_end": dim.end
+                            })
+
+                        # Store drag start coordinates
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+
+                        # Convert drag start to model coordinates
+                        pixels_per_inch = getattr(
+                            self.config, "PIXELS_PER_INCH", 2.0)
+                        self.dimension_drag_start_model = self.device_to_model(
+                            start_x, start_y, pixels_per_inch)
+
+                        self.box_selecting = False
+
+                # Check for polyline dragging - supports multiple selected polylines
+                # Skip if we're editing an endpoint
+                elif item["type"] == "polyline" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "editing_polyline", None):
+                    # Collect all selected polylines
+                    selected_polys = [
+                        i for i in self.selected_items if i["type"] == "polyline" and not self.is_object_on_locked_layer(i["object"])]
+
+                    if selected_polys:
+                        self.dragging_polylines = []
+                        for poly_item in selected_polys:
+                            poly = poly_item["object"]
+                            self.dragging_polylines.append({
+                                "polyline": poly,
+                                "original_start": poly.start,
+                                "original_end": poly.end
+                            })
+
+                        # Store drag start coordinates
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+
+                        # Convert drag start to model coordinates
+                        pixels_per_inch = getattr(
+                            self.config, "PIXELS_PER_INCH", 2.0)
+                        self.polyline_drag_start_model = self.device_to_model(
+                            start_x, start_y, pixels_per_inch)
+
+                        self.box_selecting = False
+
+                # Check for whole-room dragging
+                elif item["type"] == "room" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None):
+                    room = item["object"]
+
+                    if not self.is_object_on_locked_layer(room):
+                        # Store all original vertex positions
+                        self.dragging_room = room
+                        self.dragging_room_original_points = [
+                            pt for pt in room.points]
+    
+                        # Store drag start coordinates
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+    
+                        # Convert drag start to model coordinates
+                        pixels_per_inch = getattr(
+                            self.config, "PIXELS_PER_INCH", 2.0)
+                        self.room_drag_start_model = self.device_to_model(
+                            start_x, start_y, pixels_per_inch)
+    
+                        self.box_selecting = False
+
+                # Check for circle dragging
+                elif item["type"] == "circle" and not getattr(self, "editing_circle", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None):
+                    if not self.is_object_on_locked_layer(item["object"]):
+                        self.dragging_circle = item["object"]
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        # Initial center
+                        self.circle_drag_original_center = self.dragging_circle.center
+                        
+                        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                        self.circle_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                        self.box_selecting = False
+
+                # Check for arc dragging
+                elif item["type"] == "arc" and not getattr(self, "editing_arc", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_circle", None):
+                    if not self.is_object_on_locked_layer(item["object"]):
+                        self.dragging_arc = item["object"]
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        self.arc_drag_original_center = self.dragging_arc.center
+                        
+                        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                        self.arc_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                        self.box_selecting = False
+
+        elif self.tool_mode == "add_text":
+            self.drag_start_x = start_x
+            self.drag_start_y = start_y
+
+    def on_drag_end(
+            self,
+            gesture: Gtk.Gesture,
+            offset_x: float,
+            offset_y: float) -> None:
+        """
+        Handle the end of a drag gesture on the canvas.
+
+        This method is called when the user releases the mouse or pointer after dragging.
+        If the pointer tool and box selection are active, it finalizes the selection rectangle,
+        determines which canvas items (walls, vertices, doors, windows, polylines) are within or intersect
+        the selection area, and updates the selection. Supports extending the selection with Shift.
+
+        Args:
+            gesture (Gtk.Gesture): The gesture object for the drag event.
+            offset_x (float): The horizontal offset from the drag start position.
+            offset_y (float): The vertical offset from the drag start position.
+
+        Returns:
+            None
+        """
+
+        # If we were editing a wall endpoint, just clear that state and stop.
+        if getattr(
+                self,
+                "editing_wall",
+                None) and getattr(
+                self,
+                "editing_handle",
+                None):
+            # Recalculate any roofs that depend on this wall
+            if hasattr(self, 'recalculate_roofs_for_wall'):
+                wall_id = getattr(self.editing_wall, 'identifier', None)
+                if wall_id:
+                    self.recalculate_roofs_for_wall(wall_id)
+            self.editing_wall = None
+            self.editing_handle = None
+            self.connected_endpoints = []
+            self.connected_endpoints = []
+            self.joint_drag_origin = None
+            return
+
+        # If we were editing a circle, clear that state and save
+        if getattr(self, "editing_circle", None) and getattr(self, "editing_circle_handle", None):
+            self.editing_circle = None
+            self.editing_circle_handle = None
+            self.save_state()
+            return
+
+        # If we were editing an arc, clear that state and save
+        if getattr(self, "editing_arc", None) and getattr(self, "editing_arc_handle", None):
+            self.editing_arc = None
+            self.editing_arc_handle = None
+            self.save_state()
+            return
+
+        # If we were editing a curved wall's arc, clear that state and save
+        if getattr(self, "editing_curved_wall", None) and getattr(self, "editing_curved_wall_handle", None):
+            self.editing_curved_wall = None
+            self.editing_curved_wall_handle = None
+            self.save_state()
+            return
+
+        # If we were dragging a circle, clear that state and save
+        if getattr(self, "dragging_circle", None):
+            self.dragging_circle = None
+            self.circle_drag_original_center = None
+            self.circle_drag_start_model = None
+            self.save_state()
+            self.queue_draw()
+            return
+
+        # If we were dragging an arc, clear that state and save
+        if getattr(self, "dragging_arc", None):
+            self.dragging_arc = None
+            self.arc_drag_original_center = None
+            self.arc_drag_start_model = None
+            self.save_state()
+            self.queue_draw()
+            return
+
+        # If we were editing a dimension endpoint, clear that state and save
+        if getattr(
+                self,
+                "editing_dimension",
+                None) and getattr(
+                self,
+                "editing_dimension_handle",
+                None):
+            self.editing_dimension = None
+            self.editing_dimension_handle = None
+            self.editing_dimension_original_start = None
+            self.editing_dimension_original_end = None
+            self.save_state()
+            return
+
+        if getattr(self, "dragging_polylines", None):
+            # Finalize polyline drag and clear dragging state
+            self.dragging_polylines = None
+            self.polyline_drag_start_model = None
+            self.save_state()
+            self.queue_draw()
+            return
+
+        if getattr(
+                self,
+                "editing_polyline",
+                None) and getattr(
+                self,
+                "editing_polyline_handle",
+                None):
+            # Finalize polyline endpoint editing
+            self.editing_polyline = None
+            self.editing_polyline_handle = None
+            self.save_state()
+            return
+
+        if getattr(self, "rotating_text", None):
+            self.rotating_text = None
+            self.rotation_start_angle = None
+            self.rotation_center = None
+            self.rotation_start_mouse_angle = None
+            self.save_state()
+            return
+
+        if getattr(self, "moving_text", None):
+            self.moving_text = None
+            self.moving_text_start_pos = None
+            self.save_state()
+            return
+        if getattr(self, "dragging_door_window", None):
+            # Finalize door/window drag and clear selection
+            self.selected_items = []
+            self.dragging_door_window = None
+            self.dragging_door_window_start_ratio = None
+            self.drag_offset_x = 0
+            self.drag_offset_y = 0
+            self.save_state()
+            self.queue_draw()
+            return
+
+        if getattr(self, "dragging_wall", None):
+            # Finalize wall drag and clear dragging state
+            # Recalculate any roofs that depend on this wall
+            if hasattr(self, 'recalculate_roofs_for_wall'):
+                wall_id = getattr(self.dragging_wall, 'identifier', None)
+                if wall_id:
+                    self.recalculate_roofs_for_wall(wall_id)
+            self.dragging_wall = None
+            self.wall_drag_original_start = None
+            self.wall_drag_original_end = None
+            self.wall_drag_start_model = None
+            self.wall_drag_connected_start = []
+            self.wall_drag_connected_end = []
+            self.save_state()
+            self.queue_draw()
+            return
+
+        if getattr(self, "dragging_room", None):
+            # Finalize room drag and clear dragging state
+            self.dragging_room = None
+            self.dragging_room_original_points = None
+            self.room_drag_start_model = None
+            self.save_state()
+            self.queue_draw()
+            return
+
+        if getattr(self, "dragging_vertices", None):
+            # Finalize vertex drag and clear dragging state
+            self.dragging_vertices = None
+            self.vertex_drag_start_model = None
+            self.save_state()
+            self.queue_draw()
+            return
+
+        if getattr(self, "dragging_dimensions", None):
+            # Finalize dimension drag and clear dragging state
+            self.dragging_dimensions = None
+            self.dimension_drag_start_model = None
+            self.save_state()
+            self.queue_draw()
+            return
+
+        if self.tool_mode in ("pointer", "design_roof") and self.box_selecting:
+            x1 = min(self.box_select_start[0], self.box_select_end[0])
+            y1 = min(self.box_select_start[1], self.box_select_end[1])
+            x2 = max(self.box_select_start[0], self.box_select_end[0])
+            y2 = max(self.box_select_start[1], self.box_select_end[1])
+            
+            # Skip box selection if the box is too small (just a click, not a real drag)
+            # This prevents overwriting the shift+click toggle behavior
+            box_width = x2 - x1
+            box_height = y2 - y1
+            min_box_size = 2.0  # minimum size in model units to count as a real box selection
+            
+            if box_width < min_box_size and box_height < min_box_size:
+                # This was just a click, not a real box selection - don't override _handle_pointer_click
+                self.box_selecting = False
+                self.queue_draw()
+                return
+            
+            rect = (x1, y1, x2, y2)
+
+            new_selection = []
+
+            for wall_set in self.wall_sets:
+                for wall in wall_set:
+                    if self.is_object_on_locked_layer(
+                            wall) or not self.is_object_on_visible_layer(wall):
+                        continue
+                    if self.line_intersects_rect(wall.start, wall.end, rect):
+                        new_selection.append({"type": "wall", "object": wall})
+
+            for room in self.rooms:
+                if self.is_object_on_locked_layer(
+                        room) or not self.is_object_on_visible_layer(room):
+                    continue
+                for idx, pt in enumerate(room.points):
+                    if (x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2):
+                        new_selection.append(
+                            {"type": "vertex", "object": (room, idx)})
+
+            # Check doors
+            for door_item in self.doors:
+                wall, door, ratio = door_item
+
+                # Skip doors without a wall, or restricted layers
+                if wall is None:
+                    continue
+                if self.is_object_on_locked_layer(
+                        door) or not self.is_object_on_visible_layer(door):
+                    continue
+
+                A = wall.start
+                B = wall.end
+                H = (A[0] + ratio * (B[0] - A[0]),
+                     A[1] + ratio * (B[1] - A[1]))
+                dx = B[0] - A[0]
+                dy = B[1] - A[1]
+                length = math.hypot(dx, dy)
+                if length == 0:
+                    continue
+                d = (dx / length, dy / length)
+                p = (-d[1], d[0])
+                n = (-p[0], -p[1]) if door.swing == "left" else (p[0], p[1])
+                w = door.width
+                t = self.config.DEFAULT_WALL_WIDTH
+                H_start = (H[0] - (w / 2) * d[0], H[1] - (w / 2) * d[1])
+                H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
+                P1 = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])
+                P2 = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])
+                P3 = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])
+                P4 = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])
+                # Compute bounding box for the door polygon.
+                door_min_x = min(P1[0], P2[0], P3[0], P4[0])
+                door_max_x = max(P1[0], P2[0], P3[0], P4[0])
+                door_min_y = min(P1[1], P2[1], P3[1], P4[1])
+                door_max_y = max(P1[1], P2[1], P3[1], P4[1])
+                # If the door bounding box overlaps with the selection
+                # rectangle, add it.
+                if door_max_x >= x1 and door_min_x <= x2 and door_max_y >= y1 and door_min_y <= y2:
+                    new_selection.append({"type": "door", "object": door_item})
+
+            for window_item in self.windows:
+                wall, window, ratio = window_item
+
+                # Skip windows without a wall or restricted layers
+                if wall is None:
+                    continue
+                if self.is_object_on_locked_layer(
+                        window) or not self.is_object_on_visible_layer(window):
+                    continue
+
+                A = wall.start
+                B = wall.end
+                H = (A[0] + ratio * (B[0] - A[0]),
+                     A[1] + ratio * (B[1] - A[1]))
+                dx = B[0] - A[0]
+                dy = B[1] - A[1]
+                length = math.hypot(dx, dy)
+                if length == 0:
+                    continue
+                d = (dx / length, dy / length)
+                p = (-d[1], d[0])
+                w = window.width
+                t = self.config.DEFAULT_WALL_WIDTH
+                H_start = (H[0] - (w / 2) * d[0], H[1] - (w / 2) * d[1])
+                H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
+                P1 = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])
+                P2 = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])
+                P3 = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])
+                P4 = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])
+                window_min_x = min(P1[0], P2[0], P3[0], P4[0])
+                window_max_x = max(P1[0], P2[0], P3[0], P4[0])
+                window_min_y = min(P1[1], P2[1], P3[1], P4[1])
+                window_max_y = max(P1[1], P2[1], P3[1], P4[1])
+                if window_max_x >= x1 and window_min_x <= x2 and window_max_y >= y1 and window_min_y <= y2:
+                    new_selection.append(
+                        {"type": "window", "object": window_item})
+
+            for poly_list in self.polyline_sets:
+                for pl in poly_list:
+                    if self.is_object_on_locked_layer(
+                            pl) or not self.is_object_on_visible_layer(pl):
+                        continue
+                    if self.line_intersects_rect(pl.start, pl.end, rect):
+                        new_selection.append(
+                            {"type": "polyline", "object": pl, "identifier": pl.identifier})
+
+            for dimension in self.dimensions:
+                if self.is_object_on_locked_layer(
+                        dimension) or not self.is_object_on_visible_layer(dimension):
+                    continue
+                # Calculate dimension line position
+                start = dimension.start
+                end = dimension.end
+                offset = dimension.offset
+
+                dx = end[0] - start[0]
+                dy = end[1] - start[1]
+                length = math.hypot(dx, dy)
+
+                if length == 0:
+                    continue
+
+                # Perpendicular unit vector
+                ux = dx / length
+                uy = dy / length
+                px = -uy
+                py = ux
+
+                # Dimension line endpoints
+                dim_start = (start[0] + offset * px, start[1] + offset * py)
+                dim_end = (end[0] + offset * px, end[1] + offset * py)
+
+                if self.line_intersects_rect(dim_start, dim_end, rect):
+                    new_selection.append(
+                        {"type": "dimension", "object": dimension})
+
+            for text in self.texts:
+                if self.is_object_on_locked_layer(
+                        text) or not self.is_object_on_visible_layer(text):
+                    continue
+                tx1 = text.x
+                ty1 = text.y
+                tx2 = text.x + text.width
+                ty2 = text.y + text.height
+
+                # Check intersection (if NOT disjoint)
+                if not (tx2 < x1 or tx1 > x2 or ty2 < y1 or ty1 > y2):
+                    new_selection.append({"type": "text", "object": text})
+
+            for circle in self.circles:
+                if self.is_object_on_locked_layer(circle) or not self.is_object_on_visible_layer(circle):
+                    continue
+                # Simple check: if center is in rect OR if the circle intersects the rect
+                # For now: check if center is in rect
+                cx, cy = circle.center
+                if (x1 <= cx <= x2) and (y1 <= cy <= y2):
+                    new_selection.append({"type": "circle", "object": circle})
+                # TODO: Add intersection check (dist to rect < radius)
+
+            for arc in self.arcs:
+                if self.is_object_on_locked_layer(arc) or not self.is_object_on_visible_layer(arc):
+                    continue
+                # Simple check: keys points (start, end, center?)
+                cx, cy = arc.center
+                sx = cx + arc.radius * math.cos(arc.start_angle)
+                sy = cy + arc.radius * math.sin(arc.start_angle)
+                ex = cx + arc.radius * math.cos(arc.end_angle)
+                ey = cy + arc.radius * math.sin(arc.end_angle)
+                
+                # Check if start or end are in rect
+                start_in = (x1 <= sx <= x2) and (y1 <= sy <= y2)
+                end_in = (x1 <= ex <= x2) and (y1 <= ey <= y2)
+                
+                if start_in or end_in:
+                    new_selection.append({"type": "arc", "object": arc})
+
+
+            # Check Roofs
+            for roof in getattr(self, "roofs", []):
+                 if self.is_object_on_locked_layer(roof) or not self.is_object_on_visible_layer(roof):
+                     continue
+                 
+                 # Check if any point of the roof is inside the selection box
+                 # or if the roof polygon intersects the box.
+                 # For simplicity, we check if any vertex is inside.
+                 for pt in roof.outline_points:
+                     if (x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2):
+                         new_selection.append({"type": "roof", "object": roof})
+                         break
+
+            if hasattr(self, "box_select_extend") and self.box_select_extend:
+                for item in new_selection:
+                    if not any(
+                        existing["type"] == item["type"] and self.same_selection(
+                            existing["object"],
+                            item["object"]) for existing in self.selected_items):
+                        self.selected_items.append(item)
+            else:
+                self.selected_items = new_selection
+            self.emit('selection-changed', self.selected_items)
+
+            self.box_selecting = False
+            self.editing_wall = None
+            self.editing_handle = None
+            self.queue_draw()
+        elif self.tool_mode == "add_text" and hasattr(self, "drag_start_x"):
+            if hasattr(self, "current_text_preview"):
+                x, y, w, h = self.current_text_preview
+                # Ensure minimum size
+                if w > 1 and h > 1:
+                    text_id = self.generate_identifier(
+                        "text", self.existing_ids)
+                    new_text = self.Text(
+                        x, y, content="Text", width=w, height=h, identifier=text_id)
+                    self.texts.append(new_text)
+                    self.existing_ids.append(text_id)
+                    self.selected_items = [
+                        {"type": "text", "object": new_text}]
+                    self.emit('selection-changed', self.selected_items)
+
+                del self.current_text_preview
+            if hasattr(self, "drag_start_x"):
+                del self.drag_start_x
+            # self.drag_active = False # REMOVED: Do not reset here, wait for
+            # click release to check it
+            self.queue_draw()
+            self.box_selecting = False
+            self.editing_wall = None
+            self.editing_handle = None
+            self.queue_draw()
+
+    def on_right_click(
+            self,
+            gesture: Gtk.GestureClick,
+            n_press: int,
+            x: float,
+            y: float) -> None:
+        """
+        Handle right-click events by invoking the pointer tool's right-click handler.
+
+        Parameters:
+            gesture (Gtk.GestureClick): The gesture object for the right-click.
+            n_press (int): The click count.
+            x (float): The x-coordinate of the click in widget coordinates.
+            y (float): The y-coordinate of the click in widget coordinates.
+
+        Returns:
+            None
+        """
+        # Invoke the existing right-click handler.
+        self._handle_pointer_right_click(gesture, n_press, x, y)
+
+    def _handle_pointer_right_click(
+            self,
+            gesture: Gtk.GestureClick,
+            n_press: int,
+            x: float,
+            y: float) -> None:
+        """
+        Display a context menu (popover) at the pointer location for selected canvas items.
+
+        This method is called when the user right-clicks on the canvas while using the pointer tool.
+        It analyzes the current selection (walls, doors, windows, polylines) and dynamically builds
+        a popover menu with relevant actions, such as setting wall exterior/interior, adding/removing
+        footers, joining walls, changing door/window types, toggling door orientation/swing, and
+        changing polyline styles.
+
+        The popover is positioned at the click location and attached to the canvas. Selecting an action
+        from the menu will apply the change to the selected items and update the canvas display.
+
+        Args:
+            gesture (Gtk.GestureClick): The gesture object for the right-click event.
+            n_press (int): The number of presses (usually 1 for right-click).
+            x (float): The x-coordinate of the click in widget coordinates.
+            y (float): The y-coordinate of the click in widget coordinates.
+
+        Returns:
+            None
+        """
+        # If nothing is selected and clipboard is empty, don't show any menu
+        # Exception: design_roof mode can show menu when markings exist
+        has_roof_markings = hasattr(self, 'get_walls_marked_for_roof') and self.get_walls_marked_for_roof()
+        if len(self.selected_items) == 0 and not self.clipboard:
+            if not (self.tool_mode == "design_roof" and has_roof_markings):
+                return
+
+        # Filter selected items
+        selected_walls = [
+            item for item in self.selected_items if item.get("type") == "wall"]
+        selected_doors = [
+            item for item in self.selected_items if item.get("type") == "door"]
+        selected_windows = [
+            item for item in self.selected_items if item.get("type") == "window"]
+        selected_polylines = [
+            item for item in self.selected_items if item.get("type") == "polyline"]
+        selected_texts = [
+            item for item in self.selected_items if item.get("type") == "text"]
+        selected_dimensions = [
+            item for item in self.selected_items if item.get("type") == "dimension"]
+
+        # Create a popover to serve as the context menu
+        parent_popover = Gtk.Popover()
+
+        # Create a vertical box to hold the menu item(s)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        parent_popover.set_child(box)
+
+        # ─── Design Roof Tool: Show ONLY roof-related options ───
+        if self.tool_mode == "design_roof":
+            # Check current marking status
+            markings = self.get_walls_marked_for_roof() if hasattr(self, 'get_walls_marked_for_roof') else {}
+            
+            if len(selected_walls) > 0:
+                mark_eave_btn = Gtk.Button(label="Mark as Eave")
+                mark_eave_btn.connect(
+                    "clicked", lambda btn: (
+                        self.mark_walls_as_eave([w["object"] for w in selected_walls]),
+                        parent_popover.popdown()))
+                box.append(mark_eave_btn)
+
+                mark_gable_btn = Gtk.Button(label="Mark as Gable")
+                mark_gable_btn.connect(
+                    "clicked", lambda btn: (
+                        self.mark_walls_as_gable([w["object"] for w in selected_walls]),
+                        parent_popover.popdown()))
+                box.append(mark_gable_btn)
+
+            # Generate Roof button (if we have markings)
+            if markings:
+                separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+                box.append(separator)
+
+                generate_roof_btn = Gtk.Button(label="Generate Roof")
+                generate_roof_btn.connect(
+                    "clicked", lambda btn: (
+                        self.generate_roof_from_marked_walls(),
+                        parent_popover.popdown()))
+                box.append(generate_roof_btn)
+
+                clear_markings_btn = Gtk.Button(label="Clear All Markings")
+                clear_markings_btn.connect(
+                    "clicked", lambda btn: (
+                        self.clear_roof_markings(),
+                        parent_popover.popdown()))
+                box.append(clear_markings_btn)
+            
+            # Show menu if we have walls selected or markings exist
+            has_content = len(selected_walls) > 0 or markings
+            if has_content:
+                rect = Gdk.Rectangle()
+                rect.x = int(x)
+                rect.y = int(y)
+                rect.width = 1
+                rect.height = 1
+                parent_popover.set_pointing_to(rect)
+                parent_popover.set_parent(self)
+                parent_popover.popup()
+            return  # Early return - don't show normal menu for design_roof
+
+        # Standard Edit Operations (Copy/Cut/Paste)
+        # Paste - Available if clipboard has content
+        if self.clipboard:
+            paste_btn = Gtk.Button(label="Paste")
+            paste_btn.connect(
+                "clicked",
+                lambda btn: (
+                    self.paste(),
+                    parent_popover.popdown()))
+            box.append(paste_btn)
+
+        # If nothing is selected, only show Paste (if clipboard has content)
+        # and exit
+        if len(self.selected_items) == 0:
+            # Position and show the popover with only Paste option
+            rect = Gdk.Rectangle()
+            rect.x = int(x)
+            rect.y = int(y)
+            rect.width = 1
+            rect.height = 1
+            parent_popover.set_pointing_to(rect)
+            parent_popover.set_parent(self)
+            parent_popover.popup()
+            return
+
+        # Copy/Cut - Available if items are selected
+        copy_btn = Gtk.Button(label="Copy")
+        copy_btn.connect(
+            "clicked",
+            lambda btn: (
+                self.copy_selected(),
+                parent_popover.popdown()))
+        box.append(copy_btn)
+
+        cut_btn = Gtk.Button(label="Cut")
+        cut_btn.connect(
+            "clicked",
+            lambda btn: (
+                self.cut_selected(),
+                parent_popover.popdown()))
+        box.append(cut_btn)
+
+        # Add a separator if we have other options coming up
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        box.append(separator)
+
+        # Move to Layer
+        if len(self.selected_items) > 0:
+            move_layer_btn = Gtk.Button(label="Move to Layer...")
+            move_layer_btn.connect(
+                "clicked", lambda btn: self.show_move_to_layer_submenu(
+                    btn, parent_popover))
+            box.append(move_layer_btn)
+
+            separator_layer = Gtk.Separator(
+                orientation=Gtk.Orientation.HORIZONTAL)
+            box.append(separator_layer)
+
+        # Text options
+        if selected_texts:
+            # For brevity, let's just allow changing font size or something basic or just "Properties" (which opens dock)
+            # Actually we can add "Edit Text" to open a dialog.
+            edit_text_btn = Gtk.Button(label="Edit Text Content")
+            edit_text_btn.connect(
+                "clicked", lambda btn: self.show_edit_text_dialog(
+                    selected_texts[0]["object"], parent_popover))
+            box.append(edit_text_btn)
+
+            # Additional text options can go here
+
+        # Decide whether or not to create "Set as Exterior" or "Set as
+        # Interior" buttons
+        use_ext_button = False
+        use_int_button = False
+        for wall in selected_walls:
+            if wall["object"].exterior_wall == False and use_ext_button == False:
+                use_ext_button = True
+            elif wall["object"].exterior_wall and use_int_button == False:
+                use_int_button = True
+
+        if use_ext_button:
+            ext_button = Gtk.Button(label="Set as Exterior")
+            ext_button.connect(
+                "clicked", lambda btn: self.set_ext_int(
+                    selected_walls, True, parent_popover))
+            box.append(ext_button)
+
+        if use_int_button:
+            int_button = Gtk.Button(label="Set as Interior")
+            int_button.connect(
+                "clicked", lambda btn: self.set_ext_int(
+                    selected_walls, False, parent_popover))
+            box.append(int_button)
+
+        use_add_footer_button = False
+        use_remove_footer_button = False
+        for wall in selected_walls:
+            print(
+                f"Wall {
+                    wall['object'].start} to {
+                    wall['object'].end} has footer: {
+                    wall['object'].footer} and footer depth: {
+                    wall['object'].footer_depth} and footer offsets: {
+                        wall['object'].footer_left_offset}, {
+                            wall['object'].footer_right_offset}")
+            print(
+                f"Width: {
+                    wall['object'].width}, Height: {
+                    wall['object'].height}")
+            if wall["object"].footer == False and use_add_footer_button == False:
+                use_add_footer_button = True
+            elif wall["object"].footer and use_remove_footer_button == False:
+                use_remove_footer_button = True
+
+        if use_add_footer_button:
+            add_foot_btn = Gtk.Button(label="Add Footer")
+            add_foot_btn.connect(
+                "clicked", lambda btn: self.add_remove_footer(
+                    selected_walls, parent_popover, state=True))
+            box.append(add_foot_btn)
+
+        if use_remove_footer_button:
+            remove_foot_btn = Gtk.Button(label="Remove Footer")
+            remove_foot_btn.connect(
+                "clicked", lambda btn: self.add_remove_footer(
+                    selected_walls, parent_popover, state=False))
+            box.append(remove_foot_btn)
+
+        # Curved/Straight wall conversion options
+        use_convert_to_curved = False
+        use_convert_to_straight = False
+        for wall in selected_walls:
+            if wall["object"].is_curved:
+                use_convert_to_straight = True
+            else:
+                use_convert_to_curved = True
+
+        if use_convert_to_curved:
+            curved_btn = Gtk.Button(label="Convert to Curved")
+            curved_btn.connect(
+                "clicked", lambda btn: self.convert_walls_to_curved(
+                    selected_walls, parent_popover))
+            box.append(curved_btn)
+
+        if use_convert_to_straight:
+            straight_btn = Gtk.Button(label="Convert to Straight")
+            straight_btn.connect(
+                "clicked", lambda btn: self.convert_walls_to_straight(
+                    selected_walls, parent_popover))
+            box.append(straight_btn)
+
+        # Create a button labeled "Join Walls"
+        if len(selected_walls) >= 2:
+            join_button = Gtk.Button(label="Join Walls")
+            join_button.connect(
+                "clicked", lambda btn: self.join_selected_walls(parent_popover))
+            box.append(join_button)
+
+        # "Join Connected Walls" applies globally or to touched sets, so show it if any walls exist.
+        if self.wall_sets:
+            join_all_button = Gtk.Button(label="Join Connected Walls")
+            join_all_button.connect(
+                "clicked", lambda btn: self.join_all_connected_walls(parent_popover))
+            box.append(join_all_button)
+
+        # Separate Walls button
+        if len(selected_walls) > 0:
+            sep_button = Gtk.Button(label="Separate Walls")
+            sep_button.connect(
+                "clicked", lambda btn: self.separate_walls(parent_popover))
+            box.append(sep_button)
+
+        # Split Wall button (only if exactly one wall selected)
+        if len(selected_walls) == 1:
+            split_button = Gtk.Button(label="Split Wall")
+            split_button.connect(
+                "clicked", lambda btn: self.split_wall(parent_popover))
+            box.append(split_button)
+
+        # Roof marking options (only when design_roof tool is active AND walls are selected)
+        if len(selected_walls) > 0 and self.tool_mode == "design_roof":
+            roof_separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            box.append(roof_separator)
+
+            # Check current marking status
+            markings = self.get_walls_marked_for_roof() if hasattr(self, 'get_walls_marked_for_roof') else {}
+            selected_wall_ids = [w["object"].identifier for w in selected_walls]
+            
+            # Show current marking status
+            any_marked_eave = any(markings.get(wid) == "eave" for wid in selected_wall_ids)
+            any_marked_gable = any(markings.get(wid) == "gable" for wid in selected_wall_ids)
+
+            mark_eave_btn = Gtk.Button(label="Mark as Eave (Roof)")
+            mark_eave_btn.connect(
+                "clicked", lambda btn: (
+                    self.mark_walls_as_eave([w["object"] for w in selected_walls]),
+                    parent_popover.popdown()))
+            box.append(mark_eave_btn)
+
+            mark_gable_btn = Gtk.Button(label="Mark as Gable (Roof)")
+            mark_gable_btn.connect(
+                "clicked", lambda btn: (
+                    self.mark_walls_as_gable([w["object"] for w in selected_walls]),
+                    parent_popover.popdown()))
+            box.append(mark_gable_btn)
+
+            # Generate Roof button (if we have markings)
+            if markings:
+                generate_roof_btn = Gtk.Button(label="Generate Roof")
+                generate_roof_btn.connect(
+                    "clicked", lambda btn: (
+                        self.generate_roof_from_marked_walls(),
+                        parent_popover.popdown()))
+                box.append(generate_roof_btn)
+
+                clear_markings_btn = Gtk.Button(label="Clear Roof Markings")
+                clear_markings_btn.connect(
+                    "clicked", lambda btn: (
+                        self.clear_roof_markings(),
+                        parent_popover.popdown()))
+                box.append(clear_markings_btn)
+
+        # Door-specific options
+        if selected_doors:
+            door_button = Gtk.Button(label="Change Door Type")
+            door_button.connect(
+                "clicked", lambda btn: self.show_change_door_type_submenu(
+                    btn, selected_doors, parent_popover))
+            box.append(door_button)
+
+            if selected_doors[0]["object"][1].orientation == "inswing":
+                orientation_button = Gtk.Button(label="Change to Outswing")
+                orientation_button.connect(
+                    "clicked", lambda btn: self.toggle_door_orientation(
+                        selected_doors, parent_popover, outswing=True))
+                box.append(orientation_button)
+
+            elif selected_doors[0]["object"][1].orientation == "outswing":
+                orientation_button = Gtk.Button(label="Change to Inswing")
+                orientation_button.connect(
+                    "clicked", lambda btn: self.toggle_door_orientation(
+                        selected_doors, parent_popover, inswing=True))
+                box.append(orientation_button)
+
+            toggle_swing_button = Gtk.Button(label="Toggle Swing Direction")
+            toggle_swing_button.connect(
+                "clicked", lambda btn: self.toggle_door_swing(
+                    selected_doors, parent_popover))
+            box.append(toggle_swing_button)
+
+        # Window-specific option
+        if selected_windows:
+            window_button = Gtk.Button(label="Change Window Type")
+            window_button.connect(
+                "clicked", lambda btn: self.show_change_window_type_submenu(
+                    btn, selected_windows, parent_popover))
+            box.append(window_button)
+
+        # Polyline-specific option
+        if selected_polylines:
+            polyline_button = Gtk.Button(label="Change Polyline Style")
+            polyline_button.connect(
+                "clicked", lambda btn: self.toggle_polyline_style(
+                    selected_polylines, parent_popover, style="toggle"))
+            box.append(polyline_button)
+
+            if selected_polylines[0]["object"].style == "dashed":
+                polyline_solid_button = Gtk.Button(
+                    label="Change Polyline(s) to Solid")
+                polyline_solid_button.connect(
+                    "clicked", lambda btn: self.toggle_polyline_style(
+                        selected_polylines, parent_popover, style="dashed"))
+                box.append(polyline_solid_button)
+
+            if selected_polylines[0]["object"].style == "solid":
+                polyline_dashed_button = Gtk.Button(
+                    label="Change Polyline(s) to Dashed")
+                polyline_dashed_button.connect(
+                    "clicked", lambda btn: self.toggle_polyline_style(
+                        selected_polylines, parent_popover, style="solid"))
+                box.append(polyline_dashed_button)
+
+        # Dimension-specific options
+        if selected_dimensions:
+            mirror_offset_btn = Gtk.Button(label="Mirror Offset")
+            mirror_offset_btn.connect(
+                "clicked", lambda btn: self.mirror_dimension_offset(
+                    selected_dimensions, parent_popover))
+            box.append(mirror_offset_btn)
+
+        # Position the popover at the click location
+        rect = Gdk.Rectangle()
+        rect.x = int(x)
+        rect.y = int(y)
+        rect.width = 1
+        rect.height = 1
+        parent_popover.set_pointing_to(rect)
+
+        # Set the popover's parent to the canvas (self)
+        parent_popover.set_parent(self)
+
+        # Show the popover
+        parent_popover.popup()
+
+    def show_change_door_type_submenu(
+            self,
+            widget: Gtk.Widget,
+            selected_doors: list,
+            parent_popover: Gtk.Popover) -> None:
+        """
+        Display a submenu popover for changing the type of selected doors.
+
+        This method creates a popover menu anchored to the provided widget, listing all available door types.
+        When a door type button is clicked, the selected doors are updated to the new type and both the submenu
+        and parent popover are closed.
+
+        Args:
+            widget: The Gtk widget to anchor the submenu popover to.
+            selected_doors: List of selected door items to update.
+            parent_popover: The parent popover to close after selection.
+
+        Returns:
+            None
+        """
+        popover = Gtk.Popover()
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        popover.set_child(box)
+
+        # Add a button for each door type
+        door_types = [
+            "single",
+            "double",
+            "sliding",
+            "frame",
+            "pocket",
+            "bi-fold",
+            "double bi-fold",
+            "garage"]
+        for dt in door_types:
+            btn = Gtk.Button(label=dt)
+            btn.connect(
+                "clicked",
+                lambda btn,
+                dt=dt: self.on_change_door_type_selected(
+                    dt,
+                    selected_doors,
+                    popover,
+                    parent_popover))
+            box.append(btn)
+
+        # Set the popover's parent to the "Change Door Type" button (widget)
+        popover.set_parent(widget)
+
+        # Position the popover relative to the button
+        allocation = widget.get_allocation()
+        rect = Gdk.Rectangle()
+        rect.x = allocation.width  # Relative to the button’s left edge
+        rect.y = allocation.height  # Below the button
+        rect.width = 1
+        rect.height = 1
+
+        popover.set_pointing_to(rect)
+
+        # Show the popover
+        popover.popup()
+
+    def on_change_door_type_selected(
+            self,
+            new_type: str,
+            selected_doors: list,
+            popover: Gtk.Popover,
+            parent_popover: Gtk.Popover) -> None:
+        """
+        Handle selection of a new door type from the submenu.
+
+        Updates the door type for all selected doors, redraws the canvas, and closes both the submenu and parent popover.
+
+        Args:
+            new_type (str): The new door type to apply.
+            selected_doors (list): List of selected door items to update.
+            popover (Gtk.Popover): The submenu popover to close.
+            parent_popover (Gtk.Popover): The parent popover to close.
+
+        Returns:
+            None
+        """
+        for door_item in selected_doors:
+            wall, door, ratio = door_item["object"]
+            door.door_type = new_type
+        self.queue_draw()
+        popover.popdown()  # Hide the sub-menu popover
+        parent_popover.popdown()  # Hide the parent right-click popover
+
+    def same_selection(self, a, b):
+        # compare by identity first
+        if a is b:
+            return True
+        # if either is a tuple (room, idx) compare by exact tuple equality
+        if isinstance(a, tuple) and isinstance(b, tuple):
+            return a == b
+        # fall back to identifier match if available
+        ida = getattr(a, "identifier", None)
+        idb = getattr(b, "identifier", None)
+        if ida and idb:
+            return ida == idb
+        return False
+
+    def show_change_window_type_submenu(
+            self,
+            widget: Gtk.Widget,
+            selected_windows: list,
+            parent_popover: Gtk.Popover) -> None:
+        """
+        Display a submenu popover for changing the type of selected windows.
+
+        This method creates a popover menu anchored to the provided widget, listing all available window types.
+        When a window type button is clicked, the selected windows are updated to the new type and both the submenu
+        and parent popover are closed.
+
+        Args:
+            widget (Gtk.Widget): The widget to anchor the submenu popover to.
+            selected_windows (list): List of selected window items to update.
+            parent_popover (Gtk.Popover): The parent popover to close after selection.
+
+        Returns:
+            None
+        """
+        # Create a popover to serve as the sub-menu
+        popover = Gtk.Popover()
+
+        # Create a vertical box to hold the menu items
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        popover.set_child(box)
+
+        # Add a button for each door type
+        window_types = ["sliding", "fixed", "double-hung"]
+        for dt in window_types:
+            btn = Gtk.Button(label=dt)
+            btn.connect(
+                "clicked",
+                lambda btn,
+                dt=dt: self.on_change_window_type_selected(
+                    dt,
+                    selected_windows,
+                    popover,
+                    parent_popover))
+            box.append(btn)
+
+        # Set the popover's parent to the "Change Door Type" button (widget)
+        popover.set_parent(widget)
+
+        # Position the popover relative to the button
+        allocation = widget.get_allocation()
+        rect = Gdk.Rectangle()
+        rect.x = allocation.width  # Relative to the button’s left edge
+        rect.y = allocation.height  # Below the button
+        rect.width = 1
+        rect.height = 1
+
+        popover.set_pointing_to(rect)
+
+        # Show the popover
+        popover.popup()
+
+    def on_change_window_type_selected(
+            self,
+            new_type: str,
+            selected_windows: list,
+            popover: Gtk.Popover,
+            parent_popover: Gtk.Popover) -> None:
+        """
+        Handle selection of a new window type from the submenu.
+
+        Updates the window type for all selected windows, redraws the canvas, and closes both the submenu and parent popover.
+
+        Args:
+            new_type (str): The new window type to apply.
+            selected_windows (list): List of selected window items to update.
+            popover (Gtk.Popover): The submenu popover to close.
+            parent_popover (Gtk.Popover): The parent popover to close.
+
+        Returns:
+            None
+        """
+        for window_item in selected_windows:
+            wall, window, ratio = window_item["object"]
+            window.window_type = new_type
+        self.queue_draw()
+        popover.popdown()  # Hide the sub-menu popover
+        parent_popover.popdown()  # Hide the parent right-click popover
+
+    def toggle_polyline_style(
+            self,
+            selected_polylines: list,
+            popover: Gtk.Popover,
+            style: str) -> None:
+        """
+        Toggle or set the style of selected polylines.
+
+        This method updates the style ("solid" or "dashed") of all selected polylines based on the given style argument.
+        If style is "toggle", it switches each polyline's style between "solid" and "dashed".
+        After updating, it redraws the canvas and closes the popover.
+
+        Args:
+            selected_polylines (list): List of selected polyline items to update.
+            popover (Gtk.Popover): The popover to close after the action.
+            style (str): The style to apply ("solid", "dashed", or "toggle").
+
+        Returns:
+            None
+        """
+        if style == "dashed":
+            for polyline in selected_polylines:
+                polyline["object"].style = "solid"
+            self.queue_draw()
+            popover.popdown()
+        elif style == "solid":
+            for polyline in selected_polylines:
+                polyline["object"].style = "dashed"
+            self.queue_draw()
+            popover.popdown()
+        elif style == "toggle":
+            for polyline in selected_polylines:
+                polyline["object"].style = "dashed" if polyline["object"].style == "solid" else "solid"
+            self.queue_draw()
+            popover.popdown()
+
+    def show_move_to_layer_submenu(self, widget, parent_popover):
+        """Show submenu to move selected objects to a different layer."""
+        popover = Gtk.Popover()
+        popover.set_parent(widget)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        popover.set_child(box)
+
+        label = Gtk.Label(label="<b>Select Layer</b>", use_markup=True)
+        box.append(label)
+
+        # Sort layers by ID or name?
+        # Using existing order in self.layers
+        for layer in self.layers:
+            layer_name = layer.name
+            if layer.id == self.active_layer_id:
+                layer_name += " (Active)"
+
+            btn = Gtk.Button(label=layer_name)
+            btn.connect(
+                "clicked",
+                lambda b,
+                lid=layer.id: self.on_move_to_layer_selected(
+                    lid,
+                    popover,
+                    parent_popover))
+            box.append(btn)
+
+        popover.popup()
+
+    def on_move_to_layer_selected(self, layer_id, popover, parent_popover):
+        """Handle layer selection from submenu."""
+        changed = False
+        for item in self.selected_items:
+            otype = item.get("type")
+            obj = item["object"]
+
+            real_obj = obj
+            if otype in ("door", "window"):
+                if isinstance(obj, tuple) and len(obj) >= 2:
+                    real_obj = obj[1]
+            elif otype == "vertex":
+                if isinstance(obj, tuple) and len(obj) >= 1:
+                    real_obj = obj[0]  # The room
+            elif otype in ("wall_handle", "polyline_handle", "dimension_handle"):
+                if isinstance(obj, tuple) and len(obj) >= 1:
+                    real_obj = obj[0]
+
+            if hasattr(real_obj, 'layer_id'):
+                if real_obj.layer_id != layer_id:
+                    real_obj.layer_id = layer_id
+                    changed = True
+
+        if changed:
+            self.save_state()
+            self.queue_draw()
+
+        popover.popdown()
+        parent_popover.popdown()
+
+    def set_ext_int(
+            self,
+            selected_walls: list,
+            state: str,
+            popover: Gtk.Popover) -> None:
+        """
+        Set the exterior or interior state of selected walls.
+
+        This method updates the 'exterior_wall' property of each selected wall to the given state (True for exterior, False for interior).
+        After updating, it redraws the canvas and closes the popover.
+
+        Args:
+            selected_walls (list): List of selected wall items to update.
+            state (str): The state to set ("True" for exterior, "False" for interior).
+            popover (Gtk.Popover): The popover to close after the action.
+
+        Returns:
+            None
+        """
+        for wall in selected_walls:
+            wall["object"].exterior_wall = state
+        self.queue_draw()
+        popover.popdown()
+
+    def add_remove_footer(
+            self,
+            selected_walls: list,
+            popover: Gtk.Popover,
+            state: bool) -> None:
+        """
+        Add or remove a footer for selected walls.
+
+        This method sets the 'footer' property of each selected wall to the given state (True to add, False to remove).
+        After updating, it redraws the canvas and closes the popover.
+
+        Args:
+            selected_walls (list): List of selected wall items to update.
+            popover (Gtk.Popover): The popover to close after the action.
+            state (bool): The footer state to set (True for add, False for remove).
+
+        Returns:
+            None
+        """
+        for wall in selected_walls:
+            wall["object"].footer = state
+        print(f"Footer state set to {state} for selected walls.")
+        # TODO : Implement footer rendering logic
+        self.queue_draw()
+        popover.popdown()
+
+    def toggle_door_orientation(
+            self,
+            selected_doors: list,
+            popover: Gtk.Popover,
+            inswing: bool = False,
+            outswing: bool = False) -> None:
+        """
+        Toggle or set the orientation of selected doors.
+
+        This method updates the 'orientation' property of each selected door to "inswing" or "outswing"
+        based on the provided arguments. If neither argument is True, it toggles the orientation.
+        After updating, it redraws the canvas and closes the popover.
+
+        Args:
+            selected_doors (list): List of selected door items to update.
+            popover (Gtk.Popover): The popover to close after the action.
+            inswing (bool, optional): If True, set orientation to "inswing".
+            outswing (bool, optional): If True, set orientation to "outswing".
+
+        Returns:
+            None
+        """
+        for door_item in selected_doors:
+            wall, door, ratio = door_item["object"]
+            if inswing:
+                door.orientation = "inswing"
+            elif outswing:
+                door.orientation = "outswing"
+            else:
+                door.orientation = "inswing" if door.orientation == "outswing" else "outswing"
+        self.queue_draw()
+        popover.popdown()
+
+    def toggle_door_swing(
+            self,
+            selected_doors: list,
+            popover: Gtk.Popover) -> None:
+        """
+        Toggle the swing direction of selected doors.
+
+        This method switches the 'swing' property of each selected door between "left" and "right".
+        After updating, it redraws the canvas and closes the popover.
+
+        Args:
+            selected_doors (list): List of selected door items to update.
+            popover (Gtk.Popover): The popover to close after the action.
+
+        Returns:
+            None
+        """
+        for door_item in selected_doors:
+            wall, door, ratio = door_item["object"]
+            door.swing = "left" if door.swing == "right" else "right"
+        self.queue_draw()
+        popover.popdown()
+
+    def mirror_dimension_offset(
+            self,
+            selected_dimensions: list,
+            popover: Gtk.Popover) -> None:
+        """
+        Mirror the offset of selected dimensions to the other side of the dimension line.
+
+        This negates the offset property of each selected dimension, effectively
+        flipping the dimension label to the opposite side of the measured line.
+
+        Args:
+            selected_dimensions (list): List of selected dimension items.
+            popover (Gtk.Popover): The popover to close after the action.
+
+        Returns:
+            None
+        """
+        for dim_item in selected_dimensions:
+            dim = dim_item["object"]
+            
+            # Find closest wall parallel to dimension
+            dx = dim.end[0] - dim.start[0]
+            dy = dim.end[1] - dim.start[1]
+            dim_len = math.hypot(dx, dy)
+            if dim_len == 0:
+                dim.offset = -dim.offset
+                continue
+            
+            # Center of dimension
+            cx = (dim.start[0] + dim.end[0]) / 2
+            cy = (dim.start[1] + dim.end[1]) / 2
+            
+            best_wall = None
+            best_dist = 50.0 # Tolerance in inches (offset is usually ~12-24)
+            
+            for wall_set in self.wall_sets:
+                for wall in wall_set:
+                    # Check if parallel
+                    w_dx = wall.end[0] - wall.start[0]
+                    w_dy = wall.end[1] - wall.start[1]
+                    w_len = math.hypot(w_dx, w_dy)
+                    if w_len == 0: continue
+                    
+                    # Dot product of normalized vectors to check parallel alignment
+                    dot = (dx/dim_len) * (w_dx/w_len) + (dy/dim_len) * (w_dy/w_len)
+                    if abs(dot) < 0.9: continue # Not parallel
+                    
+                    # Check distance from center to wall segment
+                    dist = self.distance_point_to_segment((cx, cy), wall.start, wall.end)
+                    
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_wall = wall
+            
+            if best_wall:
+                # Re-calculate corners for the "Other" side
+                start = best_wall.start
+                end = best_wall.end
+                
+                ux = (end[0] - start[0])
+                uy = (end[1] - start[1])
+                length = math.hypot(ux, uy)
+                if length > 0:
+                    ux /= length
+                    uy /= length
+                
+                px, py = -uy, ux # Normal
+                
+                # Vector from wall start to dim center
+                mx = cx - start[0]
+                my = cy - start[1]
+                
+                # Cross product to determine current side
+                cross = ux * my - uy * mx
+                current_side = 1.0 if cross >= 0 else -1.0
+                
+                # New side (flip direction)
+                new_direction = -current_side
+                
+                # Re-run logic for the new side
+                half_width = best_wall.width / 2.0
+                edge_offset_x = px * half_width * new_direction
+                edge_offset_y = py * half_width * new_direction
+                
+                edge_offset_vector = (edge_offset_x, edge_offset_y)
+                edge_start_simple = (start[0] + edge_offset_x, start[1] + edge_offset_y)
+                edge_end_simple = (end[0] + edge_offset_x, end[1] + edge_offset_y)
+                
+                # Calculate true corner points
+                new_start = self._get_corner_point_for_dimension(
+                    best_wall, start, edge_start_simple, edge_offset_vector)
+                new_end = self._get_corner_point_for_dimension(
+                    best_wall, end, edge_end_simple, edge_offset_vector)
+                
+                dim.start = new_start
+                dim.end = new_end
+                
+                # Flip offset sign to keep outward orientation
+                dim.offset = -dim.offset
+            else:
+                # Fallback if no wall found
+                dim.offset = -dim.offset
+
+        self.save_state()
+        self.queue_draw()
+        try:
+            popover.popdown()
+        except BaseException:
+            pass
+
+    def cycle_selection_at_mouse(self):
+        """
+        Cycle through overlapping objects at the current mouse position.
+        
+        When multiple objects overlap at the mouse position, pressing Tab
+        will cycle through them, selecting the next one in the list.
+        """
+        # Get current mouse position
+        if not hasattr(self, '_last_mouse_pos') or self._last_mouse_pos is None:
+            return
+        
+        # _last_mouse_pos is stored in Model Coordinates (inches) by canvas_events.py
+        # We need Device Coordinates (pixels) for the distance checks below
+        mx, my = self._last_mouse_pos
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        click_pt = self.model_to_device(mx, my, pixels_per_inch)
+        
+        T = self.zoom * pixels_per_inch
+        fixed_threshold = 10
+        vertex_threshold = 15
+        
+        # Collect all selectable objects at this position
+        candidates = []
+        
+        # Check Walls
+        for wall_set in self.wall_sets:
+            for wall in wall_set:
+                if self.is_object_on_locked_layer(wall) or not self.is_object_on_visible_layer(wall):
+                    continue
+                start_widget = ((wall.start[0] * T) + self.offset_x, (wall.start[1] * T) + self.offset_y)
+                end_widget = ((wall.end[0] * T) + self.offset_x, (wall.end[1] * T) + self.offset_y)
+                
+                # Check if near wall line
+                dist = self.distance_point_to_segment(click_pt, start_widget, end_widget)
+                if dist < fixed_threshold:
+                    candidates.append({"type": "wall", "object": wall})
+        
+        # Check Rooms
+        for room in self.rooms:
+            if self.is_object_on_locked_layer(room) or not self.is_object_on_visible_layer(room):
+                continue
+            poly_widget = [((p[0] * T) + self.offset_x, (p[1] * T) + self.offset_y) for p in room.points]
+            if self._point_in_polygon(click_pt, poly_widget):
+                candidates.append({"type": "room", "object": room})
+        
+        # Check Doors
+        for door_item in self.doors:
+            # door_item is (wall, door, ratio)
+            wall, door, ratio = door_item
+            if self.is_object_on_locked_layer(door) or not self.is_object_on_visible_layer(door):
+                continue
+            
+            # Calculate door position from wall start/end + ratio
+            A = wall.start
+            B = wall.end
+            # door center in model space
+            dx = B[0] - A[0]
+            dy = B[1] - A[1]
+            door_mx = A[0] + ratio * dx
+            door_my = A[1] + ratio * dy
+            
+            door_center = self.model_to_device(door_mx, door_my, pixels_per_inch)
+            dist = math.hypot(click_pt[0] - door_center[0], click_pt[1] - door_center[1])
+            if dist < fixed_threshold * 2:
+                candidates.append({"type": "door", "object": door_item})
+        
+        # Check Windows
+        for window_item in self.windows:
+            # window_item is (wall, window, ratio)
+            wall, window, ratio = window_item
+            if self.is_object_on_locked_layer(window) or not self.is_object_on_visible_layer(window):
+                continue
+                
+            # Calculate window position from wall start/end + ratio
+            A = wall.start
+            B = wall.end
+            dx = B[0] - A[0]
+            dy = B[1] - A[1]
+            win_mx = A[0] + ratio * dx
+            win_my = A[1] + ratio * dy
+            
+            window_center = self.model_to_device(win_mx, win_my, pixels_per_inch)
+            dist = math.hypot(click_pt[0] - window_center[0], click_pt[1] - window_center[1])
+            if dist < fixed_threshold * 2:
+                candidates.append({"type": "window", "object": window_item})
+        
+        # Check Texts
+        for text in self.texts:
+            if self.is_object_on_locked_layer(text) or not self.is_object_on_visible_layer(text):
+                continue
+            text_widget = self.model_to_device(text.x, text.y, pixels_per_inch)
+            text_width = getattr(text, 'width', 100) * T
+            text_height = getattr(text, 'height', 30) * T
+            if (text_widget[0] <= click_pt[0] <= text_widget[0] + text_width and
+                text_widget[1] <= click_pt[1] <= text_widget[1] + text_height):
+                candidates.append({"type": "text", "object": text})
+
+        # Check Polylines
+        for poly_list in self.polyline_sets:
+            for pl in poly_list:
+                if self.is_object_on_locked_layer(pl) or not self.is_object_on_visible_layer(pl):
+                    continue
+                # transform endpoints from model to widget coords
+                p1 = self.model_to_device(pl.start[0], pl.start[1], pixels_per_inch)
+                p2 = self.model_to_device(pl.end[0], pl.end[1], pixels_per_inch)
+                # distance from click to segment
+                if self.distance_point_to_segment(click_pt, p1, p2) < fixed_threshold:
+                    candidates.append({
+                        "type": "polyline",
+                        "object": pl,
+                        "identifier": getattr(pl, "identifier", None),
+                        "_obj_id": id(pl)
+                    })
+
+        # Check Dimensions
+        for dimension in self.dimensions:
+            if self.is_object_on_locked_layer(dimension) or not self.is_object_on_visible_layer(dimension):
+                continue
+            
+            start = dimension.start
+            end = dimension.end
+            offset = dimension.offset
+
+            dx = end[0] - start[0]
+            dy = end[1] - start[1]
+            length = math.hypot(dx, dy)
+
+            if length == 0:
+                continue
+
+            # Perpendicular unit vector
+            ux = dx / length
+            uy = dy / length
+            px = -uy
+            py = ux
+
+            # Dimension line endpoints
+            dim_start = (start[0] + offset * px, start[1] + offset * py)
+            dim_end = (end[0] + offset * px, end[1] + offset * py)
+
+            # Convert to device coordinates
+            dim_start_dev = self.model_to_device(dim_start[0], dim_start[1], pixels_per_inch)
+            dim_end_dev = self.model_to_device(dim_end[0], dim_end[1], pixels_per_inch)
+
+            # Check distance to dimension line
+            dist = self.distance_point_to_segment(click_pt, dim_start_dev, dim_end_dev)
+            if dist < fixed_threshold:
+                candidates.append({"type": "dimension", "object": dimension})
+
+        
+        # Check Circles
+        for circle in self.circles:
+            if self.is_object_on_locked_layer(circle) or not self.is_object_on_visible_layer(circle):
+                continue
+            center_widget = self.model_to_device(circle.center[0], circle.center[1], pixels_per_inch)
+            radius_widget = circle.radius * T
+            dist = math.hypot(click_pt[0] - center_widget[0], click_pt[1] - center_widget[1])
+            dist_to_edge = abs(dist - radius_widget)
+            if dist_to_edge < fixed_threshold:
+                candidates.append({"type": "circle", "object": circle})
+        
+        # Check Arcs
+        for arc in self.arcs:
+            if self.is_object_on_locked_layer(arc) or not self.is_object_on_visible_layer(arc):
+                continue
+            center_widget = self.model_to_device(arc.center[0], arc.center[1], pixels_per_inch)
+            radius_widget = arc.radius * T
+            dist = math.hypot(click_pt[0] - center_widget[0], click_pt[1] - center_widget[1])
+            dist_to_edge = abs(dist - radius_widget)
+            if dist_to_edge < fixed_threshold:
+                # Check angle range
+                angle = math.atan2(click_pt[1] - center_widget[1], click_pt[0] - center_widget[0])
+                angle_norm = self.normalize_angle(angle)
+                start_norm = self.normalize_angle(arc.start_angle)
+                end_norm = self.normalize_angle(arc.end_angle)
+                in_angle = False
+                if start_norm < end_norm:
+                    if start_norm <= angle_norm <= end_norm:
+                        in_angle = True
+                else:
+                    if angle_norm >= start_norm or angle_norm <= end_norm:
+                        in_angle = True
+                if in_angle:
+                    candidates.append({"type": "arc", "object": arc})
+        
+        # If no candidates, do nothing
+        if not candidates:
+            return
+        
+        # Find current selection in candidates
+        current_idx = -1
+        if self.selected_items:
+            current_obj = self.selected_items[0].get("object")
+            for i, cand in enumerate(candidates):
+                if self.same_selection(cand["object"], current_obj):
+                    current_idx = i
+                    break
+        
+        # Select the next candidate (cycle)
+        next_idx = (current_idx + 1) % len(candidates)
+        self.selected_items = [candidates[next_idx]]
+        self.emit('selection-changed', self.selected_items)
+        self.queue_draw()
+        print(f"Cycled to: {candidates[next_idx]['type']}")
+
+    def convert_walls_to_curved(
+            self,
+            selected_walls: list,
+            popover: Gtk.Popover) -> None:
+        """
+        Convert straight walls to curved using a bulge at the midpoint.
+        
+        Creates a gentle arc by placing a bulge point perpendicular to
+        the wall's midpoint at 1/4 of the wall length offset.
+        
+        Args:
+            selected_walls: List of selected wall items
+            popover: The popover to close after the action
+        """
+        for item in selected_walls:
+            wall = item["object"]
+            if not wall.is_curved:
+                # Calculate midpoint
+                mid_x = (wall.start[0] + wall.end[0]) / 2
+                mid_y = (wall.start[1] + wall.end[1]) / 2
+                
+                # Get perpendicular direction
+                dx = wall.end[0] - wall.start[0]
+                dy = wall.end[1] - wall.start[1]
+                length = math.hypot(dx, dy)
+                
+                if length > 0:
+                    # Bulge point offset by 1/4 wall length perpendicular
+                    bulge_x = mid_x - dy / 4
+                    bulge_y = mid_y + dx / 4
+                    bulge = (bulge_x, bulge_y)
+                    
+                    # Calculate arc geometry
+                    geom = self.get_circle_from_3_points(wall.start, wall.end, bulge)
+                    if geom:
+                        (cx, cy), radius = geom
+                        wall.is_curved = True
+                        wall.arc_center = (cx, cy)
+                        wall.arc_radius = radius
+        
+        self.save_state()
+        self.queue_draw()
+        popover.popdown()
+
+    def convert_walls_to_straight(
+            self,
+            selected_walls: list,
+            popover: Gtk.Popover) -> None:
+        """
+        Convert curved walls to straight walls.
+        
+        Clears the arc properties while keeping the start and end points.
+        
+        Args:
+            selected_walls: List of selected wall items
+            popover: The popover to close after the action
+        """
+        for item in selected_walls:
+            wall = item["object"]
+            if wall.is_curved:
+                wall.is_curved = False
+                wall.arc_center = None
+                wall.arc_radius = None
+        
+        self.save_state()
+        self.queue_draw()
+        popover.popdown()

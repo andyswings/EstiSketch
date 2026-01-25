@@ -414,9 +414,7 @@ class CanvasWallMixin:
         # Any remaining walls are disjoint from the main chain we found.
         # We'll just append them (butt joins likely) to avoid losing data.
         if remaining:
-            print(
-                f"Warning: {
-                    len(remaining)} walls could not be linked to the main chain.")
+            print(f"Warning: {len(remaining)} walls could not be linked to the main chain.")
             joined.extend(remaining)
 
         return joined

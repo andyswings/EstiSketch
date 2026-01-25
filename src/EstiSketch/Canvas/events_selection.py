@@ -358,10 +358,7 @@ class CanvasSelectionMixin:
                             "type": "vertex", "object": (
                                 room, i + 1)}
 
-                        print(
-                            f"Inserted new room vertex at ({
-                                new_x:.1f}, {
-                                new_y:.1f})")
+                        print(f"Inserted new room vertex at ({new_x:.1f}, {new_y:.1f})")
                         self.save_state()
                         break
                 if selected_item:
@@ -1668,18 +1665,8 @@ class CanvasSelectionMixin:
         use_add_footer_button = False
         use_remove_footer_button = False
         for wall in selected_walls:
-            print(
-                f"Wall {
-                    wall['object'].start} to {
-                    wall['object'].end} has footer: {
-                    wall['object'].footer} and footer depth: {
-                    wall['object'].footer_depth} and footer offsets: {
-                        wall['object'].footer_left_offset}, {
-                            wall['object'].footer_right_offset}")
-            print(
-                f"Width: {
-                    wall['object'].width}, Height: {
-                    wall['object'].height}")
+            print(f"Wall {wall['object'].start} to {wall['object'].end} has footer: {wall['object'].footer} and footer depth: {wall['object'].footer_depth} and footer offsets: {wall['object'].footer_left_offset}, {wall['object'].footer_right_offset}")
+            print(f"Width: {wall['object'].width}, Height: {wall['object'].height}")
             if wall["object"].footer == False and use_add_footer_button == False:
                 use_add_footer_button = True
             elif wall["object"].footer and use_remove_footer_button == False:

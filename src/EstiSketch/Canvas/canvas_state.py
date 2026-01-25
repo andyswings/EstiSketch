@@ -25,11 +25,7 @@ class CanvasStateMixin:
         import traceback
         stack = traceback.extract_stack()
         caller = stack[-2]
-        print(
-            f"save_state called from {
-                caller.filename}:{
-                caller.lineno} in {
-                caller.name}")
+        print(f"save_state called from {caller.filename}:{caller.lineno} in {caller.name}")
         print(
             f"save_state: {len(state['wall_sets'])} wall sets, {len(state['walls'])} walls, {len(state['rooms'])} rooms")
 
