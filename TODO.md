@@ -150,12 +150,8 @@
 - [ ] Themes
 
 ## 🛠️ Tech Debt / Refactoring
-- [ ] Remove or hide all non-functioning UI elements until they are implemented (export, etc)
-- [ ] Tabs in the properties panel should be vertical instead of horizontal
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Shift + click to select only extends selection, should also subtract from selection if already selected
-- [ ] Roof should auto update when walls are moved after roof is created
 
 ## 💡 Takeoffs
 - [ ] Material Estimator

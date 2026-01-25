@@ -637,10 +637,17 @@ class CanvasSelectionMixin:
 
         if selected_item:
             if shift_pressed:
-                if not any(
-                    self.same_selection(
-                        existing["object"],
-                        selected_item["object"]) for existing in self.selected_items):
+                # Check if item is already selected
+                existing_idx = None
+                for i, existing in enumerate(self.selected_items):
+                    if self.same_selection(existing["object"], selected_item["object"]):
+                        existing_idx = i
+                        break
+                if existing_idx is not None:
+                    # Remove from selection (toggle off)
+                    self.selected_items.pop(existing_idx)
+                else:
+                    # Add to selection
                     self.selected_items.append(selected_item)
             else:
                 self.selected_items = [selected_item]
@@ -1032,6 +1039,11 @@ class CanvasSelectionMixin:
                 self,
                 "editing_handle",
                 None):
+            # Recalculate any roofs that depend on this wall
+            if hasattr(self, 'recalculate_roofs_for_wall'):
+                wall_id = getattr(self.editing_wall, 'identifier', None)
+                if wall_id:
+                    self.recalculate_roofs_for_wall(wall_id)
             self.editing_wall = None
             self.editing_handle = None
             self.connected_endpoints = []
@@ -1140,6 +1152,11 @@ class CanvasSelectionMixin:
 
         if getattr(self, "dragging_wall", None):
             # Finalize wall drag and clear dragging state
+            # Recalculate any roofs that depend on this wall
+            if hasattr(self, 'recalculate_roofs_for_wall'):
+                wall_id = getattr(self.dragging_wall, 'identifier', None)
+                if wall_id:
+                    self.recalculate_roofs_for_wall(wall_id)
             self.dragging_wall = None
             self.wall_drag_original_start = None
             self.wall_drag_original_end = None
@@ -1180,6 +1197,19 @@ class CanvasSelectionMixin:
             y1 = min(self.box_select_start[1], self.box_select_end[1])
             x2 = max(self.box_select_start[0], self.box_select_end[0])
             y2 = max(self.box_select_start[1], self.box_select_end[1])
+            
+            # Skip box selection if the box is too small (just a click, not a real drag)
+            # This prevents overwriting the shift+click toggle behavior
+            box_width = x2 - x1
+            box_height = y2 - y1
+            min_box_size = 2.0  # minimum size in model units to count as a real box selection
+            
+            if box_width < min_box_size and box_height < min_box_size:
+                # This was just a click, not a real box selection - don't override _handle_pointer_click
+                self.box_selecting = False
+                self.queue_draw()
+                return
+            
             rect = (x1, y1, x2, y2)
 
             new_selection = []

@@ -54,10 +54,14 @@ class CanvasEventsMixin:
         elif self.tool_mode == "add_windows":
             self._handle_window_click(n_press, x, y)
         elif self.tool_mode == "pointer":
-            self._handle_pointer_click(gesture, n_press, x, y)
+            # Selection is already handled in on_click_pressed, so we don't
+            # call _handle_pointer_click here (on release) to avoid overriding
+            # shift+click toggle behavior
+            pass
         elif self.tool_mode == "design_roof":
             # Design roof uses pointer-like selection for marking walls
-            self._handle_pointer_click(gesture, n_press, x, y)
+            # Selection already handled in on_click_pressed
+            pass
         elif self.tool_mode == "add_polyline":
             self._handle_polyline_click(n_press, x, y)
         elif self.tool_mode == "add_dimension":

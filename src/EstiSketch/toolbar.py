@@ -30,16 +30,16 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
         button.set_tooltip_text(tooltip)
         return button
 
-    # Group 1: File operations (left side)
     tool_buttons["save"] = create_icon_button(
         "save", f"{config_constants.SAVE_LABEL} (Ctrl+S)")
     tool_buttons["open"] = create_icon_button(
         "open", f"{config_constants.OPEN_LABEL} (Ctrl+O)")
+    # Export button hidden until functionality is implemented
     tool_buttons["export"] = create_icon_button(
         "export", f"{config_constants.EXPORT_LABEL} (Ctrl+E)")
     tb.append(tool_buttons["save"])
     tb.append(tool_buttons["open"])
-    tb.append(tool_buttons["export"])
+    # tb.append(tool_buttons["export"])  # Hidden - not yet implemented
 
     # Undo and Redo (after Export)
     tool_buttons["undo"] = create_icon_button("undo", "Undo (Ctrl+Z)")

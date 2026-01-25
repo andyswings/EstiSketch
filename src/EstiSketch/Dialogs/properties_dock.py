@@ -2069,7 +2069,7 @@ class PropertiesDock(Gtk.Box):
         properties_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         properties_box.set_vexpand(True)
 
-        # Properties header with tab buttons
+        # Properties header
         properties_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
         properties_header.set_margin_start(4)
         properties_header.set_margin_end(4)
@@ -2082,29 +2082,33 @@ class PropertiesDock(Gtk.Box):
         props_label.set_hexpand(False)
         properties_header.append(props_label)
         
-        # Separator to push tabs to the right
-        spacer = Gtk.Box()
-        spacer.set_hexpand(True)
-        properties_header.append(spacer)
-        
         properties_box.append(properties_header)
         
-        # Tab button bar for property types
-        self.tab_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
-        self.tab_bar.set_margin_start(4)
-        self.tab_bar.set_margin_end(4)
-        self.tab_bar.set_margin_bottom(4)
-        properties_box.append(self.tab_bar)
+        # Spacer to position tabs next to Properties section
+        # Height is dynamically synced with paned split position
+        self.icon_bar_spacer = Gtk.Box()
+        split_height = 200  # Default split position
+        if self.config:
+            split_height = getattr(self.config, 'LAYERS_PROPERTIES_SPLIT', 200)
+        self.icon_bar_spacer.set_size_request(-1, split_height)
+        self.icon_bar.append(self.icon_bar_spacer)
         
-        # Properties content stack
+        # Vertical tab button bar in icon_bar (aligned with Properties section)
+        self.tab_bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self.tab_bar.set_margin_top(8)
+        self.icon_bar.append(self.tab_bar)
+        
+        # Properties content stack (takes remaining space)
         self.stack = Gtk.Stack(
             transition_type=Gtk.StackTransitionType.CROSSFADE,
             transition_duration=150)
         self.stack.set_vexpand(True)
+        self.stack.set_hexpand(True)
         
         # Wrap in scrolled window
         props_scroll = Gtk.ScrolledWindow()
         props_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        props_scroll.set_hexpand(True)
         props_scroll.set_child(self.stack)
         properties_box.append(props_scroll)
         
@@ -2117,6 +2121,9 @@ class PropertiesDock(Gtk.Box):
         if self.config:
             split_pos = getattr(self.config, 'LAYERS_PROPERTIES_SPLIT', 200)
         self.content_paned.set_position(split_pos)
+        
+        # Sync tab spacer height when paned is resized
+        self.content_paned.connect('notify::position', self._on_paned_position_changed)
 
         # Track tabs
         self.tabs = {}
@@ -2403,3 +2410,13 @@ class PropertiesDock(Gtk.Box):
 
         self.emit('sidebar-toggled', not is_visible)
 
+    def _on_paned_position_changed(self, paned, pspec):
+        """Sync the tab spacer height with the paned split position."""
+        position = paned.get_position()
+        
+        # Clamp position to reasonable bounds to prevent layout issues
+        min_height = 50   # Minimum spacer height
+        max_height = 550  # Maximum spacer height
+        clamped_position = max(min_height, min(position, max_height))
+        
+        self.icon_bar_spacer.set_size_request(-1, clamped_position)
