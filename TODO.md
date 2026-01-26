@@ -1,7 +1,7 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add Stairs tool (U-shaped, Winder, spiral)
+- [ ] Add Stairs tool (Winder)
 - [ ] Asymetrical roof pitches
 - [ ] Roof design - Complex roof shapes
 
@@ -149,20 +149,21 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Adjusting the value of steps(1st flight) does not produce any visible change
+- [ ] Initial steps value is not applied to stairs on creation only changes to this value are applied
 - [ ] Rotating stairs after creation does not currently work
 - [ ] Dragging to move stairs does not currently work
-- [ ] Selecting L-shaped stairs on the second flight does not work. It is only selectable on the first flight or where the original straight stairs were created.
 
 ## 💡 Takeoffs
 - [ ] Material Estimator
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
-
-### v0.3.0-alpha (2026-01-25)
+- [x] Selecting L-shaped stairs on the second flight now works (2026-01-25)
+- [x] Adjusting the value of steps(1st flight) on multi-flight stairs now produces a visible change (2026-01-25)
+- [x] Added support for U-shaped and Spiral stairs (2026-01-25)
 - [x] Added L-shaped stair type with dedicated rendering and property controls (2026-01-25)
 - [x] Added initial basic stair tool (supports straight stairs) (2026-01-25)
+### v0.3.0-alpha (2026-01-25)
 - [x] Added footing and slab properties to Wall and Room data models (2026-01-25)
 - [x] Implemented footer rendering with smart corner joining and extensions (2026-01-25)
 - [x] Implemented slab rendering with concrete hatching (2026-01-25)
