@@ -252,6 +252,8 @@ class StairPropertiesWidget(Gtk.Box):
         
     def emit_property_changed(self):
         self.emit("property-changed")
+        if hasattr(self, 'canvas'):
+            self.canvas.queue_draw()
         
     def _update_compliance_display(self, stair):
         """Update the compliance label based on current stair values."""
