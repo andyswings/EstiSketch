@@ -345,7 +345,14 @@ class CanvasStairRendererMixin:
         
         # Calculate steps before and after landing
         total_steps = stair.num_steps
-        steps_before = total_steps // 2
+        
+        # Use user-defined split if available, otherwise default to half
+        steps_before_landing = getattr(stair, 'steps_before_landing', 0)
+        if steps_before_landing > 0 and steps_before_landing < total_steps:
+            steps_before = steps_before_landing
+        else:
+            steps_before = total_steps // 2
+            
         steps_after = total_steps - steps_before
         
         # Calculate runs for each flight

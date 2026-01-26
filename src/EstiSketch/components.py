@@ -271,6 +271,7 @@ class Stair:
     # L-Shaped / U-Shaped Specifics (for future use)
     landing_depth: float = 36.0
     turn_direction: str = "left"  # "left", "right"
+    steps_before_landing: int = 0  # 0 = auto-calculate (half)
     
     # Spiral Specifics (for future use)
     inner_radius: float = 6.0

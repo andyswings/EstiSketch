@@ -234,8 +234,12 @@ class StairPropertiesWidget(Gtk.Box):
             landing_depth = getattr(stair, 'landing_depth', 36.0)
             self.spin_landing.set_value(landing_depth)
             
-            # Steps before landing (calculated as half by default)
-            steps_before = stair.num_steps // 2
+            # Steps before landing
+            stored_steps = getattr(stair, 'steps_before_landing', 0)
+            if stored_steps > 0:
+                steps_before = stored_steps
+            else:
+                steps_before = stair.num_steps // 2
             self.spin_steps_before.set_value(steps_before)
             
         if is_u_shaped or is_spiral:
@@ -392,9 +396,10 @@ class StairPropertiesWidget(Gtk.Box):
         if self._block_updates or not self.current_stairs:
             return
         
-        # This is a UI-only property for now
-        # The renderer calculates it from total steps
-        # We could store it as a stair property if needed
+        val = int(spin.get_value())
+        for stair in self.current_stairs:
+             stair.steps_before_landing = val
+             
         self.emit_property_changed()
         
     def on_well_changed(self, spin):

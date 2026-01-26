@@ -633,38 +633,208 @@ class CanvasSelectionMixin:
                  if self.is_object_on_locked_layer(stair) or not self.is_object_on_visible_layer(stair):
                      continue
                  
-                 # Calculate stair bounding box in model coordinates
+                 # Calculate stair bounding box/polygons based on type
                  start_x, start_y = stair.start_point
                  angle = stair.direction_angle
                  width = stair.width
-                 run = stair.total_run
                  
-                 # Get the four corners of the stair rectangle
-                 # Corner offsets in local coordinates (before rotation)
+                 stair_type = getattr(stair, 'stair_type', 'straight')
+                 
+                 # Transform click point to local stair coordinates
+                 # First convert device click to model coordinates
+                 T = self.zoom * pixels_per_inch
+                 mx = (click_pt[0] - self.offset_x) / T
+                 my = (click_pt[1] - self.offset_y) / T
+                 
+                 # Local: (0,0) is start_point, X is direction of ascent
+                 cos_a = math.cos(-angle)
+                 sin_a = math.sin(-angle)
+                 dx = mx - start_x
+                 dy = my - start_y
+                 local_x = dx * cos_a - dy * sin_a
+                 local_y = dx * sin_a + dy * cos_a
+                 
+                 hit = False
                  half_width = width / 2.0
-                 corners_local = [
-                     (0, -half_width),
-                     (run, -half_width),
-                     (run, half_width),
-                     (0, half_width)
-                 ]
                  
-                 # Rotate and translate to world coordinates
-                 cos_a = math.cos(angle)
-                 sin_a = math.sin(angle)
-                 corners_world = []
-                 for lx, ly in corners_local:
-                     wx = start_x + lx * cos_a - ly * sin_a
-                     wy = start_y + lx * sin_a + ly * cos_a
-                     corners_world.append((wx, wy))
+                 if stair_type == 'straight':
+                     run = stair.total_run
+                     # Simple Hit test: 0 <= x <= run, -half <= y <= half
+                     if 0 <= local_x <= run and -half_width <= local_y <= half_width:
+                         hit = True
+                         
+                 elif stair_type == 'L-shaped':
+                     # Need to reconstruct geometry
+                     total_steps = stair.num_steps
+                     steps_before_landing = getattr(stair, 'steps_before_landing', 0)
+                     if steps_before_landing <= 0 or steps_before_landing >= total_steps:
+                         steps_before = total_steps // 2
+                     else:
+                         steps_before = steps_before_landing
+                     
+                     tread_depth = stair.tread_depth
+                     run_before = (steps_before - 1) * tread_depth
+                     
+                     steps_after = total_steps - steps_before
+                     run_after = (steps_after - 1) * tread_depth
+                     
+                     landing_depth = getattr(stair, 'landing_depth', 36.0)
+                     turn_dir = getattr(stair, 'turn_direction', 'left')
+                     
+                     # 1. Flight 1: Rect(0, -half, run_before, width)
+                     if 0 <= local_x <= run_before and -half_width <= local_y <= half_width:
+                         hit = True
+                     
+                     # 2. Landing
+                     # Render logic: cr.rectangle(landing_x, -half_width, landing_depth, width)
+                     # So rect is: x=[landing_x, landing_x+depth], y=[-half, +half]
+                     landing_x = run_before
+                     if not hit:
+                         if landing_x <= local_x <= landing_x + landing_depth and -half_width <= local_y <= half_width:
+                             hit = True
+                             
+                     # 3. Flight 2
+                     if not hit:
+                         # Render logic:
+                         # if left: translate(landing_x + depth - half, -half). rotate(-90)
+                         # if right: translate(landing_x + depth - half, half). rotate(90)
+                         # Draw rect(0, -half, run_after, width)
+                         
+                         if turn_dir == 'left':
+                             # Transform local_pt to F2 coords
+                             # F2 Origin in local coords:
+                             ox = landing_x + landing_depth - half_width
+                             oy = -half_width
+                             
+                             # Point relative to F2 Origin
+                             dx2 = local_x - ox
+                             dy2 = local_y - oy
+                             
+                             # Rotate -90 degrees (CW relative to standard?)
+                             # -90 rad: cos=0, sin=-1
+                             # x' = dx*0 - dy*-1 = dy
+                             # y' = dx*-1 + dy*0 = -dx
+                             f2_x = -dy2
+                             f2_y = dx2
+                             
+                             # Check if point is in draw rect: 0..run, -half..half
+                             if 0 <= f2_x <= run_after and -half_width <= f2_y <= half_width:
+                                 hit = True
+                                 
+                         else: # Right
+                             # F2 Origin:
+                             ox = landing_x + landing_depth - half_width
+                             oy = half_width
+                             
+                             dx2 = local_x - ox
+                             dy2 = local_y - oy
+                             
+                             # Rotate 90 degrees
+                             # 90 rad: cos=0, sin=1
+                             # x' = dx*0 - dy*1 = -dy
+                             # y' = dx*1 + dy*0 = dx
+                             f2_x = dy2
+                             f2_y = -dx2
+                             
+                             if 0 <= f2_x <= run_after and -half_width <= f2_y <= half_width:
+                                 hit = True
+
+                 elif stair_type == 'U-shaped':
+                     # Need params
+                     total_steps = stair.num_steps
+                     steps_before_landing = getattr(stair, 'steps_before_landing', 0)
+                     if steps_before_landing <= 0 or steps_before_landing >= total_steps:
+                         steps_before = total_steps // 2
+                     else:
+                         steps_before = steps_before_landing
+                     
+                     tread_depth = stair.tread_depth
+                     run_before = (steps_before - 1) * tread_depth
+                     run_after = (total_steps - steps_before - 1) * tread_depth
+                     
+                     landing_depth = getattr(stair, 'landing_depth', 36.0)
+                     turn_dir = getattr(stair, 'turn_direction', 'left')
+                     well = getattr(stair, 'inner_radius', 0.0)
+                     
+                     # 1. Flight 1
+                     if 0 <= local_x <= run_before and -half_width <= local_y <= half_width:
+                         hit = True
+                         
+                     # 2. Landing
+                     if not hit:
+                         lx_min = run_before
+                         lx_max = run_before + landing_depth
+                         
+                         if turn_dir == 'left':
+                             ly_min = -half_width - well - width
+                             ly_max = half_width
+                         else:
+                             ly_min = -half_width
+                             ly_max = half_width + well + width
+                             
+                         if lx_min <= local_x <= lx_max and ly_min <= local_y <= ly_max:
+                             hit = True
+                             
+                     # 3. Flight 2
+                     if not hit:
+                         # Parallel to Flight 1 (X direction) but backwards?
+                         # Render: rotate(180). Draw(0..run_after).
+                         # So it goes negative X.
+                         # Y Offset: width + well
+                         
+                         f2_len = run_after
+                         # X range: [landing_x - f2_len, landing_x] ?
+                         # Render translate(landing_x, offset_y). rotate(180).
+                         # So starts at landing_x, goes towards -X.
+                         fx_max = run_before
+                         fx_min = run_before - f2_len
+                         
+                         if turn_dir == 'left':
+                             fy_c = -(width + well)
+                             fy_min = fy_c - half_width
+                             fy_max = fy_c + half_width
+                         else:
+                             fy_c = (width + well)
+                             fy_min = fy_c - half_width
+                             fy_max = fy_c + half_width
+                             
+                         if fx_min <= local_x <= fx_max and fy_min <= local_y <= fy_max:
+                             hit = True
+
+                 elif stair_type == 'spiral':
+                     inner = getattr(stair, 'inner_radius', 6.0)
+                     outer = inner + width
+                     
+                     dist_sq = local_x*local_x + local_y*local_y
+                     if inner*inner <= dist_sq <= outer*outer:
+                         # Check angle?
+                         # For now, full circle check is probably fine or check partial
+                         # Compute angle of point
+                         # local angle
+                         pt_angle = math.atan2(local_y, local_x)
+                         # Normalize to [0, 2pi] relative to start?
+                         # Spiral starts at angle 0 in LOCAL coords (since we rotated by -angle)
+                         # Draws to rotation_radians.
+                         
+                         rot_deg = getattr(stair, 'rotation_degrees', 270.0)
+                         rot_rad = math.radians(rot_deg)
+                         turn_dir = getattr(stair, 'turn_direction', 'left')
+                         
+                         # Check if angle is within range [0, rot_rad] (if right/CW) or [0, -rot_rad] (if left/CCW)
+                         # Normalize pt_angle to match
+                         
+                         if turn_dir == 'left': # Angles are negative (0 to -rot)
+                             # Normalize pt_angle to [-2pi, 2pi]
+                             # If pt_angle is positive, minus 2pi?
+                             if pt_angle > 0: pt_angle -= 2*math.pi
+                             if -rot_rad <= pt_angle <= 0.1: # slight tolerance
+                                 hit = True
+                         else: # Right (0 to rot)
+                             if pt_angle < 0: pt_angle += 2*math.pi
+                             if -0.1 <= pt_angle <= rot_rad:
+                                 hit = True
                  
-                 # Convert to widget coords
-                 poly_widget = [
-                     self.model_to_device(pt[0], pt[1], pixels_per_inch)
-                     for pt in corners_world
-                 ]
-                 
-                 if self._point_in_polygon(click_pt, poly_widget):
+                 if hit:
                      selected_item = {"type": "stair", "object": stair}
                      from ..Resources.tool_hints import TOOL_HINTS
                      self.update_hint("Click to select stair")
@@ -1224,6 +1394,32 @@ class CanvasSelectionMixin:
             self.queue_draw()
             return
 
+        if getattr(self, "dragging_stair", None):
+            # Finalize stair drag
+            self.dragging_stair = None
+            self.stair_drag_start_pos = None
+            self.save_state()
+            self.queue_draw()
+            return
+            
+        if getattr(self, "dragging_stair", None):
+            stair = self.dragging_stair
+            start_x, start_y = self.stair_drag_start_pos
+            
+            # Snap to grid or other objects if needed (simple grid snap for now)
+            # For stairs, maybe just move by delta?
+            dx = current_x - self.drag_start_x
+            dy = current_y - self.drag_start_y
+            
+            # TODO: Add snapping logic here
+            
+            new_x = start_x + dx
+            new_y = start_y + dy
+            
+            stair.start_point = (new_x, new_y)
+            self.queue_draw()
+            return
+            
         if getattr(self, "dragging_dimensions", None):
             # Finalize dimension drag and clear dragging state
             self.dragging_dimensions = None
