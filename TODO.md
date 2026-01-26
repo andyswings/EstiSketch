@@ -149,6 +149,7 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
+- [ ] Adjusting the value of steps(1st flight) does not produce any visible change
 - [ ] Rotating stairs after creation does not currently work
 - [ ] Dragging to move stairs does not currently work
 - [ ] Selecting L-shaped stairs on the second flight does not work. It is only selectable on the first flight or where the original straight stairs were created.

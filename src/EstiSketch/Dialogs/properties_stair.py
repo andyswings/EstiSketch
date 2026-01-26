@@ -82,7 +82,7 @@ class StairPropertiesWidget(Gtk.Box):
         row_type = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         lbl_type = Gtk.Label(label="Type:")
         lbl_type.set_xalign(0)
-        self.dropdown_type = Gtk.DropDown.new_from_strings(["Straight", "L-shaped"])
+        self.dropdown_type = Gtk.DropDown.new_from_strings(["Straight", "L-shaped", "U-shaped", "Spiral"])
         self.dropdown_type.connect("notify::selected", self.on_type_changed)
         row_type.append(lbl_type)
         row_type.append(self.dropdown_type)
@@ -120,6 +120,29 @@ class StairPropertiesWidget(Gtk.Box):
         row_steps_before.append(self.spin_steps_before)
         type_box.append(row_steps_before)
         self.row_steps_before = row_steps_before  # Save reference
+        
+        # Well Width / Gap (for U-shaped only)
+        row_well = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        lbl_well = Gtk.Label(label="Well Width (in):")
+        lbl_well.set_xalign(0)
+        self.spin_well = Gtk.SpinButton.new_with_range(0.0, 48.0, 1.0)
+        self.spin_well.connect("value-changed", self.on_well_changed)
+        row_well.append(lbl_well)
+        row_well.append(self.spin_well)
+        type_box.append(row_well)
+        self.row_well = row_well
+        self.lbl_well = lbl_well # Save ref to change label
+        
+        # Rotation (Spiral only)
+        row_rotation = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        lbl_rotation = Gtk.Label(label="Rotation (deg):")
+        lbl_rotation.set_xalign(0)
+        self.spin_rotation = Gtk.SpinButton.new_with_range(90.0, 720.0, 15.0)
+        self.spin_rotation.connect("value-changed", self.on_rotation_changed)
+        row_rotation.append(lbl_rotation)
+        row_rotation.append(self.spin_rotation)
+        type_box.append(row_rotation)
+        self.row_rotation = row_rotation
         
         # --- Railings Frame ---
         rail_frame = Gtk.Frame(label="Railings")
@@ -176,24 +199,53 @@ class StairPropertiesWidget(Gtk.Box):
         
         # Set stair type
         stair_type = getattr(stair, 'stair_type', 'straight')
-        self.dropdown_type.set_selected(0 if stair_type == 'straight' else 1)
+        if stair_type == 'straight':
+            type_idx = 0
+        elif stair_type == 'L-shaped':
+            type_idx = 1
+        elif stair_type == 'U-shaped':
+            type_idx = 2
+        else: # Spiral
+            type_idx = 3
+        self.dropdown_type.set_selected(type_idx)
         
-        # Set L-shaped specific controls
-        is_l_shaped = (stair_type == 'L-shaped')
-        self.row_turn.set_visible(is_l_shaped)
-        self.row_landing.set_visible(is_l_shaped)
-        self.row_steps_before.set_visible(is_l_shaped)
+        # Set L/U/Spiral specific controls
+        is_multi_segment = (stair_type in ['L-shaped', 'U-shaped'])
+        is_u_shaped = (stair_type == 'U-shaped')
+        is_spiral = (stair_type == 'spiral')
         
-        if is_l_shaped:
+        self.row_turn.set_visible(is_multi_segment or is_spiral)
+        self.row_landing.set_visible(is_multi_segment)
+        self.row_steps_before.set_visible(is_multi_segment)
+        
+        self.row_well.set_visible(is_u_shaped or is_spiral)
+        if is_spiral:
+            self.lbl_well.set_label("Inner Radius (in):")
+        else:
+            self.lbl_well.set_label("Well Width (in):")
+            
+        self.row_rotation.set_visible(is_spiral)
+        
+        if is_multi_segment or is_spiral:
             turn_dir = getattr(stair, 'turn_direction', 'left')
             self.dropdown_turn.set_selected(0 if turn_dir == 'left' else 1)
             
+        if is_multi_segment:
             landing_depth = getattr(stair, 'landing_depth', 36.0)
             self.spin_landing.set_value(landing_depth)
             
             # Steps before landing (calculated as half by default)
             steps_before = stair.num_steps // 2
             self.spin_steps_before.set_value(steps_before)
+            
+        if is_u_shaped or is_spiral:
+            # We reuse inner_radius for U-shape gap and Spiral inner radius
+            val = getattr(stair, 'inner_radius', 0.0)
+            self.spin_well.set_value(val)
+            
+        if is_spiral:
+            rot = getattr(stair, 'rotation_degrees', 270.0)
+            self.spin_rotation.set_value(rot)
         
         self._update_compliance_display(stair)
         
@@ -279,16 +331,35 @@ class StairPropertiesWidget(Gtk.Box):
             return
         
         selected = dropdown.get_selected()
-        stair_type = "straight" if selected == 0 else "L-shaped"
+        if selected == 0:
+            stair_type = "straight"
+        elif selected == 1:
+            stair_type = "L-shaped"
+        elif selected == 2:
+            stair_type = "U-shaped"
+        else:
+            stair_type = "spiral"
         
         for stair in self.current_stairs:
             stair.stair_type = stair_type
         
-        # Show/hide L-shaped specific controls
-        is_l_shaped = (stair_type == "L-shaped")
-        self.row_turn.set_visible(is_l_shaped)
-        self.row_landing.set_visible(is_l_shaped)
-        self.row_steps_before.set_visible(is_l_shaped)
+        # Show/hide specific controls
+        is_multi_segment = (stair_type in ["L-shaped", "U-shaped"])
+        is_u_shaped = (stair_type == "U-shaped")
+        is_spiral = (stair_type == "spiral")
+        
+        self.row_turn.set_visible(is_multi_segment or is_spiral)
+        self.row_landing.set_visible(is_multi_segment)
+        self.row_steps_before.set_visible(is_multi_segment)
+        
+        # Well/Gap row is reused for Inner Radius in Spiral
+        self.row_well.set_visible(is_u_shaped or is_spiral)
+        if is_spiral:
+            self.lbl_well.set_label("Inner Radius (in):")
+        else:
+            self.lbl_well.set_label("Well Width (in):")
+            
+        self.row_rotation.set_visible(is_spiral)
         
         self.emit_property_changed()
     
@@ -324,6 +395,29 @@ class StairPropertiesWidget(Gtk.Box):
         # This is a UI-only property for now
         # The renderer calculates it from total steps
         # We could store it as a stair property if needed
+        self.emit_property_changed()
+        
+    def on_well_changed(self, spin):
+        """Handle well width (gap) change."""
+        if self._block_updates or not self.current_stairs:
+            return
+            
+        val = spin.get_value()
+        for stair in self.current_stairs:
+            # We use inner_radius to store the well/gap width
+            stair.inner_radius = val
+            
+        self.emit_property_changed()
+
+    def on_rotation_changed(self, spin):
+        """Handle rotation angle change."""
+        if self._block_updates or not self.current_stairs:
+            return
+            
+        val = spin.get_value()
+        for stair in self.current_stairs:
+            stair.rotation_degrees = val
+            
         self.emit_property_changed()
 
 
