@@ -48,6 +48,22 @@ class CanvasSelectionMixin:
         best_dist = float('inf')
         selected_item = None
 
+        # Clear transient editing states
+        self.editing_wall = None
+        self.editing_handle = None
+        self.editing_stair = None
+        self.editing_stair_handle = None
+        self.editing_dimension = None
+        self.editing_dimension_handle = None
+        self.editing_polyline = None
+        self.editing_polyline_handle = None
+        self.editing_circle = None
+        self.editing_circle_handle = None
+        self.editing_arc = None
+        self.editing_arc_handle = None
+        self.editing_curved_wall = None
+        self.editing_curved_wall_handle = None
+
         # Check for wall handle clicks (for editing)
         T = self.zoom * pixels_per_inch
         for item in self.selected_items:
@@ -198,6 +214,102 @@ class CanvasSelectionMixin:
                     circle = item["object"]
                     if self.is_object_on_locked_layer(circle):
                         continue
+                        
+                    # Radius handle
+                    cx, cy = circle.center
+                    handle_x = cx + circle.radius
+                    handle_y = cy
+                    
+                    pt_widget = (
+                        (handle_x * T) + self.offset_x,
+                        (handle_y * T) + self.offset_y
+                    )
+                    dist = math.hypot(click_pt[0] - pt_widget[0], click_pt[1] - pt_widget[1])
+                    
+                    if dist < self.handle_radius:
+                        self.editing_circle = circle
+                        self.editing_circle_handle = "radius"
+                        selected_item = {"type": "circle_handle", "object": (circle, "radius")}
+                        break
+                        
+                elif item["type"] == "arc":
+                    arc = item["object"]
+                    if self.is_object_on_locked_layer(arc):
+                         continue
+                         
+                    # Check start/end/mid handles
+                    cx, cy = arc.center
+                    r = arc.radius
+                    
+                    handles = [
+                        ("start", arc.start_angle),
+                        ("end", arc.end_angle),
+                        ("mid", (arc.start_angle + arc.end_angle)/2) # Approximation
+                    ]
+                    
+                    for name, angle in handles:
+                        hx = cx + r * math.cos(angle)
+                        hy = cy + r * math.sin(angle)
+                        
+                        pt_widget = (
+                            (hx * T) + self.offset_x,
+                            (hy * T) + self.offset_y
+                        )
+                        dist = math.hypot(click_pt[0] - pt_widget[0], click_pt[1] - pt_widget[1])
+                        
+                        if dist < self.handle_radius:
+                            self.editing_arc = arc
+                            self.editing_arc_handle = name
+                            selected_item = {"type": "arc_handle", "object": (arc, name)}
+                            break
+                    if selected_item:
+                        break
+                
+                elif item["type"] == "stair":
+                    stair = item["object"]
+                    if self.is_object_on_locked_layer(stair):
+                        continue
+                    
+                    # Calculate handle positions in model space
+                    sx, sy = stair.start_point
+                    angle = stair.direction_angle
+                    run = stair.total_run
+                    
+                    # Rotate Handle: (-12, 0) local
+                    # Length Handle: (run + 12, 0) local
+                    
+                    cos_a = math.cos(angle)
+                    sin_a = math.sin(angle)
+                    
+                    # Rotate Handle
+                    rx = sx + (-12.0) * cos_a - (0) * sin_a
+                    ry = sy + (-12.0) * sin_a + (0) * cos_a
+                    
+                    # Length Handle
+                    lx = sx + (run + 12.0) * cos_a - (0) * sin_a
+                    ly = sy + (run + 12.0) * sin_a + (0) * cos_a
+                    
+                    handles = [
+                        ("rotate", (rx, ry))
+                    ]
+                    
+                    for name, pt in handles:
+                         pt_widget = (
+                             (pt[0] * T) + self.offset_x,
+                             (pt[1] * T) + self.offset_y
+                         )
+                         dist = math.hypot(click_pt[0] - pt_widget[0], click_pt[1] - pt_widget[1])
+                         
+                         if dist < self.handle_radius:
+                             self.editing_stair = stair
+                             self.editing_stair_handle = name
+                             # Also store check info if needed
+                             self.stair_edit_start_angle = angle
+                             self.stair_edit_start_run = run
+                             selected_item = {"type": "stair_handle", "object": (stair, name)}
+                             break
+                    if selected_item:
+                        break
                     cx, cy = circle.center
                     hx = cx + circle.radius
                     hy = cy
@@ -1215,6 +1327,16 @@ class CanvasSelectionMixin:
                         self.arc_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
                         self.box_selecting = False
 
+                # Check for stair dragging
+                elif item["type"] == "stair" and not getattr(self, "editing_stair", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_circle", None) and not getattr(self, "dragging_arc", None):
+                    if not self.is_object_on_locked_layer(item["object"]):
+                        self.dragging_stair = item["object"]
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        self.stair_drag_start_pos = self.dragging_stair.start_point
+                        
+                        self.box_selecting = False
+
         elif self.tool_mode == "add_text":
             self.drag_start_x = start_x
             self.drag_start_y = start_y
@@ -1401,24 +1523,15 @@ class CanvasSelectionMixin:
             self.save_state()
             self.queue_draw()
             return
-            
-        if getattr(self, "dragging_stair", None):
-            stair = self.dragging_stair
-            start_x, start_y = self.stair_drag_start_pos
-            
-            # Snap to grid or other objects if needed (simple grid snap for now)
-            # For stairs, maybe just move by delta?
-            dx = current_x - self.drag_start_x
-            dy = current_y - self.drag_start_y
-            
-            # TODO: Add snapping logic here
-            
-            new_x = start_x + dx
-            new_y = start_y + dy
-            
-            stair.start_point = (new_x, new_y)
+
+        if getattr(self, "editing_stair", None) and getattr(self, "editing_stair_handle", None):
+            self.editing_stair = None
+            self.editing_stair_handle = None
+            self.save_state()
             self.queue_draw()
             return
+            
+
             
         if getattr(self, "dragging_dimensions", None):
             # Finalize dimension drag and clear dragging state

@@ -3,7 +3,6 @@
 ## 🚀 High Priority (do next)
 - [ ] Add Stairs tool (Winder)
 - [ ] Add capability to snap new wall's edges to existing wall edges instead of just endpoints to endpoints (should have same capabilities for editing walls as well) (This is useful for aligning walls of different thicknesses)
-- [ ] Add editing capabilities to stairs (move, resize, rotate, etc.)
 - [ ] Stair total rise should auto-recalculate based on floor-to-floor height (if floor-to-floor height is changed)
 - [ ] Asymetrical roof pitches
 - [ ] Roof design - Complex roof shapes
@@ -152,13 +151,14 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Initial steps value is not applied to stairs on creation only changes to this value are applied (also default value is set to 1. Should be set to 3 or something similar)
 
 ## 💡 Takeoffs
 - [ ] Material Estimator
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Added basic editing capabilities to stairs (move, resize, rotate, etc.) (2026-02-01)
+- [x] Fixed Initial Steps Value (2026-02-01)
 - [x] Selecting L-shaped stairs on the second flight now works (2026-01-25)
 - [x] Adjusting the value of steps(1st flight) on multi-flight stairs now produces a visible change (2026-01-25)
 - [x] Added support for U-shaped and Spiral stairs (2026-01-25)
@@ -253,4 +253,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2026-01-25_
+_Last updated: 2026-02-01_

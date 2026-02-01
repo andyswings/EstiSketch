@@ -71,6 +71,25 @@ class CanvasStairRendererMixin:
         cr.rectangle(0, -half_width, run, width)
         cr.stroke()
         
+        # --- Draw Interaction Handles (if selected) ---
+        if is_selected:
+            # Rotate Handle (Circle at start)
+            handle_size = 6.0 / scale
+            handle_dist = 12.0 # Inches from start
+            
+            # Position: (-handle_dist, 0) local
+            cr.set_source_rgb(0.2, 0.6, 1.0) # Blue
+            cr.arc(-handle_dist, 0, handle_size, 0, 2*math.pi)
+            cr.fill()
+            cr.set_source_rgb(0.0, 0.0, 0.0) # Border
+            cr.arc(-handle_dist, 0, handle_size, 0, 2*math.pi)
+            cr.set_line_width(1.0 / scale)
+            cr.stroke()
+            
+            # Reset color
+            cr.set_source_rgb(0.2, 0.6, 1.0)
+            cr.set_line_width(2.0 / scale)
+        
         # --- Draw Treads ---
         tread_depth = stair.tread_depth
         num_treads = stair.num_steps - 1  # Top riser is at the floor level
