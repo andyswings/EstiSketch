@@ -695,6 +695,13 @@ class LayersPanel(Gtk.Box):
             ident = getattr(obj, 'identifier', '')
             return f"Roof - {ident}" if ident else "Roof"
             
+        elif type_name == "stair":
+            # Stair - type and rise info
+            stair_type = getattr(obj, 'stair_type', 'straight')
+            rise = getattr(obj, 'total_rise', 0)
+            rise_str = self.canvas.converter.format_measurement(rise, use_fraction=False)
+            return f"Stair ({stair_type}) - Rise: {rise_str}"
+            
         else:
             # Fallback
             ident = getattr(obj, 'identifier', '')

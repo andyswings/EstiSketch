@@ -508,6 +508,12 @@ class CanvasArea(Gtk.DrawingArea,
             for roof in self.roofs:
                  if getattr(roof, 'layer_id', '') == layer_id:
                     objects.append(("roof", roof))
+    
+        # Stairs
+        if hasattr(self, 'stairs'):
+            for stair in self.stairs:
+                if getattr(stair, 'layer_id', '') == layer_id:
+                    objects.append(("stair", stair))
 
         return objects
 

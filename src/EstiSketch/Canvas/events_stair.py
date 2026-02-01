@@ -108,6 +108,9 @@ class CanvasStairEventsMixin:
         # Add to canvas
         self.stairs.append(self.temp_object)
         
+        # Notify layers panel
+        self.emit('content-changed')
+        
         # Clean up
         self.temp_object = None
         self.temp_start_point = None
@@ -235,7 +238,6 @@ class CanvasStairEventsMixin:
                 
                 # Check if rise actually changed
                 if abs(new_rise - stair.total_rise) > 0.01:
-                    print(f"Updating stair {stair.identifier} rise from {stair.total_rise} to {new_rise}")
                     stair.total_rise = new_rise
                     
                     # Update riser height (keep number of steps constant usually, unless extreme?)

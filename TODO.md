@@ -3,7 +3,6 @@
 ## 🚀 High Priority (do next)
 - [ ] Add Stairs tool (Winder)
 - [ ] Add capability to snap new wall's edges to existing wall edges instead of just endpoints to endpoints (should have same capabilities for editing walls as well) (This is useful for aligning walls of different thicknesses)
-- [ ] Stair total rise should auto-recalculate based on floor-to-floor height (if floor-to-floor height is changed)
 - [ ] Asymetrical roof pitches
 - [ ] Roof design - Complex roof shapes
 
@@ -150,13 +149,14 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Stairs are not shown in the layers panel under their respective layer, with the other elements (walls, doors, windows, etc.)
 
 ## 💡 Takeoffs
 - [ ] Material Estimator
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Stairs now appear in the Layers Panel with other objects (2026-02-01)
+- [x] Stair total rise now auto-recalculates based on floor-to-floor height (if floor-to-floor height is changed) (2026-02-01)
 - [x] Added basic editing capabilities to stairs (move, resize, rotate, etc.) (2026-02-01)
 - [x] Fixed Initial Steps Value (2026-02-01)
 - [x] Selecting L-shaped stairs on the second flight now works (2026-01-25)
