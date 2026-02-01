@@ -310,14 +310,6 @@ class CanvasSelectionMixin:
                              break
                     if selected_item:
                         break
-                    cx, cy = circle.center
-                    hx = cx + circle.radius
-                    hy = cy
-                    
-                    tx = (hx * T) + self.offset_x
-                    ty = (hy * T) + self.offset_y
-                    
-                    dist = math.hypot(click_pt[0] - tx, click_pt[1] - ty)
                     if dist < self.handle_radius:
                         self.editing_circle = circle
                         self.editing_circle_handle = "radius"

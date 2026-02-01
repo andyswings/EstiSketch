@@ -15,7 +15,6 @@
 - [ ] Roof components (trusses, rafters, ridges, valleys)
 - [ ] Columns/Posts
 - [ ] Beams
-- [ ] Foundations (slab, crawlspace, basement)
 - [ ] Ceiling types (dropped, vaulted, cathedral)
 - [ ] Railings/Guardrails (deck, stair, balcony)
 - [ ] Add Cabinet Tool
@@ -151,6 +150,7 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
+- [ ] Stairs are not shown in the layers panel under their respective layer, with the other elements (walls, doors, windows, etc.)
 
 ## 💡 Takeoffs
 - [ ] Material Estimator

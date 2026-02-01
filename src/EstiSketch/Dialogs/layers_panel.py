@@ -268,10 +268,8 @@ class LayersPanel(Gtk.Box):
                 val = self.canvas.converter.parse_measurement(new_value)
                 if val is not None:
                     level.elevation = val
-                    print(f"Updated Level {level.name} elevation to {val}")
-                    # If this is active level, maybe queue draw?
-                    # Generally drawing doesn't depend on elevation yet unless 3D
-                    pass
+                    if hasattr(self.canvas, 'update_stairs_for_level_change'):
+                        self.canvas.update_stairs_for_level_change(level.id)
             except Exception as e:
                 print(f"Error parsing elevation: {e}")
 

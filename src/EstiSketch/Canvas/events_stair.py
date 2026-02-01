@@ -207,3 +207,54 @@ class CanvasStairEventsMixin:
             if level.id == level_id:
                 return level
         return None
+
+    def update_stairs_for_level_change(self, changed_level_id: str):
+        """
+        Recalculate rise and run for stairs connected to the changed level.
+        Called when a level's elevation is updated.
+        """
+        if not changed_level_id:
+            return
+
+        stairs_updated = False
+        
+        for stair in self.stairs:
+            # Check if this stair is connected to the changed level
+            update_needed = False
+            start = getattr(stair, 'start_level_id', None)
+            end = getattr(stair, 'end_level_id', None)
+            
+            if start == changed_level_id:
+                update_needed = True
+            if end == changed_level_id:
+                update_needed = True
+                
+            if update_needed:
+                # Recalculate total rise
+                new_rise = self._calculate_default_rise(stair.start_level_id, stair.end_level_id)
+                
+                # Check if rise actually changed
+                if abs(new_rise - stair.total_rise) > 0.01:
+                    print(f"Updating stair {stair.identifier} rise from {stair.total_rise} to {new_rise}")
+                    stair.total_rise = new_rise
+                    
+                    # Update riser height (keep number of steps constant usually, unless extreme?)
+                    # Strategy: Keep num_steps constant, update riser_height.
+                    # This preserves the run length.
+                    if stair.num_steps > 0:
+                        stair.riser_height = new_rise / stair.num_steps
+                    
+                    stairs_updated = True
+        
+        if stairs_updated:
+            self.queue_draw()
+            
+            # If any of the updated stairs are selected, refresh the properties panel
+            # to verify they show the new rise value immediately.
+            if getattr(self, "selected_items", None) and hasattr(self, "properties_dock"):
+                 # Check if any selected item is a stair that might have been updated
+                 # For simplicity, just refresh if we have a stair selection
+                 has_selected_stair = any(item.get("type") == "stair" for item in self.selected_items)
+                 if has_selected_stair:
+                     self.properties_dock.refresh_tabs(self.selected_items)
+
