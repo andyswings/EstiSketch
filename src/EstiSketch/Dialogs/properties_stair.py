@@ -352,6 +352,17 @@ class StairPropertiesWidget(Gtk.Box):
         is_u_shaped = (stair_type == "U-shaped")
         is_spiral = (stair_type == "spiral")
         
+        # If switching to multi-segment and steps_before_landing is 0 (default/unset),
+        # set it to a sensible default (3) instead of leaving it at 0 (which renders as half).
+        # This matches the spinner minimum and provides a better user experience.
+        if is_multi_segment:
+            for stair in self.current_stairs:
+                current_val = getattr(stair, 'steps_before_landing', 0)
+                if current_val == 0:
+                     stair.steps_before_landing = 3
+                     # Also update the spinner to match this new reality
+                     self.spin_steps_before.set_value(3)
+
         self.row_turn.set_visible(is_multi_segment or is_spiral)
         self.row_landing.set_visible(is_multi_segment)
         self.row_steps_before.set_visible(is_multi_segment)
