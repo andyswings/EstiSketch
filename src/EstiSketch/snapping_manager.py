@@ -40,10 +40,39 @@ class SnappingManager:
             polylines=None):
         points = []
         for wall in walls:
+            # Add centerline endpoints
             points.extend([wall.start, wall.end])
+            
+            # Add edge points at endpoints for edge-aligned connections
+            # This allows walls of different thicknesses to snap edge-to-edge
+            if not getattr(wall, 'is_curved', False):  # Skip curved walls
+                dx = wall.end[0] - wall.start[0]
+                dy = wall.end[1] - wall.start[1]
+                length = math.sqrt(dx * dx + dy * dy)
+                
+                if length > 0:
+                    # Unit perpendicular vector
+                    perp_x = -dy / length
+                    perp_y = dx / length
+                    offset = wall.width / 2.0
+                    
+                    # Add edge points at start
+                    points.append((wall.start[0] + perp_x * offset, 
+                                  wall.start[1] + perp_y * offset))
+                    points.append((wall.start[0] - perp_x * offset, 
+                                  wall.start[1] - perp_y * offset))
+                    
+                    # Add edge points at end
+                    points.append((wall.end[0] + perp_x * offset, 
+                                  wall.end[1] + perp_y * offset))
+                    points.append((wall.end[0] - perp_x * offset, 
+                                  wall.end[1] - perp_y * offset))
+            
+            # Add midpoint
             mid_x = (wall.start[0] + wall.end[0]) / 2
             mid_y = (wall.start[1] + wall.end[1]) / 2
             points.append((mid_x, mid_y))
+            
         for room in rooms:
             points.extend(room.points)
         if current_wall and current_wall.start != current_wall.end:
@@ -71,8 +100,92 @@ class SnappingManager:
                 best_dist_sq = d_sq
                 best_type = "endpoint" if (px, py) in [
                     w.start for w in walls] + [w.end for w in walls] else "midpoint"
-        # print(f"Best point snap: {best_candidate}, type: {best_type}")
+        # print(f\"Best point snap: {best_candidate}, type: {best_type}")
         return best_candidate, best_type
+
+    def get_wall_edge_lines(self, wall):
+        """Calculate the two parallel edge lines for a wall.
+        
+        Returns a list of tuples: [(edge1_start, edge1_end), (edge2_start, edge2_end)]
+        Each edge is a line segment parallel to the wall centerline, offset by half width.
+        """
+        # Skip curved walls for now
+        if getattr(wall, 'is_curved', False):
+            return []
+        
+        dx = wall.end[0] - wall.start[0]
+        dy = wall.end[1] - wall.start[1]
+        length = math.sqrt(dx * dx + dy * dy)
+        
+        if length == 0:
+            return []
+        
+        # Unit perpendicular vector (rotated 90 degrees)
+        perp_x = -dy / length
+        perp_y = dx / length
+        
+        # Offset by half width for each edge
+        offset = wall.width / 2.0
+        
+        # Edge 1 (left side)
+        edge1_start = (wall.start[0] + perp_x * offset, 
+                      wall.start[1] + perp_y * offset)
+        edge1_end = (wall.end[0] + perp_x * offset, 
+                    wall.end[1] + perp_y * offset)
+        
+        # Edge 2 (right side)
+        edge2_start = (wall.start[0] - perp_x * offset, 
+                      wall.start[1] - perp_y * offset)
+        edge2_end = (wall.end[0] - perp_x * offset, 
+                    wall.end[1] - perp_y * offset)
+        
+        return [(edge1_start, edge1_end), (edge2_start, edge2_end)]
+
+    def closest_point_on_line(self, px, py, line_start, line_end):
+        """Find the closest point on a line segment to a given point.
+        
+        Projects the point onto the line and clamps to the segment bounds.
+        """
+        x1, y1 = line_start
+        x2, y2 = line_end
+        
+        dx = x2 - x1
+        dy = y2 - y1
+        
+        if dx == 0 and dy == 0:
+            return line_start
+        
+        # Calculate parameter t for the projection
+        # t=0 means at line_start, t=1 means at line_end
+        t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
+        
+        # Clamp t to [0, 1] to stay within the line segment
+        t = max(0, min(1, t))
+        
+        return (x1 + t * dx, y1 + t * dy)
+
+    def snap_to_wall_edge(self, x, y, walls):
+        """Snap to nearby wall edges (faces).
+        
+        Finds the closest point on any wall edge line and snaps if within threshold.
+        """
+        best_point = (x, y)
+        best_dist_sq = self.snap_threshold ** 2
+        
+        for wall in walls:
+            edges = self.get_wall_edge_lines(wall)
+            for edge_start, edge_end in edges:
+                # Find closest point on this edge line
+                closest = self.closest_point_on_line(x, y, edge_start, edge_end)
+                dist_sq = (x - closest[0]) ** 2 + (y - closest[1]) ** 2
+                
+                if dist_sq < best_dist_sq:
+                    best_point = closest
+                    best_dist_sq = dist_sq
+        
+        if best_dist_sq < self.snap_threshold ** 2:
+            return best_point, "wall_edge"
+        return (x, y), "none"
 
     def snap_to_axis(self, x, y, base_x, base_y):
         if abs(x - base_x) < self.snap_threshold:
@@ -261,6 +374,7 @@ class SnappingManager:
             walls, rooms, current_wall, in_progress_points, polylines)
         candidates = [
             self.snap_to_points(x, y, points, walls),  # Endpoint/midpoint
+            self.snap_to_wall_edge(x, y, walls),  # Wall edge (face) snapping
             # Multi-direction alignment with any point
             self.snap_to_alignment(x, y, points),
             self.snap_to_angle(x, y, base_x, base_y),    # Angle
@@ -279,16 +393,17 @@ class SnappingManager:
         # Define priority: lower number means higher priority.
         priority_map = {
             "endpoint": 1,
-            "midpoint": 1,
-            "alignment_cross": 2,  # Snapped to both H and V alignment with points
-            "alignment_vertical": 3,
-            "alignment_horizontal": 3,
-            "angle": 4,
-            "axis": 5,
-            "perpendicular": 6,
-            "grid": 7,
-            "distance": 8,
-            "tangent": 9,
+            "wall_edge": 2,  # Wall edge (face) - high priority for aligning walls
+            "midpoint": 3,
+            "alignment_cross": 4,  # Snapped to both H and V alignment with points
+            "alignment_vertical": 5,
+            "alignment_horizontal": 5,
+            "angle": 6,
+            "axis": 7,
+            "perpendicular": 8,
+            "grid": 9,
+            "distance": 10,
+            "tangent": 11,
             "none": 100
         }
         valid_candidates = []

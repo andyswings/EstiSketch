@@ -1,12 +1,12 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add Stairs tool (Winder)
-- [ ] Add capability to snap new wall's edges to existing wall edges instead of just endpoints to endpoints (should have same capabilities for editing walls as well) (This is useful for aligning walls of different thicknesses)
-- [ ] Asymetrical roof pitches
 - [ ] Roof design - Complex roof shapes
+- [ ] Add Stairs tool (Winder)
+- [ ] Asymetrical roof pitches
 
 ## Ideas to think about
+- [ ] Refine capability to snap new wall's edges to existing wall edges instead of just endpoints to endpoints (should have same capabilities for editing walls as well) (This is useful for aligning walls of different thicknesses end to end)
 
 ## ✨ Core Features (essential functionality)
 
