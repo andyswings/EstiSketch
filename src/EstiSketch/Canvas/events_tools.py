@@ -133,6 +133,7 @@ class CanvasToolsMixin:
                 layer_id=self.active_layer_id)
         self.existing_ids.append(door_identifier)
         self.doors.append((selected_wall, new_door, selected_ratio))
+        self.save_state()
         self.emit('content-changed')
         self.queue_draw()
 
@@ -244,6 +245,7 @@ class CanvasToolsMixin:
             layer_id=self.active_layer_id)
         self.existing_ids.append(window_identifier)
         self.windows.append((selected_wall, new_window, selected_ratio))
+        self.save_state()
         self.emit('content-changed')
         self.queue_draw()
 

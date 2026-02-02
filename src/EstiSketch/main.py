@@ -1,9 +1,9 @@
 import gi
 import os
+import json
+from typing import Optional, Callable
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, Gio, GdkPixbuf, GObject
-
-
 from .project_io import save_project, open_project
 from .sh3d_importer import import_sh3d
 from .file_menu import create_file_menu
@@ -18,12 +18,21 @@ from . import toolbar
 from . import config
 from types import SimpleNamespace
 
-
-# Use relative imports within the EstiSketch package
-
-
 class EstimatorApp(Gtk.Application):
-    def __init__(self, config_constants):
+    """
+    Main application class.
+
+    This class extends Gtk.Application and implements the application logic,
+    including startup, activation, and shutdown phases. It handles file
+    operations, UI construction, and application state management.
+    """
+    def __init__(self, config_constants: SimpleNamespace) -> None:
+        """
+        Initialize the application.
+
+        Args:
+            config_constants: Configuration constants loaded from the config file.
+        """
         super().__init__(application_id="com.example.estimator")
         self.config = config_constants
         # Remember where the current project is saved
@@ -85,11 +94,6 @@ class EstimatorApp(Gtk.Application):
         save_as = Gio.SimpleAction.new("save_as", None)
         save_as.connect("activate", lambda a, p: self.show_save_as_dialog())
         self.add_action(save_as)
-
-        # Add an action for opening settings dialog
-        export_action = Gio.SimpleAction.new("export")
-        export_action.connect("activate", self.on_export_clicked)
-        self.add_action(export_action)
 
         # Exit action
         exit_action = Gio.SimpleAction.new("exit", None)
@@ -560,7 +564,7 @@ class EstimatorApp(Gtk.Application):
         # Connect the "destroy" signal to check for unsaved changes.
         self.window.connect("close-request", self.on_close_request)
 
-    def on_status_update(self, canvas, message) -> None:
+    def on_status_update(self, canvas: canvas_area, message: str) -> None:
         """Update the status bar text."""
         self.status_label.set_label(message)
 
@@ -593,29 +597,41 @@ class EstimatorApp(Gtk.Application):
             print(f"Switched to toolset: {toolset_name}")
     
     def update_dirty_state(self, is_dirty: bool) -> None:
-        """Update the application dirty state and the UI indicator."""
+        """
+        Update the application's dirty state and visual indicator.
+
+        Sets the internal dirty flag and updates the status indicator color and
+        tooltip to reflect whether there are unsaved changes. A dirty state is
+        shown in red, while a clean state is shown in green.
+        """
         self.is_dirty = is_dirty
         
         context = self.dirty_indicator.get_style_context()
-        # Clear existing classes to avoid conflict
         if context.has_class("success"):
             context.remove_class("success")
         if context.has_class("error"):
             context.remove_class("error")
 
         if self.is_dirty:
-            # Dirty = Red
             context.add_class("error")
             self.dirty_indicator.set_tooltip_text("Unsaved changes")
         else:
-            # Clean = Green
             context.add_class("success")
             self.dirty_indicator.set_tooltip_text("All changes saved")
 
-        # Connect the "destroy" signal to check for unsaved changes.
-        self.window.connect("close-request", self.on_close_request)
+    def on_key_pressed(self, controller: Gtk.EventControllerKey, keyval: int, keycode: int, state: Gdk.ModifierType) -> bool:
+        """
+        Handle global keyboard shortcuts and tool commands.
 
-    def on_key_pressed(self, controller, keyval, keycode, state):
+        Interprets key presses with and without modifier keys (Ctrl, Shift) to:
+        - Switch active drawing tools
+        - Control canvas editing actions (undo/redo, copy/paste, delete)
+        - Finalize or cancel in-progress drawing operations
+        - Trigger application commands (open, save, export, help, zoom)
+
+        Returns True if the key event was handled and should not propagate further,
+        otherwise returns False.
+        """
         keyname = Gdk.keyval_name(keyval).lower()
         ctrl_pressed = state & Gdk.ModifierType.CONTROL_MASK
         shift_pressed = state & Gdk.ModifierType.SHIFT_MASK
@@ -653,34 +669,26 @@ class EstimatorApp(Gtk.Application):
                 return True
             elif keyname == "escape":
                 if self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall:
-                    print("Esc pressed: Finalizing wall drawing")
-                    # Removed duplicate save_state here
                     self.canvas.wall_sets.append(self.canvas.walls.copy())
                     self.canvas.walls = []
                     self.canvas.current_wall = None
                     self.canvas.drawing_wall = False
-                    self.canvas.save_state()  # Only save once when complete
+                    self.canvas.save_state()
                     self.canvas.queue_draw()
                     return True
                 if self.canvas.tool_mode == "add_polyline" and self.canvas.drawing_polyline:
-                    print("Esc pressed: Finalizing polyline drawing")
-                    # snapshot for undo
                     self.canvas.save_state()
-                    # commit any segments
                     if self.canvas.polylines:
                         self.canvas.polyline_sets.append(
                             self.canvas.polylines.copy())
-                    # clear in-progress state
                     self.canvas.drawing_polyline = False
                     self.canvas.current_polyline_start = None
                     self.canvas.current_polyline_preview = None
                     self.canvas.polylines = []
-                    # another snapshot if you like
                     self.canvas.save_state()
                     self.canvas.queue_draw()
                     return True
                 elif self.canvas.tool_mode == "draw_rooms" and self.canvas.current_room_points:
-                    print("Esc pressed: Finalizing room drawing")
                     self.canvas.save_state()
                     self.canvas.finalize_room()
                     self.canvas.save_state()
@@ -702,22 +710,18 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["add_circle"].set_active(True)
                 return True
             elif keyname == "tab":
-                # Cycle through overlapping objects at current mouse position
                 if hasattr(self.canvas, 'cycle_selection_at_mouse'):
                     self.canvas.cycle_selection_at_mouse()
                 return True
 
         elif shift_pressed and not ctrl_pressed:
             if keyname == "a":
-                 # Shift+A for Arc
                  self.tool_buttons["add_arc"].set_active(True)
                  return True
             elif keyname == "r":
-                 # Shift+R for Roof
                  self.tool_buttons["design_roof"].set_active(True)
                  return True
             elif keyname == "c":
-                # Toggle curved wall mode during wall drawing
                 if self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall and self.canvas.walls:
                     self.canvas.toggle_wall_curve_mode()
                     return True
@@ -731,15 +735,12 @@ class EstimatorApp(Gtk.Application):
                 return True
             elif keyname == "c":
                 self.canvas.copy_selected()
-                print("Copy action triggered")
                 return True
             elif keyname == "x":
                 self.canvas.cut_selected()
-                print("Cut action triggered")
                 return True
             elif keyname == "v":
                 self.canvas.paste()
-                print("Paste action triggered")
                 return True
             elif keyname == "o":
                 self.show_open_dialog()
@@ -750,21 +751,11 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "j":
                 self.canvas.join_selected_walls()
                 return True
-                return True
-            # elif keyname == "s": # Replaced by stair shortcut
-            #    self.show_save_dialog()
-            #    return True
-            # Ctrl+S is standard save, let's keep it but maybe "S" alone is stairs?
-            # on_key_pressed has dedicated Ctrl check block
-            elif keyname == "s": 
-                 # This block is for CTRL pressed. So Ctrl+S is Save.
+            elif keyname == "s":
                  self.show_save_dialog()
                  return True
             elif keyname == "o":
                 self.show_open_dialog()
-                return True
-            elif keyname == "e":
-                self.on_export_clicked()
                 return True
             elif keyname == "m":
                 self.on_manage_materials_clicked(None)
@@ -798,58 +789,120 @@ class EstimatorApp(Gtk.Application):
 
         return False
 
-    def on_zoom_in_clicked(self, button):
+    def on_zoom_in_clicked(self, button: Gtk.Button) -> None:
+        """
+        Zoom the canvas in, centered on the current view.
+
+        Increases the canvas zoom level by a fixed increment, using the center
+        of the visible canvas as the zoom focal point.
+        """
         center_x = self.canvas.get_width() / 2
         center_y = self.canvas.get_height() / 2
         self.canvas.adjust_zoom(1.1, center_x, center_y)
 
-    def on_zoom_out_clicked(self, button):
+    def on_zoom_out_clicked(self, button: Gtk.Button) -> None:
+        """
+        Zoom the canvas out, centered on the current view.
+
+        Decreases the canvas zoom level by a fixed increment, using the center
+        of the visible canvas as the zoom focal point.
+        """
         center_x = self.canvas.get_width() / 2
         center_y = self.canvas.get_height() / 2
         self.canvas.adjust_zoom(0.9, center_x, center_y)
 
-    def on_zoom_reset_clicked(self, button):
+    def on_zoom_reset_clicked(self, button: Gtk.Button) -> None:
+        """
+        Reset the canvas zoom to its default level.
+
+        Sets the canvas zoom level to 1.0 (100%), centered on the current view.
+        """
         self.canvas.reset_zoom()
 
-    def on_settings_clicked(self, button, *args):
+    def on_settings_clicked(self, button: Gtk.Button, *args) -> None:
+        """
+        Open the application settings dialog.
+
+        Creates and presents the settings dialog, allowing the user to modify
+        application and canvas preferences. Changes are applied when the dialog
+        is accepted.
+        """
         dialog = settings_ui.create_settings_dialog(
             self.window, self.config, self.canvas)
         dialog.connect("response", self.on_settings_response)
         dialog.present()
 
-    def on_settings_response(self, dialog, response):
+    def on_settings_response(self, dialog: Gtk.Dialog, response: Gtk.ResponseType) -> None:
+        """
+        Handle the response from the settings dialog.
+
+        Saves updated configuration values when the dialog is accepted and
+        closes the dialog in all cases.
+        """
         if response == Gtk.ResponseType.OK:
-            print("Settings updated")
             config.save_config(self.config.__dict__)
         dialog.destroy()
 
-    def on_manage_materials_clicked(self, button, *args):
+    def on_manage_materials_clicked(self, button: Gtk.Button, *args) -> None:
+        """
+        Open the material management dialog.
+
+        Presents a dialog for creating, editing, or removing material definitions
+        used by the application.
+        """
         dialog = manage_materials.create_manage_materials_dialog(
             self.window, self.config, self.canvas)
         dialog.connect("response", self.on_manage_materials_response)
         dialog.present()
 
-    def on_manage_materials_response(self, dialog, response):
+    def on_manage_materials_response(self, dialog: Gtk.Dialog, response: Gtk.ResponseType) -> None:
+        """
+        Handle the response from the material management dialog.
+
+        Saves updated configuration values when the dialog is accepted and
+        closes the dialog in all cases.
+        """
         if response == Gtk.ResponseType.OK:
-            print("Materials updated")
             config.save_config(self.config.__dict__)
         dialog.destroy()
 
-    def on_estimate_materials_clicked(self, button):
+    def on_estimate_materials_clicked(self, button: Gtk.Button, *args) -> None:
+        """
+        Open the material estimation dialog.
+
+        Presents a dialog that calculates and displays estimated material
+        quantities based on the current canvas contents.
+        """
         dialog = estimate_materials.create_estimate_materials_dialog(
             self.window, self.canvas)
         dialog.present()
 
-    def on_estimate_cost_clicked(self, button):
+    def on_estimate_cost_clicked(self, button: Gtk.Button) -> None:
+        """
+        Open the cost estimation dialog.
+
+        Presents a dialog that calculates and displays estimated costs based
+        on the current canvas contents.
+        """
         dialog = estimate_cost.create_estimate_cost_dialog(self.window)
         dialog.present()
 
-    def on_help_clicked(self, button):
+    def on_help_clicked(self, button: Gtk.Button, *args) -> None:
+        """
+        Open the help dialog.
+
+        Presents a dialog containing information about the application.
+        """
         dialog = help_dialog.create_help_dialog(self.window)
         dialog.present()
 
-    def on_import_sh3d(self, action, parameter):
-        # Create a standard file chooser dialog.
+    def on_import_sh3d(self, action: Gio.SimpleAction, parameter) -> None:
+        """
+        Open a dialog to import a Sweet Home 3D (.sh3d) file.
+
+        Presents a file chooser restricted to SH3D files and delegates the
+        import handling to the response callback.
+        """
         dialog = Gtk.FileChooserDialog(
             title="Import SH3D File",
             transient_for=self.window,
@@ -867,7 +920,14 @@ class EstimatorApp(Gtk.Application):
         dialog.connect("response", self.on_import_sh3d_response)
         dialog.show()
 
-    def on_import_sh3d_response(self, dialog, response):
+    def on_import_sh3d_response(self, dialog: Gtk.FileChooserDialog, response: Gtk.ResponseType) -> None:
+        """
+        Handle the response from the SH3D import dialog.
+
+        When accepted, imports the selected SH3D file, replaces the current
+        canvas contents with the imported data, marks the project as dirty,
+        and redraws the canvas.
+        """
         if response == Gtk.ResponseType.OK:
             file = dialog.get_file()
             sh3d_file = file.get_path()
@@ -891,13 +951,13 @@ class EstimatorApp(Gtk.Application):
                 print(f"Error importing SH3D file: {e}")
         dialog.destroy()
 
-    def on_export_clicked(self, action, parameter):
-        print("Export Clicked")
-        # TODO Add export to Sweethome3D (sh3d) functionality
-        # TODO Add export to pdf functionality
+    def on_new(self, action: Gio.SimpleAction, parameter) -> None:
+        """
+        Start a new project.
 
-    def on_new(self, action, parameter):
-        """Handle the 'New' action to start a new project."""
+        If there are unsaved changes, prompts the user to save, discard, or cancel.
+        Otherwise, immediately clears the canvas and resets project state.
+        """
         if self.is_dirty:
             # Prompt user to save changes
             dlg = Gtk.MessageDialog(
@@ -918,8 +978,14 @@ class EstimatorApp(Gtk.Application):
             # If not dirty, clear the canvas immediately
             self.clear_canvas_and_reset()
 
-    def on_new_response(self, dialog, response):
-        """Handle the user's response from the save prompt dialog."""
+    def on_new_response(self, dialog: Gtk.MessageDialog, response: Gtk.ResponseType) -> None:
+        """
+        Handle the save/discard/cancel choice for starting a new project.
+
+        - YES: Save the current project, then reset.
+        - NO:  Discard changes and reset.
+        - CANCEL: Do nothing.
+        """
         dialog.destroy()
         if response == Gtk.ResponseType.YES:
             # User chose to save before starting anew
@@ -927,10 +993,14 @@ class EstimatorApp(Gtk.Application):
         elif response == Gtk.ResponseType.NO:
             # User chose to discard changes
             self.clear_canvas_and_reset()
-        # If response is CANCEL, do nothing
 
-    def clear_canvas_and_reset(self):
-        """Clear the canvas and reset the application state."""
+    def clear_canvas_and_reset(self) -> None:
+        """
+        Clear the canvas and reset the project state.
+
+        Removes all drawing content, resets the current file path, marks the
+        project as clean, and redraws the canvas.
+        """
         # Clear all canvas content
         self.canvas.wall_sets.clear()
         self.canvas.walls.clear()
@@ -945,15 +1015,27 @@ class EstimatorApp(Gtk.Application):
         # Redraw the canvas
         self.canvas.queue_draw()
 
-    def add_to_recent(self, path):
+    def add_to_recent(self, path: str) -> None:
+        """
+        Add a file path to the recent files list.
+
+        Moves the path to the front of the list if it already exists and
+        trims the list to the maximum allowed number of entries.
+        """
         if path in self.recent_files:
             self.recent_files.remove(path)
         self.recent_files.insert(0, path)
         if len(self.recent_files) > 6:
             self.recent_files.pop()
 
-    def show_save_dialog(self, callback=None):
-        """Show a save dialog or save directly if a file path exists."""
+    def show_save_dialog(self, callback: Optional[Callable[[], None]] = None) -> None:
+        """
+        Save the current project or prompt for a save location.
+
+        If a file path already exists, saves immediately. Otherwise, presents
+        a file save dialog restricted to project (.xml) files. An optional
+        callback is invoked after a successful save.
+        """
         if self.current_filepath:
             # Save directly if a file path is already set
             save_project(
@@ -989,12 +1071,17 @@ class EstimatorApp(Gtk.Application):
                 callback),
             None)
 
-    def on_file_dialog_save_done(self, obj, result, user_data, callback):
-        """Handle the result of the save dialog."""
+    def on_file_dialog_save_done(self, obj: Gtk.FileDialog, result: Gio.AsyncResult, user_data: Optional[Callable[[], None]], callback: Optional[Callable[[], None]] = None) -> None:
+        """
+        Handle completion of the save file dialog.
+
+        Finalizes the selected file path, ensures a .xml extension, saves the
+        project, updates recent files and dirty state, and invokes the optional
+        callback on success.
+        """
         try:
             file = obj.save_finish(result)
         except Exception:
-            # User cancelled or other error
             return
         if not file:
             return
@@ -1013,10 +1100,14 @@ class EstimatorApp(Gtk.Application):
         if callback:
             callback()
 
-    def show_save_as_dialog(self):
-        # Check if a file is already saved
-        # If a file is already saved, just save it.
-        # Otherwise, show the save dialog.
+    def show_save_as_dialog(self) -> None:
+        """
+        Show a save dialog to save the project as a new file.
+
+        Presents a file save dialog restricted to project (.xml) files. The
+        dialog is modal and ensures a .xml extension. On successful save,
+        updates recent files and marks the project as clean.
+        """
         dlg = Gtk.FileDialog.new()
         dlg.set_title("Save Project As")
         dlg.set_modal(True)
@@ -1032,8 +1123,14 @@ class EstimatorApp(Gtk.Application):
 
         dlg.save(self.window, None, self.on_file_dialog_save_as_done, None)
 
-    def on_file_dialog_save_as_done(self, obj, result, user_data):
-        # Finish the async call and get a Gio.File
+    def on_file_dialog_save_as_done(self, obj: Gtk.FileDialog, result: Gio.AsyncResult, user_data: Optional[Callable[[], None]]) -> None:
+        """
+        Handle completion of the save file dialog.
+
+        Finalizes the selected file path, ensures a .xml extension, saves the
+        project, updates recent files and dirty state, and invokes the optional
+        callback on success.
+        """
         try:
             file = obj.save_finish(result)
         except Exception:
@@ -1045,7 +1142,6 @@ class EstimatorApp(Gtk.Application):
         if not path.lower().endswith(".xml"):
             path += ".xml"
         self.current_filepath = path
-        # Save the project
         save_project(
             self.canvas,
             self.window.get_width(),
@@ -1053,8 +1149,15 @@ class EstimatorApp(Gtk.Application):
             path
         )
         self.update_dirty_state(False)
+        self.add_to_recent(path)
 
-    def show_open_dialog(self):
+    def show_open_dialog(self) -> None:
+        """
+        Prompt the user to open an existing project file.
+
+        Presents a file chooser dialog restricted to project (.xml) files and
+        delegates loading to the open dialog completion handler.
+        """
         dlg = Gtk.FileDialog.new()
         dlg.set_title("Open Project")
         dlg.set_modal(True)
@@ -1070,7 +1173,14 @@ class EstimatorApp(Gtk.Application):
 
         dlg.open(self.window, None, self.on_file_dialog_open_done, None)
 
-    def on_file_dialog_open_done(self, obj, result, user_data):
+    def on_file_dialog_open_done(self, obj: Gtk.FileDialog, result: Gio.AsyncResult, user_data: Optional[Callable[[], None]]) -> None:
+        """
+        Handle completion of the open file dialog.
+
+        Finalizes the selected file path, ensures a .xml extension, loads the
+        project, updates recent files and dirty state, and invokes the optional
+        callback on success.
+        """
         try:
             file = obj.open_finish(result)
         except Exception:
@@ -1086,16 +1196,19 @@ class EstimatorApp(Gtk.Application):
         self.canvas.queue_draw()
         self.update_dirty_state(False)
 
-    def on_open_recent(self, action, parameter):
-        # Automatically remove files that no longer exist
-        import os
+    def on_open_recent(self, action: Gio.SimpleAction, parameter) -> None:
+        """
+        Show a popover menu for opening recently used project files.
+
+        Filters out missing paths, displays a list of recent project files anchored
+        to the file menu button, and opens the selected project when clicked.
+        Includes an option to clear the recent files list.
+        """
         self.recent_files = [
             path for path in self.recent_files if os.path.exists(path)]
 
-        # Create a popover to serve as the sub-menu
         popover = Gtk.Popover()
 
-        # Create a vertical box to hold the menu items
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         box.set_margin_top(6)
         box.set_margin_bottom(6)
@@ -1103,7 +1216,6 @@ class EstimatorApp(Gtk.Application):
         box.set_margin_end(6)
         popover.set_child(box)
 
-        # Populate the popover with recent files or a message
         if not self.recent_files:
             lbl = Gtk.Label(label="No recent files")
             box.append(lbl)
@@ -1118,11 +1230,10 @@ class EstimatorApp(Gtk.Application):
                         self.layers_panel.refresh_layers()
                     self.canvas.queue_draw()
                     self.update_dirty_state(False)
-                    popover.popdown()  # Use local popover variable
+                    popover.popdown()
                 btn.connect("clicked", _on_click)
                 box.append(btn)
 
-            # Add a separator and clear button
             separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
             box.append(separator)
 
@@ -1134,26 +1245,32 @@ class EstimatorApp(Gtk.Application):
             clear_btn.connect("clicked", _on_clear_click)
             box.append(clear_btn)
 
-        # Set the popover's parent to the file menu button
         popover.set_parent(self.file_menu_button)
-
-        # Position the popover below the button
         popover.set_position(Gtk.PositionType.BOTTOM)
 
-        # Show the popover
         popover.popup()
 
-    def on_clear_recent(self, action, parameter):
-        """Clear the recent files list."""
+    def on_clear_recent(self, action: Gio.SimpleAction, parameter) -> None:
+        """
+        Clear the recent files list.
+        """
         self.recent_files = []
         self.config.RECENT_FILES = self.recent_files
         config.save_config(self.config.__dict__)
 
-    def on_exit(self, action, parameter):
+    def on_exit(self, action: Gio.SimpleAction, parameter) -> None:
+        """Handle exit action."""
         self.window.emit("close-request")
 
-    def on_close_request(self, window):
-        """Handle window close request."""
+    def on_close_request(self, window: Gtk.Window) -> bool:
+        """
+        Handle a request to close the main application window.
+
+        If the project has unsaved changes, presents a confirmation dialog
+        allowing the user to save, discard, or cancel the close action.
+        Returns True to block the default close behavior while awaiting
+        user input, or False to allow the window to close immediately.
+        """
         try:
             self.on_window_destroy(self)
         except Exception as e:
@@ -1180,11 +1297,16 @@ class EstimatorApp(Gtk.Application):
         dlg.connect("response", self.on_close_response)
         dlg.present()
 
-        # Return True to stop the default close action (we wait for dialog)
         return True
 
-    def on_sidebar_toggled(self, dock, visible):
-        """Handle sidebar visibility toggle, respecting paned position."""
+    def on_sidebar_toggled(self, dock: Gtk.Dock, visible: bool) -> None:
+        """
+        Handle visibility changes for the properties sidebar.
+
+        Restores the sidebar to its previous configured width when shown and
+        collapses it to the minimal icon-bar width when hidden by adjusting
+        the Gtk.Paned divider position.
+        """
         if visible:
             # Restore previous width if known, else default
             width = getattr(self.config, 'SIDEBAR_WIDTH', 300)
@@ -1195,7 +1317,15 @@ class EstimatorApp(Gtk.Application):
             target_pos = self.window.get_allocated_width() - 40
             self.main_paned.set_position(target_pos)
 
-    def on_window_destroy(self, widget):
+    def on_window_destroy(self, widget: Gtk.Window) -> bool:
+        """
+        Handle window destroy event.
+
+        Saves application settings including window size, sidebar width,
+        and internal split positions before closing the application.
+        Returns True to block the default destroy behavior, or False to allow
+        the window to close immediately.
+        """
         if hasattr(self, 'config'):
             # Save settings
             # Update width if sidebar is open
@@ -1221,10 +1351,14 @@ class EstimatorApp(Gtk.Application):
             self._save_settings()
         return False
 
-    def _save_settings(self):
-        """Save current configuration to settings.json"""
-        import json
-        import os
+    def _save_settings(self) -> None:
+        """
+        Save application settings to a JSON file.
+
+        Collects and serializes configuration values into a JSON object,
+        then writes it to a file named 'settings.json' in the application's
+        directory. Handles missing attributes by using default values.
+        """
         settings_path = os.path.join(
             os.path.dirname(__file__), "settings.json")
 
@@ -1264,7 +1398,14 @@ class EstimatorApp(Gtk.Application):
         except Exception as e:
             print(f"Failed to save settings: {e}")
 
-    def on_window_close_request(self, *args):
+    def on_window_close_request(self, *args) -> bool:
+        """
+        Handle window close request.
+
+        Saves application settings and prompts the user to save changes if
+        the canvas is dirty. Returns True to block the default close behavior,
+        or False to allow the window to close immediately.
+        """
         try:
             self.on_window_destroy(self)
         except Exception as e:
@@ -1289,7 +1430,14 @@ class EstimatorApp(Gtk.Application):
         dlg.present()
         return True
 
-    def on_close_response(self, dialog, response):
+    def on_close_response(self, dialog: Gtk.MessageDialog, response: Gtk.ResponseType) -> None:
+        """
+        Handle response from close dialog.
+
+        Closes the application window based on user response: Save & Close
+        saves the current project and closes the window, Cancel keeps the
+        window open, and Discard closes the window without saving.
+        """
         dialog.destroy()
         if response == Gtk.ResponseType.ACCEPT:  # Save
             if self.current_filepath:
@@ -1310,14 +1458,24 @@ class EstimatorApp(Gtk.Application):
             # Cancel or closed dialog
             pass
 
-    def do_shutdown(self):
-        # Save recent files to config before shutdown
+    def do_shutdown(self) -> None:
+        """
+        Perform application shutdown cleanup.
+
+        This method overrides Gtk.Application.do_shutdown() to save recent
+        files to the configuration before shutting down the application.
+        """
         self.config.RECENT_FILES = self.recent_files
         config.save_config(self.config.__dict__)
         Gtk.Application.do_shutdown(self)
 
 
-def main():
+def main() -> None:
+    """
+    Entry point for the application.
+
+    Loads configuration, creates the application instance, and runs it.
+    """
     config_dict = config.load_config()
     settings = SimpleNamespace(**config_dict)
     app = EstimatorApp(settings)
