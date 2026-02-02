@@ -1588,20 +1588,32 @@ class CanvasDrawMixin:
                 cr.line_to(p2[0], p2[1])
             cr.stroke()
             
-            # Draw pitch annotation near ridge center
+            
+            # Draw pitch annotation near ridge center or peak
+            pitch_text = f"{roof.pitch_rise}/{roof.pitch_run}"
+            
             if roof.ridge_lines:
+                # Ridge-based roof - place label at ridge center
                 ridge = roof.ridge_lines[0]
                 mid_x = (ridge[0][0] + ridge[1][0]) / 2
                 mid_y = (ridge[0][1] + ridge[1][1]) / 2
-                
-                pitch_text = f"{roof.pitch_rise}/{roof.pitch_run}"
-                
+            elif roof.hip_lines:
+                # Pyramid roof - place label at peak (where all hips converge)
+                # Peak is the first point of any hip line
+                peak = roof.hip_lines[0][0]
+                mid_x = peak[0]
+                mid_y = peak[1]
+            else:
+                # No ridge or hip lines - skip label
+                mid_x = None
+            
+            if mid_x is not None:
                 cr.set_dash([])  # Solid for text
                 cr.set_source_rgba(0, 0, 0, opacity)
                 cr.select_font_face("Sans", 0, 0)
                 cr.set_font_size(12 / zoom_transform)
                 
-                # Center text above ridge
+                # Center text above ridge/peak
                 extents = cr.text_extents(pitch_text)
                 cr.move_to(mid_x - extents.width / 2, mid_y - 10 / zoom_transform)
                 cr.show_text(pitch_text)

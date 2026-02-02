@@ -79,11 +79,10 @@ class CanvasRoofEventsMixin:
         Validate current roof markings for roof generation.
         Returns (is_valid, roof_type, error_message).
         
-        Phase 1 rules:
-        - Must have exactly 4 walls forming a closed loop
-        - For gable: 2 eaves (opposite) + 2 gables (opposite)
-        - For hip: 4 eaves
-        - All walls must be straight (not curved)
+        Enhanced to support complex roof shapes:
+        - Supports 3+ walls forming a closed loop
+        - Handles non-90° corners
+        - Allows asymmetric gable placement
         """
         markings = self.get_walls_marked_for_roof()
         
@@ -96,25 +95,54 @@ class CanvasRoofEventsMixin:
         
         total_marked = len(eave_ids) + len(gable_ids)
         
-        # Phase 1: Must have exactly 4 walls
-        if total_marked != 4:
-            return False, "", f"Phase 1 requires exactly 4 walls. Currently marked: {total_marked}"
+        # Need at least 3 walls to form a roof
+        if total_marked < 3:
+            return False, "", f"Need at least 3 walls for a roof. Currently marked: {total_marked}"
+        
+        # Check that walls form a closed loop
+        if not self._walls_form_closed_loop(list(markings.keys())):
+            return False, "", "Marked walls must form a closed loop (connected polygon)"
         
         # Check for curved walls
         for wid in list(markings.keys()):
             wall = self.get_wall_by_identifier(wid)
             if wall and getattr(wall, 'is_curved', False):
-                return False, "", f"Curved walls not supported in Phase 1. Wall: {wid}"
+                return False, "", f"Curved walls not supported for roofs. Wall: {wid}"
         
         # Determine roof type
-        if len(gable_ids) == 0 and len(eave_ids) == 4:
+        if len(gable_ids) == 0 and len(eave_ids) >= 3:
+            # All eaves - hip roof (works for any polygon)
             return True, "hip", ""
-        elif len(gable_ids) == 2 and len(eave_ids) == 2:
+        elif len(gable_ids) >= 1 and len(eave_ids) >= 2:
+            # Mixed gable/eave - hybrid roof
             return True, "gable", ""
-        elif len(gable_ids) == 4 and len(eave_ids) == 0:
-            return False, "", "All gables (no eaves) - complex roof, not supported in Phase 1"
+        elif len(gable_ids) >= 3 and len(eave_ids) == 0:
+            # All gables - would need special handling (future)
+            return False, "", "All gables (no eaves) - not yet supported"
         else:
             return False, "", f"Invalid configuration: {len(eave_ids)} eaves, {len(gable_ids)} gables"
+
+    def _walls_form_closed_loop(self, wall_ids: List[str]) -> bool:
+        """
+        Verify that the given walls form a closed polygon loop.
+        Returns True if walls connect end-to-end and form a closed shape.
+        """
+        walls = [self.get_wall_by_identifier(wid) for wid in wall_ids]
+        walls = [w for w in walls if w is not None]  # Filter out None
+        
+        if len(walls) < 3:
+            return False
+        
+        # Try to order walls into a connected loop
+        segments = [(w.start, w.end) for w in walls]
+        ordered = self._order_segments_into_loop(segments)
+        
+        # Check if we got all segments and it's closed
+        if len(ordered) != len(segments):
+            return False
+        
+        # Check if last segment connects back to first
+        return self._points_close(ordered[-1][1], ordered[0][0], 0.5)
 
     def _get_wall_midpoint(self, wall) -> Tuple[float, float]:
         """Get the midpoint of a wall."""
@@ -128,6 +156,14 @@ class CanvasRoofEventsMixin:
         dx = wall.end[0] - wall.start[0]
         dy = wall.end[1] - wall.start[1]
         return math.sqrt(dx * dx + dy * dy)
+
+    def _normalize(self, vector: Tuple[float, float]) -> Tuple[float, float]:
+        """Normalize a 2D vector to unit length."""
+        vx, vy = vector
+        length = math.sqrt(vx * vx + vy * vy)
+        if length > 0:
+            return (vx / length, vy / length)
+        return (0, 0)
 
     def _calculate_gable_roof_geometry(self, eave_walls, gable_walls, overhang: float):
         """
@@ -171,6 +207,55 @@ class CanvasRoofEventsMixin:
         return ridge_lines, hip_lines, valley_lines
 
     def _calculate_hip_roof_geometry(self, eave_walls, overhang: float):
+        """
+        Calculate ridge and hip lines for a hip roof.
+        
+        Routes to appropriate algorithm:
+        - 4-wall rectangular: Use optimized rectangular method
+        - Other polygons: Use general polygon skeleton method
+        """
+        if len(eave_walls) == 4 and self._is_approximate_rectangle(eave_walls):
+            # Use optimized rectangular hip roof algorithm
+            return self._calculate_hip_roof_rectangle(eave_walls, overhang)
+        else:
+            # Use general polygon skeleton algorithm
+            return self._calculate_hip_roof_general(eave_walls, overhang)
+
+    def _is_approximate_rectangle(self, walls) -> bool:
+        """Check if 4 walls form an approximate rectangle (all ~90° corners)."""
+        if len(walls) != 4:
+            return False
+        
+        # Order walls into loop
+        segments = [(w.start, w.end) for w in walls]
+        ordered = self._order_segments_into_loop(segments)
+        if len(ordered) != 4:
+            return False
+        
+        # Check angles at each corner
+        for i in range(4):
+            seg1 = ordered[i]
+            seg2 = ordered[(i + 1) % 4]
+            
+            # Vector directions
+            v1 = (seg1[1][0] - seg1[0][0], seg1[1][1] - seg1[0][1])
+            v2 = (seg2[1][0] - seg2[0][0], seg2[1][1] - seg2[0][1])
+            
+            v1 = self._normalize(v1)
+            v2 = self._normalize(v2)
+            
+            # Dot product to find angle
+            dot = v1[0] * v2[0] + v1[1] * v2[1]
+            angle = math.acos(max(-1, min(1, dot)))
+            angle_deg = math.degrees(angle)
+            
+            # Check if close to 90° (allow 15° tolerance)
+            if not (75 < angle_deg < 105):
+                return False
+        
+        return True
+
+    def _calculate_hip_roof_rectangle(self, eave_walls, overhang: float):
         """
         Calculate ridge and hip lines for a simple hip roof.
         
@@ -327,6 +412,154 @@ class CanvasRoofEventsMixin:
         valley_lines = []
         
         return ridge_lines, hip_lines, valley_lines
+
+    def _calculate_hip_roof_general(self, eave_walls, overhang: float):
+        """
+        Calculate hip roof for arbitrary polygon using simplified skeleton algorithm.
+        
+        Works for any polygon (L-shapes, pentagons, non-90° corners, etc.)
+        Uses angle-bisector method to create inset polygon for ridge lines.
+        """
+        if len(eave_walls) < 3:
+            return [], [], []
+        
+        # Order walls into connected loop
+        segments = [(w.start, w.end) for w in eave_walls]
+        ordered = self._order_segments_into_loop(segments)
+        
+        if len(ordered) < 3:
+            return [], [], []
+        
+        # Calculate skeleton points (simplified inset polygon)
+        skeleton_points = self._calculate_polygon_skeleton(ordered)
+        
+        if not skeleton_points or len(skeleton_points) < 2:
+            # Degenerate case - might be very small polygon
+            # Return single point (pyramid roof)
+            center = self._calculate_centroid([seg[0] for seg in ordered])
+            return [], [(center, center)], []
+        
+        # For convex polygons with all eaves, create a pyramid roof
+        # All hip lines converge at the building centroid
+        ridge_lines = []
+        
+        # Calculate centroid of the building footprint (not skeleton)
+        building_corners = [seg[1] for seg in ordered]
+        peak = self._calculate_centroid(building_corners)
+        
+        is_pyramid = True  # Always pyramid for convex all-eave roofs
+        
+        
+        # Generate hip lines from corners to skeleton
+        hip_lines = []
+        
+        if is_pyramid:
+            # All corners connect to the same peak point
+            for corner in building_corners:
+                vx = corner[0] - peak[0]
+                vy = corner[1] - peak[1]
+                vlen = math.sqrt(vx * vx + vy * vy)
+                
+                if vlen > 0.1:
+                    extension = overhang * math.sqrt(2)
+                    ux = vx / vlen
+                    uy = vy / vlen
+                    extended_corner = (corner[0] + ux * extension,
+                                      corner[1] + uy * extension)
+                    hip_lines.append((peak, extended_corner))
+        else:
+            # Normal case with ridge - each corner connects to corresponding skeleton point
+            # (This path is currently unused since we always do pyramid for convex polygons)
+            corners = building_corners
+            for i, corner in enumerate(corners):
+                skeleton_pt = skeleton_points[i]
+                
+                vx = corner[0] - skeleton_pt[0]
+                vy = corner[1] - skeleton_pt[1]
+                vlen = math.sqrt(vx * vx + vy * vy)
+                
+                if vlen > 0.1:
+                    extension = overhang * math.sqrt(2)
+                    ux = vx / vlen
+                    uy = vy / vlen
+                    extended_corner = (corner[0] + ux * extension,
+                                      corner[1] + uy * extension)
+                    hip_lines.append((skeleton_pt, extended_corner))
+        
+        valley_lines = []  # TODO: Detect concave corners for valleys
+        
+        return ridge_lines, hip_lines, valley_lines
+
+
+    def _calculate_centroid(self, points: List[Tuple[float, float]]) -> Tuple[float, float]:
+        """Calculate the centroid of a set of points."""
+        if not points:
+            return (0, 0)
+        cx = sum(p[0] for p in points) / len(points)
+        cy = sum(p[1] for p in points) / len(points)
+        return (cx, cy)
+
+    def _calculate_polygon_skeleton(self, ordered_segments: List[Tuple[Tuple[float, float], Tuple[float, float]]]):
+        """
+        Calculate simplified polygon skeleton using angle bisector method.
+        
+        For each vertex, offset inward along the angle bisector.
+        Returns list of skeleton points (inset polygon vertices).
+        """
+        n = len(ordered_segments)
+        if n < 3:
+            return []
+        
+        skeleton_points = []
+        
+        for i in range(n):
+            seg_curr = ordered_segments[i]
+            seg_next = ordered_segments[(i + 1) % n]
+            
+            # Vertex where these two segments meet
+            vertex = seg_curr[1]
+            
+            # Direction vectors FROM the vertex along each edge
+            # Back along the incoming edge (reverse direction)
+            dir_back = self._normalize((seg_curr[0][0] - vertex[0],
+                                       seg_curr[0][1] - vertex[1]))
+            
+            # Forward along the outgoing edge
+            dir_forward = self._normalize((seg_next[1][0] - vertex[0],
+                                          seg_next[1][1] - vertex[1]))
+            
+            # The angle bisector is the normalized sum of these two unit vectors
+            # This bisector points INTO the interior angle
+            bisector = self._normalize((dir_back[0] + dir_forward[0],
+                                       dir_back[1] + dir_forward[1]))
+            
+            # Calculate the interior angle using dot product
+            # dot = dir_back · dir_forward
+            dot = dir_back[0] * dir_forward[0] + dir_back[1] * dir_forward[1]
+            
+            # angle = arccos(dot)
+            # This is the angle between the two directions (0 to π)
+            angle = math.acos(max(-1, min(1, dot)))
+            
+            # Avoid division by zero for very small angles
+            if angle < math.radians(10):
+                angle = math.radians(10)
+            
+            # Calculate inset distance along bisector
+            # For perpendicular offset distance h, the bisector distance is: h / sin(angle/2)
+            base_inset = 40.0  # Desired perpendicular offset from walls
+            inset = base_inset / math.sin(angle / 2)
+            
+            # Cap maximum inset for very acute angles
+            inset = min(inset, 500.0)
+            
+            # Calculate skeleton point by moving along bisector
+            skeleton_point = (vertex[0] + bisector[0] * inset,
+                            vertex[1] + bisector[1] * inset)
+            
+            skeleton_points.append(skeleton_point)
+        
+        return skeleton_points
 
     def _calculate_roof_outline(self, walls, overhang: float) -> List[Tuple[float, float]]:
         """

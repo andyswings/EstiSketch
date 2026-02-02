@@ -1,7 +1,7 @@
 import gi
 import os
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gdk, Gio, GdkPixbuf
+from gi.repository import Gtk, Gdk, Gio, GdkPixbuf, GObject
 
 
 from .project_io import save_project, open_project
@@ -33,7 +33,17 @@ class EstimatorApp(Gtk.Application):
         # This is a list of recently opened files.
         self.recent_files = getattr(self.config, 'RECENT_FILES', [])
 
-    def do_startup(self):
+    def do_startup(self) -> None:
+        """
+        Perform application startup initialization.
+
+        This method overrides Gtk.Application.do_startup() to register
+        application-wide actions (new, open, save, export, settings, etc.)
+        and to load global CSS styles used by the UI.
+
+        Actions registered here are available to menus, shortcuts, and
+        other widgets for the lifetime of the application.
+        """
         Gtk.Application.do_startup(self)
 
         # Add an action to clear canvas and start a new drawing
@@ -123,7 +133,18 @@ class EstimatorApp(Gtk.Application):
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
-    def do_activate(self):
+    def do_activate(self) -> None:
+        """
+        Create and present the main application window.
+
+        This method overrides Gtk.Application.do_activate() to build the primary UI:
+        - Create/configure the main Gtk.ApplicationWindow (size, optional maximize, app icon)
+        - Construct the layout containers and top-level widgets (file menu, toolbar, canvas)
+        - Wire tool toggle callbacks to switch the canvas tool mode
+        - Optionally attach the properties sidebar (Gtk.Paned) when enabled in config
+        - Connect UI signals (keyboard shortcuts, selection/status updates, dirty-state tracking)
+        - Present the window to the user
+        """
         self.window = Gtk.ApplicationWindow(
             application=self,
             title=self.config.WINDOW_TITLE
@@ -539,12 +560,18 @@ class EstimatorApp(Gtk.Application):
         # Connect the "destroy" signal to check for unsaved changes.
         self.window.connect("close-request", self.on_close_request)
 
-    def on_status_update(self, canvas, message):
+    def on_status_update(self, canvas, message) -> None:
         """Update the status bar text."""
         self.status_label.set_label(message)
 
-    def on_toolset_changed(self, dropdown, pspec):
-        """Handle toolset dropdown selection change."""
+    def on_toolset_changed(self, dropdown: Gtk.DropDown, pspec: GObject.ParamSpec) -> None:
+        """
+        Handle changes to the active toolset.
+
+        Updates which tools are visible based on the selected toolset, clears any
+        current canvas selection, and activates the default (first) tool in the
+        newly selected toolset.
+        """
         selected_index = dropdown.get_selected()
         toolset_names = list(self.toolset_info["definitions"].keys())
         
@@ -565,7 +592,7 @@ class EstimatorApp(Gtk.Application):
             self.toolset_info["set_visibility"](toolset_name)
             print(f"Switched to toolset: {toolset_name}")
     
-    def update_dirty_state(self, is_dirty: bool):
+    def update_dirty_state(self, is_dirty: bool) -> None:
         """Update the application dirty state and the UI indicator."""
         self.is_dirty = is_dirty
         
