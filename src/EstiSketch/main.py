@@ -1299,7 +1299,7 @@ class EstimatorApp(Gtk.Application):
 
         return True
 
-    def on_sidebar_toggled(self, dock: Gtk.Dock, visible: bool) -> None:
+    def on_sidebar_toggled(self, dock: Gtk.Box, visible: bool) -> None:
         """
         Handle visibility changes for the properties sidebar.
 

@@ -5,7 +5,7 @@ gi.require_version('Gtk', '4.0')
 
 
 def create_manage_materials_dialog(parent, config_constants, canvas):
-    dialog = Gtk.Dialog(title=config_constants.MANAGE_MATERIALS_TITLE,
+    dialog = Gtk.Dialog(title=config_constants.MANAGE_MATERIALS_LABEL,
                         transient_for=parent,
                         modal=True)
     dialog.set_default_size(420, 180)  # Set a reasonable default size
