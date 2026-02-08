@@ -1,5 +1,6 @@
 name: EstiSketch
 version: 0.3.0
+license_file: LICENSE.txt
 channels:
   - https://conda.anaconda.org/conda-forge
 

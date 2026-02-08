@@ -4,10 +4,11 @@ echo Installing EstiSketch...
 
 REM Extract the source archive
 echo Extracting EstiSketch source...
-powershell -Command "Expand-Archive -Path '%PREFIX%\estisketch-source.zip' -DestinationPath '%PREFIX%' -Force"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& {Expand-Archive -LiteralPath '%PREFIX%\estisketch-source.zip' -DestinationPath '%PREFIX%' -Force}"
 
 if errorlevel 1 (
     echo Failed to extract EstiSketch source
+    echo Error: Check if estisketch-source.zip exists in %PREFIX%
     exit /b 1
 )
 
