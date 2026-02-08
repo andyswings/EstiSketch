@@ -1,0 +1,48 @@
+{% set name = "EstiSketch" %}
+{% set version = "0.3.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  git_url: https://github.com/andyswings/EstiSketch.git
+  git_rev: main
+
+build:
+  number: 0
+  script: python -m pip install . --no-deps --ignore-installed -vv
+  entry_points:
+    - estisketch = EstiSketch.main:main
+
+requirements:
+  host:
+    - python >=3.10,<3.11
+    - pip
+    - setuptools
+  run:
+    - python >=3.10,<3.11
+    - gtk4 >=4.20.3
+    - pygobject >=3.54.5
+    - gobject-introspection >=1.84.0
+    - cairo >=1.18.4
+
+test:
+  imports:
+    - EstiSketch
+  commands:
+    - estisketch --help || exit 0
+
+about:
+  home: https://github.com/andyswings/EstiSketch
+  license: MIT
+  license_file: LICENSE.txt
+  summary: A lightweight 2-D floor-plan sketcher
+  description: |
+    EstiSketch is an evolving, lightweight tool designed for contractors and 
+    designers to quickly sketch building plans and perform preliminary cost estimates.
+  dev_url: https://github.com/andyswings/EstiSketch
+
+extra:
+  recipe-maintainers:
+    - andyswings

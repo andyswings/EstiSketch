@@ -3,3 +3,17 @@ __pycache__/
 estisketch/
 uv\ -\ python\ version\,\ envs
 testfile.py
+
+# Pixi environments and executable
+.pixi/*
+!.pixi/config.toml
+pixi.exe
+
+# Build artifacts
+installer/
+conda-bld/
+estisketch-source.zip
+*.egg-info/
+
+# Conda recipe build artifacts
+conda-recipe/.conda/
