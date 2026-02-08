@@ -15,8 +15,5 @@ specs:
 
 post_install: post_install.bat
 
-extra_files:
-  - estisketch-source.zip
-
 menu_packages:
   - estisketch-menu
