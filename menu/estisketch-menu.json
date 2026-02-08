@@ -1,0 +1,13 @@
+{
+    "menu_name": "EstiSketch",
+    "menu_items": [
+        {
+            "name": "EstiSketch",
+            "pyscript": "${PREFIX}/Scripts/estisketch-script.py",
+            "icon": "${PREFIX}/src/EstiSketch/Icons/estisketch.png",
+            "description": "2D Floor Plan Sketcher",
+            "desktop": true,
+            "quicklaunch": false
+        }
+    ]
+}
