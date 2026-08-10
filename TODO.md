@@ -150,6 +150,7 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
+- [ ] Cannot select Room or delete room (2026-08-10)
 
 ## 💡 Takeoffs
 - [ ] Material Estimator
