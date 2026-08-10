@@ -181,18 +181,43 @@ class WallPropertiesWidget(Gtk.Box):
         thickness_row.append(self.thickness_combo)
         geo_box.append(thickness_row)
 
-        # Height dropdown
-        self.available_heights = [8, 9, 10, 12]
+        # Multi-select variation warning label
+        self.warning_label = Gtk.Label()
+        self.warning_label.set_use_markup(True)
+        self.warning_label.set_visible(False)
+        geo_box.append(self.warning_label)
+
+        # Height dropdown (Start Height / Uniform Height)
+        self.available_heights = [8, 9, 10, 12, 14, 16]
         height_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        height_row.append(Gtk.Label(label="Height:"))
+        self.height_label = Gtk.Label(label="Start Height:")
+        height_row.append(self.height_label)
         self.height_combo = Gtk.ComboBoxText()
         self.height_handler_id = self.height_combo.connect(
             "changed", self.on_height_changed)
-        for val in ["8'", "9'", "10'", "12'", "Custom (Coming later)"]:
+        for val in ["8'", "9'", "10'", "12'", "14'", "16'", "Custom"]:
             self.height_combo.append_text(val)
         self.height_combo.set_active(0)  # default 8'
         height_row.append(self.height_combo)
         geo_box.append(height_row)
+
+        # Variable Height Toggle
+        self.sloped_check = Gtk.CheckButton(label="Variable Height (Sloped Wall)")
+        self.sloped_handler_id = self.sloped_check.connect("toggled", self.on_sloped_toggled)
+        geo_box.append(self.sloped_check)
+
+        # End Height dropdown (Visible when sloped_check is active)
+        self.height_end_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.height_end_row.append(Gtk.Label(label="End Height:"))
+        self.height_end_combo = Gtk.ComboBoxText()
+        self.height_end_handler_id = self.height_end_combo.connect(
+            "changed", self.on_height_end_changed)
+        for val in ["8'", "9'", "10'", "12'", "14'", "16'", "Custom"]:
+            self.height_end_combo.append_text(val)
+        self.height_end_combo.set_active(0)  # default 8'
+        self.height_end_row.append(self.height_end_combo)
+        self.height_end_row.set_visible(False)
+        geo_box.append(self.height_end_row)
 
         # ─────────── Wall Type ───────────
         type_frame = Gtk.Frame(label="Wall Type")
@@ -441,6 +466,16 @@ class WallPropertiesWidget(Gtk.Box):
             wall.width = value
         self.emit_property_changed()
 
+    def on_sloped_toggled(self, check):
+        if self._block_updates or not self.current_walls:
+            return
+        is_sloped = check.get_active()
+        self.height_end_row.set_visible(is_sloped)
+        for wall in self.current_walls:
+            if not is_sloped:
+                wall.height_at_end = wall.height
+        self.emit_property_changed()
+
     def on_height_changed(self, combo):
         if self._block_updates or not self.current_walls:
             return
@@ -455,6 +490,23 @@ class WallPropertiesWidget(Gtk.Box):
             height_inches = height_feet * 12.0
             for wall in self.current_walls:
                 wall.height = height_inches
+                if not self.sloped_check.get_active():
+                    wall.height_at_end = height_inches
+        self.emit_property_changed()
+
+    def on_height_end_changed(self, combo):
+        if self._block_updates or not self.current_walls:
+            return
+        txt = combo.get_active_text()
+        if txt is not None:
+            txt = txt.split()[0]
+        else:
+            return
+        if txt.lower() != "custom":
+            height_feet = float(txt.split("'")[0])
+            height_inches = height_feet * 12.0
+            for wall in self.current_walls:
+                wall.height_at_end = height_inches
         self.emit_property_changed()
 
     def on_exterior_toggled(self, switch, gparam):
@@ -849,6 +901,23 @@ class WallPropertiesWidget(Gtk.Box):
         # Use first wall as reference for displaying values
         first_wall = wall_objs[0]
 
+        # Check for multi-selection variations
+        has_mixed_heights = False
+        if len(wall_objs) > 1:
+            ref_h = first_wall.height
+            ref_h_end = getattr(first_wall, 'height_at_end', ref_h)
+            for w in wall_objs[1:]:
+                w_end = getattr(w, 'height_at_end', w.height)
+                if abs(w.height - ref_h) > 0.01 or abs(w_end - ref_h_end) > 0.01:
+                    has_mixed_heights = True
+                    break
+
+        if has_mixed_heights:
+            self.warning_label.set_markup('<span foreground="#d97706"><b>⚠ Selected walls have varying heights</b></span>')
+            self.warning_label.set_visible(True)
+        else:
+            self.warning_label.set_visible(False)
+
         #
         # Thickness (wall.width is in inches, matches self.available_thicknesses)
         #
@@ -862,9 +931,15 @@ class WallPropertiesWidget(Gtk.Box):
         self.thickness_combo.set_active(thickness_index)
         self.thickness_combo.handler_unblock(self.thickness_handler_id)
 
-        #  Height (wall.height is in feet, matches self.available_heights)
-        height_feet = float(first_wall.height) / \
-            12.0 if first_wall.height is not None else 8.0
+        # Sloped Toggle
+        is_sloped = first_wall.is_sloped
+        self.sloped_check.handler_block(self.sloped_handler_id)
+        self.sloped_check.set_active(is_sloped)
+        self.sloped_check.handler_unblock(self.sloped_handler_id)
+        self.height_end_row.set_visible(is_sloped)
+
+        # Height / Start Height (wall.height is in inches, UI matches self.available_heights in feet)
+        height_feet = float(first_wall.height) / 12.0 if first_wall.height is not None else 8.0
         height_index = 0
         for i, ft in enumerate(self.available_heights):
             if abs(ft - height_feet) < 1e-6:
@@ -874,6 +949,18 @@ class WallPropertiesWidget(Gtk.Box):
         self.height_combo.handler_block(self.height_handler_id)
         self.height_combo.set_active(height_index)
         self.height_combo.handler_unblock(self.height_handler_id)
+
+        # End Height
+        height_end_feet = float(first_wall.height_at_end) / 12.0 if first_wall.height_at_end is not None else height_feet
+        height_end_index = 0
+        for i, ft in enumerate(self.available_heights):
+            if abs(ft - height_end_feet) < 1e-6:
+                height_end_index = i
+                break
+
+        self.height_end_combo.handler_block(self.height_end_handler_id)
+        self.height_end_combo.set_active(height_end_index)
+        self.height_end_combo.handler_unblock(self.height_end_handler_id)
 
         #
         # Exterior

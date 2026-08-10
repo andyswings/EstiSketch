@@ -39,7 +39,8 @@ class Wall:
             arc_center=None,
             arc_radius=None,
             visible=True,
-            locked=False):
+            locked=False,
+            height_at_end=None):
         self.identifier = identifier  # unique string identifier
         self.layer_id = layer_id  # layer this wall belongs to
         self.visible = visible
@@ -47,7 +48,8 @@ class Wall:
         self.start = start  # tuple of (x, y)
         self.end = end      # tuple of (x, y)
         self.width = width  # integer (inches)
-        self.height = height  # integer (inches)
+        self.height = height  # integer (inches) - start height
+        self.height_at_end = height_at_end if height_at_end is not None else height  # integer (inches) - end height
         self.exterior_wall = exterior_wall  # boolean
 
         # Curved wall properties
@@ -73,6 +75,27 @@ class Wall:
         self.stud_spacing = 16
         self.insulation_type = "fiberglass"
         self.fire_rating = "1"
+
+    @property
+    def is_sloped(self) -> bool:
+        """Returns True if the wall start and end heights differ."""
+        return abs(self.height - self.height_at_end) > 0.01
+
+    @property
+    def min_height(self) -> float:
+        """Returns the lower height of the wall ends."""
+        return min(self.height, self.height_at_end)
+
+    @property
+    def max_height(self) -> float:
+        """Returns the higher height of the wall ends."""
+        return max(self.height, self.height_at_end)
+
+    @property
+    def avg_height(self) -> float:
+        """Returns average height of the wall."""
+        return (self.height + self.height_at_end) / 2.0
+
 
 
 @dataclass

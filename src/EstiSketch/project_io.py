@@ -72,6 +72,7 @@ def save_project(canvas, window_width, window_height, filepath):
                     wall.end[1]))
             ET.SubElement(wall_elem, "Width").text = str(wall.width)
             ET.SubElement(wall_elem, "Height").text = str(wall.height)
+            ET.SubElement(wall_elem, "HeightAtEnd").text = str(getattr(wall, 'height_at_end', wall.height))
             ET.SubElement(
                 wall_elem,
                 "ExteriorWall").text = str(
@@ -534,10 +535,11 @@ def open_project(canvas, filepath):
                 )
                 width = _get_elem_float(wall_elem, "Width", 4.5)
                 height = _get_elem_float(wall_elem, "Height", 96.0)
+                height_at_end = _get_elem_float(wall_elem, "HeightAtEnd", height)
                 exterior_wall = _get_elem_bool(wall_elem, "ExteriorWall", False)
 
                 # Create a new Wall instance.
-                wall = Wall(start, end, width, height, exterior_wall)
+                wall = Wall(start, end, width, height, exterior_wall, height_at_end=height_at_end)
                 wall.layer_id = _get_elem_text(wall_elem, "LayerId", "")
                 wall.material = _get_elem_text(wall_elem, "Material", "2x4 Wood Stud")
                 wall.interior_finish = _get_elem_text(wall_elem, "InteriorFinish", "1/2\" Drywall")

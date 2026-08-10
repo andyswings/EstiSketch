@@ -48,6 +48,11 @@ def import_sh3d(sh3d_file_path: str, canvas_area: CanvasArea) -> dict:
                     wall_elem.get(
                         'height',
                         wall_height / cm_to_in)) * cm_to_in
+                height_at_end_attr = wall_elem.get('heightAtEnd')
+                if height_at_end_attr is not None:
+                    wall_elem_height_end = float(height_at_end_attr) * cm_to_in
+                else:
+                    wall_elem_height_end = wall_elem_height
                 thickness = float(wall_elem.get('thickness', 0)) * cm_to_in
                 identifier = wall_elem.get('id', '')
             except ValueError as e:
@@ -63,6 +68,7 @@ def import_sh3d(sh3d_file_path: str, canvas_area: CanvasArea) -> dict:
                     y_end),
                 width=thickness,
                 height=wall_elem_height,
+                height_at_end=wall_elem_height_end,
                 identifier=identifier)
             identifiers.append(identifier)
             walls.append(wall)

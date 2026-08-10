@@ -185,9 +185,30 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
         length_cm = length_in * CM_PER_INCH
 
         width_in = float(getattr(w, "width", 5.5))
-        height_in = float(getattr(w, "height", getattr(canvas, "default_wall_height", 96.0)))
-        height_ft = height_in / INCHES_PER_FOOT
-        height_cm = height_in * CM_PER_INCH
+        h_start_in = float(getattr(w, "height", getattr(canvas, "default_wall_height", 96.0)))
+        h_end_in = float(getattr(w, "height_at_end", h_start_in))
+        is_tapered = abs(h_start_in - h_end_in) > 0.01
+
+        h_start_ft = h_start_in / INCHES_PER_FOOT
+        h_end_ft = h_end_in / INCHES_PER_FOOT
+        h_start_cm = h_start_in * CM_PER_INCH
+        h_end_cm = h_end_in * CM_PER_INCH
+
+        base_height_in = min(h_start_in, h_end_in)
+        base_height_ft = base_height_in / INCHES_PER_FOOT
+        base_height_cm = base_height_in * CM_PER_INCH
+
+        tri_height_in = abs(h_start_in - h_end_in)
+        tri_height_ft = tri_height_in / INCHES_PER_FOOT
+        tri_height_cm = tri_height_in * CM_PER_INCH
+
+        avg_height_in = (h_start_in + h_end_in) / 2.0
+        avg_height_ft = avg_height_in / INCHES_PER_FOOT
+        avg_height_cm = avg_height_in * CM_PER_INCH
+
+        height_in = avg_height_in
+        height_ft = avg_height_ft
+        height_cm = avg_height_cm
 
         wall_id = str(getattr(w, "identifier", f"W-{idx:02d}"))
 
@@ -229,17 +250,21 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
             'width_in': width_in,
             'height_cm': height_cm,
             'height_ft': height_ft,
-            'height_ft_in': format_ft_in(height_in),
-            'is_tapered': False,
-            'h_start_cm': height_cm,
-            'h_end_cm': height_cm,
-            'h_start_ft_in': format_ft_in(height_in),
-            'h_end_ft_in': format_ft_in(height_in),
-            'base_height_cm': height_cm,
-            'base_height_ft': height_ft,
-            'tri_height_cm': 0.0,
-            'tri_height_ft': 0.0,
-            'tri_height_ft_in': "0' 0\"",
+            'height_ft_in': format_ft_in(avg_height_in),
+            'is_tapered': is_tapered,
+            'h_start_in': h_start_in,
+            'h_end_in': h_end_in,
+            'h_start_cm': h_start_cm,
+            'h_end_cm': h_end_cm,
+            'h_start_ft_in': format_ft_in(h_start_in),
+            'h_end_ft_in': format_ft_in(h_end_in),
+            'base_height_cm': base_height_cm,
+            'base_height_ft': base_height_ft,
+            'base_height_in': base_height_in,
+            'tri_height_cm': tri_height_cm,
+            'tri_height_ft': tri_height_ft,
+            'tri_height_in': tri_height_in,
+            'tri_height_ft_in': format_ft_in(tri_height_in),
             'is_exterior': is_ext,
             'type': 'Exterior' if is_ext else 'Interior',
             'doors': [],
