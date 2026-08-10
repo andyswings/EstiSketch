@@ -1,2 +1,0 @@
-[console_scripts]
-estisketch = EstiSketch.main:main

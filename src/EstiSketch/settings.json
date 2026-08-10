@@ -1,7 +1,7 @@
 {
     "WINDOW_TITLE": "EstiSketch",
     "WINDOW_WIDTH": 1024,
-    "WINDOW_HEIGHT": 900,
+    "WINDOW_HEIGHT": 904,
     "SAVE_LABEL": "Save",
     "OPEN_LABEL": "Open File",
     "EXPORT_LABEL": "Export as PDF",

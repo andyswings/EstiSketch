@@ -1,5 +1,6 @@
 LICENSE.txt
 README.md
+pyproject.toml
 setup.cfg
 setup.py
 src/EstiSketch/__init__.py
@@ -18,8 +19,6 @@ src/EstiSketch/version.py
 src/EstiSketch.egg-info/PKG-INFO
 src/EstiSketch.egg-info/SOURCES.txt
 src/EstiSketch.egg-info/dependency_links.txt
-src/EstiSketch.egg-info/entry_points.txt
-src/EstiSketch.egg-info/requires.txt
 src/EstiSketch.egg-info/top_level.txt
 src/EstiSketch/Canvas/__init__.py
 src/EstiSketch/Canvas/canvas_area.py
@@ -34,8 +33,10 @@ src/EstiSketch/Canvas/events_helpers.py
 src/EstiSketch/Canvas/events_roof.py
 src/EstiSketch/Canvas/events_room.py
 src/EstiSketch/Canvas/events_selection.py
+src/EstiSketch/Canvas/events_stair.py
 src/EstiSketch/Canvas/events_tools.py
 src/EstiSketch/Canvas/events_wall.py
+src/EstiSketch/Canvas/render_stair.py
 src/EstiSketch/Canvas/utils.py
 src/EstiSketch/Canvas/wall_room_renderer.py
 src/EstiSketch/Dialogs/__init__.py
@@ -46,6 +47,7 @@ src/EstiSketch/Dialogs/layers_panel.py
 src/EstiSketch/Dialogs/length_input_dialog.py
 src/EstiSketch/Dialogs/manage_materials.py
 src/EstiSketch/Dialogs/properties_dock.py
+src/EstiSketch/Dialogs/properties_stair.py
 src/EstiSketch/Dialogs/settings_ui.py
 src/EstiSketch/Icons/add_arc.png
 src/EstiSketch/Icons/add_circle.png
@@ -73,6 +75,7 @@ src/EstiSketch/Icons/right_panel_open.png
 src/EstiSketch/Icons/roof.png
 src/EstiSketch/Icons/save.png
 src/EstiSketch/Icons/settings.png
+src/EstiSketch/Icons/stairs.png
 src/EstiSketch/Icons/undo.png
 src/EstiSketch/Icons/wall_properties.png
 src/EstiSketch/Icons/zoom_in.png
@@ -83,5 +86,11 @@ src/EstiSketch/Resources/framing.py
 src/EstiSketch/Resources/tool_hints.py
 src/EstiSketch/Resources/window_door_sizes.json
 src/EstiSketch/Takeoff/__init__.py
+src/EstiSketch/Takeoff/building_takeoff.py
 src/EstiSketch/Takeoff/framing_takeoff.py
+src/EstiSketch/Takeoff/roof_takeoff.py
 tests/test_basic.py
+tests/test_building_takeoff.py
+tests/test_edge_endpoint_snapping.py
+tests/test_open_project.py
+tests/test_wall_edge_snapping.py
