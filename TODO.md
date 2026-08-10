@@ -1,6 +1,7 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
+- [ ] Add Angled walls (one side taller than the other for sloped ceilings)
 - [ ] Roof design - Complex roof shapes
 - [ ] Add Stairs tool (Winder)
 - [ ] Asymetrical roof pitches
