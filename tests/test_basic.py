@@ -9,7 +9,7 @@ def test_version_import():
     except ImportError:
         pytest.fail("version module not found")
     assert hasattr(version, "__version__"), "__version__ attribute missing"
-    assert version.__version__ == "0.2.0-alpha", "Version string mismatch"
+    assert version.__version__ == "0.3.0-alpha", "Version string mismatch"
 
 
 def test_main_import():

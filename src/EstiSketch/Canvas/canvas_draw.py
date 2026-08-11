@@ -577,6 +577,33 @@ class CanvasDrawMixin:
                             cr.line_to(p[0], p[1])
                         cr.close_path()
                         cr.stroke()
+
+                elif item["type"] == "room":
+                    room = item["object"]
+                    if room and hasattr(room, "points") and room.points:
+                        # Fill highlight
+                        cr.set_source_rgba(1, 0, 0, 0.15)
+                        p0 = room.points[0]
+                        cr.move_to(p0[0], p0[1])
+                        for p in room.points[1:]:
+                            cr.line_to(p[0], p[1])
+                        cr.close_path()
+                        cr.fill_preserve()
+
+                        # Outline highlight
+                        cr.set_source_rgba(1, 0, 0, 0.8)
+                        cr.set_line_width(2.0 / self.zoom)
+                        cr.stroke()
+
+                        # Vertex handles
+                        for pt in room.points:
+                            cr.set_source_rgba(1, 1, 0, 1.0)  # Yellow handles
+                            cr.arc(pt[0], pt[1], handle_radius, 0, 2 * 3.14159)
+                            cr.fill()
+                            cr.set_source_rgba(0, 0, 0, 1.0)
+                            cr.arc(pt[0], pt[1], handle_radius, 0, 2 * 3.14159)
+                            cr.set_line_width(1.0 / self.zoom)
+                            cr.stroke()
             cr.restore()
 
         self.draw_live_measurements(cr, pixels_per_inch)

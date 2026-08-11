@@ -638,6 +638,12 @@ class CanvasArea(Gtk.DrawingArea,
                         self.wall_sets.remove(wall_set)
 
             # Rooms
+            elif item_type == "room":
+                target_room = item["object"]
+                if target_room in self.rooms:
+                    self.rooms.remove(target_room)
+
+            # Vertices
             elif item_type == "vertex":
                 # item["object"] is (room, index)
                 room = item["object"][0]

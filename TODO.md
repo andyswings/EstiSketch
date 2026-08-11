@@ -1,7 +1,6 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add Angled walls (one side taller than the other for sloped ceilings)
 - [ ] Roof design - Complex roof shapes
 - [ ] Add Stairs tool (Winder)
 - [ ] Asymetrical roof pitches
@@ -150,13 +149,14 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Cannot select Room or delete room (2026-08-10)
 
 ## 💡 Takeoffs
 - [ ] Material Estimator
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Added Angled walls (one side taller than the other for sloped ceilings) (2026-08-10)
+- [x] Fixed room selection indicator (fill highlight, outline, vertex handles) and full room deletion (2026-08-11)
 - [x] Stairs now appear in the Layers Panel with other objects (2026-02-01)
 - [x] Stair total rise now auto-recalculates based on floor-to-floor height (if floor-to-floor height is changed) (2026-02-01)
 - [x] Added basic editing capabilities to stairs (move, resize, rotate, etc.) (2026-02-01)

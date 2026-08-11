@@ -697,7 +697,7 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "f1":
                 self.on_help_clicked(None)
                 return True
-            elif keyname == "delete":
+            elif keyname in ("delete", "backspace"):
                 if self.canvas.selected_items:
                     self.canvas.delete_selected()
                     self.canvas.save_state()

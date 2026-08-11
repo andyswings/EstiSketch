@@ -1,5 +1,8 @@
 
 
+from ..Resources.tool_hints import TOOL_HINTS
+
+
 class CanvasRoomMixin:
     def _handle_room_click(self, n_press: int, x: float, y: float) -> None:
         """
@@ -41,7 +44,6 @@ class CanvasRoomMixin:
         if n_press == 1:
             # Removed save_state here - only save when room is complete
             self.current_room_points.append((snapped_x, snapped_y))
-            from ..Resources.tool_hints import TOOL_HINTS
             self.update_hint(TOOL_HINTS["draw_rooms_active"])
             self.queue_draw()
         elif n_press == 2:
@@ -58,7 +60,6 @@ class CanvasRoomMixin:
                 self.current_room_preview = None
                 room_created = True
                 
-                from ..Resources.tool_hints import TOOL_HINTS
                 self.update_hint(TOOL_HINTS["draw_rooms"])
             for wall_set in self.wall_sets:
                 if len(wall_set) < 3:
@@ -75,7 +76,6 @@ class CanvasRoomMixin:
                         self.current_room_preview = None
                         room_created = True
                         
-                        from ..Resources.tool_hints import TOOL_HINTS
                         self.update_hint(TOOL_HINTS["draw_rooms"])
                         break
             if room_created:
@@ -97,7 +97,6 @@ class CanvasRoomMixin:
         self.current_room_points = []
         self.current_room_preview = None
         
-        from ..Resources.tool_hints import TOOL_HINTS
         self.update_hint(TOOL_HINTS["draw_rooms"])
         self.emit('content-changed')
         self.queue_draw()

@@ -2,6 +2,7 @@ import math
 from gi.repository import Gtk, GLib
 from typing import List
 from ..components import Wall
+from ..Resources.tool_hints import TOOL_HINTS
 
 from ..Dialogs.length_input_dialog import create_length_input_dialog
 
@@ -171,13 +172,11 @@ class CanvasWallMixin:
                     self.save_state()
                     self.emit('content-changed')
                     
-                    from ..Resources.tool_hints import TOOL_HINTS
                     self.update_hint(TOOL_HINTS["draw_walls"])
                 else:
                     self.snap_type = "none"
         
         # Update hints based on state
-        from ..Resources.tool_hints import TOOL_HINTS
         if self.drawing_wall:
              self.update_hint(TOOL_HINTS["draw_walls_active"])
         elif self.tool_mode == "draw_walls":
@@ -202,7 +201,6 @@ class CanvasWallMixin:
             # Exit curve mode - wall stays straight
             self.wall_curve_mode = False
             self.wall_curve_point = None
-            from ..Resources.tool_hints import TOOL_HINTS
             self.update_hint(TOOL_HINTS["draw_walls_active"])
         self.queue_draw()
 
@@ -233,7 +231,6 @@ class CanvasWallMixin:
 
         dialog.destroy()
         
-        from ..Resources.tool_hints import TOOL_HINTS
         if self.drawing_wall:
             self.update_hint(TOOL_HINTS["draw_walls_active"])
         elif self.tool_mode == "draw_walls":
