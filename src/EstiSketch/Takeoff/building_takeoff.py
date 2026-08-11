@@ -176,11 +176,10 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
         x1, y1 = w.start[0], w.start[1]
         x2, y2 = w.end[0], w.end[1]
 
-        # Calculate length in inches & feet
+        # Calculate length in inches & feet (Wall start/end coordinates are stored in inches)
         dx = x2 - x1
         dy = y2 - y1
-        len_px = math.hypot(dx, dy)
-        length_in = len_px / ppi
+        length_in = math.hypot(dx, dy)
         length_ft = length_in / INCHES_PER_FOOT
         length_cm = length_in * CM_PER_INCH
 
@@ -218,9 +217,9 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
         mid_y = (y1 + y2) / 2.0
         
         # Norm vector perpendicular
-        length_val = max(1e-5, len_px)
-        nx = -dy / length_val * (width_in * ppi / 2.0 + 4.0)
-        ny = dx / length_val * (width_in * ppi / 2.0 + 4.0)
+        length_val = max(1e-5, length_in)
+        nx = -dy / length_val * (width_in / 2.0 + 4.0)
+        ny = dx / length_val * (width_in / 2.0 + 4.0)
 
         side1_in = any(is_point_in_polygon(mid_x + nx, mid_y + ny, poly) for poly in room_polygons)
         side2_in = any(is_point_in_polygon(mid_x - nx, mid_y - ny, poly) for poly in room_polygons)
@@ -228,21 +227,21 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
         if room_polygons:
             is_ext = not (side1_in and side2_in)
         else:
-            tol_px = 15.0
+            tol_in = 12.0
             is_ext = (
-                abs(min(x1, x2) - min_x) < tol_px or
-                abs(max(x1, x2) - max_x) < tol_px or
-                abs(min(y1, y2) - min_y) < tol_px or
-                abs(max(y1, y2) - max_y) < tol_px or
+                abs(min(x1, x2) - min_x) < tol_in or
+                abs(max(x1, x2) - max_x) < tol_in or
+                abs(min(y1, y2) - min_y) < tol_in or
+                abs(max(y1, y2) - max_y) < tol_in or
                 width_in >= 5.0
             )
 
         walls.append({
             'id': wall_id,
-            'start_cm': (x1 / ppi * CM_PER_INCH, y1 / ppi * CM_PER_INCH),
-            'end_cm': (x2 / ppi * CM_PER_INCH, y2 / ppi * CM_PER_INCH),
-            'start_ft': (x1 / ppi / INCHES_PER_FOOT, y1 / ppi / INCHES_PER_FOOT),
-            'end_ft': (x2 / ppi / INCHES_PER_FOOT, y2 / ppi / INCHES_PER_FOOT),
+            'start_cm': (x1 * CM_PER_INCH, y1 * CM_PER_INCH),
+            'end_cm': (x2 * CM_PER_INCH, y2 * CM_PER_INCH),
+            'start_ft': (x1 / INCHES_PER_FOOT, y1 / INCHES_PER_FOOT),
+            'end_ft': (x2 / INCHES_PER_FOOT, y2 / INCHES_PER_FOOT),
             'length_cm': length_cm,
             'length_ft': length_ft,
             'length_ft_in': format_ft_in(length_in),
@@ -325,6 +324,99 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
                         'position_t': float(ratio),
                         'position_ft': float(ratio) * wall_dict['length_ft']
                     })
+
+    # Calculate exterior corner extensions for exterior walls to accurately represent outer surface dimensions
+    ext_walls = [w for w in walls if w['is_exterior']]
+    tol_cm = 30.0  # ~12 inches tolerance for wall join detection
+
+    def pt_dist(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
+        return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
+
+    for w in ext_walls:
+        s = w['start_cm']
+        e = w['end_cm']
+        dx_w = e[0] - s[0]
+        dy_w = e[1] - s[1]
+        len_w = math.hypot(dx_w, dy_w)
+        if len_w == 0:
+            continue
+        dir_w = (dx_w / len_w, dy_w / len_w)
+
+        # Check start point extension
+        ext_s = 0.0
+        conn_s = []
+        for o in ext_walls:
+            if o['id'] == w['id']:
+                continue
+            if pt_dist(s, o['start_cm']) < tol_cm:
+                dx_o = o['end_cm'][0] - o['start_cm'][0]
+                dy_o = o['end_cm'][1] - o['start_cm'][1]
+                len_o = math.hypot(dx_o, dy_o)
+                if len_o > 0:
+                    conn_s.append((o, (dx_o / len_o, dy_o / len_o)))
+            elif pt_dist(s, o['end_cm']) < tol_cm:
+                dx_o = o['start_cm'][0] - o['end_cm'][0]
+                dy_o = o['start_cm'][1] - o['end_cm'][1]
+                len_o = math.hypot(dx_o, dy_o)
+                if len_o > 0:
+                    conn_s.append((o, (dx_o / len_o, dy_o / len_o)))
+
+        if conn_s:
+            w_away = (dir_w[0], dir_w[1])
+            is_collinear = False
+            max_thick = 0.0
+            for o, o_away in conn_s:
+                dot = w_away[0] * o_away[0] + w_away[1] * o_away[1]
+                if dot < -0.95:
+                    is_collinear = True
+                max_thick = max(max_thick, o['width_cm'])
+            if not is_collinear:
+                ext_s = max_thick / 2.0
+        else:
+            ext_s = w['width_cm'] / 2.0
+
+        # Check end point extension
+        ext_e = 0.0
+        conn_e = []
+        for o in ext_walls:
+            if o['id'] == w['id']:
+                continue
+            if pt_dist(e, o['start_cm']) < tol_cm:
+                dx_o = o['end_cm'][0] - o['start_cm'][0]
+                dy_o = o['end_cm'][1] - o['start_cm'][1]
+                len_o = math.hypot(dx_o, dy_o)
+                if len_o > 0:
+                    conn_e.append((o, (dx_o / len_o, dy_o / len_o)))
+            elif pt_dist(e, o['end_cm']) < tol_cm:
+                dx_o = o['start_cm'][0] - o['end_cm'][0]
+                dy_o = o['start_cm'][1] - o['end_cm'][1]
+                len_o = math.hypot(dx_o, dy_o)
+                if len_o > 0:
+                    conn_e.append((o, (dx_o / len_o, dy_o / len_o)))
+
+        if conn_e:
+            w_away = (-dir_w[0], -dir_w[1])
+            is_collinear = False
+            max_thick = 0.0
+            for o, o_away in conn_e:
+                dot = w_away[0] * o_away[0] + w_away[1] * o_away[1]
+                if dot < -0.95:
+                    is_collinear = True
+                max_thick = max(max_thick, o['width_cm'])
+            if not is_collinear:
+                ext_e = max_thick / 2.0
+        else:
+            ext_e = w['width_cm'] / 2.0
+
+        ext_len_cm = w['length_cm'] + ext_s + ext_e
+        ext_len_in = ext_len_cm / CM_PER_INCH
+        ext_len_ft = ext_len_in / INCHES_PER_FOOT
+
+        w['raw_length_cm'] = w['length_cm']
+        w['raw_length_ft'] = w['length_ft']
+        w['length_cm'] = ext_len_cm
+        w['length_ft'] = ext_len_ft
+        w['length_ft_in'] = format_ft_in(ext_len_in)
 
     return walls
 
@@ -503,7 +595,9 @@ def generate_sheathing_report(walls: List[Dict], sheet_width_ft: float = 4.0, sh
     total_opening_sqft = 0.0
 
     for w in ext_walls:
-        gross = w['length_ft'] * w['height_ft']
+        base_h = w.get('base_height_ft', w['height_ft'])
+        tri_h = w.get('tri_height_ft', 0.0)
+        gross = (w['length_ft'] * base_h) + (0.5 * w['length_ft'] * tri_h)
         op_sqft = sum((op['width_in'] * op['height_in']) / 144.0 for op in (w['doors'] + w['windows']))
         total_gross_sqft += gross
         total_opening_sqft += op_sqft
@@ -538,7 +632,10 @@ def generate_housewrap_report(walls: List[Dict], roll_width_ft: float = 9.0, rol
         return "No exterior walls found for house wrap calculation."
 
     roll_sqft = roll_width_ft * roll_length_ft
-    total_gross_sqft = sum(w['length_ft'] * w['height_ft'] for w in ext_walls)
+    total_gross_sqft = sum(
+        (w['length_ft'] * w.get('base_height_ft', w['height_ft'])) + (0.5 * w['length_ft'] * w.get('tri_height_ft', 0.0))
+        for w in ext_walls
+    )
     effective_sqft = total_gross_sqft * (1.0 + overlap_pct / 100.0)
     rolls_needed = math.ceil(effective_sqft / roll_sqft) if roll_sqft > 0 else 0
 
@@ -733,7 +830,10 @@ def get_supplier_quote_items(canvas, config, custom_items: Optional[List[Dict]] 
 
         # 4. Wall Sheathing
         sheet_sqft = sheet_w_ft * sheet_h_ft
-        total_gross_sqft = sum(w['length_ft'] * w['height_ft'] for w in ext_walls)
+        total_gross_sqft = sum(
+            (w['length_ft'] * w.get('base_height_ft', w['height_ft'])) + (0.5 * w['length_ft'] * w.get('tri_height_ft', 0.0))
+            for w in ext_walls
+        )
         gross_sheets = math.ceil(total_gross_sqft / sheet_sqft) if total_gross_sqft > 0 else 0
         if gross_sheets > 0:
             items.append({

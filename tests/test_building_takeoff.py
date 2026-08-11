@@ -33,8 +33,8 @@ class DummyCanvas:
     def __init__(self):
         self.pixels_per_inch = 2.0
         self.default_wall_height = 96.0
-        w1 = DummyWall("W1", (0, 0), (480, 0), width=5.5)  # 240 inches = 20 ft
-        w2 = DummyWall("W2", (480, 0), (480, 360), width=5.5)  # 180 inches = 15 ft
+        w1 = DummyWall("W1", (0, 0), (240, 0), width=5.5)  # 240 inches = 20 ft
+        w2 = DummyWall("W2", (240, 0), (240, 180), width=5.5)  # 180 inches = 15 ft
         self.wall_sets = [[w1, w2]]
         self.doors = []
         self.windows = []
@@ -49,8 +49,8 @@ class TestBuildingTakeoff(unittest.TestCase):
     def test_extract_walls_from_canvas(self):
         walls = extract_walls_from_canvas(self.canvas)
         self.assertEqual(len(walls), 2)
-        self.assertAlmostEqual(walls[0]['length_ft'], 20.0, places=1)
-        self.assertAlmostEqual(walls[1]['length_ft'], 15.0, places=1)
+        self.assertAlmostEqual(walls[0]['raw_length_ft'], 20.0, places=1)
+        self.assertAlmostEqual(walls[1]['raw_length_ft'], 15.0, places=1)
 
     def test_generate_framing_report(self):
         walls = extract_walls_from_canvas(self.canvas)
