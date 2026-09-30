@@ -27,6 +27,9 @@ CM_PER_INCH = 2.54
 CM_PER_FOOT = 30.48
 INCHES_PER_FOOT = 12.0
 PIXELS_PER_INCH = 2.0  # Default EstiSketch canvas scale: 2 pixels = 1 inch
+SQFT_PER_SQUARE = 100.0
+BUNDLES_PER_SQUARE = 3
+
 
 try:
     from reportlab.lib.pagesizes import letter  # type: ignore
@@ -660,18 +663,36 @@ def generate_housewrap_report(walls: List[Dict], roll_width_ft: float = 9.0, rol
 
 
 def generate_roof_takeoff(canvas, config) -> Dict:
-    """Calculate roof material takeoff from canvas roof polylines."""
+    """Calculate roof material takeoff from canvas roof polylines and solved topology planes."""
     roof_sections = []
 
     if hasattr(canvas, "roofs") and canvas.roofs:
         for idx, r in enumerate(canvas.roofs, 1):
             name = getattr(r, "name", f"Roof Section #{idx}")
             rtype = getattr(r, "roof_type", "gable")
-            pitch = float(getattr(r, "pitch", 6.0))
+            pitch = float(getattr(r, "pitch_rise", getattr(r, "pitch", 6.0)))
             overhang = float(getattr(r, "overhang", 24.0))
 
-            w_ft = float(getattr(r, "width", 24.0))
-            l_ft = float(getattr(r, "length", 30.0))
+            # Calculate footprint bounding box from actual roof geometry
+            pts = []
+            if getattr(r, 'outline_points', None):
+                pts.extend(r.outline_points)
+            for line in (getattr(r, 'solved_lines', []) or getattr(r, 'manual_lines', [])):
+                pts.append(line.start)
+                pts.append(line.end)
+
+            if pts:
+                min_x = min(p[0] for p in pts)
+                max_x = max(p[0] for p in pts)
+                min_y = min(p[1] for p in pts)
+                max_y = max(p[1] for p in pts)
+                span_x_ft = max(1.0, (max_x - min_x) / 12.0)
+                span_y_ft = max(1.0, (max_y - min_y) / 12.0)
+                w_ft = min(span_x_ft, span_y_ft)
+                l_ft = max(span_x_ft, span_y_ft)
+            else:
+                w_ft = float(getattr(r, "width", 24.0))
+                l_ft = float(getattr(r, "length", 30.0))
 
             framing_type = getattr(config, "ROOF_FRAMING_TYPE", "truss")
             rafter_spacing = float(getattr(config, "ROOF_RAFTER_SPACING_IN", 16.0))
@@ -692,7 +713,6 @@ def generate_roof_takeoff(canvas, config) -> Dict:
             roof_sections.append(sec)
 
     if not roof_sections:
-        # Fallback default roof section if canvas doesn't have explicit roofs yet
         roof_sections.append(RoofSection(
             name="Main Roof Plan",
             roof_type="gable",
@@ -710,7 +730,46 @@ def generate_roof_takeoff(canvas, config) -> Dict:
         sheathing_type=str(getattr(config, "ROOF_SHEATHING_TYPE", 'OSB'))
     )
 
-    return combined.generate_material_takeoff()
+    takeoff = combined.generate_material_takeoff()
+
+    # Override area and line totals if solved 3D roof planes exist on canvas
+    if hasattr(canvas, "roofs") and canvas.roofs:
+        custom_area_sqft = 0.0
+        custom_lines = defaultdict(float)
+        has_custom_planes = False
+
+        for r in canvas.roofs:
+            if getattr(r, 'roof_planes', None):
+                has_custom_planes = True
+                for plane in r.roof_planes:
+                    custom_area_sqft += plane.get('area_3d_sqft', 0.0)
+
+            lines = getattr(r, 'solved_lines', []) or getattr(r, 'manual_lines', [])
+            for line in lines:
+                has_custom_planes = True
+                custom_lines[line.line_type] += line.length_ft
+
+        if has_custom_planes and custom_area_sqft > 0:
+            takeoff['total_net_area_sqft'] = custom_area_sqft
+            waste_factor = 1.0 + (takeoff['waste_percent'] / 100.0)
+            gross_area = custom_area_sqft * waste_factor
+            takeoff['total_gross_area_sqft'] = gross_area
+            takeoff['total_squares_needed'] = math.ceil(gross_area / SQFT_PER_SQUARE)
+            takeoff['shingle_bundles_needed'] = takeoff['total_squares_needed'] * BUNDLES_PER_SQUARE
+
+            if 'ridge' in custom_lines:
+                takeoff['total_ridge_lf'] = custom_lines['ridge']
+            if 'hip' in custom_lines:
+                takeoff['total_hip_lf'] = custom_lines['hip']
+            if 'valley' in custom_lines:
+                takeoff['total_valley_lf'] = custom_lines['valley']
+            if 'rake' in custom_lines:
+                takeoff['total_rake_lf'] = custom_lines['rake']
+            if 'eave' in custom_lines:
+                takeoff['total_eave_lf'] = custom_lines['eave']
+
+    return takeoff
+
 
 
 def get_supplier_quote_items(canvas, config, custom_items: Optional[List[Dict]] = None) -> List[Dict]:

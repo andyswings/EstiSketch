@@ -715,11 +715,28 @@ class CanvasArea(Gtk.DrawingArea,
                     self.delete_roof(target_roof)
                 elif target_roof in getattr(self, 'roofs', []): # Fallback to direct list removal
                      self.roofs.remove(target_roof)
-            
+
+            elif item_type == "roof_line":
+                rline = item["object"]
+                roof = item.get("roof")
+                if not roof:
+                    for r in getattr(self, "roofs", []):
+                        if (rline in getattr(r, "manual_lines", [])) or (rline in getattr(r, "solved_lines", [])):
+                            roof = r
+                            break
+                if roof:
+                    if hasattr(roof, "manual_lines") and rline in roof.manual_lines:
+                        roof.manual_lines.remove(rline)
+                    if hasattr(roof, "solved_lines") and rline in roof.solved_lines:
+                        roof.solved_lines.remove(rline)
+                    if hasattr(self, "solve_active_roof"):
+                        self.solve_active_roof(roof)
+
             elif item_type == "stair":
                 target_stair = item["object"]
                 if target_stair in getattr(self, 'stairs', []):
                     self.stairs.remove(target_stair)
+
 
         # Process room vertex deletions
         for room_id, indices in room_vertices_to_delete.items():

@@ -430,6 +430,25 @@ class EstimatorApp(Gtk.Application):
             else:
                 self.canvas.set_tool_mode(None)
 
+        def on_add_roof_line_toggled(toggle_button):
+            if toggle_button.get_active():
+                # Deactivate other tools
+                self.tool_buttons["pointer"].set_active(False)
+                self.tool_buttons["panning"].set_active(False)
+                self.tool_buttons["draw_walls"].set_active(False)
+                self.tool_buttons["draw_rooms"].set_active(False)
+                self.tool_buttons["add_doors"].set_active(False)
+                self.tool_buttons["add_windows"].set_active(False)
+                self.tool_buttons["add_polyline"].set_active(False)
+                self.tool_buttons["add_dimension"].set_active(False)
+                self.tool_buttons["add_text"].set_active(False)
+                self.tool_buttons["design_roof"].set_active(False)
+                # Activate add_roof_line mode
+                self.canvas.set_tool_mode("add_roof_line")
+                print("Draw roof line mode activated")
+            else:
+                self.canvas.set_tool_mode(None)
+
         callbacks = {
             "pointer": on_pointer_toggled,
             "panning": on_panning_toggled,
@@ -443,8 +462,10 @@ class EstimatorApp(Gtk.Application):
             "add_circle": on_add_circle_toggled,
             "add_arc": on_add_arc_toggled,
             "design_roof": on_design_roof_toggled,
-            "add_stair": on_add_stair_toggled
+            "add_stair": on_add_stair_toggled,
+            "add_roof_line": on_add_roof_line_toggled
         }
+
         toolbar_box, self.tool_buttons, extra_buttons, self.toolset_info = toolbar.create_toolbar(
             self.config, callbacks, self.canvas)
         vbox.append(toolbar_box)
@@ -694,6 +715,14 @@ class EstimatorApp(Gtk.Application):
                     self.canvas.save_state()
                     self.canvas.queue_draw()
                     return True
+                elif self.canvas.tool_mode == "add_roof_line" and getattr(self.canvas, 'drawing_roof_line', False):
+                    self.canvas.drawing_roof_line = False
+                    self.canvas.roof_line_start = None
+                    self.canvas.roof_line_preview = None
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS.get("add_roof_line", "Click to start drawing roof line (ridge/hip/valley/eave)"))
+                    self.canvas.queue_draw()
+                    return True
             elif keyname == "f1":
                 self.on_help_clicked(None)
                 return True
@@ -721,10 +750,14 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "r":
                  self.tool_buttons["design_roof"].set_active(True)
                  return True
+            elif keyname == "l":
+                 self.tool_buttons["add_roof_line"].set_active(True)
+                 return True
             elif keyname == "c":
                 if self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall and self.canvas.walls:
                     self.canvas.toggle_wall_curve_mode()
                     return True
+
 
         if ctrl_pressed and not shift_pressed:
             if keyname == "z":

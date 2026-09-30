@@ -53,7 +53,7 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
     TOOLSETS = {
         "Main": ["pointer", "panning", "draw_walls", "draw_rooms", "add_doors", "add_windows", "add_stair", "add_dimension", "add_text"],
         "Annotation": ["pointer", "panning", "add_polyline", "add_dimension", "add_text", "add_circle", "add_arc"],
-        "Roof": ["design_roof", "panning", "add_dimension"],
+        "Roof": ["pointer", "design_roof", "add_roof_line", "panning", "add_dimension"],
         "Interior Design": ["pointer", "panning", "add_doors", "add_windows", "add_dimension", "add_text"],  # Placeholder
     }
     
@@ -95,6 +95,8 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
         "add_arc", "Add Arc (Shift+A)")
     tool_buttons["design_roof"] = create_icon_toggle_button(
         "roof", "Design Roof (Shift+R)")
+    tool_buttons["add_roof_line"] = create_icon_toggle_button(
+        "add_roof_line", "Draw Roof Line (Shift+L)")
 
     # Set up toggle button group
     tool_buttons["panning"].set_group(tool_buttons["pointer"])  # Add to group
@@ -109,6 +111,7 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
     tool_buttons["add_circle"].set_group(tool_buttons["pointer"])
     tool_buttons["add_arc"].set_group(tool_buttons["pointer"])
     tool_buttons["design_roof"].set_group(tool_buttons["pointer"])
+    tool_buttons["add_roof_line"].set_group(tool_buttons["pointer"])
 
     # Add tool buttons to toolbar
     tb.append(tool_buttons["pointer"])
@@ -124,6 +127,7 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
     tb.append(tool_buttons["add_circle"])
     tb.append(tool_buttons["add_arc"])
     tb.append(tool_buttons["design_roof"])
+    tb.append(tool_buttons["add_roof_line"])
 
     # Separator between tools and zoom controls
     tb.append(Gtk.Separator.new(Gtk.Orientation.VERTICAL))
@@ -182,7 +186,12 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
         # List of all toggle tool buttons that can be shown/hidden
         all_tools = ["pointer", "panning", "draw_walls", "draw_rooms", 
                      "add_doors", "add_windows", "add_stair", "add_polyline", 
-                     "add_dimension", "add_text", "add_circle", "add_arc", "design_roof"]
+                     "add_dimension", "add_text", "add_circle", "add_arc", "design_roof", "add_roof_line"]
+        
+        for tool_name in all_tools:
+            if tool_name in tool_buttons:
+                tool_buttons[tool_name].set_visible(tool_name in visible_tools)
+
         
         for tool_name in all_tools:
             if tool_name in tool_buttons:

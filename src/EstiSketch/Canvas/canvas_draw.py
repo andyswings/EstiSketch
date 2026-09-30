@@ -565,17 +565,56 @@ class CanvasDrawMixin:
                     cr.line_to(pl.end[0], pl.end[1])
                     cr.stroke()
 
+                elif item["type"] in ("roof_line", "roof_line_handle"):
+                    rline = item["object"][0] if item["type"] == "roof_line_handle" else item["object"]
+                    # Draw glowing halo / selection stroke
+                    cr.set_source_rgba(0.0, 0.8, 1.0, 0.7)  # Bright cyan selection halo
+                    cr.set_line_width(6.0 / self.zoom)
+                    cr.set_dash([])
+                    cr.move_to(rline.start[0], rline.start[1])
+                    cr.line_to(rline.end[0], rline.end[1])
+                    cr.stroke()
+
+                    # Draw inner line
+                    cr.set_source_rgba(1.0, 1.0, 1.0, 0.9)  # White core
+                    cr.set_line_width(2.0 / self.zoom)
+                    cr.move_to(rline.start[0], rline.start[1])
+                    cr.line_to(rline.end[0], rline.end[1])
+                    cr.stroke()
+
+                    # Draw endpoint handles (yellow with black outline)
+                    for pt in [rline.start, rline.end]:
+                        cr.set_source_rgba(1.0, 1.0, 0.0, 1.0)  # Yellow handle
+                        cr.arc(pt[0], pt[1], handle_radius, 0, 2 * 3.14159)
+                        cr.fill()
+                        cr.set_source_rgba(0.0, 0.0, 0.0, 1.0)
+                        cr.arc(pt[0], pt[1], handle_radius, 0, 2 * 3.14159)
+                        cr.set_line_width(1.0 / self.zoom)
+                        cr.stroke()
+
                 elif item["type"] == "roof":
                     roof = item["object"]
                     if roof.outline_points:
-                        cr.set_source_rgba(1, 0, 0, 0.5) # Red highlight
-                        cr.set_line_width(2.0 / self.zoom)
+                        cr.set_source_rgba(0.0, 0.7, 1.0, 0.6)  # Cyan highlight
+                        cr.set_line_width(3.0 / self.zoom)
+                        cr.set_dash([6.0 / self.zoom, 3.0 / self.zoom])
                         
                         p0 = roof.outline_points[0]
                         cr.move_to(p0[0], p0[1])
                         for p in roof.outline_points[1:]:
                             cr.line_to(p[0], p[1])
                         cr.close_path()
+                        cr.stroke()
+                        cr.set_dash([])
+                    
+                    # Highlight roof lines
+                    lines = getattr(roof, 'solved_lines', []) or getattr(roof, 'manual_lines', [])
+                    for rl in lines:
+                        cr.set_source_rgba(0.0, 0.7, 1.0, 0.4)
+                        cr.set_line_width(4.0 / self.zoom)
+                        cr.set_dash([])
+                        cr.move_to(rl.start[0], rl.start[1])
+                        cr.line_to(rl.end[0], rl.end[1])
                         cr.stroke()
 
                 elif item["type"] == "room":
@@ -1518,25 +1557,35 @@ class CanvasDrawMixin:
 
     def draw_roofs(self, cr):
         """
-        Draw all roof objects on the canvas.
+        Draw all roof objects and roof lines on the canvas.
         
         Rendering includes:
-        - Roof outline (dashed gray)
-        - Ridge lines (thick blue dashed)
-        - Hip lines (same color as ridges)
-        - Valley lines (red dashed)
-        - Pitch annotation
-        - Wall edge markings (eave/gable indicators)
+        - Wall edge markings (Eave, Gable, Tie-In indicators)
+        - Color-coded RoofLines (Ridge, Hip, Valley, Rake, Eave, Tie-In)
+        - Roof outlines with overhang offsets
+        - Pitch & Material annotations
+        - Live rubber-band preview when drawing roof lines
         """
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         zoom_transform = self.zoom * pixels_per_inch
         
-        # Draw wall edge markings FIRST (before early return for roofs)
-        # This ensures markings show even when no roofs exist yet
+        # Import line colors
+        from ..roof_components import ROOF_LINE_COLORS
+        
+        # Helper to convert hex color to RGB floats
+        def hex_to_rgb(hex_str: str) -> Tuple[float, float, float]:
+            hex_str = hex_str.lstrip('#')
+            return (
+                int(hex_str[0:2], 16) / 255.0,
+                int(hex_str[2:4], 16) / 255.0,
+                int(hex_str[4:6], 16) / 255.0
+            )
+
+        # 1. Draw wall edge markings FIRST
         markings = self.get_walls_marked_for_roof() if hasattr(self, 'get_walls_marked_for_roof') else {}
         if markings:
             cr.save()
-            cr.set_line_width(6.0 / zoom_transform)  # Thicker for visibility
+            cr.set_line_width(6.0 / zoom_transform)
             
             for wall_id, edge_type in markings.items():
                 wall = self.get_wall_by_identifier(wall_id) if hasattr(self, 'get_wall_by_identifier') else None
@@ -1544,9 +1593,13 @@ class CanvasDrawMixin:
                     continue
                 
                 if edge_type == "eave":
-                    cr.set_source_rgba(0.0, 0.8, 0.0, 0.8)  # Bright green for eave
-                else:  # gable
+                    cr.set_source_rgba(0.0, 0.8, 0.0, 0.8)  # Emerald green for eave
+                elif edge_type == "gable":
                     cr.set_source_rgba(0.9, 0.5, 0.0, 0.8)  # Orange for gable
+                elif edge_type == "tie_in":
+                    cr.set_source_rgba(0.85, 0.1, 0.4, 0.8) # Magenta for tie-in
+                else:
+                    cr.set_source_rgba(0.5, 0.5, 0.5, 0.8)
                 
                 cr.set_dash([8.0 / zoom_transform, 4.0 / zoom_transform])
                 cr.move_to(wall.start[0], wall.start[1])
@@ -1554,31 +1607,44 @@ class CanvasDrawMixin:
                 cr.stroke()
             
             cr.restore()
+
+        # 2. Draw live rubber-band preview when drawing custom roof line
+        if getattr(self, 'tool_mode', None) == "add_roof_line" and getattr(self, 'drawing_roof_line', False):
+            if getattr(self, 'current_roof_line_start', None) and getattr(self, 'current_roof_line_preview', None):
+                cr.save()
+                ltype = getattr(self, 'active_roof_line_type', 'ridge')
+                hex_col = ROOF_LINE_COLORS.get(ltype, '#E53935')
+                r, g, b = hex_to_rgb(hex_col)
+                
+                cr.set_source_rgba(r, g, b, 0.8)
+                cr.set_line_width(3.0 / zoom_transform)
+                cr.set_dash([6.0 / zoom_transform, 3.0 / zoom_transform])
+                
+                start_p = self.current_roof_line_start
+                prev_p = self.current_roof_line_preview
+                cr.move_to(start_p[0], start_p[1])
+                cr.line_to(prev_p[0], prev_p[1])
+                cr.stroke()
+                cr.restore()
         
-        # Now draw roofs (if any exist)
+        # 3. Draw committed roofs & roof lines
         if not hasattr(self, 'roofs') or not self.roofs:
             return
         
-        line_width = 2.0 / zoom_transform
-        thin_line_width = 1.0 / zoom_transform
+        line_width = 3.0 / zoom_transform
+        thin_line_width = 1.2 / zoom_transform
         dash_pattern = [8.0 / zoom_transform, 4.0 / zoom_transform]
-        
-        # Colors
-        RIDGE_HIP_COLOR = (0.0, 0.2, 0.6)  # Dark blue
-        VALLEY_COLOR = (0.6, 0.1, 0.1)  # Dark red
-        OUTLINE_COLOR = (0.4, 0.4, 0.4)  # Gray
+        OUTLINE_COLOR = (0.4, 0.4, 0.4)
         
         for roof in self.roofs:
             if not self.is_object_on_visible_layer(roof):
                 continue
             
-            opacity = 1.0
-            if hasattr(self, 'get_object_opacity'):
-                opacity = self.get_object_opacity(roof)
+            opacity = getattr(self, 'get_object_opacity', lambda obj: 1.0)(roof)
             
             cr.save()
             
-            # Draw roof outline with overhang
+            # Draw roof outline with overhang offset
             if roof.outline_points and len(roof.outline_points) >= 3:
                 cr.set_source_rgba(OUTLINE_COLOR[0], OUTLINE_COLOR[1], OUTLINE_COLOR[2], opacity * 0.7)
                 cr.set_line_width(thin_line_width)
@@ -1589,60 +1655,87 @@ class CanvasDrawMixin:
                     cr.line_to(pt[0], pt[1])
                 cr.close_path()
                 cr.stroke()
-            
-            # Draw ridge lines (thick blue dashed)
-            cr.set_source_rgba(RIDGE_HIP_COLOR[0], RIDGE_HIP_COLOR[1], RIDGE_HIP_COLOR[2], opacity)
-            cr.set_line_width(line_width * 1.5)
-            cr.set_dash(dash_pattern)
-            
-            for (p1, p2) in roof.ridge_lines:
-                cr.move_to(p1[0], p1[1])
-                cr.line_to(p2[0], p2[1])
-            cr.stroke()
-            
-            # Draw hip lines (same color as ridges)
-            cr.set_line_width(line_width)
-            for (p1, p2) in roof.hip_lines:
-                cr.move_to(p1[0], p1[1])
-                cr.line_to(p2[0], p2[1])
-            cr.stroke()
-            
-            # Draw valley lines (red dashed)
-            cr.set_source_rgba(VALLEY_COLOR[0], VALLEY_COLOR[1], VALLEY_COLOR[2], opacity)
-            cr.set_line_width(line_width)
-            for (p1, p2) in roof.valley_lines:
-                cr.move_to(p1[0], p1[1])
-                cr.line_to(p2[0], p2[1])
-            cr.stroke()
-            
-            
-            # Draw pitch annotation near ridge center or peak
-            pitch_text = f"{roof.pitch_rise}/{roof.pitch_run}"
+
+            # Draw manually sketched or auto-solved RoofLine instances
+            lines_to_draw = roof.solved_lines if roof.solved_lines else roof.manual_lines
+            if lines_to_draw:
+                for line in lines_to_draw:
+                    hex_col = ROOF_LINE_COLORS.get(line.line_type, '#E53935')
+                    r, g, b = hex_to_rgb(hex_col)
+                    cr.set_source_rgba(r, g, b, opacity)
+                    cr.set_line_width(line_width)
+                    cr.set_dash([])
+                    
+                    cr.move_to(line.start[0], line.start[1])
+                    cr.line_to(line.end[0], line.end[1])
+                    cr.stroke()
+
+            # Render legacy / fallback line lists if present
+            if not lines_to_draw:
+                # Ridge lines
+                r, g, b = hex_to_rgb(ROOF_LINE_COLORS['ridge'])
+                cr.set_source_rgba(r, g, b, opacity)
+                cr.set_line_width(line_width * 1.2)
+                for (p1, p2) in roof.ridge_lines:
+                    cr.move_to(p1[0], p1[1])
+                    cr.line_to(p2[0], p2[1])
+                cr.stroke()
+                
+                # Hip lines
+                r, g, b = hex_to_rgb(ROOF_LINE_COLORS['hip'])
+                cr.set_source_rgba(r, g, b, opacity)
+                cr.set_line_width(line_width)
+                for (p1, p2) in roof.hip_lines:
+                    cr.move_to(p1[0], p1[1])
+                    cr.line_to(p2[0], p2[1])
+                cr.stroke()
+                
+                # Valley lines
+                r, g, b = hex_to_rgb(ROOF_LINE_COLORS['valley'])
+                cr.set_source_rgba(r, g, b, opacity)
+                cr.set_line_width(line_width)
+                for (p1, p2) in roof.valley_lines:
+                    cr.move_to(p1[0], p1[1])
+                    cr.line_to(p2[0], p2[1])
+                cr.stroke()
+
+            # Draw pitch annotation near ridge or peak center
+            pitch_text = f"{roof.pitch_rise:.0f}/{roof.pitch_run:.0f}"
+            mid_x, mid_y = None, None
             
             if roof.ridge_lines:
-                # Ridge-based roof - place label at ridge center
                 ridge = roof.ridge_lines[0]
                 mid_x = (ridge[0][0] + ridge[1][0]) / 2
                 mid_y = (ridge[0][1] + ridge[1][1]) / 2
-            elif roof.hip_lines:
-                # Pyramid roof - place label at peak (where all hips converge)
-                # Peak is the first point of any hip line
-                peak = roof.hip_lines[0][0]
-                mid_x = peak[0]
-                mid_y = peak[1]
-            else:
-                # No ridge or hip lines - skip label
-                mid_x = None
+            elif lines_to_draw:
+                first = lines_to_draw[0]
+                mid_x = (first.start[0] + first.end[0]) / 2
+                mid_y = (first.start[1] + first.end[1]) / 2
             
-            if mid_x is not None:
-                cr.set_dash([])  # Solid for text
+            if mid_x is not None and mid_y is not None:
+                cr.set_dash([])
                 cr.set_source_rgba(0, 0, 0, opacity)
                 cr.select_font_face("Sans", 0, 0)
                 cr.set_font_size(12 / zoom_transform)
                 
-                # Center text above ridge/peak
                 extents = cr.text_extents(pitch_text)
                 cr.move_to(mid_x - extents.width / 2, mid_y - 10 / zoom_transform)
                 cr.show_text(pitch_text)
             
             cr.restore()
+
+        # Draw in-progress manual roof line preview
+        if getattr(self, "tool_mode", None) == "add_roof_line" and getattr(self, "drawing_roof_line", False):
+            start_pt = getattr(self, "roof_line_start", None)
+            preview_pt = getattr(self, "roof_line_preview", None)
+            if start_pt and preview_pt:
+                cr.save()
+                cr.set_source_rgba(0.9, 0.2, 0.2, 0.8)
+                cr.set_line_width(2.0)
+                cr.set_dash([6.0, 4.0])
+                cr.move_to(start_pt[0], start_pt[1])
+                cr.line_to(preview_pt[0], preview_pt[1])
+                cr.stroke()
+                cr.restore()
+
+

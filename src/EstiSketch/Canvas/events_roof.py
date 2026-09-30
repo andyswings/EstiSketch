@@ -6,7 +6,9 @@ and generating roof geometry from marked walls.
 """
 import math
 from typing import List, Tuple, Optional
-from ..roof_components import Roof, RoofEdge
+from ..roof_components import Roof, RoofEdge, RoofLine
+
+
 
 
 class CanvasRoofEventsMixin:
@@ -776,7 +778,10 @@ class CanvasRoofEventsMixin:
         
         # Add to canvas
         self.roofs.append(roof)
-        
+
+        # Automatically solve and populate RoofLine topology
+        self.solve_active_roof(roof)
+
         # Clear markings after successful generation
         self.clear_roof_markings()
         
@@ -817,8 +822,12 @@ class CanvasRoofEventsMixin:
         
         # Recalculate outline
         roof.outline_points = self._calculate_roof_outline(all_walls, roof.overhang)
+
+        # Re-solve topology lines
+        self.solve_active_roof(roof)
         
         self.queue_draw()
+
 
     def recalculate_roofs_for_wall(self, wall_identifier: str):
         """
@@ -907,3 +916,147 @@ class CanvasRoofEventsMixin:
         if count > 0:
             print(f"Inferred {count} walls as {target_type} based on 2 {type1} walls.")
             self.queue_draw()
+
+    def mark_walls_as_tie_in(self, walls: list = None):
+        """
+        Mark selected walls as tie-in edges (where lower roof abuts wall).
+        If walls parameter is None, uses currently selected walls.
+        """
+        if walls is None:
+            walls = [item["object"] for item in self.selected_items 
+                     if item["type"] == "wall"]
+        
+        if not walls:
+            print("No walls selected to mark as tie-in")
+            return
+        
+        markings = self.get_walls_marked_for_roof()
+        for wall in walls:
+            markings[wall.identifier] = "tie_in"
+        
+        self.queue_draw()
+        print(f"Marked {len(walls)} wall(s) as tie-in")
+
+    def solve_active_roof(self, roof: Roof = None) -> Roof:
+        """
+        Solve geometry, snap endpoints, and clean roof topology for active roof.
+        """
+        if not hasattr(self, 'roofs'):
+            self.roofs = []
+            
+        if roof is None:
+            if self.roofs:
+                roof = self.roofs[0]
+            else:
+                roof_id = self.generate_identifier("roof", getattr(self, 'existing_ids', set()))
+                roof = Roof(identifier=roof_id)
+                self.roofs.append(roof)
+
+        from .roof_solver import solve_and_clean_roof
+        all_walls = self.get_all_walls() if hasattr(self, 'get_all_walls') else []
+        
+        solve_and_clean_roof(roof, all_walls)
+        self.queue_draw()
+        print(f"Solved roof topology for {roof.identifier}: {len(roof.solved_lines)} lines, {len(roof.roof_planes)} planes.")
+        return roof
+
+    def _handle_roof_line_click(self, n_press: int, x: float, y: float):
+        """Handle mouse clicks while drawing manual roof lines (ridge/hip/valley/eave/rake/tie_in)."""
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        canvas_x, canvas_y = self.device_to_model(x, y, pixels_per_inch)
+
+        # Apply snapping against wall corners & existing roof line endpoints
+        all_walls = self.get_all_walls() if hasattr(self, 'get_all_walls') else []
+        snap_targets = []
+        for wall in all_walls:
+            snap_targets.append(wall.start)
+            snap_targets.append(wall.end)
+        if hasattr(self, 'roofs'):
+            for r in self.roofs:
+                for line in (r.solved_lines or r.manual_lines):
+                    snap_targets.append(line.start)
+                    snap_targets.append(line.end)
+
+        from .roof_solver import snap_point
+        snapped_x, snapped_y = snap_point((canvas_x, canvas_y), snap_targets, tolerance=18.0)
+
+        from ..Resources.tool_hints import TOOL_HINTS
+
+        if not getattr(self, 'drawing_roof_line', False):
+            # First click: start drawing line
+            self.drawing_roof_line = True
+            self.roof_line_start = (snapped_x, snapped_y)
+            self.roof_line_preview = (snapped_x, snapped_y)
+            self.update_hint(TOOL_HINTS.get("add_roof_line_active", "Click end point to finalize line | Edit type & pitch in Properties Dock | Esc to cancel"))
+            self.queue_draw()
+        else:
+            # Second click: finalize roof line
+            start_pt = self.roof_line_start
+            end_pt = (snapped_x, snapped_y)
+
+            dx = end_pt[0] - start_pt[0]
+            dy = end_pt[1] - start_pt[1]
+            if math.hypot(dx, dy) > 1.0:
+                if not hasattr(self, 'roofs') or not self.roofs:
+                    roof_id = self.generate_identifier("roof", getattr(self, 'existing_ids', set()))
+                    active_roof = Roof(identifier=roof_id)
+                    self.roofs.append(active_roof)
+                else:
+                    active_roof = self.roofs[0]
+
+                line_id = f"RL-{len(active_roof.manual_lines) + 1}"
+                default_type = getattr(active_roof, 'last_line_type', getattr(self, 'active_roof_line_type', 'ridge'))
+                new_line = RoofLine(
+                    identifier=line_id,
+                    start=start_pt,
+                    end=end_pt,
+                    line_type=default_type,
+                    pitch_rise=active_roof.pitch_rise
+                )
+                active_roof.manual_lines.append(new_line)
+
+                # Auto-solve roof topology
+                self.solve_active_roof(active_roof)
+
+                # Save canvas state for Undo/Redo
+                self.save_state()
+
+                # Select newly added roof line and trigger properties dock update
+                self.selected_items = [{"type": "roof_line", "object": new_line, "roof": active_roof}]
+                if hasattr(self, 'emit'):
+                    self.emit("selection-changed", self.selected_items)
+
+                print(f"Added manual RoofLine ({new_line.line_type}) from {start_pt} to {end_pt}")
+
+            # Reset state for next line drawing
+            self.drawing_roof_line = False
+            self.roof_line_start = None
+            self.roof_line_preview = None
+            self.update_hint(TOOL_HINTS.get("add_roof_line", "Click to start drawing roof line (ridge/hip/valley/eave)"))
+            self.queue_draw()
+
+    def _handle_roof_line_motion(self, x: float, y: float):
+        """Update live preview during roof line drawing."""
+        if not getattr(self, 'drawing_roof_line', False):
+            return
+
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        canvas_x, canvas_y = self.device_to_model(x, y, pixels_per_inch)
+
+        all_walls = self.get_all_walls() if hasattr(self, 'get_all_walls') else []
+        snap_targets = []
+        for wall in all_walls:
+            snap_targets.append(wall.start)
+            snap_targets.append(wall.end)
+        if hasattr(self, 'roofs'):
+            for r in self.roofs:
+                for line in (r.solved_lines or r.manual_lines):
+                    snap_targets.append(line.start)
+                    snap_targets.append(line.end)
+
+        from .roof_solver import snap_point
+        snapped_x, snapped_y = snap_point((canvas_x, canvas_y), snap_targets, tolerance=18.0)
+        self.roof_line_preview = (snapped_x, snapped_y)
+        self.queue_draw()
+
+

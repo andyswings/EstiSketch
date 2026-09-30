@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair
-from .roof_components import Roof, RoofEdge
+from .roof_components import Roof, RoofEdge, RoofLine
 
 
 def save_project(canvas, window_width, window_height, filepath):
@@ -293,14 +293,50 @@ def save_project(canvas, window_width, window_height, filepath):
         r_elem.set("overhang", str(roof.overhang))
         r_elem.set("material", roof.material)
         
-        # Save edges
+        # Save edges with overrides
         edges_elem = ET.SubElement(r_elem, "Edges")
         for edge in roof.edges:
             e_elem = ET.SubElement(edges_elem, "Edge")
             e_elem.set("wall_identifier", edge.wall_identifier)
             e_elem.set("edge_type", edge.edge_type)
-        
-        # Save calculated geometry (for faster loading, can be recalculated)
+            if getattr(edge, "pitch_rise", None) is not None:
+                e_elem.set("pitch_rise", str(edge.pitch_rise))
+            if getattr(edge, "overhang", None) is not None:
+                e_elem.set("overhang", str(edge.overhang))
+
+        # Save manual roof lines (sketched)
+        manual_elem = ET.SubElement(r_elem, "ManualLines")
+        for ml in getattr(roof, "manual_lines", []):
+            l_elem = ET.SubElement(manual_elem, "RoofLine")
+            l_elem.set("identifier", ml.identifier)
+            l_elem.set("line_type", ml.line_type)
+            l_elem.set("x1", str(ml.start[0]))
+            l_elem.set("y1", str(ml.start[1]))
+            l_elem.set("x2", str(ml.end[0]))
+            l_elem.set("y2", str(ml.end[1]))
+            if ml.pitch_rise is not None:
+                l_elem.set("pitch_rise", str(ml.pitch_rise))
+            if ml.overhang is not None:
+                l_elem.set("overhang", str(ml.overhang))
+            l_elem.set("is_auto", str(ml.is_auto_generated))
+
+        # Save solved topology lines
+        solved_elem = ET.SubElement(r_elem, "SolvedLines")
+        for sl in getattr(roof, "solved_lines", []):
+            l_elem = ET.SubElement(solved_elem, "RoofLine")
+            l_elem.set("identifier", sl.identifier)
+            l_elem.set("line_type", sl.line_type)
+            l_elem.set("x1", str(sl.start[0]))
+            l_elem.set("y1", str(sl.start[1]))
+            l_elem.set("x2", str(sl.end[0]))
+            l_elem.set("y2", str(sl.end[1]))
+            if sl.pitch_rise is not None:
+                l_elem.set("pitch_rise", str(sl.pitch_rise))
+            if sl.overhang is not None:
+                l_elem.set("overhang", str(sl.overhang))
+            l_elem.set("is_auto", str(sl.is_auto_generated))
+
+        # Save calculated geometry
         ridge_elem = ET.SubElement(r_elem, "RidgeLines")
         for (p1, p2) in roof.ridge_lines:
             line_elem = ET.SubElement(ridge_elem, "Line")
@@ -308,7 +344,7 @@ def save_project(canvas, window_width, window_height, filepath):
             line_elem.set("y1", str(p1[1]))
             line_elem.set("x2", str(p2[0]))
             line_elem.set("y2", str(p2[1]))
-        
+
         hip_elem = ET.SubElement(r_elem, "HipLines")
         for (p1, p2) in roof.hip_lines:
             line_elem = ET.SubElement(hip_elem, "Line")
@@ -316,7 +352,7 @@ def save_project(canvas, window_width, window_height, filepath):
             line_elem.set("y1", str(p1[1]))
             line_elem.set("x2", str(p2[0]))
             line_elem.set("y2", str(p2[1]))
-        
+
         valley_elem = ET.SubElement(r_elem, "ValleyLines")
         for (p1, p2) in roof.valley_lines:
             line_elem = ET.SubElement(valley_elem, "Line")
@@ -324,10 +360,33 @@ def save_project(canvas, window_width, window_height, filepath):
             line_elem.set("y1", str(p1[1]))
             line_elem.set("x2", str(p2[0]))
             line_elem.set("y2", str(p2[1]))
-        
+
+        rake_elem = ET.SubElement(r_elem, "RakeLines")
+        for (p1, p2) in getattr(roof, "rake_lines", []):
+            line_elem = ET.SubElement(rake_elem, "Line")
+            line_elem.set("x1", str(p1[0]))
+            line_elem.set("y1", str(p1[1]))
+            line_elem.set("x2", str(p2[0]))
+            line_elem.set("y2", str(p2[1]))
+
+        eave_elem = ET.SubElement(r_elem, "EaveLines")
+        for (p1, p2) in getattr(roof, "eave_lines", []):
+            line_elem = ET.SubElement(eave_elem, "Line")
+            line_elem.set("x1", str(p1[0]))
+            line_elem.set("y1", str(p1[1]))
+            line_elem.set("x2", str(p2[0]))
+            line_elem.set("y2", str(p2[1]))
+
+        tie_in_elem = ET.SubElement(r_elem, "TieInLines")
+        for (p1, p2) in getattr(roof, "tie_in_lines", []):
+            line_elem = ET.SubElement(tie_in_elem, "Line")
+            line_elem.set("x1", str(p1[0]))
+            line_elem.set("y1", str(p1[1]))
+            line_elem.set("x2", str(p2[0]))
+            line_elem.set("y2", str(p2[1]))
+
         outline_elem = ET.SubElement(r_elem, "Outline")
         for pt in roof.outline_points:
-            pt_elem = ET.SubElement(outline_elem, "Point")
             pt_elem = ET.SubElement(outline_elem, "Point")
             pt_elem.set("x", str(pt[0]))
             pt_elem.set("y", str(pt[1]))
@@ -763,19 +822,57 @@ def open_project(canvas, filepath):
             identifier = _get_attr_text(r_elem, "identifier", "")
             layer_id = _get_attr_text(r_elem, "layer_id", "")
             roof_type = _get_attr_text(r_elem, "roof_type", "gable")
-            pitch_rise = _get_attr_int(r_elem, "pitch_rise", 6)
-            pitch_run = _get_attr_int(r_elem, "pitch_run", 12)
+            pitch_rise = _get_attr_float(r_elem, "pitch_rise", 6.0)
+            pitch_run = _get_attr_float(r_elem, "pitch_run", 12.0)
             overhang = _get_attr_float(r_elem, "overhang", 12.0)
             material = _get_attr_text(r_elem, "material", "asphalt_shingle")
 
-            # Load edges
+            # Load edges with overrides
             edges = []
             edges_elem = r_elem.find("Edges")
             if edges_elem is not None:
                 for e_elem in edges_elem.findall("Edge"):
+                    e_pitch = _get_attr_float(e_elem, "pitch_rise", None) if "pitch_rise" in e_elem.attrib else None
+                    e_overhang = _get_attr_float(e_elem, "overhang", None) if "overhang" in e_elem.attrib else None
                     edges.append(RoofEdge(
                         wall_identifier=_get_attr_text(e_elem, "wall_identifier", ""),
-                        edge_type=_get_attr_text(e_elem, "edge_type", "eave")
+                        edge_type=_get_attr_text(e_elem, "edge_type", "eave"),
+                        pitch_rise=e_pitch,
+                        overhang=e_overhang
+                    ))
+
+            # Load manual roof lines (sketched)
+            manual_lines = []
+            manual_elem = r_elem.find("ManualLines")
+            if manual_elem is not None:
+                for l_elem in manual_elem.findall("RoofLine"):
+                    p_rise = _get_attr_float(l_elem, "pitch_rise", 6.0) if "pitch_rise" in l_elem.attrib else None
+                    oh = _get_attr_float(l_elem, "overhang", 12.0) if "overhang" in l_elem.attrib else None
+                    manual_lines.append(RoofLine(
+                        identifier=_get_attr_text(l_elem, "identifier", ""),
+                        line_type=_get_attr_text(l_elem, "line_type", "ridge"),
+                        start=(_get_attr_float(l_elem, "x1", 0.0), _get_attr_float(l_elem, "y1", 0.0)),
+                        end=(_get_attr_float(l_elem, "x2", 0.0), _get_attr_float(l_elem, "y2", 0.0)),
+                        pitch_rise=p_rise,
+                        overhang=oh,
+                        is_auto_generated=_get_attr_text(l_elem, "is_auto", "False") == "True"
+                    ))
+
+            # Load solved topology lines
+            solved_lines = []
+            solved_elem = r_elem.find("SolvedLines")
+            if solved_elem is not None:
+                for l_elem in solved_elem.findall("RoofLine"):
+                    p_rise = _get_attr_float(l_elem, "pitch_rise", 6.0) if "pitch_rise" in l_elem.attrib else None
+                    oh = _get_attr_float(l_elem, "overhang", 12.0) if "overhang" in l_elem.attrib else None
+                    solved_lines.append(RoofLine(
+                        identifier=_get_attr_text(l_elem, "identifier", ""),
+                        line_type=_get_attr_text(l_elem, "line_type", "ridge"),
+                        start=(_get_attr_float(l_elem, "x1", 0.0), _get_attr_float(l_elem, "y1", 0.0)),
+                        end=(_get_attr_float(l_elem, "x2", 0.0), _get_attr_float(l_elem, "y2", 0.0)),
+                        pitch_rise=p_rise,
+                        overhang=oh,
+                        is_auto_generated=_get_attr_text(l_elem, "is_auto", "False") == "True"
                     ))
 
             # Load geometry
@@ -803,6 +900,30 @@ def open_project(canvas, filepath):
                     p2 = (_get_attr_float(line_elem, "x2", 0.0), _get_attr_float(line_elem, "y2", 0.0))
                     valley_lines.append((p1, p2))
 
+            rake_lines = []
+            rake_elem = r_elem.find("RakeLines")
+            if rake_elem is not None:
+                for line_elem in rake_elem.findall("Line"):
+                    p1 = (_get_attr_float(line_elem, "x1", 0.0), _get_attr_float(line_elem, "y1", 0.0))
+                    p2 = (_get_attr_float(line_elem, "x2", 0.0), _get_attr_float(line_elem, "y2", 0.0))
+                    rake_lines.append((p1, p2))
+
+            eave_lines = []
+            eave_elem = r_elem.find("EaveLines")
+            if eave_elem is not None:
+                for line_elem in eave_elem.findall("Line"):
+                    p1 = (_get_attr_float(line_elem, "x1", 0.0), _get_attr_float(line_elem, "y1", 0.0))
+                    p2 = (_get_attr_float(line_elem, "x2", 0.0), _get_attr_float(line_elem, "y2", 0.0))
+                    eave_lines.append((p1, p2))
+
+            tie_in_lines = []
+            tie_in_elem = r_elem.find("TieInLines")
+            if tie_in_elem is not None:
+                for line_elem in tie_in_elem.findall("Line"):
+                    p1 = (_get_attr_float(line_elem, "x1", 0.0), _get_attr_float(line_elem, "y1", 0.0))
+                    p2 = (_get_attr_float(line_elem, "x2", 0.0), _get_attr_float(line_elem, "y2", 0.0))
+                    tie_in_lines.append((p1, p2))
+
             outline_points = []
             outline_elem = r_elem.find("Outline")
             if outline_elem is not None:
@@ -813,6 +934,8 @@ def open_project(canvas, filepath):
                 identifier=identifier,
                 layer_id=layer_id,
                 edges=edges,
+                manual_lines=manual_lines,
+                solved_lines=solved_lines,
                 roof_type=roof_type,
                 pitch_rise=pitch_rise,
                 pitch_run=pitch_run,
@@ -820,9 +943,19 @@ def open_project(canvas, filepath):
                 ridge_lines=ridge_lines,
                 hip_lines=hip_lines,
                 valley_lines=valley_lines,
+                rake_lines=rake_lines,
+                eave_lines=eave_lines,
+                tie_in_lines=tie_in_lines,
                 outline_points=outline_points,
                 material=material
             )
+
+            # Re-extract roof planes for takeoff if lines exist
+            from .Canvas.roof_solver import extract_3d_roof_planes
+            lines_for_planes = solved_lines or manual_lines
+            if lines_for_planes:
+                roof.roof_planes = extract_3d_roof_planes(lines_for_planes, pitch_rise)
+
             canvas.roofs.append(roof)
 
     # --- Restore Stairs ---

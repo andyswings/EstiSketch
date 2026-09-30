@@ -1,9 +1,9 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Roof design - Complex roof shapes
+- [ ] Roof design - Complex roof shapes (in progress)
 - [ ] Add Stairs tool (Winder)
-- [ ] Asymetrical roof pitches
+- [ ] Asymetrical roof pitches (in progress)
 
 ## Ideas to think about
 - [ ] Refine capability to snap new wall's edges to existing wall edges instead of just endpoints to endpoints (should have same capabilities for editing walls as well) (This is useful for aligning walls of different thicknesses end to end)
@@ -12,7 +12,7 @@
 
 ### Architectural Elements
 - [ ] Roof components (trusses, rafters, ridges, valleys)
-- [ ] Columns/Posts
+- [ ] Columns/PostsS
 - [ ] Beams
 - [ ] Ceiling types (dropped, vaulted, cathedral)
 - [ ] Railings/Guardrails (deck, stair, balcony)
@@ -149,6 +149,9 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
+- [ ] building_takeoff.py lines 694 and 695 should not have a hardcoded fallback value. Should we warn the user instead of falling back to a hard coded value?
+- [ ] After marking walls and then auto generating a gable roof, ridge line does not extend or retract to follow overhang when overhang size is edited.
+- [ ] ridgelines are not editable after auto generating a roof. (we should either have the ability to click and drag the ridge side to side to change the pitch on either side, or we should have controls in the properties panel to specify different pitches for each side of the roof and the ridge should move to match.)
 
 ## 💡 Takeoffs
 - [ ] Material Estimator

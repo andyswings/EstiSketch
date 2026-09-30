@@ -25,4 +25,7 @@ TOOL_HINTS = {
     "select_room": "Drag corners to reshape | Drag room to move",
     "select_object": "Drag object to move | Delete to remove",
     "design_roof": "Select walls and right-click to mark as Eave/Gable | Click Generate to create roof",
+    "add_roof_line": "Click to start drawing roof line (ridge/hip/valley/eave)",
+    "add_roof_line_active": "Click end point to finalize line | Edit type & pitch in Properties Dock | Esc to cancel",
 }
+

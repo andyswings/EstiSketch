@@ -10,6 +10,153 @@ gi.require_version('Gtk', '4.0')
 
 
 
+class RoofLinePropertiesWidget(Gtk.Box):
+    """Widget for viewing and editing selected individual roof line properties."""
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.current_lines = []
+        self.canvas = None
+        self._block_updates = False
+
+        frame = Gtk.Frame(label="Roof Line Properties")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        frame.set_child(box)
+        self.append(frame)
+
+        # Line Type Combo
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Type:"))
+        self.type_combo = Gtk.ComboBoxText()
+        self.line_types = ["ridge", "hip", "valley", "rake", "eave", "tie_in"]
+        for t in self.line_types:
+            self.type_combo.append_text(t.replace('_', ' ').capitalize())
+        self.type_combo.set_active(0)
+        self.type_combo.connect("changed", self.on_type_changed)
+        row.append(self.type_combo)
+        box.append(row)
+
+        # Pitch Rise Override
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Pitch Rise:"))
+        self.pitch_spin = Gtk.SpinButton.new_with_range(0, 24, 1)
+        self.pitch_spin.connect("value-changed", self.on_pitch_changed)
+        row.append(self.pitch_spin)
+        row.append(Gtk.Label(label="/12"))
+        box.append(row)
+
+        # Overhang Override
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Overhang:"))
+        self.overhang_spin = Gtk.SpinButton.new_with_range(0, 100, 1)
+        self.overhang_spin.connect("value-changed", self.on_overhang_changed)
+        row.append(self.overhang_spin)
+        row.append(Gtk.Label(label="in"))
+        box.append(row)
+
+    def set_lines(self, lines, canvas=None):
+        self._block_updates = True
+        self.canvas = canvas
+        self.current_lines = lines if isinstance(lines, list) else [lines]
+        if not self.current_lines or not self.current_lines[0]:
+            self._block_updates = False
+            return
+        
+        first = self.current_lines[0]
+        if hasattr(first, 'line_type') and first.line_type in self.line_types:
+            self.type_combo.set_active(self.line_types.index(first.line_type))
+        if hasattr(first, 'pitch_rise') and first.pitch_rise is not None:
+            self.pitch_spin.set_value(first.pitch_rise)
+        if hasattr(first, 'overhang') and first.overhang is not None:
+            self.overhang_spin.set_value(first.overhang)
+        self._block_updates = False
+
+    def on_type_changed(self, combo):
+        if self._block_updates or not self.current_lines:
+            return
+        idx = combo.get_active()
+        if 0 <= idx < len(self.line_types):
+            new_type = self.line_types[idx]
+            for line in self.current_lines:
+                if hasattr(line, 'line_type'):
+                    line.line_type = new_type
+
+            if self.canvas and hasattr(self.canvas, 'roofs') and self.canvas.roofs:
+                roof = self.canvas.roofs[0]
+                roof.last_line_type = new_type
+                setattr(self.canvas, 'active_roof_line_type', new_type)
+
+                for selected in self.current_lines:
+                    line_id = getattr(selected, 'identifier', None)
+                    if line_id:
+                        for ml in roof.manual_lines:
+                            if ml.identifier == line_id:
+                                ml.line_type = new_type
+                        for sl in roof.solved_lines:
+                            if sl.identifier == line_id:
+                                sl.line_type = new_type
+
+                self.canvas.solve_active_roof(roof)
+                self.canvas.save_state()
+                self.canvas.queue_draw()
+            elif self.canvas:
+                self.canvas.queue_draw()
+
+    def on_pitch_changed(self, spin):
+        if self._block_updates or not self.current_lines:
+            return
+        val = spin.get_value()
+        for line in self.current_lines:
+            if hasattr(line, 'pitch_rise'):
+                line.pitch_rise = val
+
+        if self.canvas and hasattr(self.canvas, 'roofs') and self.canvas.roofs:
+            roof = self.canvas.roofs[0]
+            for selected in self.current_lines:
+                line_id = getattr(selected, 'identifier', None)
+                if line_id:
+                    for ml in getattr(roof, 'manual_lines', []):
+                        if ml.identifier == line_id:
+                            ml.pitch_rise = val
+                    for sl in getattr(roof, 'solved_lines', []):
+                        if sl.identifier == line_id:
+                            sl.pitch_rise = val
+            self.canvas.solve_active_roof(roof)
+            self.canvas.save_state()
+            self.canvas.queue_draw()
+        elif self.canvas:
+            self.canvas.queue_draw()
+
+    def on_overhang_changed(self, spin):
+        if self._block_updates or not self.current_lines:
+            return
+        val = spin.get_value()
+        for line in self.current_lines:
+            if hasattr(line, 'overhang'):
+                line.overhang = val
+
+        if self.canvas and hasattr(self.canvas, 'roofs') and self.canvas.roofs:
+            roof = self.canvas.roofs[0]
+            for selected in self.current_lines:
+                line_id = getattr(selected, 'identifier', None)
+                if line_id:
+                    for ml in getattr(roof, 'manual_lines', []):
+                        if ml.identifier == line_id:
+                            ml.overhang = val
+                    for sl in getattr(roof, 'solved_lines', []):
+                        if sl.identifier == line_id:
+                            sl.overhang = val
+            self.canvas.solve_active_roof(roof)
+            self.canvas.save_state()
+            self.canvas.queue_draw()
+        elif self.canvas:
+            self.canvas.queue_draw()
+
+
+
 class RoofPropertiesWidget(Gtk.Box):
     def __init__(self):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -41,7 +188,6 @@ class RoofPropertiesWidget(Gtk.Box):
         self.pitch_run_combo.set_active(0) # Default to 12
         self.pitch_run_combo.connect("changed", self.on_pitch_changed)
         row.append(self.pitch_run_combo)
-        
         box.append(row)
         
         # Overhang
@@ -63,19 +209,45 @@ class RoofPropertiesWidget(Gtk.Box):
         row.append(self.material_combo)
         box.append(row)
 
+        # Solve Geometry Button
+        self.solve_btn = Gtk.Button(label="Solve / Clean Roof Geometry")
+        self.solve_btn.connect("clicked", self.on_solve_clicked)
+        box.append(self.solve_btn)
+
+        # Summary Info Label
+        self.summary_label = Gtk.Label(label="No solved lines yet.")
+        self.summary_label.set_wrap(True)
+        box.append(self.summary_label)
+
+        # Embedded Roof Line Properties Sub-Widget
+        self.line_widget = RoofLinePropertiesWidget()
+        self.append(self.line_widget)
+
+    def on_solve_clicked(self, btn):
+        if hasattr(self, "canvas") and self.canvas:
+            roof = self.current_roofs[0] if self.current_roofs else None
+            solved = self.canvas.solve_active_roof(roof)
+            if solved:
+                total_area = sum(p.get("area_3d_sqft", 0.0) for p in solved.roof_planes)
+                self.summary_label.set_text(f"Solved: {len(solved.solved_lines)} lines, {total_area:.1f} sq ft 3D area")
+
     def on_pitch_changed(self, widget):
         if self._block_updates or not self.current_roofs:
             return
             
-        rise = int(self.pitch_rise_spin.get_value())
+        rise = float(self.pitch_rise_spin.get_value())
         run_text = self.pitch_run_combo.get_active_text()
-        run = int(run_text) if run_text else 12
+        run = float(run_text) if run_text else 12.0
         
         for roof in self.current_roofs:
             roof.pitch_rise = rise
             roof.pitch_run = run
+            if hasattr(self, "canvas") and self.canvas:
+                self.canvas.solve_active_roof(roof)
             
-        self.emit_property_changed()
+        if hasattr(self, "canvas") and self.canvas:
+            self.canvas.save_state()
+            self.emit_property_changed()
 
     def on_overhang_changed(self, spin):
         if self._block_updates or not self.current_roofs:
@@ -84,11 +256,13 @@ class RoofPropertiesWidget(Gtk.Box):
         overhang = spin.get_value()
         for roof in self.current_roofs:
             roof.overhang = overhang
-            # Trigger recalculation of outline
-            if hasattr(self, "canvas"):
+            if hasattr(self, "canvas") and self.canvas:
                 self.canvas.recalculate_roof(roof)
+                self.canvas.solve_active_roof(roof)
                 
-        self.emit_property_changed()
+        if hasattr(self, "canvas") and self.canvas:
+            self.canvas.save_state()
+            self.emit_property_changed()
 
     def on_material_changed(self, combo):
         if self._block_updates or not self.current_roofs:
@@ -98,21 +272,30 @@ class RoofPropertiesWidget(Gtk.Box):
         if material:
             for roof in self.current_roofs:
                 roof.material = material
-        self.emit_property_changed()
+        if hasattr(self, "canvas") and self.canvas:
+            self.canvas.save_state()
+            self.emit_property_changed()
 
     def emit_property_changed(self):
         if hasattr(self, "canvas") and self.canvas:
             self.canvas.queue_draw()
 
-    def set_roof(self, roofs):
+    def set_roof(self, roofs, roof_lines=None):
         self._block_updates = True
         if not isinstance(roofs, list):
-            roofs = [roofs]
+            roofs = [roofs] if roofs else []
         self.current_roofs = roofs
+
+        if roof_lines:
+            self.line_widget.set_lines(roof_lines, canvas=getattr(self, 'canvas', None))
+            self.line_widget.set_visible(True)
+        else:
+            self.line_widget.set_visible(False)
 
         if not roofs:
             self._block_updates = False
             return
+
 
         first = roofs[0]
 
@@ -135,7 +318,6 @@ class RoofPropertiesWidget(Gtk.Box):
         
         # Material
         mat = getattr(first, 'material', 'asphalt_shingle')
-        # Find index
         found = False
         model = self.material_combo.get_model()
         for i, row in enumerate(model):
@@ -146,7 +328,15 @@ class RoofPropertiesWidget(Gtk.Box):
         if not found:
              self.material_combo.set_active(0)
 
+        # Update summary label
+        if hasattr(first, 'roof_planes') and first.roof_planes:
+            total_area = sum(p.get("area_3d_sqft", 0.0) for p in first.roof_planes)
+            self.summary_label.set_text(f"Solved: {len(getattr(first, 'solved_lines', []))} lines, {total_area:.1f} sq ft 3D area")
+        else:
+            self.summary_label.set_text("Click Solve to compute roof topology.")
+
         self._block_updates = False
+
 
 
 class WallPropertiesWidget(Gtk.Box):
@@ -2566,6 +2756,7 @@ class PropertiesDock(Gtk.Box):
         polyline_items = []
         polyline_items = []
         roof_items = []
+        roof_line_items = []
         stair_items = []
         room_items = []
 
@@ -2589,6 +2780,10 @@ class PropertiesDock(Gtk.Box):
                 polyline_items.append(item)
             elif item_type == "roof":
                 roof_items.append(item)
+            elif item_type == "roof_line":
+                roof_line_items.append(item)
+                if item.get("roof") and item["roof"] not in [r["object"] for r in roof_items]:
+                    roof_items.append({"type": "roof", "object": item["roof"]})
             elif item_type == "stair":
                 stair_items.append(item)
             elif item_type == "room":
@@ -2609,7 +2804,8 @@ class PropertiesDock(Gtk.Box):
         wants_circle = len(circle_items) > 0
         wants_arc = len(arc_items) > 0
         wants_polyline = len(polyline_items) > 0
-        wants_roof = len(roof_items) > 0
+        wants_roof_line = len(roof_line_items) > 0
+        wants_roof = len(roof_items) > 0 or wants_roof_line
         wants_stair = len(stair_items) > 0
         wants_room = len(room_items) > 0
 
@@ -2659,7 +2855,9 @@ class PropertiesDock(Gtk.Box):
 
         if wants_roof:
             selected_roofs = [item["object"] for item in roof_items]
-            self.roof_page.set_roof(selected_roofs)
+            selected_roof_lines = [item["object"] for item in roof_line_items]
+            self.roof_page.set_roof(selected_roofs, roof_lines=selected_roof_lines)
+
 
         if wants_stair:
             selected_stairs = [item["object"] for item in stair_items]

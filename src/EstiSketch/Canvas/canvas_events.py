@@ -29,7 +29,7 @@ class CanvasEventsMixin:
         creating_tools = [
             "draw_walls", "draw_rooms", "add_doors", "add_windows", 
             "add_polyline", "add_dimension", "add_text", 
-            "add_circle", "add_arc", "add_stair", "design_roof"
+            "add_circle", "add_arc", "add_stair", "design_roof", "add_roof_line"
         ]
         
         if self.tool_mode in creating_tools:
@@ -56,6 +56,8 @@ class CanvasEventsMixin:
             # Design roof uses pointer-like selection for marking walls
             # Selection already handled in on_click_pressed
             pass
+        elif self.tool_mode == "add_roof_line":
+            self._handle_roof_line_click(n_press, x, y)
         elif self.tool_mode == "add_polyline":
             self._handle_polyline_click(n_press, x, y)
         elif self.tool_mode == "add_dimension":
@@ -68,6 +70,7 @@ class CanvasEventsMixin:
             self._handle_arc_click(n_press, x, y)
         elif self.tool_mode == "add_stair":
             self._handle_stair_click(n_press, x, y)
+
 
     def on_click_pressed(
             self,
@@ -174,6 +177,25 @@ class CanvasEventsMixin:
                         self.box_select_start = pt
 
                         # Snapshot state for undo.
+                        try:
+                            self.save_state()
+                        except Exception:
+                            pass
+                        return
+
+            if item.get("type") == "roof_line":
+                rline = item.get("object")
+                for handle_name, pt in [("start", rline.start), ("end", rline.end)]:
+                    pt_widget = (
+                        (pt[0] * T) + self.offset_x,
+                        (pt[1] * T) + self.offset_y)
+                    dx = x - pt_widget[0]
+                    dy = y - pt_widget[1]
+                    if math.hypot(dx, dy) < self.handle_radius:
+                        self.editing_roof_line = rline
+                        self.editing_roof_line_handle = handle_name
+                        self.editing_roof_line_roof = item.get("roof")
+                        self.box_select_start = pt
                         try:
                             self.save_state()
                         except Exception:
@@ -396,6 +418,9 @@ class CanvasEventsMixin:
 
         elif self.tool_mode == "add_stair":
             self._handle_stair_motion(x, y)
+        elif self.tool_mode == "add_roof_line":
+            self._handle_roof_line_motion(x, y)
+
 
     def on_zoom_changed(
             self,

@@ -8,6 +8,12 @@ class CanvasToolMixin:
         self.raw_current_end = None
         self.current_room_points = []
         self.current_room_preview = None
+        self.drawing_roof_line = False
+        self.roof_line_start = None
+        self.roof_line_preview = None
+        self.editing_roof_line = None
+        self.editing_roof_line_handle = None
+        self.dragging_roof_lines = None
         self.queue_draw()
 
         # Update hint for the new tool mode

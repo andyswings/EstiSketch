@@ -63,6 +63,9 @@ class CanvasSelectionMixin:
         self.editing_arc_handle = None
         self.editing_curved_wall = None
         self.editing_curved_wall_handle = None
+        self.editing_roof_line = None
+        self.editing_roof_line_handle = None
+        self.editing_roof_line_roof = None
 
         # Check for wall handle clicks (for editing)
         T = self.zoom * pixels_per_inch
@@ -310,11 +313,6 @@ class CanvasSelectionMixin:
                              break
                     if selected_item:
                         break
-                    if dist < self.handle_radius:
-                        self.editing_circle = circle
-                        self.editing_circle_handle = "radius"
-                        selected_item = {"type": "circle_handle", "object": (circle, "radius")}
-                        break
                         
                 elif item["type"] == "arc":
                     arc = item["object"]
@@ -344,6 +342,23 @@ class CanvasSelectionMixin:
                             self.editing_arc = arc
                             self.editing_arc_handle = h_name
                             selected_item = {"type": "arc_handle", "object": (arc, h_name)}
+                            break
+                    if selected_item:
+                        break
+
+                elif item["type"] == "roof_line":
+                    rline = item["object"]
+                    for handle_name, pt in [("start", rline.start), ("end", rline.end)]:
+                        pt_widget = (
+                            (pt[0] * T) + self.offset_x,
+                            (pt[1] * T) + self.offset_y
+                        )
+                        dist = math.hypot(click_pt[0] - pt_widget[0], click_pt[1] - pt_widget[1])
+                        if dist < self.handle_radius:
+                            self.editing_roof_line = rline
+                            self.editing_roof_line_handle = handle_name
+                            self.editing_roof_line_roof = item.get("roof")
+                            selected_item = {"type": "roof_line_handle", "object": (rline, handle_name), "roof": item.get("roof")}
                             break
                     if selected_item:
                         break
@@ -718,18 +733,30 @@ class CanvasSelectionMixin:
                  if self.is_object_on_locked_layer(roof) or not self.is_object_on_visible_layer(roof):
                      continue
                  
-                 # Convert outline to widget coords
-                 poly_widget = [
-                     self.model_to_device(pt[0], pt[1], pixels_per_inch)
-                     for pt in roof.outline_points
-                 ]
-                 
-                 if self._point_in_polygon(click_pt, poly_widget):
-                     selected_item = {"type": "roof", "object": roof}
-                     from ..Resources.tool_hints import TOOL_HINTS
-                     # Need to ensure hint exists or use generic
-                     self.update_hint("Click to select roof, Drag to move (not impl)")
+                 # First check individual roof lines (manual and solved lines)
+                 all_roof_lines = (roof.solved_lines or []) + (roof.manual_lines or [])
+                 for rline in all_roof_lines:
+                     p1_dev = self.model_to_device(rline.start[0], rline.start[1], pixels_per_inch)
+                     p2_dev = self.model_to_device(rline.end[0], rline.end[1], pixels_per_inch)
+                     if self.distance_point_to_segment(click_pt, p1_dev, p2_dev) < fixed_threshold:
+                         selected_item = {"type": "roof_line", "object": rline, "roof": roof}
+                         self.update_hint("Click to select roof line")
+                         break
+                 if selected_item:
                      break
+
+                 # Convert outline to widget coords
+                 if getattr(roof, 'outline_points', None):
+                     poly_widget = [
+                         self.model_to_device(pt[0], pt[1], pixels_per_inch)
+                         for pt in roof.outline_points
+                     ]
+                     
+                     if self._point_in_polygon(click_pt, poly_widget):
+                         selected_item = {"type": "roof", "object": roof}
+                         self.update_hint("Click to select roof")
+                         break
+
 
         # Check Stairs  
         if selected_item is None:
@@ -1022,7 +1049,8 @@ class CanvasSelectionMixin:
         # box_select_start.
         if (getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None)) or \
            (getattr(self, "editing_circle", None) and getattr(self, "editing_circle_handle", None)) or \
-           (getattr(self, "editing_arc", None) and getattr(self, "editing_arc_handle", None)):
+           (getattr(self, "editing_arc", None) and getattr(self, "editing_arc_handle", None)) or \
+           (getattr(self, "editing_roof_line", None) and getattr(self, "editing_roof_line_handle", None)):
             
             # Initializing drag start coordinates for calculating drag offset
             self.drag_start_x = start_x
@@ -1329,6 +1357,25 @@ class CanvasSelectionMixin:
                         
                         self.box_selecting = False
 
+                # Check for roof line dragging
+                elif item["type"] == "roof_line" and not getattr(self, "editing_roof_line", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_circle", None) and not getattr(self, "dragging_arc", None) and not getattr(self, "dragging_stair", None):
+                    self.dragging_roof_lines = []
+                    pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                    model_x, model_y = self.device_to_model(start_x, start_y, pixels_per_inch)
+                    for itm in self.selected_items:
+                        if itm.get("type") == "roof_line":
+                            rl = itm["object"]
+                            self.dragging_roof_lines.append({
+                                "roof_line": rl,
+                                "original_start": rl.start,
+                                "original_end": rl.end,
+                                "roof": itm.get("roof")
+                            })
+                    self.drag_start_x = start_x
+                    self.drag_start_y = start_y
+                    self.roof_line_drag_start_model = (model_x, model_y)
+                    self.box_selecting = False
+
         elif self.tool_mode == "add_text":
             self.drag_start_x = start_x
             self.drag_start_y = start_y
@@ -1437,6 +1484,22 @@ class CanvasSelectionMixin:
             self.queue_draw()
             return
 
+        if getattr(self, "dragging_roof_lines", None):
+            # Finalize roof line drag and clear dragging state
+            roofs_to_solve = set()
+            for rinfo in self.dragging_roof_lines:
+                r = rinfo.get("roof")
+                if r:
+                    roofs_to_solve.add(r)
+            self.dragging_roof_lines = None
+            self.roof_line_drag_start_model = None
+            for r in roofs_to_solve:
+                if hasattr(self, "solve_active_roof"):
+                    self.solve_active_roof(r)
+            self.save_state()
+            self.queue_draw()
+            return
+
         if getattr(
                 self,
                 "editing_polyline",
@@ -1448,6 +1511,24 @@ class CanvasSelectionMixin:
             self.editing_polyline = None
             self.editing_polyline_handle = None
             self.save_state()
+            return
+
+        if getattr(
+                self,
+                "editing_roof_line",
+                None) and getattr(
+                self,
+                "editing_roof_line_handle",
+                None):
+            # Finalize roof line endpoint editing
+            roof = getattr(self, "editing_roof_line_roof", None)
+            self.editing_roof_line = None
+            self.editing_roof_line_handle = None
+            self.editing_roof_line_roof = None
+            if hasattr(self, "solve_active_roof"):
+                self.solve_active_roof(roof)
+            self.save_state()
+            self.queue_draw()
             return
 
         if getattr(self, "rotating_text", None):
@@ -1743,6 +1824,17 @@ class CanvasSelectionMixin:
                          new_selection.append({"type": "roof", "object": roof})
                          break
 
+            # Check Roof Lines
+            for roof in getattr(self, "roofs", []):
+                if self.is_object_on_locked_layer(roof) or not self.is_object_on_visible_layer(roof):
+                    continue
+                all_lines = (getattr(roof, "manual_lines", []) or []) + (getattr(roof, "solved_lines", []) or [])
+                for rline in all_lines:
+                    sx, sy = rline.start
+                    ex, ey = rline.end
+                    if (x1 <= sx <= x2 and y1 <= sy <= y2) or (x1 <= ex <= x2 and y1 <= ey <= y2):
+                        new_selection.append({"type": "roof_line", "object": rline, "roof": roof})
+
             # Check Stairs
             for stair in getattr(self, "stairs", []):
                  if self.is_object_on_locked_layer(stair) or not self.is_object_on_visible_layer(stair):
@@ -1884,6 +1976,10 @@ class CanvasSelectionMixin:
             item for item in self.selected_items if item.get("type") == "text"]
         selected_dimensions = [
             item for item in self.selected_items if item.get("type") == "dimension"]
+        selected_roof_lines = [
+            item for item in self.selected_items if item.get("type") == "roof_line"]
+        selected_roofs = [
+            item for item in self.selected_items if item.get("type") == "roof"]
 
         # Create a popover to serve as the context menu
         parent_popover = Gtk.Popover()
@@ -1911,6 +2007,13 @@ class CanvasSelectionMixin:
                         self.mark_walls_as_gable([w["object"] for w in selected_walls]),
                         parent_popover.popdown()))
                 box.append(mark_gable_btn)
+
+                mark_tie_in_btn = Gtk.Button(label="Mark as Tie-In")
+                mark_tie_in_btn.connect(
+                    "clicked", lambda btn: (
+                        self.mark_walls_as_tie_in([w["object"] for w in selected_walls]),
+                        parent_popover.popdown()))
+                box.append(mark_tie_in_btn)
 
             # Generate Roof button (if we have markings)
             if markings:
@@ -2140,6 +2243,13 @@ class CanvasSelectionMixin:
                     parent_popover.popdown()))
             box.append(mark_gable_btn)
 
+            mark_tie_in_btn = Gtk.Button(label="Mark as Tie-In (Roof)")
+            mark_tie_in_btn.connect(
+                "clicked", lambda btn: (
+                    self.mark_walls_as_tie_in([w["object"] for w in selected_walls]),
+                    parent_popover.popdown()))
+            box.append(mark_tie_in_btn)
+
             # Generate Roof button (if we have markings)
             if markings:
                 generate_roof_btn = Gtk.Button(label="Generate Roof")
@@ -2223,6 +2333,43 @@ class CanvasSelectionMixin:
                 "clicked", lambda btn: self.mirror_dimension_offset(
                     selected_dimensions, parent_popover))
             box.append(mirror_offset_btn)
+
+        # Roof line specific options
+        if selected_roof_lines:
+            rline_sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            box.append(rline_sep)
+
+            del_rline_btn = Gtk.Button(label="Delete Roof Line")
+            del_rline_btn.connect(
+                "clicked", lambda btn: (
+                    self.delete_selected(),
+                    parent_popover.popdown()))
+            box.append(del_rline_btn)
+
+            solve_roof_btn = Gtk.Button(label="Solve / Clean Roof Topology")
+            solve_roof_btn.connect(
+                "clicked", lambda btn: (
+                    self.solve_active_roof(selected_roof_lines[0].get("roof")),
+                    parent_popover.popdown()))
+            box.append(solve_roof_btn)
+
+        elif selected_roofs:
+            roof_sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            box.append(roof_sep)
+
+            del_roof_btn = Gtk.Button(label="Delete Roof")
+            del_roof_btn.connect(
+                "clicked", lambda btn: (
+                    self.delete_selected(),
+                    parent_popover.popdown()))
+            box.append(del_roof_btn)
+
+            solve_roof_btn = Gtk.Button(label="Solve / Clean Roof Topology")
+            solve_roof_btn.connect(
+                "clicked", lambda btn: (
+                    self.solve_active_roof(selected_roofs[0]["object"]),
+                    parent_popover.popdown()))
+            box.append(solve_roof_btn)
 
         # Position the popover at the click location
         rect = Gdk.Rectangle()
