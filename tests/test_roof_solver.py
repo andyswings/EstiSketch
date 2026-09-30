@@ -363,5 +363,74 @@ def test_canvas_state_undo_redo_roofs():
     assert c.roofs[0].pitch_rise == 8.0
 
 
+def test_roof_line_canvas_interactions():
+    from types import SimpleNamespace
+    from EstiSketch import config
+    from EstiSketch.Canvas.canvas_area import CanvasArea
+
+    cfg = SimpleNamespace(**config.load_config())
+    canvas = CanvasArea(cfg)
+
+    roof = Roof(identifier="ROOF-INT-1", pitch_rise=6.0)
+    rline = RoofLine(identifier="RL-1", start=(10.0, 20.0), end=(100.0, 20.0), line_type="ridge")
+    roof.manual_lines.append(rline)
+    canvas.roofs.append(roof)
+
+    # 1. Test endpoint handle dragging
+    canvas.editing_roof_line = rline
+    canvas.editing_roof_line_handle = "end"
+    canvas.editing_roof_line_roof = roof
+    canvas.drag_start_x = 0.0
+    canvas.drag_start_y = 0.0
+    # Turn off snapping for exact coord test
+    canvas.snap_manager.snap_enabled = False
+
+    # Simulate drag update (offset_x=40 device units, zoom=1.0, pixels_per_inch=2.0 -> model offset=20.0)
+    ppi = getattr(canvas.config, "PIXELS_PER_INCH", 2.0)
+    canvas.on_drag_update(None, offset_x=120.0, offset_y=60.0)
+    expected_x, expected_y = canvas.device_to_model(120.0, 60.0, ppi)
+    assert rline.end == (expected_x, expected_y)
+
+    # Simulate drag end
+    canvas.on_drag_end(None, offset_x=120.0, offset_y=60.0)
+    assert canvas.editing_roof_line is None
+    assert canvas.editing_roof_line_handle is None
+
+    # 2. Test whole roof line dragging
+    initial_start = rline.start
+    initial_end = rline.end
+    canvas.dragging_roof_lines = [{
+        "roof_line": rline,
+        "original_start": initial_start,
+        "original_end": initial_end,
+        "roof": roof
+    }]
+    canvas.drag_start_x = 0.0
+    canvas.drag_start_y = 0.0
+    canvas.roof_line_drag_start_model = (0.0, 0.0)
+
+    canvas.on_drag_update(None, offset_x=20.0, offset_y=20.0)
+    dx_model, dy_model = canvas.device_to_model(20.0, 20.0, ppi)
+    assert rline.start == (initial_start[0] + dx_model, initial_start[1] + dy_model)
+    assert rline.end == (initial_end[0] + dx_model, initial_end[1] + dy_model)
+
+    canvas.on_drag_end(None, offset_x=20.0, offset_y=20.0)
+    assert canvas.dragging_roof_lines is None
+
+    # 3. Test box selection of roof lines
+    canvas.tool_mode = "pointer"
+    canvas.box_selecting = True
+    canvas.box_select_start = (-100.0, -100.0)
+    canvas.box_select_end = (500.0, 500.0)
+    canvas.on_drag_end(None, 0.0, 0.0)
+    assert any(item.get("type") == "roof_line" and item.get("object") == rline for item in canvas.selected_items)
+
+    # 4. Test delete selected roof line (with fallback lookup of roof)
+    canvas.selected_items = [{"type": "roof_line", "object": rline}]
+    canvas.delete_selected()
+    assert rline not in roof.manual_lines
+
+
+
 
 

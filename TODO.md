@@ -1,9 +1,7 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Roof design - Complex roof shapes (in progress)
 - [ ] Add Stairs tool (Winder)
-- [ ] Asymetrical roof pitches (in progress)
 
 ## Ideas to think about
 - [ ] Refine capability to snap new wall's edges to existing wall edges instead of just endpoints to endpoints (should have same capabilities for editing walls as well) (This is useful for aligning walls of different thicknesses end to end)
@@ -11,7 +9,6 @@
 ## ✨ Core Features (essential functionality)
 
 ### Architectural Elements
-- [ ] Roof components (trusses, rafters, ridges, valleys)
 - [ ] Columns/PostsS
 - [ ] Beams
 - [ ] Ceiling types (dropped, vaulted, cathedral)
@@ -158,6 +155,9 @@
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Roof components (ridges, valleys, hips, rakes, eaves, tie-ins, and multi-plane facets) (2026-02-01)
+- [x] Roof design - Complex roof shapes (manual line sketch, topology cleaning, multi-plane 3D takeoff) (2026-02-01)
+- [x] Asymmetrical roof pitches & per-edge pitch overrides (2026-02-01)
 - [x] Added Angled walls (one side taller than the other for sloped ceilings) (2026-08-10)
 - [x] Fixed room selection indicator (fill highlight, outline, vertex handles) and full room deletion (2026-08-11)
 - [x] Stairs now appear in the Layers Panel with other objects (2026-02-01)
@@ -182,6 +182,8 @@
 - [x] Added object list per layer in the layers panel. (2026-01-18)
 - [x] When a layer is selected, it and the layers above are set to 100% opacity and the layers below are set to 25% opacity. (2026-01-18)
 - [x] Objects can no longer be placed or edited on a locked layer. (2026-01-18)
+- [x] Implemented roof design - Complex roof shapes, manual line sketching (Shift+L), topology cleaning, and multi-plane 3D takeoff (2026-02-01)
+- [x] Implemented asymmetric roof pitch calculations, per-plane facet slope solving, and line endpoint dragging (2026-02-01)
 - [x] Fixed wall loops are not always mitered correctly between the last and first wall and the issue is not fixed by joining the walls or joining connected walls. (2026-01-18)
 - [x] Implemented custom roof pitches (editable pitch, overhang, material) (2026-01-18)
 - [x] Added tool hint for the roof design tool (2026-01-15)

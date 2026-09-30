@@ -1486,11 +1486,11 @@ class CanvasSelectionMixin:
 
         if getattr(self, "dragging_roof_lines", None):
             # Finalize roof line drag and clear dragging state
-            roofs_to_solve = set()
+            roofs_to_solve = []
             for rinfo in self.dragging_roof_lines:
                 r = rinfo.get("roof")
-                if r:
-                    roofs_to_solve.add(r)
+                if r and r not in roofs_to_solve:
+                    roofs_to_solve.append(r)
             self.dragging_roof_lines = None
             self.roof_line_drag_start_model = None
             for r in roofs_to_solve:
