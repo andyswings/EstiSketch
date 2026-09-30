@@ -146,17 +146,17 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [x] building_takeoff.py lines 694 and 695 should not have a hardcoded fallback value. Warned user via UserWarning and returned empty results when geometry is missing instead of hardcoded fallbacks. (2026-09-29)
-- [x] After marking walls and then auto generating a gable roof, ridge line does not extend or retract to follow overhang when overhang size is edited. (2026-09-29)
-- [x] Edited ridgelines are not persistent after auto generating a roof. Added click-and-drag ridge recalculation of side pitches, and property dock controls to adjust individual pitches which reposition the ridge. (2026-09-29)
-- [x] Does not seem to be any way to set different pitches for different parts of the roof anywhere in the GUI, and I don't see a way to manually edit pitches at all. (2026-09-29)
-
+- [ ] Rectangular roofs work very well when auto generating, however when trying to auto generate a more complex roof, only the eaves are generated correctly. In an L shaped house for example, we should have two seperate ridge lines with each ridge line parallel to and initially centered between the walls of each part of the home (one running east to west and the other running north to south for example). from the point where these two ridge lines intersect through the inside corner of the L shaped house and extending out to the corner of the overhang, there should be a valley line. Also, from that same ridge intersection running outwards through the outside corner of the house and extending to the corner of the overhang there should be a hip line. Similar logic applies to a T shaped house. This bug also seems to affect hip roofs on other multisided homes.
 
 ## 💡 Takeoffs
 - [ ] Material Estimator
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] building_takeoff.py lines 694 and 695 should not have a hardcoded fallback value. Warned user via UserWarning and returned empty results when geometry is missing instead of hardcoded fallbacks. (2026-09-29)
+- [x] After marking walls and then auto generating a gable roof, ridge line does not extend or retract to follow overhang when overhang size is edited. (2026-09-29)
+- [x] Edited ridgelines are not persistent after auto generating a roof. Added click-and-drag ridge recalculation of side pitches, and property dock controls to adjust individual pitches which reposition the ridge. (2026-09-29)
+- [x] Does not seem to be any way to set different pitches for different parts of the roof anywhere in the GUI, and I don't see a way to manually edit pitches at all. (2026-09-29)
 - [x] Fixed GUI pitch editing: added Pitch Mode selector (Uniform vs Asymmetric Dual Pitch), per-side pitch spin buttons, and interactive individual slope facet list in Roof Properties Dock (2026-09-29)
 - [x] Fixed ridgeline drag persistence and bi-directional pitch recalculation: dragging ridge lines persists coordinates and updates side pitches; adjusting side pitches moves the ridge line (2026-09-29)
 - [x] Fixed gable ridge line overhang tracking: ridge lines now dynamically extend or retract when overhang distance is edited (2026-09-29)
