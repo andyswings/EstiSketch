@@ -1489,13 +1489,57 @@ class CanvasSelectionMixin:
             roofs_to_solve = []
             for rinfo in self.dragging_roof_lines:
                 r = rinfo.get("roof")
-                if r and r not in roofs_to_solve:
-                    roofs_to_solve.append(r)
+                rl = rinfo.get("roof_line")
+                if r and rl:
+                    if r not in roofs_to_solve:
+                        roofs_to_solve.append(r)
+                    
+                    # Mark line as user-customized so solver preserves the dragged position
+                    rl.is_auto_generated = False
+                    
+                    # Sync into roof.manual_lines
+                    found = False
+                    for ml in r.manual_lines:
+                        if ml.identifier == rl.identifier:
+                            ml.start = rl.start
+                            ml.end = rl.end
+                            ml.is_auto_generated = False
+                            found = True
+                            break
+                    if not found:
+                        r.manual_lines.append(rl)
+
+                    # If this is a ridge line on a gable roof, calculate updated pitches across the span
+                    if rl.line_type == "ridge" and r.roof_type == "gable":
+                        all_walls = self.get_all_walls() if hasattr(self, 'get_all_walls') else []
+                        eave_walls = []
+                        for edge in r.edges:
+                            if edge.edge_type == "eave":
+                                for w in all_walls:
+                                    if w.identifier == edge.wall_identifier:
+                                        eave_walls.append((w, edge))
+                        if len(eave_walls) >= 2:
+                            w1, e1 = eave_walls[0]
+                            w2, e2 = eave_walls[1]
+                            from .roof_solver import distance_point_to_segment
+                            r_mid = ((rl.start[0] + rl.end[0]) / 2.0, (rl.start[1] + rl.end[1]) / 2.0)
+                            d1 = distance_point_to_segment(r_mid, w1.start, w1.end)[0]
+                            d2 = distance_point_to_segment(r_mid, w2.start, w2.end)[0]
+                            span = d1 + d2
+                            if span > 10.0 and d1 > 2.0 and d2 > 2.0:
+                                base_pitch = r.pitch_rise or 6.0
+                                p1 = max(0.5, min(24.0, round(base_pitch * span / (2.0 * d1), 1)))
+                                p2 = max(0.5, min(24.0, round(base_pitch * span / (2.0 * d2), 1)))
+                                e1.pitch_rise = p1
+                                e2.pitch_rise = p2
+
             self.dragging_roof_lines = None
             self.roof_line_drag_start_model = None
             for r in roofs_to_solve:
                 if hasattr(self, "solve_active_roof"):
                     self.solve_active_roof(r)
+            if hasattr(self, 'emit') and getattr(self, 'selected_items', None):
+                self.emit("selection-changed", self.selected_items)
             self.save_state()
             self.queue_draw()
             return
@@ -1522,11 +1566,27 @@ class CanvasSelectionMixin:
                 None):
             # Finalize roof line endpoint editing
             roof = getattr(self, "editing_roof_line_roof", None)
+            rl = getattr(self, "editing_roof_line", None)
+            if roof and rl:
+                rl.is_auto_generated = False
+                found = False
+                for ml in roof.manual_lines:
+                    if ml.identifier == rl.identifier:
+                        ml.start = rl.start
+                        ml.end = rl.end
+                        ml.is_auto_generated = False
+                        found = True
+                        break
+                if not found:
+                    roof.manual_lines.append(rl)
+
             self.editing_roof_line = None
             self.editing_roof_line_handle = None
             self.editing_roof_line_roof = None
             if hasattr(self, "solve_active_roof"):
                 self.solve_active_roof(roof)
+            if hasattr(self, 'emit') and getattr(self, 'selected_items', None):
+                self.emit("selection-changed", self.selected_items)
             self.save_state()
             self.queue_draw()
             return

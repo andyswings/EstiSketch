@@ -146,19 +146,24 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] building_takeoff.py lines 694 and 695 should not have a hardcoded fallback value. Should we warn the user instead of falling back to a hard coded value?
-- [ ] After marking walls and then auto generating a gable roof, ridge line does not extend or retract to follow overhang when overhang size is edited.
-- [ ] Edited ridgelines are not persistent after auto generating a roof. (we should either have the ability to click and drag the ridge side to side to change the pitch on either side, or we should have controls in the properties panel to specify different pitches for each side of the roof and the ridge should move to match.)
-- [ ] Does not seem to be any way to set different pitches for different parts of the roof anywhere in the GUI
+- [x] building_takeoff.py lines 694 and 695 should not have a hardcoded fallback value. Warned user via UserWarning and returned empty results when geometry is missing instead of hardcoded fallbacks. (2026-09-29)
+- [x] After marking walls and then auto generating a gable roof, ridge line does not extend or retract to follow overhang when overhang size is edited. (2026-09-29)
+- [x] Edited ridgelines are not persistent after auto generating a roof. Added click-and-drag ridge recalculation of side pitches, and property dock controls to adjust individual pitches which reposition the ridge. (2026-09-29)
+- [x] Does not seem to be any way to set different pitches for different parts of the roof anywhere in the GUI, and I don't see a way to manually edit pitches at all. (2026-09-29)
+
 
 ## 💡 Takeoffs
 - [ ] Material Estimator
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
-- [x] Roof components (ridges, valleys, hips, rakes, eaves, tie-ins, and multi-plane facets) (2026-02-01)
-- [x] Roof design - Complex roof shapes (manual line sketch, topology cleaning, multi-plane 3D takeoff) (2026-02-01)
-- [x] Asymmetrical roof pitches & per-edge pitch overrides (2026-02-01)
+- [x] Fixed GUI pitch editing: added Pitch Mode selector (Uniform vs Asymmetric Dual Pitch), per-side pitch spin buttons, and interactive individual slope facet list in Roof Properties Dock (2026-09-29)
+- [x] Fixed ridgeline drag persistence and bi-directional pitch recalculation: dragging ridge lines persists coordinates and updates side pitches; adjusting side pitches moves the ridge line (2026-09-29)
+- [x] Fixed gable ridge line overhang tracking: ridge lines now dynamically extend or retract when overhang distance is edited (2026-09-29)
+- [x] Removed hardcoded 24.0/30.0 fallback in building_takeoff.py, added wall edge fallbacks, and warned user via UserWarning when roof points are missing (2026-09-29)
+- [x] Roof components (ridges, valleys, hips, rakes, eaves, tie-ins, and multi-plane facets) (2026-09-29)
+- [x] Roof design - Complex roof shapes (manual line sketch, topology cleaning, multi-plane 3D takeoff) (2026-09-29)
+- [x] Asymmetrical roof pitches & per-edge pitch overrides (2026-09-29)
 - [x] Added Angled walls (one side taller than the other for sloped ceilings) (2026-08-10)
 - [x] Fixed room selection indicator (fill highlight, outline, vertex handles) and full room deletion (2026-08-11)
 - [x] Stairs now appear in the Layers Panel with other objects (2026-02-01)

@@ -85,7 +85,9 @@ class RoofLinePropertiesWidget(Gtk.Box):
                     line.line_type = new_type
 
             if self.canvas and hasattr(self.canvas, 'roofs') and self.canvas.roofs:
-                roof = self.canvas.roofs[0]
+                roof = self.canvas.get_roof_for_line(self.current_lines[0]) if hasattr(self.canvas, 'get_roof_for_line') else self.canvas.roofs[0]
+                if not roof:
+                    roof = self.canvas.roofs[0]
                 roof.last_line_type = new_type
                 setattr(self.canvas, 'active_roof_line_type', new_type)
 
@@ -95,9 +97,11 @@ class RoofLinePropertiesWidget(Gtk.Box):
                         for ml in roof.manual_lines:
                             if ml.identifier == line_id:
                                 ml.line_type = new_type
+                                ml.is_auto_generated = False
                         for sl in roof.solved_lines:
                             if sl.identifier == line_id:
                                 sl.line_type = new_type
+                                sl.is_auto_generated = False
 
                 self.canvas.solve_active_roof(roof)
                 self.canvas.save_state()
@@ -114,17 +118,29 @@ class RoofLinePropertiesWidget(Gtk.Box):
                 line.pitch_rise = val
 
         if self.canvas and hasattr(self.canvas, 'roofs') and self.canvas.roofs:
-            roof = self.canvas.roofs[0]
+            roof = self.canvas.get_roof_for_line(self.current_lines[0]) if hasattr(self.canvas, 'get_roof_for_line') else self.canvas.roofs[0]
+            if not roof:
+                roof = self.canvas.roofs[0]
             for selected in self.current_lines:
                 line_id = getattr(selected, 'identifier', None)
                 if line_id:
                     for ml in getattr(roof, 'manual_lines', []):
                         if ml.identifier == line_id:
                             ml.pitch_rise = val
+                            ml.is_auto_generated = False
                     for sl in getattr(roof, 'solved_lines', []):
                         if sl.identifier == line_id:
                             sl.pitch_rise = val
-            self.canvas.solve_active_roof(roof)
+                            sl.is_auto_generated = False
+                    # Sync to roof edge if applicable
+                    for edge in getattr(roof, 'edges', []):
+                        if f"auto_{edge.edge_type}_{edge.wall_identifier}" == line_id or line_id.endswith(edge.wall_identifier):
+                            edge.pitch_rise = val
+
+            if roof.roof_type == "gable" and hasattr(self.canvas, "recalculate_roof"):
+                self.canvas.recalculate_roof(roof)
+            else:
+                self.canvas.solve_active_roof(roof)
             self.canvas.save_state()
             self.canvas.queue_draw()
         elif self.canvas:
@@ -139,16 +155,21 @@ class RoofLinePropertiesWidget(Gtk.Box):
                 line.overhang = val
 
         if self.canvas and hasattr(self.canvas, 'roofs') and self.canvas.roofs:
-            roof = self.canvas.roofs[0]
+            roof = self.canvas.get_roof_for_line(self.current_lines[0]) if hasattr(self.canvas, 'get_roof_for_line') else self.canvas.roofs[0]
+            if not roof:
+                roof = self.canvas.roofs[0]
             for selected in self.current_lines:
                 line_id = getattr(selected, 'identifier', None)
                 if line_id:
                     for ml in getattr(roof, 'manual_lines', []):
                         if ml.identifier == line_id:
                             ml.overhang = val
+                            ml.is_auto_generated = False
                     for sl in getattr(roof, 'solved_lines', []):
                         if sl.identifier == line_id:
                             sl.overhang = val
+                            sl.is_auto_generated = False
+
             self.canvas.solve_active_roof(roof)
             self.canvas.save_state()
             self.canvas.queue_draw()
@@ -173,10 +194,10 @@ class RoofPropertiesWidget(Gtk.Box):
         frame.set_child(box)
         self.append(frame)
 
-        # Pitch Rise
+        # Base Pitch Rise
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        row.append(Gtk.Label(label="Pitch Rise:"))
-        self.pitch_rise_spin = Gtk.SpinButton.new_with_range(0, 24, 1)
+        row.append(Gtk.Label(label="Base Pitch Rise:"))
+        self.pitch_rise_spin = Gtk.SpinButton.new_with_range(0.5, 24.0, 0.5)
         self.pitch_rise_spin.connect("value-changed", self.on_pitch_changed)
         row.append(self.pitch_rise_spin)
         row.append(Gtk.Label(label="/"))
@@ -189,7 +210,40 @@ class RoofPropertiesWidget(Gtk.Box):
         self.pitch_run_combo.connect("changed", self.on_pitch_changed)
         row.append(self.pitch_run_combo)
         box.append(row)
+
+        # Pitch Distribution Mode (Uniform vs Asymmetric)
+        row_mode = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row_mode.append(Gtk.Label(label="Pitch Mode:"))
+        self.pitch_mode_combo = Gtk.ComboBoxText()
+        self.pitch_mode_combo.append_text("Uniform Pitch")
+        self.pitch_mode_combo.append_text("Asymmetric (Dual Pitch)")
+        self.pitch_mode_combo.set_active(0)
+        self.pitch_mode_combo.connect("changed", self.on_pitch_mode_changed)
+        row_mode.append(self.pitch_mode_combo)
+        box.append(row_mode)
+
+        # Dual / Asymmetric Pitch Controls
+        self.asym_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         
+        row_a = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row_a.append(Gtk.Label(label="Side A (Eave 1) Pitch:"))
+        self.pitch_a_spin = Gtk.SpinButton.new_with_range(0.5, 24.0, 0.5)
+        self.pitch_a_spin.connect("value-changed", self.on_side_pitch_changed)
+        row_a.append(self.pitch_a_spin)
+        row_a.append(Gtk.Label(label="/12"))
+        self.asym_box.append(row_a)
+
+        row_b = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row_b.append(Gtk.Label(label="Side B (Eave 2) Pitch:"))
+        self.pitch_b_spin = Gtk.SpinButton.new_with_range(0.5, 24.0, 0.5)
+        self.pitch_b_spin.connect("value-changed", self.on_side_pitch_changed)
+        row_b.append(self.pitch_b_spin)
+        row_b.append(Gtk.Label(label="/12"))
+        self.asym_box.append(row_b)
+        
+        self.asym_box.set_visible(False)
+        box.append(self.asym_box)
+
         # Overhang
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         row.append(Gtk.Label(label="Overhang:"))
@@ -219,6 +273,16 @@ class RoofPropertiesWidget(Gtk.Box):
         self.summary_label.set_wrap(True)
         box.append(self.summary_label)
 
+        # Roof Slopes & Facets Frame
+        self.slopes_frame = Gtk.Frame(label="Roof Slopes & Pitches")
+        self.slopes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.slopes_box.set_margin_top(6)
+        self.slopes_box.set_margin_bottom(6)
+        self.slopes_box.set_margin_start(6)
+        self.slopes_box.set_margin_end(6)
+        self.slopes_frame.set_child(self.slopes_box)
+        self.append(self.slopes_frame)
+
         # Embedded Roof Line Properties Sub-Widget
         self.line_widget = RoofLinePropertiesWidget()
         self.append(self.line_widget)
@@ -230,6 +294,7 @@ class RoofPropertiesWidget(Gtk.Box):
             if solved:
                 total_area = sum(p.get("area_3d_sqft", 0.0) for p in solved.roof_planes)
                 self.summary_label.set_text(f"Solved: {len(solved.solved_lines)} lines, {total_area:.1f} sq ft 3D area")
+                self.refresh_slopes_list(solved)
 
     def on_pitch_changed(self, widget):
         if self._block_updates or not self.current_roofs:
@@ -239,15 +304,158 @@ class RoofPropertiesWidget(Gtk.Box):
         run_text = self.pitch_run_combo.get_active_text()
         run = float(run_text) if run_text else 12.0
         
+        mode = self.pitch_mode_combo.get_active() # 0: Uniform, 1: Asymmetric
+        
         for roof in self.current_roofs:
             roof.pitch_rise = rise
             roof.pitch_run = run
+            
+            if mode == 0:
+                # Update all eave edges to match uniform pitch
+                for edge in getattr(roof, 'edges', []):
+                    if edge.edge_type == 'eave':
+                        edge.pitch_rise = rise
+                for ml in getattr(roof, 'manual_lines', []):
+                    if ml.line_type == 'eave' and getattr(ml, 'is_auto_generated', False):
+                        ml.pitch_rise = rise
+
             if hasattr(self, "canvas") and self.canvas:
-                self.canvas.solve_active_roof(roof)
+                if hasattr(self.canvas, "recalculate_roof"):
+                    self.canvas.recalculate_roof(roof)
+                else:
+                    self.canvas.solve_active_roof(roof)
             
         if hasattr(self, "canvas") and self.canvas:
             self.canvas.save_state()
             self.emit_property_changed()
+        self.refresh_slopes_list(self.current_roofs[0])
+
+    def on_pitch_mode_changed(self, combo):
+        if self._block_updates or not self.current_roofs:
+            return
+        is_asym = (combo.get_active() == 1)
+        self.asym_box.set_visible(is_asym)
+        
+        if not is_asym:
+            # Revert to uniform base pitch
+            base_pitch = float(self.pitch_rise_spin.get_value())
+            self._block_updates = True
+            self.pitch_a_spin.set_value(base_pitch)
+            self.pitch_b_spin.set_value(base_pitch)
+            self._block_updates = False
+            for roof in self.current_roofs:
+                for edge in getattr(roof, 'edges', []):
+                    if edge.edge_type == 'eave':
+                        edge.pitch_rise = base_pitch
+                if hasattr(self, "canvas") and self.canvas:
+                    self.canvas.recalculate_roof(roof)
+            if hasattr(self, "canvas") and self.canvas:
+                self.canvas.save_state()
+                self.emit_property_changed()
+            self.refresh_slopes_list(self.current_roofs[0])
+        else:
+            self.on_side_pitch_changed(None)
+
+    def on_side_pitch_changed(self, widget):
+        if self._block_updates or not self.current_roofs:
+            return
+        pitch_a = self.pitch_a_spin.get_value()
+        pitch_b = self.pitch_b_spin.get_value()
+
+        for roof in self.current_roofs:
+            eaves = [e for e in getattr(roof, 'edges', []) if e.edge_type == 'eave']
+            if len(eaves) >= 2:
+                eaves[0].pitch_rise = pitch_a
+                eaves[1].pitch_rise = pitch_b
+            elif len(eaves) == 1:
+                eaves[0].pitch_rise = pitch_a
+            
+            # Sync to manual_lines if auto-generated
+            eave_lines = [l for l in getattr(roof, 'manual_lines', []) if l.line_type == 'eave']
+            if len(eave_lines) >= 2:
+                eave_lines[0].pitch_rise = pitch_a
+                eave_lines[1].pitch_rise = pitch_b
+
+            if hasattr(self, "canvas") and self.canvas:
+                self.canvas.recalculate_roof(roof)
+
+        if hasattr(self, "canvas") and self.canvas:
+            self.canvas.save_state()
+            self.emit_property_changed()
+        self.refresh_slopes_list(self.current_roofs[0])
+
+    def refresh_slopes_list(self, roof=None):
+        if not roof and self.current_roofs:
+            roof = self.current_roofs[0]
+        if not roof:
+            return
+
+        # Clear existing children in slopes_box
+        while True:
+            child = self.slopes_box.get_first_child()
+            if not child:
+                break
+            self.slopes_box.remove(child)
+
+        planes = getattr(roof, 'roof_planes', [])
+        if not planes:
+            lbl = Gtk.Label(label="No solved roof planes yet.")
+            self.slopes_box.append(lbl)
+            return
+
+        for idx, plane in enumerate(planes):
+            p_name = plane.get("name", f"Slope #{idx + 1}")
+            p_pitch = float(plane.get("pitch", roof.pitch_rise))
+            p_area = float(plane.get("area_3d_sqft", 0.0))
+
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            row.set_margin_top(2)
+            row.set_margin_bottom(2)
+
+            name_lbl = Gtk.Label(label=f"{p_name.split('(')[0].strip()}:")
+            name_lbl.set_xalign(0.0)
+            name_lbl.set_hexpand(True)
+            row.append(name_lbl)
+
+            spin = Gtk.SpinButton.new_with_range(0.5, 24.0, 0.5)
+            spin.set_value(p_pitch)
+            
+            def make_handler(plane_idx):
+                def handler(s):
+                    if self._block_updates or not self.current_roofs:
+                        return
+                    new_val = s.get_value()
+                    r = self.current_roofs[0]
+                    # Update edge if index matches eave
+                    eaves = [e for e in getattr(r, 'edges', []) if e.edge_type == 'eave']
+                    if 0 <= plane_idx < len(eaves):
+                        eaves[plane_idx].pitch_rise = new_val
+                        self._block_updates = True
+                        if plane_idx == 0:
+                            self.pitch_a_spin.set_value(new_val)
+                        elif plane_idx == 1:
+                            self.pitch_b_spin.set_value(new_val)
+                        self._block_updates = False
+                    
+                    eave_lines = [l for l in getattr(r, 'manual_lines', []) if l.line_type == 'eave']
+                    if 0 <= plane_idx < len(eave_lines):
+                        eave_lines[plane_idx].pitch_rise = new_val
+
+                    if hasattr(self, "canvas") and self.canvas:
+                        self.canvas.recalculate_roof(r)
+                        self.canvas.save_state()
+                        self.emit_property_changed()
+                    self.refresh_slopes_list(r)
+                return handler
+
+            spin.connect("value-changed", make_handler(idx))
+            row.append(spin)
+            row.append(Gtk.Label(label="/12"))
+
+            area_lbl = Gtk.Label(label=f"({p_area:.1f} sq ft)")
+            row.append(area_lbl)
+
+            self.slopes_box.append(row)
 
     def on_overhang_changed(self, spin):
         if self._block_updates or not self.current_roofs:
@@ -263,6 +471,7 @@ class RoofPropertiesWidget(Gtk.Box):
         if hasattr(self, "canvas") and self.canvas:
             self.canvas.save_state()
             self.emit_property_changed()
+        self.refresh_slopes_list(self.current_roofs[0])
 
     def on_material_changed(self, combo):
         if self._block_updates or not self.current_roofs:
@@ -296,7 +505,6 @@ class RoofPropertiesWidget(Gtk.Box):
             self._block_updates = False
             return
 
-
         first = roofs[0]
 
         # Pitch
@@ -312,6 +520,20 @@ class RoofPropertiesWidget(Gtk.Box):
                 break
         if not found:
              self.pitch_run_combo.set_active(0) # Default 12
+
+        # Check for asymmetric pitch on eave edges
+        eaves = [e for e in getattr(first, 'edges', []) if e.edge_type == 'eave']
+        p_a = eaves[0].pitch_rise if len(eaves) >= 1 and eaves[0].pitch_rise is not None else first.pitch_rise
+        p_b = eaves[1].pitch_rise if len(eaves) >= 2 and eaves[1].pitch_rise is not None else first.pitch_rise
+        self.pitch_a_spin.set_value(p_a)
+        self.pitch_b_spin.set_value(p_b)
+
+        if abs(p_a - p_b) > 0.01:
+            self.pitch_mode_combo.set_active(1) # Asymmetric
+            self.asym_box.set_visible(True)
+        else:
+            self.pitch_mode_combo.set_active(0) # Uniform
+            self.asym_box.set_visible(False)
 
         # Overhang
         self.overhang_spin.set_value(first.overhang)
@@ -336,6 +558,7 @@ class RoofPropertiesWidget(Gtk.Box):
             self.summary_label.set_text("Click Solve to compute roof topology.")
 
         self._block_updates = False
+        self.refresh_slopes_list(first)
 
 
 

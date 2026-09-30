@@ -691,8 +691,28 @@ def generate_roof_takeoff(canvas, config) -> Dict:
                 w_ft = min(span_x_ft, span_y_ft)
                 l_ft = max(span_x_ft, span_y_ft)
             else:
-                w_ft = float(getattr(r, "width", 24.0))
-                l_ft = float(getattr(r, "length", 30.0))
+                # If no points on roof lines or outline, attempt to get from linked walls
+                if getattr(r, 'edges', None) and hasattr(canvas, 'get_wall_by_identifier'):
+                    for edge in r.edges:
+                        wall = canvas.get_wall_by_identifier(edge.wall_identifier)
+                        if wall and hasattr(wall, 'start') and hasattr(wall, 'end'):
+                            pts.extend([wall.start, wall.end])
+                if pts:
+                    min_x = min(p[0] for p in pts)
+                    max_x = max(p[0] for p in pts)
+                    min_y = min(p[1] for p in pts)
+                    max_y = max(p[1] for p in pts)
+                    span_x_ft = max(1.0, (max_x - min_x) / 12.0)
+                    span_y_ft = max(1.0, (max_y - min_y) / 12.0)
+                    w_ft = min(span_x_ft, span_y_ft)
+                    l_ft = max(span_x_ft, span_y_ft)
+                else:
+                    import warnings
+                    warnings.warn(
+                        f"Roof '{name}' has no defined geometry points. Skipping takeoff calculation.",
+                        UserWarning
+                    )
+                    continue
 
             framing_type = getattr(config, "ROOF_FRAMING_TYPE", "truss")
             rafter_spacing = float(getattr(config, "ROOF_RAFTER_SPACING_IN", 16.0))
@@ -713,14 +733,7 @@ def generate_roof_takeoff(canvas, config) -> Dict:
             roof_sections.append(sec)
 
     if not roof_sections:
-        roof_sections.append(RoofSection(
-            name="Main Roof Plan",
-            roof_type="gable",
-            pitch_rise=6.0,
-            sketched_overhang_in=24.0,
-            footprint_width_ft=28.0,
-            footprint_length_ft=40.0
-        ))
+        return {}
 
     combined = CombinedRoofTakeoff(
         project_name="EstiSketch Roof Takeoff",

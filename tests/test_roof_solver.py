@@ -431,6 +431,179 @@ def test_roof_line_canvas_interactions():
     assert rline not in roof.manual_lines
 
 
+def test_takeoff_warns_on_empty_roof_points_and_no_fallback():
+    import warnings
+    from EstiSketch.Takeoff.building_takeoff import generate_roof_takeoff
+
+    class DummyEmptyRoofCanvas:
+        def __init__(self):
+            self.wall_sets = []
+            self.walls = []
+            self.doors = []
+            self.windows = []
+            self.rooms = []
+            # Roof with no points at all
+            empty_roof = Roof(identifier="ROOF-EMPTY", pitch_rise=6.0, overhang=12.0)
+            self.roofs = [empty_roof]
+
+    class DummyConfig:
+        ROOF_WASTE_PCT = 10.0
+        ROOF_SHEATHING_THICKNESS = '5/8"'
+        ROOF_SHEATHING_TYPE = 'OSB'
+        ROOF_FRAMING_TYPE = 'truss'
+        ROOF_RAFTER_SPACING_IN = 16.0
+        ROOF_USE_LVL_RIDGE = False
+
+    canvas = DummyEmptyRoofCanvas()
+    config = DummyConfig()
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        result = generate_roof_takeoff(canvas, config)
+        # Verify a warning was raised
+        assert any("no defined geometry points" in str(item.message) for item in w)
+        # Verify it did NOT produce fallback 24x30 / 28x40 sections
+        assert result == {}
+
+
+def test_gable_ridge_overhang_extension_and_retraction():
+    from types import SimpleNamespace
+    from EstiSketch import config
+    from EstiSketch.Canvas.canvas_area import CanvasArea
+
+    cfg = SimpleNamespace(**config.load_config())
+    canvas = CanvasArea(cfg)
+
+    # 4 walls forming a 240 x 360 rectangle
+    # W1: (0,0)->(240,0) [Eave], W2: (240,0)->(240,360) [Gable],
+    # W3: (240,360)->(0,360) [Eave], W4: (0,360)->(0,0) [Gable]
+    w1 = DummyWall("W1", (0.0, 0.0), (240.0, 0.0))
+    w2 = DummyWall("W2", (240.0, 0.0), (240.0, 360.0))
+    w3 = DummyWall("W3", (240.0, 360.0), (0.0, 360.0))
+    w4 = DummyWall("W4", (0.0, 360.0), (0.0, 0.0))
+    canvas.wall_sets = [[w1, w2, w3, w4]]
+
+    canvas.mark_walls_as_eave([w1, w3])
+    canvas.mark_walls_as_gable([w2, w4])
+
+    # 1. Generate roof with 12" overhang
+    roof = canvas.generate_roof_from_marked_walls(pitch_rise=6, overhang=12.0)
+    assert roof is not None
+    assert len(roof.ridge_lines) == 1
+    r_start, r_end = roof.ridge_lines[0]
+    # Gable walls are at X=0 and X=240, so with 12" overhang ridge should span from -12 to 252 (length = 264)
+    ridge_len = math.hypot(r_end[0] - r_start[0], r_end[1] - r_start[1])
+    assert abs(ridge_len - 264.0) < 1.0
+
+    # 2. Change overhang to 24"
+    roof.overhang = 24.0
+    canvas.recalculate_roof(roof)
+    r_start24, r_end24 = roof.ridge_lines[0]
+    ridge_len24 = math.hypot(r_end24[0] - r_start24[0], r_end24[1] - r_start24[1])
+    # With 24" overhang, ridge extends from -24 to 264 (length = 288)
+    assert abs(ridge_len24 - 288.0) < 1.0
+
+    # Check that solved_lines also has the extended ridge
+    solved_ridge = next(l for l in roof.solved_lines if l.line_type == "ridge")
+    assert abs(solved_ridge.length_in - 288.0) < 1.0
+
+    # 3. Retract overhang to 6"
+    roof.overhang = 6.0
+    canvas.recalculate_roof(roof)
+    r_start6, r_end6 = roof.ridge_lines[0]
+    ridge_len6 = math.hypot(r_end6[0] - r_start6[0], r_end6[1] - r_start6[1])
+    # With 6" overhang, ridge spans from -6 to 246 (length = 252)
+    assert abs(ridge_len6 - 252.0) < 1.0
+
+
+def test_ridgeline_drag_persistence_and_pitch_recalculation():
+    from types import SimpleNamespace
+    from EstiSketch import config
+    from EstiSketch.Canvas.canvas_area import CanvasArea
+
+    cfg = SimpleNamespace(**config.load_config())
+    canvas = CanvasArea(cfg)
+
+    w1 = DummyWall("W1", (0.0, 0.0), (240.0, 0.0))
+    w2 = DummyWall("W2", (240.0, 0.0), (240.0, 360.0))
+    w3 = DummyWall("W3", (240.0, 360.0), (0.0, 360.0))
+    w4 = DummyWall("W4", (0.0, 360.0), (0.0, 0.0))
+    canvas.wall_sets = [[w1, w2, w3, w4]]
+
+    canvas.mark_walls_as_eave([w1, w3])
+    canvas.mark_walls_as_gable([w2, w4])
+    roof = canvas.generate_roof_from_marked_walls(pitch_rise=6, overhang=12.0)
+
+    # Initial ridge is at Y = 180 (center between Y=0 and Y=360)
+    solved_ridge = next(l for l in roof.solved_lines if l.line_type == "ridge")
+    assert abs(solved_ridge.start[1] - 180.0) < 1.0
+
+    # Simulate user dragging ridge line in Y direction by -60 inches (from Y=180 to Y=120)
+    canvas.dragging_roof_lines = [{
+        "roof_line": solved_ridge,
+        "original_start": solved_ridge.start,
+        "original_end": solved_ridge.end,
+        "roof": roof
+    }]
+    solved_ridge.start = (solved_ridge.start[0], 120.0)
+    solved_ridge.end = (solved_ridge.end[0], 120.0)
+
+    # End drag
+    canvas.on_drag_end(None, offset_x=0.0, offset_y=-120.0)
+
+    # Check persistence: ridge should remain at Y=120
+    persisted_ridge = next(l for l in roof.solved_lines if l.line_type == "ridge")
+    assert abs(persisted_ridge.start[1] - 120.0) < 1.0
+    assert abs(persisted_ridge.end[1] - 120.0) < 1.0
+
+    # Check that pitches were recalculated for Side A and Side B
+    # Ridge at Y=120 means distance to Eave 1 (Y=0) is 120, distance to Eave 2 (Y=360) is 240
+    # Pitch1 = 6 * 360 / (2 * 120) = 9.0; Pitch2 = 6 * 360 / (2 * 240) = 4.5
+    eave_edges = [e for e in roof.edges if e.edge_type == "eave"]
+    assert abs(eave_edges[0].pitch_rise - 9.0) < 0.2
+    assert abs(eave_edges[1].pitch_rise - 4.5) < 0.2
+
+
+def test_properties_dock_asymmetric_pitch_adjustments():
+    from types import SimpleNamespace
+    from EstiSketch import config
+    from EstiSketch.Canvas.canvas_area import CanvasArea
+    from EstiSketch.Dialogs.properties_dock import RoofPropertiesWidget
+
+    cfg = SimpleNamespace(**config.load_config())
+    canvas = CanvasArea(cfg)
+
+    w1 = DummyWall("W1", (0.0, 0.0), (240.0, 0.0))
+    w2 = DummyWall("W2", (240.0, 0.0), (240.0, 360.0))
+    w3 = DummyWall("W3", (240.0, 360.0), (0.0, 360.0))
+    w4 = DummyWall("W4", (0.0, 360.0), (0.0, 0.0))
+    canvas.wall_sets = [[w1, w2, w3, w4]]
+
+    canvas.mark_walls_as_eave([w1, w3])
+    canvas.mark_walls_as_gable([w2, w4])
+    roof = canvas.generate_roof_from_marked_walls(pitch_rise=6, overhang=12.0)
+
+    widget = RoofPropertiesWidget()
+    widget.canvas = canvas
+    widget.set_roof([roof])
+
+    # Switch to asymmetric pitch mode and set Side A = 8.0, Side B = 4.0
+    widget.pitch_mode_combo.set_active(1)
+    widget.pitch_a_spin.set_value(8.0)
+    widget.pitch_b_spin.set_value(4.0)
+
+    # Ridge should now be at 1/3 across 360" span (at Y=120)
+    new_ridge = next(l for l in roof.solved_lines if l.line_type == "ridge")
+    assert abs(new_ridge.start[1] - 120.0) < 1.0
+    assert abs(new_ridge.end[1] - 120.0) < 1.0
+
+    # Verify planes have individual pitches 8.0 and 4.0
+    pitches = {p["pitch"] for p in roof.roof_planes}
+    assert 8.0 in pitches
+    assert 4.0 in pitches
+
+
+
 
 
 

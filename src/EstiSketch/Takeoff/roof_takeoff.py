@@ -691,6 +691,8 @@ class CombinedRoofTakeoff:
 
 
 def format_takeoff_report(results: Dict) -> str:
+    if not results or not results.get('section_summaries'):
+        return "No roof polyline data."
     lines = []
     lines.append("=" * 80)
     lines.append(f" ROOF MATERIAL TAKEOFF REPORT: {results['project_name']}")
