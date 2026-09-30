@@ -148,7 +148,8 @@
 ## 🐛 Known Bugs / FIXMEs
 - [ ] building_takeoff.py lines 694 and 695 should not have a hardcoded fallback value. Should we warn the user instead of falling back to a hard coded value?
 - [ ] After marking walls and then auto generating a gable roof, ridge line does not extend or retract to follow overhang when overhang size is edited.
-- [ ] ridgelines are not editable after auto generating a roof. (we should either have the ability to click and drag the ridge side to side to change the pitch on either side, or we should have controls in the properties panel to specify different pitches for each side of the roof and the ridge should move to match.)
+- [ ] Edited ridgelines are not persistent after auto generating a roof. (we should either have the ability to click and drag the ridge side to side to change the pitch on either side, or we should have controls in the properties panel to specify different pitches for each side of the roof and the ridge should move to match.)
+- [ ] Does not seem to be any way to set different pitches for different parts of the roof anywhere in the GUI
 
 ## 💡 Takeoffs
 - [ ] Material Estimator
