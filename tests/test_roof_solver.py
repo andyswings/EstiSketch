@@ -368,8 +368,9 @@ def test_roof_line_canvas_interactions():
     from EstiSketch import config
     from EstiSketch.Canvas.canvas_area import CanvasArea
 
+    from typing import Any
     cfg = SimpleNamespace(**config.load_config())
-    canvas = CanvasArea(cfg)
+    canvas: Any = CanvasArea(cfg)
 
     roof = Roof(identifier="ROOF-INT-1", pitch_rise=6.0)
     rline = RoofLine(identifier="RL-1", start=(10.0, 20.0), end=(100.0, 20.0), line_type="ridge")
@@ -601,6 +602,232 @@ def test_properties_dock_asymmetric_pitch_adjustments():
     pitches = {p["pitch"] for p in roof.roof_planes}
     assert 8.0 in pitches
     assert 4.0 in pitches
+
+
+def test_l_shaped_roof_two_gables():
+    from types import SimpleNamespace
+    from EstiSketch import config
+    from EstiSketch.Canvas.canvas_area import CanvasArea
+
+    cfg = SimpleNamespace(**config.load_config())
+    canvas = CanvasArea(cfg)
+
+    # 6 walls forming an L-shaped house:
+    # Horizontal wing: 400 long, 200 wide (from X=0 to 400, Y=0 to 200)
+    # Vertical wing: 500 long, 200 wide (from X=0 to 200, Y=0 to 500)
+    # Inside corner at (200, 200), Outside corner at (0, 0)
+    w1 = DummyWall("W1", (0.0, 0.0), (400.0, 0.0))
+    w2 = DummyWall("W2", (400.0, 0.0), (400.0, 200.0))      # Wing 1 gable end
+    w3 = DummyWall("W3", (400.0, 200.0), (200.0, 200.0))
+    w4 = DummyWall("W4", (200.0, 200.0), (200.0, 500.0))
+    w5 = DummyWall("W5", (200.0, 500.0), (0.0, 500.0))        # Wing 2 gable end
+    w6 = DummyWall("W6", (0.0, 500.0), (0.0, 0.0))
+    canvas.wall_sets = [[w1, w2, w3, w4, w5, w6]]
+
+    canvas.mark_walls_as_gable([w2, w5])
+    canvas.mark_walls_as_eave([w1, w3, w4, w6])
+
+    roof = canvas.generate_roof_from_marked_walls(pitch_rise=6, overhang=12.0)
+    assert roof is not None
+
+    # Verify 2 separate ridge lines:
+    # Ridge 1: East-West along Y=100
+    # Ridge 2: North-South along X=100
+    # Both meet at (100, 100)
+    ridges = [(l.start, l.end) for l in roof.solved_lines if l.line_type == "ridge"]
+    assert len(ridges) == 2
+
+    # Check intersection point (100, 100)
+    ridge_starts = [r[0] for r in ridges]
+    assert all(math.hypot(p[0] - 100.0, p[1] - 100.0) < 1.0 for p in ridge_starts)
+
+    # Ridge 1 extends past gable wall at X=400 by overhang 12 (to X=412, Y=100)
+    # Ridge 2 extends past gable wall at Y=500 by overhang 12 (to X=100, Y=512)
+    ridge_ends = [r[1] for r in ridges]
+    has_ew_ridge = any(abs(p[0] - 412.0) < 1.0 and abs(p[1] - 100.0) < 1.0 for p in ridge_ends)
+    has_ns_ridge = any(abs(p[0] - 100.0) < 1.0 and abs(p[1] - 512.0) < 1.0 for p in ridge_ends)
+    assert has_ew_ridge
+    assert has_ns_ridge
+
+    # Valley line from (100, 100) through inside corner (200, 200) to overhang (212, 212)
+    valleys = [(l.start, l.end) for l in roof.solved_lines if l.line_type == "valley"]
+    assert len(valleys) == 1
+    v_start, v_end = valleys[0]
+    assert math.hypot(v_start[0] - 100.0, v_start[1] - 100.0) < 1.0
+    assert math.hypot(v_end[0] - 212.0, v_end[1] - 212.0) < 1.0
+
+    # Hip line from (100, 100) through outside corner (0, 0) to overhang (-12, -12)
+    hips = [(l.start, l.end) for l in roof.solved_lines if l.line_type == "hip"]
+    assert len(hips) == 1
+    h_start, h_end = hips[0]
+    assert math.hypot(h_start[0] - 100.0, h_start[1] - 100.0) < 1.0
+    assert math.hypot(h_end[0] - (-12.0), h_end[1] - (-12.0)) < 1.0
+
+    # Verify 3D roof planes extracted
+    assert len(roof.roof_planes) >= 4
+    total_area = sum(p["area_3d_sqft"] for p in roof.roof_planes)
+    assert total_area > 0.0
+
+
+def test_l_shaped_roof_all_hips():
+    from types import SimpleNamespace
+    from EstiSketch import config
+    from EstiSketch.Canvas.canvas_area import CanvasArea
+
+    cfg = SimpleNamespace(**config.load_config())
+    canvas = CanvasArea(cfg)
+
+    w1 = DummyWall("W1", (0.0, 0.0), (400.0, 0.0))
+    w2 = DummyWall("W2", (400.0, 0.0), (400.0, 200.0))
+    w3 = DummyWall("W3", (400.0, 200.0), (200.0, 200.0))
+    w4 = DummyWall("W4", (200.0, 200.0), (200.0, 500.0))
+    w5 = DummyWall("W5", (200.0, 500.0), (0.0, 500.0))
+    w6 = DummyWall("W6", (0.0, 500.0), (0.0, 0.0))
+    canvas.wall_sets = [[w1, w2, w3, w4, w5, w6]]
+
+    canvas.mark_walls_as_eave([w1, w2, w3, w4, w5, w6])
+    roof = canvas.generate_roof_from_marked_walls(pitch_rise=6, overhang=12.0)
+    assert roof is not None
+
+    # Two ridges terminate width/2 (100") before the end walls:
+    # Ridge 1 ends at (300, 100), Ridge 2 ends at (100, 400)
+    ridges = [(l.start, l.end) for l in roof.solved_lines if l.line_type == "ridge"]
+    assert len(ridges) == 2
+
+    # 1 valley line at inside corner
+    valleys = [(l.start, l.end) for l in roof.solved_lines if l.line_type == "valley"]
+    assert len(valleys) == 1
+    assert math.hypot(valleys[0][1][0] - 212.0, valleys[0][1][1] - 212.0) < 1.0
+
+    # 5 hip lines (1 at junction to outside corner, 2 at Wing 1 end, 2 at Wing 2 end)
+    hips = [(l.start, l.end) for l in roof.solved_lines if l.line_type == "hip"]
+    assert len(hips) == 5
+
+
+def test_t_shaped_roof_gables():
+    from types import SimpleNamespace
+    from EstiSketch import config
+    from EstiSketch.Canvas.canvas_area import CanvasArea
+
+    cfg = SimpleNamespace(**config.load_config())
+    canvas = CanvasArea(cfg)
+
+    # T-shaped house:
+    # Main body: X from 0 to 600, Y from 0 to 200 (width 200, centerline Y=100)
+    # Stem wing: X from 200 to 400, Y from 200 to 500 (width 200, centerline X=300)
+    t_pts = [(0, 0), (600, 0), (600, 200), (400, 200), (400, 500), (200, 500), (200, 200), (0, 200)]
+    walls = [DummyWall(f"W{i+1}", (float(t_pts[i][0]), float(t_pts[i][1])),
+                       (float(t_pts[(i+1)%8][0]), float(t_pts[(i+1)%8][1]))) for i in range(8)]
+    canvas.wall_sets = [walls]
+
+    # Mark 3 ends as gable (W2: right end, W5: stem end, W8: left end)
+    canvas.mark_walls_as_gable([walls[1], walls[4], walls[7]])
+    canvas.mark_walls_as_eave([walls[0], walls[2], walls[3], walls[5], walls[6]])
+
+    roof = canvas.generate_roof_from_marked_walls(pitch_rise=6, overhang=12.0)
+    assert roof is not None
+
+    # Intersection at (300, 100)
+    # Two valleys running from (300, 100) through inside corners (400, 200) and (200, 200)
+    valleys = [(l.start, l.end) for l in roof.solved_lines if l.line_type == "valley"]
+    assert len(valleys) == 2
+    for v_start, v_end in valleys:
+        assert math.hypot(v_start[0] - 300.0, v_start[1] - 100.0) < 1.0
+
+    # Ridges meeting at (300, 100)
+    ridges = [(l.start, l.end) for l in roof.solved_lines if l.line_type == "ridge"]
+    assert len(ridges) >= 2
+
+
+def test_multisided_hip_roof_octagon():
+    from types import SimpleNamespace
+    from EstiSketch import config
+    from EstiSketch.Canvas.canvas_area import CanvasArea
+
+    cfg = SimpleNamespace(**config.load_config())
+    canvas = CanvasArea(cfg)
+
+    # Regular octagon centered at (300, 300), radius 200
+    r = 200.0
+    cx, cy = 300.0, 300.0
+    oct_pts = [(cx + r * math.cos(i * math.pi / 4), cy + r * math.sin(i * math.pi / 4)) for i in range(8)]
+    walls = [DummyWall(f"W{i+1}", oct_pts[i], oct_pts[(i+1)%8]) for i in range(8)]
+    canvas.wall_sets = [walls]
+
+    canvas.mark_walls_as_eave(walls)
+    roof = canvas.generate_roof_from_marked_walls(pitch_rise=6, overhang=12.0)
+    assert roof is not None
+
+    # All 8 corners have hip lines converging towards center (300, 300)
+    hips = [(l.start, l.end) for l in roof.solved_lines if l.line_type == "hip"]
+    assert len(hips) == 8
+    for h_start, h_end in hips:
+        assert math.hypot(h_start[0] - 300.0, h_start[1] - 300.0) < 5.0
+
+
+def test_l_shaped_roof_overhang_recalculation():
+    from types import SimpleNamespace
+    from EstiSketch import config
+    from EstiSketch.Canvas.canvas_area import CanvasArea
+
+    cfg = SimpleNamespace(**config.load_config())
+    canvas = CanvasArea(cfg)
+
+    w1 = DummyWall("W1", (0.0, 0.0), (400.0, 0.0))
+    w2 = DummyWall("W2", (400.0, 0.0), (400.0, 200.0))
+    w3 = DummyWall("W3", (400.0, 200.0), (200.0, 200.0))
+    w4 = DummyWall("W4", (200.0, 200.0), (200.0, 500.0))
+    w5 = DummyWall("W5", (200.0, 500.0), (0.0, 500.0))
+    w6 = DummyWall("W6", (0.0, 500.0), (0.0, 0.0))
+    canvas.wall_sets = [[w1, w2, w3, w4, w5, w6]]
+
+    canvas.mark_walls_as_gable([w2, w5])
+    canvas.mark_walls_as_eave([w1, w3, w4, w6])
+
+    # 1. Generate with 12" overhang
+    roof = canvas.generate_roof_from_marked_walls(pitch_rise=6, overhang=12.0)
+    assert roof is not None
+    valley12 = next(l for l in roof.solved_lines if l.line_type == "valley")
+    assert math.hypot(valley12.end[0] - 212.0, valley12.end[1] - 212.0) < 1.0
+
+    # 2. Recalculate with 24" overhang
+    roof.overhang = 24.0
+    canvas.recalculate_roof(roof)
+    valley24 = next(l for l in roof.solved_lines if l.line_type == "valley")
+    # With 24" overhang, inside corner (200, 200) extends to (224, 224)
+    assert math.hypot(valley24.end[0] - 224.0, valley24.end[1] - 224.0) < 1.0
+
+    # Hip extends to (-24, -24)
+    hip24 = next(l for l in roof.solved_lines if l.line_type == "hip")
+    assert math.hypot(hip24.end[0] - (-24.0), hip24.end[1] - (-24.0)) < 1.0
+
+
+def test_l_shaped_roof_marking_inference():
+    from types import SimpleNamespace
+    from EstiSketch import config
+    from EstiSketch.Canvas.canvas_area import CanvasArea
+
+    cfg = SimpleNamespace(**config.load_config())
+    canvas = CanvasArea(cfg)
+
+    w1 = DummyWall("W1", (0.0, 0.0), (400.0, 0.0))
+    w2 = DummyWall("W2", (400.0, 0.0), (400.0, 200.0))
+    w3 = DummyWall("W3", (400.0, 200.0), (200.0, 200.0))
+    w4 = DummyWall("W4", (200.0, 200.0), (200.0, 500.0))
+    w5 = DummyWall("W5", (200.0, 500.0), (0.0, 500.0))
+    w6 = DummyWall("W6", (0.0, 500.0), (0.0, 0.0))
+    canvas.wall_sets = [[w1, w2, w3, w4, w5, w6]]
+
+    # User ONLY marks the two gable ends, leaving the other 4 walls unmarked
+    canvas.mark_walls_as_gable([w2, w5])
+
+    # Smart inference infers the other 4 walls as eaves and generates the roof
+    roof = canvas.generate_roof_from_marked_walls(pitch_rise=6, overhang=12.0)
+    assert roof is not None
+    assert len(roof.edges) == 6
+    assert any(l.line_type == "valley" for l in roof.solved_lines)
+    assert any(l.line_type == "hip" for l in roof.solved_lines)
+
 
 
 

@@ -105,6 +105,11 @@ def cluster_and_snap_endpoints(
             roof_clusters = [c for c in clusters if not any(pt_distance(c, st) < 0.5 for st in snap_targets)]
             new_start = snap_point(line.start, roof_clusters, tolerance) if roof_clusters else line.start
             new_end = snap_point(line.end, roof_clusters, tolerance) if roof_clusters else line.end
+        elif getattr(line, 'is_auto_generated', False) and line.line_type in ("hip", "valley"):
+            # Start at ridge/skeleton junction snaps to roof line endpoints, end at overhang corner does not snap to wall corners
+            roof_clusters = [c for c in clusters if not any(pt_distance(c, st) < 0.5 for st in snap_targets)]
+            new_start = snap_point(line.start, roof_clusters, tolerance) if roof_clusters else line.start
+            new_end = line.end
         else:
             new_start = snap_point(line.start, clusters, tolerance)
             new_end = snap_point(line.end, clusters, tolerance)
@@ -284,7 +289,7 @@ def snap_point_to_line_segments(
 
 
 def intersect_and_clean_lines(
-    lines: List[RoofLine], snap_targets: List[Tuple[float, float]], tolerance: float = 24.0, wall_segments: List[Tuple[Tuple[float, float], Tuple[float, float]]] = None
+    lines: List[RoofLine], snap_targets: List[Tuple[float, float]], tolerance: float = 24.0, wall_segments: Optional[List[Tuple[Tuple[float, float], Tuple[float, float]]]] = None
 ) -> List[RoofLine]:
     """
     1. Angle-straighten lines to 0°, 90°, or 45°.
@@ -299,7 +304,7 @@ def intersect_and_clean_lines(
     straightened_lines = []
     for l in lines:
         st_start, st_end = straighten_line_angle(l.start, l.end, tolerance_deg=15.0)
-        if wall_segments and l.line_type != "ridge":
+        if wall_segments and l.line_type not in ("ridge", "hip", "valley"):
             st_start = snap_point_to_line_segments(st_start, wall_segments, tolerance=tolerance)
             st_end = snap_point_to_line_segments(st_end, wall_segments, tolerance=tolerance)
 
@@ -334,6 +339,13 @@ def intersect_and_clean_lines(
         for j in range(i + 1, n):
             l1 = mutable_lines[i]
             l2 = mutable_lines[j]
+
+            # Hip and valley lines pass through wall corners to reach the overhang.
+            # Do NOT trim hips or valleys against wall edge lines (eave/rake/tie_in).
+            t1, t2 = l1["type"], l2["type"]
+            if (t1 in ("hip", "valley") and t2 in ("eave", "rake", "tie_in")) or \
+               (t2 in ("hip", "valley") and t1 in ("eave", "rake", "tie_in")):
+                continue
 
             p1 = (l1["start"][0], l1["start"][1])
             p2 = (l1["end"][0], l1["end"][1])
@@ -381,7 +393,7 @@ def intersect_and_clean_lines(
     return final_lines
 
 
-def solve_and_clean_roof(roof: Roof, walls: list = None) -> Roof:
+def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None) -> Roof:
     """
     Main entry point for the Roof Topology & Clean-Up Engine.
     """
@@ -493,114 +505,92 @@ def solve_and_clean_roof(roof: Roof, walls: list = None) -> Roof:
                     is_auto_generated=True
                 ))
 
-        # Gable Roof Auto-Generation (supports asymmetric pitch) if ridge is missing
-        if not any(l.line_type == "ridge" for l in sketched):
-            if roof.ridge_lines:
-                for idx, (r_start, r_end) in enumerate(roof.ridge_lines):
+        # Populate ridge, hip, and valley lines from roof geometry or complex roof solver
+        if roof.ridge_lines and not any(l.line_type == "ridge" for l in sketched):
+            for idx, (r_start, r_end) in enumerate(roof.ridge_lines):
+                sketched.append(RoofLine(
+                    identifier=f"auto_ridge_{idx}" if idx > 0 else "auto_ridge",
+                    start=r_start,
+                    end=r_end,
+                    line_type="ridge",
+                    pitch_rise=roof.pitch_rise,
+                    overhang=roof.overhang,
+                    is_auto_generated=True
+                ))
+        if roof.hip_lines and not any(l.line_type == "hip" for l in sketched):
+            for idx, (h_start, h_end) in enumerate(roof.hip_lines):
+                sketched.append(RoofLine(
+                    identifier=f"auto_hip_{idx}",
+                    start=h_start,
+                    end=h_end,
+                    line_type="hip",
+                    pitch_rise=roof.pitch_rise,
+                    overhang=roof.overhang,
+                    is_auto_generated=True
+                ))
+        if roof.valley_lines and not any(l.line_type == "valley" for l in sketched):
+            for idx, (v_start, v_end) in enumerate(roof.valley_lines):
+                sketched.append(RoofLine(
+                    identifier=f"auto_valley_{idx}",
+                    start=v_start,
+                    end=v_end,
+                    line_type="valley",
+                    pitch_rise=roof.pitch_rise,
+                    overhang=roof.overhang,
+                    is_auto_generated=True
+                ))
+        if roof.rake_lines and not any(l.line_type == "rake" for l in sketched):
+            for idx, (rk_start, rk_end) in enumerate(roof.rake_lines):
+                sketched.append(RoofLine(
+                    identifier=f"auto_rake_{idx}",
+                    start=rk_start,
+                    end=rk_end,
+                    line_type="rake",
+                    pitch_rise=roof.pitch_rise,
+                    overhang=roof.overhang,
+                    is_auto_generated=True
+                ))
+
+        # If still no ridge or hip lines, run complex roof geometry solver
+        if not any(l.line_type in ("ridge", "hip") for l in sketched):
+            from .complex_roof import calculate_complex_roof_geometry
+            markings = {e.wall_identifier: e.edge_type for e in roof.edges}
+            marked_walls = [w for w in walls if getattr(w, 'identifier', '') in markings]
+            if len(marked_walls) >= 3:
+                ratio = 0.5
+                if len(marked_eaves) >= 2:
+                    p1 = marked_eaves[0][1]
+                    p2 = marked_eaves[1][1]
+                    if p1 + p2 > 0:
+                        ratio = p2 / (p1 + p2)
+                r_lines, h_lines, v_lines, rk_lines, ev_lines, outline = \
+                    calculate_complex_roof_geometry(marked_walls, markings, roof.overhang, roof.pitch_rise, roof.pitch_run, ratio=ratio)
+                for idx, (s, e) in enumerate(r_lines):
                     sketched.append(RoofLine(
                         identifier=f"auto_ridge_{idx}" if idx > 0 else "auto_ridge",
-                        start=r_start,
-                        end=r_end,
-                        line_type="ridge",
-                        pitch_rise=roof.pitch_rise,
-                        overhang=roof.overhang,
-                        is_auto_generated=True
+                        start=s, end=e, line_type="ridge",
+                        pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
                     ))
-            elif len(marked_eaves) >= 2 and len(marked_gables) >= 2:
-                e1_wall, pitch1, _ = marked_eaves[0]
-                e2_wall, pitch2, _ = marked_eaves[1]
-
-                # Solve asymmetric ratio from eave1 across the span
-                ratio = pitch2 / (pitch1 + pitch2) if (pitch1 + pitch2) > 0 else 0.5
-
-                ridge_pts = []
-                for g_wall, _, _ in marked_gables[:2]:
-                    d_start_e1 = distance_point_to_segment(g_wall.start, e1_wall.start, e1_wall.end)[0]
-                    d_end_e1 = distance_point_to_segment(g_wall.end, e1_wall.start, e1_wall.end)[0]
-                    if d_start_e1 <= d_end_e1:
-                        p_from = g_wall.start
-                        p_to = g_wall.end
-                    else:
-                        p_from = g_wall.end
-                        p_to = g_wall.start
-                    r_pt = (p_from[0] + ratio * (p_to[0] - p_from[0]), p_from[1] + ratio * (p_to[1] - p_from[1]))
-                    ridge_pts.append(r_pt)
-
-                if len(ridge_pts) >= 2:
-                    rdx = ridge_pts[1][0] - ridge_pts[0][0]
-                    rdy = ridge_pts[1][1] - ridge_pts[0][1]
-                    rlen = math.hypot(rdx, rdy)
-                    if rlen > 0:
-                        ux = rdx / rlen
-                        uy = rdy / rlen
-                        r_start = (ridge_pts[0][0] - ux * roof.overhang, ridge_pts[0][1] - uy * roof.overhang)
-                        r_end = (ridge_pts[1][0] + ux * roof.overhang, ridge_pts[1][1] + uy * roof.overhang)
-                    else:
-                        r_start = ridge_pts[0]
-                        r_end = ridge_pts[1]
-
+                for idx, (s, e) in enumerate(h_lines):
                     sketched.append(RoofLine(
-                        identifier="auto_ridge",
-                        start=r_start,
-                        end=r_end,
-                        line_type="ridge",
-                        pitch_rise=roof.pitch_rise,
-                        overhang=roof.overhang,
-                        is_auto_generated=True
+                        identifier=f"auto_hip_{idx}",
+                        start=s, end=e, line_type="hip",
+                        pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
                     ))
-
-        # Hip Roof Auto-Generation (all eaves or 3+ eaves)
-        elif len(marked_eaves) >= 3:
-            all_pts = []
-            for w, _, _ in marked_eaves:
-                all_pts.append(w.start)
-                all_pts.append(w.end)
-            if all_pts:
-                cx = sum(p[0] for p in all_pts) / len(all_pts)
-                cy = sum(p[1] for p in all_pts) / len(all_pts)
-                min_x = min(p[0] for p in all_pts)
-                max_x = max(p[0] for p in all_pts)
-                min_y = min(p[1] for p in all_pts)
-                max_y = max(p[1] for p in all_pts)
-                w_span = max_x - min_x
-                h_span = max_y - min_y
-                if w_span >= h_span:
-                    inset = h_span / 2.0
-                    r_start = (min_x + inset, cy)
-                    r_end = (max_x - inset, cy)
-                else:
-                    inset = w_span / 2.0
-                    r_start = (cx, min_y + inset)
-                    r_end = (cx, max_y - inset)
-
-                if pt_distance(r_start, r_end) > 1.0:
+                for idx, (s, e) in enumerate(v_lines):
                     sketched.append(RoofLine(
-                        identifier="auto_ridge",
-                        start=r_start,
-                        end=r_end,
-                        line_type="ridge",
-                        pitch_rise=roof.pitch_rise,
-                        overhang=roof.overhang,
-                        is_auto_generated=True
+                        identifier=f"auto_valley_{idx}",
+                        start=s, end=e, line_type="valley",
+                        pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
                     ))
-                else:
-                    r_start = (cx, cy)
-                    r_end = (cx, cy)
-
-                # Connect hips to corner points
-                for corner in snap_targets:
-                    d_start = pt_distance(corner, r_start)
-                    d_end = pt_distance(corner, r_end)
-                    target_peak = r_start if d_start < d_end else r_end
-                    if pt_distance(corner, target_peak) > 1.0:
-                        sketched.append(RoofLine(
-                            identifier=f"auto_hip_{len(sketched)}",
-                            start=target_peak,
-                            end=corner,
-                            line_type="hip",
-                            pitch_rise=roof.pitch_rise,
-                            is_auto_generated=True
-                        ))
+                for idx, (s, e) in enumerate(rk_lines):
+                    sketched.append(RoofLine(
+                        identifier=f"auto_rake_{idx}",
+                        start=s, end=e, line_type="rake",
+                        pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
+                    ))
+                if outline and not roof.outline_points:
+                    roof.outline_points = outline
 
     # Save to manual_lines if manual_lines was empty or only had auto-generated lines
     if not has_custom_lines and sketched:

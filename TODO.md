@@ -146,13 +146,16 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Rectangular roofs work very well when auto generating, however when trying to auto generate a more complex roof, only the eaves are generated correctly. In an L shaped house for example, we should have two seperate ridge lines with each ridge line parallel to and initially centered between the walls of each part of the home (one running east to west and the other running north to south for example). from the point where these two ridge lines intersect through the inside corner of the L shaped house and extending out to the corner of the overhang, there should be a valley line. Also, from that same ridge intersection running outwards through the outside corner of the house and extending to the corner of the overhang there should be a hip line. Similar logic applies to a T shaped house. This bug also seems to affect hip roofs on other multisided homes.
+- [x] Rectangular roofs work very well when auto generating, however when trying to auto generate a more complex roof, only the eaves are generated correctly. In an L shaped house for example, we should have two seperate ridge lines with each ridge line parallel to and initially centered between the walls of each part of the home (one running east to west and the other running north to south for example). from the point where these two ridge lines intersect through the inside corner of the L shaped house and extending out to the corner of the overhang, there should be a valley line. Also, from that same ridge intersection running outwards through the outside corner of the house and extending to the corner of the overhang there should be a hip line. Similar logic applies to a T shaped house. This bug also seems to affect hip roofs on other multisided homes. (2026-10-03)
+
+- [ ] Importing from SH3D walls are not mitered correctly
 
 ## 💡 Takeoffs
 - [ ] Material Estimator
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Complex roof auto-generation for L-shaped, T-shaped, and multisided homes: auto-generates dual/intersecting ridges, valleys from ridge intersection to inside corners/overhang, hips from ridge intersection through outside corner to overhang, rakes/eaves at wing ends (supporting both gable and hip treatments), straight skeleton solver for multisided convex roofs, smart wall marking inference, and dynamic recalculation on overhang adjustment. (2026-10-03)
 - [x] building_takeoff.py lines 694 and 695 should not have a hardcoded fallback value. Warned user via UserWarning and returned empty results when geometry is missing instead of hardcoded fallbacks. (2026-09-29)
 - [x] After marking walls and then auto generating a gable roof, ridge line does not extend or retract to follow overhang when overhang size is edited. (2026-09-29)
 - [x] Edited ridgelines are not persistent after auto generating a roof. Added click-and-drag ridge recalculation of side pitches, and property dock controls to adjust individual pitches which reposition the ridge. (2026-09-29)

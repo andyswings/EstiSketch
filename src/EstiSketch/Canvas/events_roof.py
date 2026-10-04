@@ -23,7 +23,7 @@ class CanvasRoofEventsMixin:
             self._roof_edge_markings = {}
         return self._roof_edge_markings
 
-    def mark_walls_as_eave(self, walls: list = None):
+    def mark_walls_as_eave(self, walls: Optional[list] = None):
         """
         Mark selected walls as eave edges for roof generation.
         If walls parameter is None, uses currently selected walls.
@@ -43,7 +43,7 @@ class CanvasRoofEventsMixin:
         self.queue_draw()
         print(f"Marked {len(walls)} wall(s) as eave")
 
-    def mark_walls_as_gable(self, walls: list = None):
+    def mark_walls_as_gable(self, walls: Optional[list] = None):
         """
         Mark selected walls as gable edges for roof generation.
         If walls parameter is None, uses currently selected walls.
@@ -180,69 +180,73 @@ class CanvasRoofEventsMixin:
         
         The ridge runs parallel to the eave walls at the specified ratio across the span (default 0.5).
         Ridge endpoints extend beyond gable walls by the overhang distance.
+        Supports rectangular, L-shaped, T-shaped, and complex footprints.
         """
-        if len(eave_walls) != 2 or len(gable_walls) != 2:
-            return [], [], []
-        
-        e1_wall = eave_walls[0]
-        from .roof_solver import distance_point_to_segment
-        ridge_pts = []
-        for g_wall in gable_walls[:2]:
-            d_start = distance_point_to_segment(g_wall.start, e1_wall.start, e1_wall.end)[0]
-            d_end = distance_point_to_segment(g_wall.end, e1_wall.start, e1_wall.end)[0]
-            if d_start <= d_end:
-                p_from, p_to = g_wall.start, g_wall.end
-            else:
-                p_from, p_to = g_wall.end, g_wall.start
-            r_pt = (p_from[0] + ratio * (p_to[0] - p_from[0]), p_from[1] + ratio * (p_to[1] - p_from[1]))
-            ridge_pts.append(r_pt)
-        
-        if len(ridge_pts) < 2:
-            gable1_mid = self._get_wall_midpoint(gable_walls[0])
-            gable2_mid = self._get_wall_midpoint(gable_walls[1])
-            ridge_pts = [gable1_mid, gable2_mid]
-
-        # Calculate ridge direction vector
-        ridge_dx = ridge_pts[1][0] - ridge_pts[0][0]
-        ridge_dy = ridge_pts[1][1] - ridge_pts[0][1]
-        ridge_len = math.sqrt(ridge_dx * ridge_dx + ridge_dy * ridge_dy)
-        
-        if ridge_len > 0:
-            # Normalize and extend by overhang
-            ridge_ux = ridge_dx / ridge_len
-            ridge_uy = ridge_dy / ridge_len
+        if len(eave_walls) == 2 and len(gable_walls) == 2:
+            e1_wall = eave_walls[0]
+            from .roof_solver import distance_point_to_segment
+            ridge_pts = []
+            for g_wall in gable_walls[:2]:
+                d_start = distance_point_to_segment(g_wall.start, e1_wall.start, e1_wall.end)[0]
+                d_end = distance_point_to_segment(g_wall.end, e1_wall.start, e1_wall.end)[0]
+                if d_start <= d_end:
+                    p_from, p_to = g_wall.start, g_wall.end
+                else:
+                    p_from, p_to = g_wall.end, g_wall.start
+                r_pt = (p_from[0] + ratio * (p_to[0] - p_from[0]), p_from[1] + ratio * (p_to[1] - p_from[1]))
+                ridge_pts.append(r_pt)
             
-            # Extend ridge endpoints outward by overhang
-            ridge_start = (ridge_pts[0][0] - ridge_ux * overhang, 
-                          ridge_pts[0][1] - ridge_uy * overhang)
-            ridge_end = (ridge_pts[1][0] + ridge_ux * overhang, 
-                        ridge_pts[1][1] + ridge_uy * overhang)
-        else:
-            ridge_start = ridge_pts[0]
-            ridge_end = ridge_pts[1]
-        
-        ridge_lines = [(ridge_start, ridge_end)]
-        
-        # No hips or valleys for simple gable
-        hip_lines = []
-        valley_lines = []
-        
-        return ridge_lines, hip_lines, valley_lines
+            if len(ridge_pts) < 2:
+                gable1_mid = self._get_wall_midpoint(gable_walls[0])
+                gable2_mid = self._get_wall_midpoint(gable_walls[1])
+                ridge_pts = [gable1_mid, gable2_mid]
+
+            # Calculate ridge direction vector
+            ridge_dx = ridge_pts[1][0] - ridge_pts[0][0]
+            ridge_dy = ridge_pts[1][1] - ridge_pts[0][1]
+            ridge_len = math.sqrt(ridge_dx * ridge_dx + ridge_dy * ridge_dy)
+            
+            if ridge_len > 0:
+                ridge_ux = ridge_dx / ridge_len
+                ridge_uy = ridge_dy / ridge_len
+                ridge_start = (ridge_pts[0][0] - ridge_ux * overhang, 
+                              ridge_pts[0][1] - ridge_uy * overhang)
+                ridge_end = (ridge_pts[1][0] + ridge_ux * overhang, 
+                            ridge_pts[1][1] + ridge_uy * overhang)
+            else:
+                ridge_start = ridge_pts[0]
+                ridge_end = ridge_pts[1]
+            
+            ridge_lines = [(ridge_start, ridge_end)]
+            hip_lines = []
+            valley_lines = []
+            return ridge_lines, hip_lines, valley_lines
+
+        # Complex gable / hybrid roof (e.g. L-shape, T-shape)
+        all_walls = eave_walls + gable_walls
+        markings = {}
+        for w in eave_walls:
+            markings[w.identifier] = "eave"
+        for w in gable_walls:
+            markings[w.identifier] = "gable"
+        from .complex_roof import calculate_complex_roof_geometry
+        r_lines, h_lines, v_lines, _, _, _ = calculate_complex_roof_geometry(
+            all_walls, markings, overhang, ratio=ratio
+        )
+        return r_lines, h_lines, v_lines
 
     def _calculate_hip_roof_geometry(self, eave_walls, overhang: float):
         """
         Calculate ridge and hip lines for a hip roof.
         
-        Routes to appropriate algorithm:
-        - 4-wall rectangular: Use optimized rectangular method
-        - Other polygons: Use general polygon skeleton method
+        Supports 4-wall rectangles, L-shapes, T-shapes, and arbitrary multisided homes.
         """
-        if len(eave_walls) == 4 and self._is_approximate_rectangle(eave_walls):
-            # Use optimized rectangular hip roof algorithm
-            return self._calculate_hip_roof_rectangle(eave_walls, overhang)
-        else:
-            # Use general polygon skeleton algorithm
-            return self._calculate_hip_roof_general(eave_walls, overhang)
+        markings = {w.identifier: "eave" for w in eave_walls}
+        from .complex_roof import calculate_complex_roof_geometry
+        r_lines, h_lines, v_lines, _, _, _ = calculate_complex_roof_geometry(
+            eave_walls, markings, overhang
+        )
+        return r_lines, h_lines, v_lines
 
     def _is_approximate_rectangle(self, walls) -> bool:
         """Check if 4 walls form an approximate rectangle (all ~90° corners)."""
@@ -768,18 +772,14 @@ class CanvasRoofEventsMixin:
             if p1 + p2 > 0:
                 ratio = p2 / (p1 + p2)
 
-        # Calculate geometry based on roof type
-        if roof_type == "gable":
-            ridge_lines, hip_lines, valley_lines = self._calculate_gable_roof_geometry(
-                eave_walls, gable_walls, overhang, ratio=ratio)
-        elif roof_type == "hip":
-            ridge_lines, hip_lines, valley_lines = self._calculate_hip_roof_geometry(
-                eave_walls, overhang)
-        else:
-            ridge_lines, hip_lines, valley_lines = [], [], []
+        # Calculate geometry using complex roof solver
+        from .complex_roof import calculate_complex_roof_geometry
+        ridge_lines, hip_lines, valley_lines, rake_lines, eave_lines, outline = \
+            calculate_complex_roof_geometry(all_walls, markings, overhang, pitch_rise, pitch_run, ratio=ratio)
         
-        # Calculate outline with overhang
-        outline = self._calculate_roof_outline(all_walls, overhang)
+        # Fallback outline if empty
+        if not outline:
+            outline = self._calculate_roof_outline(all_walls, overhang)
         
         # Create RoofEdge objects
         edges = []
@@ -801,10 +801,46 @@ class CanvasRoofEventsMixin:
             ridge_lines=ridge_lines,
             hip_lines=hip_lines,
             valley_lines=valley_lines,
+            rake_lines=rake_lines,
+            eave_lines=eave_lines,
             outline_points=outline,
             material=material
         )
         
+        # Populate initial manual_lines with auto-generated lines
+        auto_lines = []
+        for idx, (s, e) in enumerate(ridge_lines):
+            auto_lines.append(RoofLine(
+                identifier=f"auto_ridge_{idx}" if idx > 0 else "auto_ridge",
+                start=s, end=e, line_type="ridge",
+                pitch_rise=pitch_rise, overhang=overhang, is_auto_generated=True
+            ))
+        for idx, (s, e) in enumerate(hip_lines):
+            auto_lines.append(RoofLine(
+                identifier=f"auto_hip_{idx}",
+                start=s, end=e, line_type="hip",
+                pitch_rise=pitch_rise, overhang=overhang, is_auto_generated=True
+            ))
+        for idx, (s, e) in enumerate(valley_lines):
+            auto_lines.append(RoofLine(
+                identifier=f"auto_valley_{idx}",
+                start=s, end=e, line_type="valley",
+                pitch_rise=pitch_rise, overhang=overhang, is_auto_generated=True
+            ))
+        for idx, (s, e) in enumerate(rake_lines):
+            auto_lines.append(RoofLine(
+                identifier=f"auto_rake_{idx}",
+                start=s, end=e, line_type="rake",
+                pitch_rise=pitch_rise, overhang=overhang, is_auto_generated=True
+            ))
+        for idx, (s, e) in enumerate(eave_lines):
+            auto_lines.append(RoofLine(
+                identifier=f"auto_eave_{idx}",
+                start=s, end=e, line_type="eave",
+                pitch_rise=pitch_rise, overhang=overhang, is_auto_generated=True
+            ))
+        roof.manual_lines = auto_lines
+
         # Add to canvas
         self.roofs.append(roof)
 
@@ -852,27 +888,63 @@ class CanvasRoofEventsMixin:
                     ratio = p2 / (p1 + p2)
 
         # Recalculate geometry
-        if roof.roof_type == "gable":
-            roof.ridge_lines, roof.hip_lines, roof.valley_lines = \
-                self._calculate_gable_roof_geometry(eave_walls, gable_walls, roof.overhang, ratio=ratio)
-        elif roof.roof_type == "hip":
-            roof.ridge_lines, roof.hip_lines, roof.valley_lines = \
-                self._calculate_hip_roof_geometry(eave_walls, roof.overhang)
-        
-        # Recalculate outline
-        roof.outline_points = self._calculate_roof_outline(all_walls, roof.overhang)
+        markings = {edge.wall_identifier: edge.edge_type for edge in roof.edges}
+        from .complex_roof import calculate_complex_roof_geometry
+        ridge_lines, hip_lines, valley_lines, rake_lines, eave_lines, outline = \
+            calculate_complex_roof_geometry(all_walls, markings, roof.overhang, roof.pitch_rise, roof.pitch_run, ratio=ratio)
+        roof.ridge_lines = ridge_lines
+        roof.hip_lines = hip_lines
+        roof.valley_lines = valley_lines
+        roof.rake_lines = rake_lines
+        roof.eave_lines = eave_lines
+        if outline:
+            roof.outline_points = outline
 
-        # Update ridge lines in manual_lines to match new overhang and ratio
-        new_ridge = roof.ridge_lines[0] if roof.ridge_lines else None
-        if new_ridge:
+        # Update manual_lines if auto-generated
+        has_custom_lines = any(not getattr(l, 'is_auto_generated', False) for l in roof.manual_lines)
+        if not has_custom_lines:
+            auto_lines = []
+            for idx, (s, e) in enumerate(roof.ridge_lines):
+                auto_lines.append(RoofLine(
+                    identifier=f"auto_ridge_{idx}" if idx > 0 else "auto_ridge",
+                    start=s, end=e, line_type="ridge",
+                    pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
+                ))
+            for idx, (s, e) in enumerate(roof.hip_lines):
+                auto_lines.append(RoofLine(
+                    identifier=f"auto_hip_{idx}",
+                    start=s, end=e, line_type="hip",
+                    pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
+                ))
+            for idx, (s, e) in enumerate(roof.valley_lines):
+                auto_lines.append(RoofLine(
+                    identifier=f"auto_valley_{idx}",
+                    start=s, end=e, line_type="valley",
+                    pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
+                ))
+            for idx, (s, e) in enumerate(roof.rake_lines):
+                auto_lines.append(RoofLine(
+                    identifier=f"auto_rake_{idx}",
+                    start=s, end=e, line_type="rake",
+                    pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
+                ))
+            for idx, (s, e) in enumerate(roof.eave_lines):
+                auto_lines.append(RoofLine(
+                    identifier=f"auto_eave_{idx}",
+                    start=s, end=e, line_type="eave",
+                    pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
+                ))
+            roof.manual_lines = auto_lines
+        else:
+            # Overhang tracking for customized ridge lines
+            new_ridge = roof.ridge_lines[0] if roof.ridge_lines else None
             for line in roof.manual_lines:
                 if line.line_type == "ridge":
-                    if getattr(line, "is_auto_generated", False):
+                    if getattr(line, "is_auto_generated", False) and new_ridge:
                         line.start = new_ridge[0]
                         line.end = new_ridge[1]
                         line.overhang = roof.overhang
                     else:
-                        # User customized the ridge lateral position! Adjust length for new overhang
                         ldx = line.end[0] - line.start[0]
                         ldy = line.end[1] - line.start[1]
                         llen = math.hypot(ldx, ldy)
@@ -884,11 +956,8 @@ class CanvasRoofEventsMixin:
                             line.start = (line.start[0] - lux * delta_oh, line.start[1] - luy * delta_oh)
                             line.end = (line.end[0] + lux * delta_oh, line.end[1] + luy * delta_oh)
                             line.overhang = roof.overhang
-
-        # Update overhang for auto-generated lines
-        for line in roof.manual_lines:
-            if getattr(line, "is_auto_generated", False):
-                line.overhang = roof.overhang
+                elif getattr(line, "is_auto_generated", False):
+                    line.overhang = roof.overhang
 
         # Re-solve topology lines
         self.solve_active_roof(roof)
@@ -932,76 +1001,69 @@ class CanvasRoofEventsMixin:
     def _infer_missing_roof_markings(self):
         """
         Attempt to infer missing roof markings.
-        If user marked exactly 2 walls as eave/gable, and they are opposite in a 4-wall loop,
-        mark the other two walls as the alternate type.
+        - If user marked 2 opposite walls in a 4-wall loop, mark the other two as alternate type.
+        - If user marked 2+ walls as gable in a loop of >=3 walls, infer remaining walls as eave.
         """
         markings = self.get_walls_marked_for_roof()
-        if len(markings) != 2:
+        if not markings or len(markings) < 2:
             return
 
-        # Get the two marked walls
         marked_ids = list(markings.keys())
-        w1 = self.get_wall_by_identifier(marked_ids[0])
-        w2 = self.get_wall_by_identifier(marked_ids[1])
-        
-        if not w1 or not w2:
-            return
-            
-        # Check if they are in the same wall set
+        marked_walls = [self.get_wall_by_identifier(wid) for wid in marked_ids]
+        marked_walls = [w for w in marked_walls if w]
+
+        # Find target wall set containing the marked walls
         target_wall_set = None
-        for wall_set in self.wall_sets:
-            if w1 in wall_set and w2 in wall_set:
+        for wall_set in getattr(self, 'wall_sets', []):
+            if all(w in wall_set for w in marked_walls):
                 target_wall_set = wall_set
                 break
-        
+
         if not target_wall_set:
             return
-            
-        # Check that wall set has exactly 4 walls (Phase 1 constraint)
-        if len(target_wall_set) != 4:
-            return
-            
-        # Check if marked walls are opposite (do not share a vertex)
-        # Helper to check proximity
-        def share_vertex(wa, wb):
-             tol = 1.0
-             return (self._points_close(wa.start, wb.start, tol) or 
-                     self._points_close(wa.start, wb.end, tol) or 
-                     self._points_close(wa.end, wb.start, tol) or 
-                     self._points_close(wa.end, wb.end, tol))
-                     
-        if share_vertex(w1, w2):
-            self.update_hint("Warning: Marked walls are adjacent. Cannot infer complex roof.")
+
+        # Case 1: 4-wall loop with 2 marked walls (existing behavior)
+        if len(target_wall_set) == 4 and len(marked_walls) == 2:
+            w1 = marked_walls[0]
+            w2 = marked_walls[1]
+
+            def share_vertex(wa, wb):
+                tol = 1.0
+                return (self._points_close(wa.start, wb.start, tol) or 
+                        self._points_close(wa.start, wb.end, tol) or 
+                        self._points_close(wa.end, wb.start, tol) or 
+                        self._points_close(wa.end, wb.end, tol))
+
+            if share_vertex(w1, w2):
+                self.update_hint("Warning: Marked walls are adjacent. Cannot infer complex roof.")
+                return
+
+            type1 = markings[w1.identifier]
+            type2 = markings[w2.identifier]
+            if type1 == type2:
+                target_type = "gable" if type1 == "eave" else "eave"
+                missing_walls = [w for w in target_wall_set if w not in [w1, w2]]
+                count = 0
+                for w in missing_walls:
+                    markings[w.identifier] = target_type
+                    count += 1
+                if count > 0:
+                    print(f"Inferred {count} walls as {target_type} based on 2 {type1} walls.")
+                    self.queue_draw()
             return
 
-        # They are opposite. Infer the other two.
-        type1 = markings[w1.identifier]
-        type2 = markings[w2.identifier]
-        
-        # Usually types should be same for simple gable inference (2 eaves OR 2 gables)
-        # If they mixed types (1 eave, 1 gable opposite), that's a valid shed roof or skewed gable?
-        # But for this feature "2 eaves -> assume gables" implies types match.
-        
-        if type1 != type2:
-            return # Mixed types, user might be doing something specific
-            
-        # Determine target type for missing walls
-        target_type = "gable" if type1 == "eave" else "eave"
-        
-        # Find missing walls
-        missing_walls = [w for w in target_wall_set if w not in [w1, w2]]
-        
-        # Mark them
-        count = 0
-        for w in missing_walls:
-            markings[w.identifier] = target_type
-            count += 1
-            
-        if count > 0:
-            print(f"Inferred {count} walls as {target_type} based on 2 {type1} walls.")
-            self.queue_draw()
+        # Case 2: Loop of >= 3 walls where user marked 2+ walls as gable and others are unmarked
+        if len(target_wall_set) >= 3 and len(marked_walls) < len(target_wall_set):
+            all_marked_are_gable = all(markings.get(w.identifier) == 'gable' for w in marked_walls)
+            if all_marked_are_gable and len(marked_walls) >= 2:
+                missing_walls = [w for w in target_wall_set if w not in marked_walls]
+                for w in missing_walls:
+                    markings[w.identifier] = "eave"
+                if missing_walls:
+                    print(f"Inferred {len(missing_walls)} wall(s) as eave based on gable markings.")
+                    self.queue_draw()
 
-    def mark_walls_as_tie_in(self, walls: list = None):
+    def mark_walls_as_tie_in(self, walls: Optional[list] = None):
         """
         Mark selected walls as tie-in edges (where lower roof abuts wall).
         If walls parameter is None, uses currently selected walls.
@@ -1021,7 +1083,7 @@ class CanvasRoofEventsMixin:
         self.queue_draw()
         print(f"Marked {len(walls)} wall(s) as tie-in")
 
-    def solve_active_roof(self, roof: Roof = None) -> Roof:
+    def solve_active_roof(self, roof: Optional[Roof] = None) -> Roof:
         """
         Solve geometry, snap endpoints, and clean roof topology for active roof.
         """
@@ -1075,7 +1137,9 @@ class CanvasRoofEventsMixin:
             self.queue_draw()
         else:
             # Second click: finalize roof line
-            start_pt = self.roof_line_start
+            start_pt = getattr(self, 'roof_line_start', None)
+            if start_pt is None:
+                return
             end_pt = (snapped_x, snapped_y)
 
             dx = end_pt[0] - start_pt[0]
