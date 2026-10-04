@@ -829,6 +829,70 @@ def test_l_shaped_roof_marking_inference():
     assert any(l.line_type == "hip" for l in roof.solved_lines)
 
 
+def test_l_shaped_unequal_wings_non_45_degree_hip_valley():
+    """
+    Test an L-shaped house where the two wings have unequal widths (e.g. 134\" vs 204\").
+    Hips and valleys must NOT be forced to 45 degrees, and their ends must meet
+    the exact corresponding inside/outside overhang corners.
+    """
+    from types import SimpleNamespace
+    from EstiSketch import config
+    from EstiSketch.Canvas.canvas_area import CanvasArea
+
+    cfg = SimpleNamespace(**config.load_config())
+    canvas = CanvasArea(cfg)
+
+    # Coordinates with unequal wing widths:
+    # Wing 1 (horizontal): Y from 199 to 333 (width = 134", centerline Y = 266)
+    # Wing 2 (vertical): X from 373 to 577 (width = 204", centerline X = 475)
+    pts = [
+        (187.0, 199.0),  # W1: left gable top
+        (577.0, 199.0),  # W2: outside corner
+        (577.0, 485.0),  # W3: bottom gable right
+        (373.0, 485.0),  # W4: bottom gable left
+        (373.0, 333.0),  # W5: inside reflex corner
+        (187.0, 333.0),  # W6: left gable bottom
+    ]
+    walls = [DummyWall(f"W{i+1}", pts[i], pts[(i+1)%6]) for i in range(6)]
+    canvas.wall_sets = [walls]
+
+    # Mark end walls as gables
+    canvas.mark_walls_as_gable([walls[2], walls[5]])
+    canvas.mark_walls_as_eave([walls[0], walls[1], walls[3], walls[4]])
+
+    roof = canvas.generate_roof_from_marked_walls(pitch_rise=6, overhang=12.0)
+    assert roof is not None
+
+    # Ridge intersection at (475, 266)
+    valleys = [l for l in roof.solved_lines if l.line_type == "valley"]
+    hips = [l for l in roof.solved_lines if l.line_type == "hip"]
+    assert len(valleys) == 1
+    assert len(hips) == 1
+
+    valley = valleys[0]
+    hip = hips[0]
+
+    # Both originate at the ridge intersection (475, 266)
+    assert math.hypot(valley.start[0] - 475.0, valley.start[1] - 266.0) < 1.0
+    assert math.hypot(hip.start[0] - 475.0, hip.start[1] - 266.0) < 1.0
+
+    # Valley end meets inside overhang corner: (373 - 12, 333 + 12) = (361, 345)
+    assert math.hypot(valley.end[0] - 361.0, valley.end[1] - 345.0) < 1.0
+
+    # Hip end meets outside overhang corner: (577 + 12, 199 - 12) = (589, 187)
+    assert math.hypot(hip.end[0] - 589.0, hip.end[1] - 187.0) < 1.0
+
+    # Verify that the lines are NOT 45 degrees:
+    # dx = -114, dy = 79 => |dx| != |dy|
+    valley_dx = abs(valley.end[0] - valley.start[0])
+    valley_dy = abs(valley.end[1] - valley.start[1])
+    assert abs(valley_dx - valley_dy) > 20.0  # Significant difference from 45 degrees!
+
+    hip_dx = abs(hip.end[0] - hip.start[0])
+    hip_dy = abs(hip.end[1] - hip.start[1])
+    assert abs(hip_dx - hip_dy) > 20.0
+
+
 
 
 

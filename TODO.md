@@ -146,9 +146,9 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
-- [x] Rectangular roofs work very well when auto generating, however when trying to auto generate a more complex roof, only the eaves are generated correctly. In an L shaped house for example, we should have two seperate ridge lines with each ridge line parallel to and initially centered between the walls of each part of the home (one running east to west and the other running north to south for example). from the point where these two ridge lines intersect through the inside corner of the L shaped house and extending out to the corner of the overhang, there should be a valley line. Also, from that same ridge intersection running outwards through the outside corner of the house and extending to the corner of the overhang there should be a hip line. Similar logic applies to a T shaped house. This bug also seems to affect hip roofs on other multisided homes. (2026-10-03)
-
 - [ ] Importing from SH3D walls are not mitered correctly
+- [ ] Auto-generated rooms do not correctly draw when room includes curved walls. It just draws straight between wall endpoints instead of following the curve.
+- [ ] Introduced some weird bugs in basic auto roof drawing... will detail more once I explore them a bit more.
 
 ## 💡 Takeoffs
 - [ ] Material Estimator

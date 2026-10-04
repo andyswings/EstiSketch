@@ -105,11 +105,12 @@ def cluster_and_snap_endpoints(
             roof_clusters = [c for c in clusters if not any(pt_distance(c, st) < 0.5 for st in snap_targets)]
             new_start = snap_point(line.start, roof_clusters, tolerance) if roof_clusters else line.start
             new_end = snap_point(line.end, roof_clusters, tolerance) if roof_clusters else line.end
-        elif getattr(line, 'is_auto_generated', False) and line.line_type in ("hip", "valley"):
-            # Start at ridge/skeleton junction snaps to roof line endpoints, end at overhang corner does not snap to wall corners
+        elif line.line_type in ("hip", "valley"):
+            # Start at ridge/skeleton junction snaps to roof line endpoints;
+            # End at overhang corner snaps to roof line clusters (eave/rake overhang corners), never wall corners!
             roof_clusters = [c for c in clusters if not any(pt_distance(c, st) < 0.5 for st in snap_targets)]
             new_start = snap_point(line.start, roof_clusters, tolerance) if roof_clusters else line.start
-            new_end = line.end
+            new_end = snap_point(line.end, roof_clusters, tolerance) if roof_clusters else line.end
         else:
             new_start = snap_point(line.start, clusters, tolerance)
             new_end = snap_point(line.end, clusters, tolerance)
@@ -303,7 +304,11 @@ def intersect_and_clean_lines(
     # First pass: Straighten angles & snap to wall segments
     straightened_lines = []
     for l in lines:
-        st_start, st_end = straighten_line_angle(l.start, l.end, tolerance_deg=15.0)
+        if getattr(l, 'is_auto_generated', False) or l.line_type in ("hip", "valley"):
+            st_start, st_end = l.start, l.end
+        else:
+            st_start, st_end = straighten_line_angle(l.start, l.end, tolerance_deg=15.0)
+
         if wall_segments and l.line_type not in ("ridge", "hip", "valley"):
             st_start = snap_point_to_line_segments(st_start, wall_segments, tolerance=tolerance)
             st_end = snap_point_to_line_segments(st_end, wall_segments, tolerance=tolerance)
@@ -364,12 +369,12 @@ def intersect_and_clean_lines(
                 if min(d1_start, d1_end) <= max_proj and min(d2_start, d2_end) <= max_proj:
                     if d1_start < d1_end:
                         l1["start"] = [ix, iy]
-                    else:
+                    elif not (l1.get("auto") or t1 in ("hip", "valley")):
                         l1["end"] = [ix, iy]
 
                     if d2_start < d2_end:
                         l2["start"] = [ix, iy]
-                    else:
+                    elif not (l2.get("auto") or t2 in ("hip", "valley")):
                         l2["end"] = [ix, iy]
 
     # Reconstruct RoofLine instances
