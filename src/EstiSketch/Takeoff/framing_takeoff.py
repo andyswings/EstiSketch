@@ -116,7 +116,7 @@ class FramingEstimator:
         Returns:
             dict: Aggregated material counts.
         """
-        import config
+        from .. import config
 
         # Read runtime config (falls back to DEFAULT_SETTINGS if settings file
         # missing)

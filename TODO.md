@@ -1,19 +1,23 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add Stairs tool (straight, L-shaped, U-shaped, spiral)
-- [ ] Asymetrical roof pitches
-- [ ] Roof design - Complex roof shapes
+- [ ] Mimic SweetHome3D wall labels (while drawing) use this behavior for all labels on walls windows and doors, etc. so that labels are upright when possible or easy to read when not possible.
+- [ ] Add window and door ghosts. When using the relevant tool and mousing over a wall, a window or door ghost appears on the wall where the actual window or door would be if the user made a click.
+- [ ] Add Winder stairs to the Stairs tool. Add property dock controls for the number of winders.
+- [ ] Look into what we are missing to reach feature parity with the 2D part of SweetHome3D.
+- [ ] Make sure roof and overhang tools work with 0 wall thickness.
+- [ ] Make sure roof and overhang tools work with walls on different levels.
+- [ ] Make sure roof and overhang tools work with angled walls.
+- [ ] Clean up the code base. I feel like we have a few things that are redundant, no longer used, or are in other ways unnecessary.
 
 ## Ideas to think about
+- [ ] Refine capability to snap new wall's edges to existing wall edges instead of just endpoints to endpoints (should have same capabilities for editing walls as well) (This is useful for aligning walls of different thicknesses end to end)
 
 ## ✨ Core Features (essential functionality)
 
 ### Architectural Elements
-- [ ] Roof components (trusses, rafters, ridges, valleys)
 - [ ] Columns/Posts
 - [ ] Beams
-- [ ] Foundations (slab, crawlspace, basement)
 - [ ] Ceiling types (dropped, vaulted, cathedral)
 - [ ] Railings/Guardrails (deck, stair, balcony)
 - [ ] Add Cabinet Tool
@@ -149,13 +153,39 @@
 ## 🛠️ Tech Debt / Refactoring
 
 ## 🐛 Known Bugs / FIXMEs
+- [ ] Importing from SH3D walls are not mitered correctly
+- [ ] Auto-generated rooms do not correctly draw when room includes curved walls. It just draws straight between wall endpoints instead of following the curve.
 
 ## 💡 Takeoffs
 - [ ] Material Estimator
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
-
+- [x] Streamlined pitch spinners in Roof Properties Dock (consolidated redundant spinners into a single pitch control with dual-pitch mode and clean read-only slope takeoff rows), updated live 3D surface area and canvas annotations immediately on pitch adjustment, and ensured triangular and equal-sided polygons with hip roofs generate 0 ridge lines with all hips meeting at a single apex. (2026-10-05)
+- [x] Refactored and implemented unified 3D roof geometry engine supporting both auto-generated and manually edited roofs via functional mathematical pipeline, variable eave overhang offsetting, analytical asymmetric pitch solving, algebraic 3-plane junction solving, and Phase 4 headless invariant test suite. (2026-10-05)
+- [x] Complex roof auto-generation for L-shaped, T-shaped, and multisided homes: auto-generates dual/intersecting ridges, valleys from ridge intersection to inside corners/overhang, hips from ridge intersection through outside corner to overhang, rakes/eaves at wing ends (supporting both gable and hip treatments), straight skeleton solver for multisided convex roofs, smart wall marking inference, and dynamic recalculation on overhang adjustment. (2026-10-03)
+- [x] building_takeoff.py lines 694 and 695 should not have a hardcoded fallback value. Warned user via UserWarning and returned empty results when geometry is missing instead of hardcoded fallbacks. (2026-09-29)
+- [x] After marking walls and then auto generating a gable roof, ridge line does not extend or retract to follow overhang when overhang size is edited. (2026-09-29)
+- [x] Edited ridgelines are not persistent after auto generating a roof. Added click-and-drag ridge recalculation of side pitches, and property dock controls to adjust individual pitches which reposition the ridge. (2026-09-29)
+- [x] Does not seem to be any way to set different pitches for different parts of the roof anywhere in the GUI, and I don't see a way to manually edit pitches at all. (2026-09-29)
+- [x] Fixed GUI pitch editing: added Pitch Mode selector (Uniform vs Asymmetric Dual Pitch), per-side pitch spin buttons, and interactive individual slope facet list in Roof Properties Dock (2026-09-29)
+- [x] Fixed ridgeline drag persistence and bi-directional pitch recalculation: dragging ridge lines persists coordinates and updates side pitches; adjusting side pitches moves the ridge line (2026-09-29)
+- [x] Fixed gable ridge line overhang tracking: ridge lines now dynamically extend or retract when overhang distance is edited (2026-09-29)
+- [x] Removed hardcoded 24.0/30.0 fallback in building_takeoff.py, added wall edge fallbacks, and warned user via UserWarning when roof points are missing (2026-09-29)
+- [x] Roof components (ridges, valleys, hips, rakes, eaves, tie-ins, and multi-plane facets) (2026-09-29)
+- [x] Roof design - Complex roof shapes (manual line sketch, topology cleaning, multi-plane 3D takeoff) (2026-09-29)
+- [x] Asymmetrical roof pitches & per-edge pitch overrides (2026-09-29)
+- [x] Added Angled walls (one side taller than the other for sloped ceilings) (2026-08-10)
+- [x] Fixed room selection indicator (fill highlight, outline, vertex handles) and full room deletion (2026-08-11)
+- [x] Stairs now appear in the Layers Panel with other objects (2026-02-01)
+- [x] Stair total rise now auto-recalculates based on floor-to-floor height (if floor-to-floor height is changed) (2026-02-01)
+- [x] Added basic editing capabilities to stairs (move, resize, rotate, etc.) (2026-02-01)
+- [x] Fixed Initial Steps Value (2026-02-01)
+- [x] Selecting L-shaped stairs on the second flight now works (2026-01-25)
+- [x] Adjusting the value of steps(1st flight) on multi-flight stairs now produces a visible change (2026-01-25)
+- [x] Added support for U-shaped and Spiral stairs (2026-01-25)
+- [x] Added L-shaped stair type with dedicated rendering and property controls (2026-01-25)
+- [x] Added initial basic stair tool (supports straight stairs) (2026-01-25)
 ### v0.3.0-alpha (2026-01-25)
 - [x] Added footing and slab properties to Wall and Room data models (2026-01-25)
 - [x] Implemented footer rendering with smart corner joining and extensions (2026-01-25)
@@ -169,6 +199,8 @@
 - [x] Added object list per layer in the layers panel. (2026-01-18)
 - [x] When a layer is selected, it and the layers above are set to 100% opacity and the layers below are set to 25% opacity. (2026-01-18)
 - [x] Objects can no longer be placed or edited on a locked layer. (2026-01-18)
+- [x] Implemented roof design - Complex roof shapes, manual line sketching (Shift+L), topology cleaning, and multi-plane 3D takeoff (2026-02-01)
+- [x] Implemented asymmetric roof pitch calculations, per-plane facet slope solving, and line endpoint dragging (2026-02-01)
 - [x] Fixed wall loops are not always mitered correctly between the last and first wall and the issue is not fixed by joining the walls or joining connected walls. (2026-01-18)
 - [x] Implemented custom roof pitches (editable pitch, overhang, material) (2026-01-18)
 - [x] Added tool hint for the roof design tool (2026-01-15)
@@ -245,4 +277,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2026-01-25_
+_Last updated: 2026-02-01_

@@ -268,10 +268,8 @@ class LayersPanel(Gtk.Box):
                 val = self.canvas.converter.parse_measurement(new_value)
                 if val is not None:
                     level.elevation = val
-                    print(f"Updated Level {level.name} elevation to {val}")
-                    # If this is active level, maybe queue draw?
-                    # Generally drawing doesn't depend on elevation yet unless 3D
-                    pass
+                    if hasattr(self.canvas, 'update_stairs_for_level_change'):
+                        self.canvas.update_stairs_for_level_change(level.id)
             except Exception as e:
                 print(f"Error parsing elevation: {e}")
 
@@ -696,6 +694,13 @@ class LayersPanel(Gtk.Box):
             # Roof - identifier or simple name
             ident = getattr(obj, 'identifier', '')
             return f"Roof - {ident}" if ident else "Roof"
+            
+        elif type_name == "stair":
+            # Stair - type and rise info
+            stair_type = getattr(obj, 'stair_type', 'straight')
+            rise = getattr(obj, 'total_rise', 0)
+            rise_str = self.canvas.converter.format_measurement(rise, use_fraction=False)
+            return f"Stair ({stair_type}) - Rise: {rise_str}"
             
         else:
             # Fallback

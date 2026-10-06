@@ -374,6 +374,64 @@ class EditEventsMixin:
             self.queue_draw()
             return
 
+        # Handle stair editing
+        if getattr(self, "editing_stair", None) and getattr(self, "editing_stair_handle", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            
+            # Current mouse position in device coords
+            current_device_x = self.drag_start_x + offset_x if hasattr(self, 'drag_start_x') else offset_x
+            current_device_y = self.drag_start_y + offset_y if hasattr(self, 'drag_start_y') else offset_y
+            
+            # Convert to model coordinates
+            new_x, new_y = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            
+            stair = self.editing_stair
+            start_x, start_y = stair.start_point
+            
+            if self.editing_stair_handle == "rotate":
+                # Calculate angle from start point to mouse
+                dx = new_x - start_x
+                dy = new_y - start_y
+                new_angle = math.atan2(dy, dx)
+                
+                # Snap to 15 degrees (approx 0.26 rad)
+                # Or 45 degrees
+                # Simple snap to 45 deg
+                deg = math.degrees(new_angle)
+                snap_interval = 15.0
+                snapped_deg = round(deg / snap_interval) * snap_interval
+                new_angle = math.radians(snapped_deg)
+                
+                # Add 180 because handle is at the "back" (-12 inches)?
+                # Wait, handle is at (-12, 0) relative to start, rotated by angle.
+                # So the vector from start to handle is (cos(a)*-12, sin(a)*-12).
+                # Which is direction angle + 180 degrees.
+                # So if mouse is at handle, angle(mouse-start) = angle + 180.
+                # So stair angle = angle(mouse-start) - 180.
+                
+                stair.direction_angle = new_angle - math.pi
+            
+            self.queue_draw()
+            return
+
+        # Handle stair dragging
+        if getattr(self, "dragging_stair", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            T = self.zoom * pixels_per_inch
+            
+            # Calculate offset in model coordinates
+            # Since self.stair_drag_start_pos is the original start point,
+            # and offset_x/y is total offset from start.
+            
+            dx = offset_x / T
+            dy = offset_y / T
+            
+            start_x, start_y = self.stair_drag_start_pos
+            self.dragging_stair.start_point = (start_x + dx, start_y + dy)
+            
+            self.queue_draw()
+            return
+
         # Handle dimension endpoint editing
         if getattr(
                 self,
@@ -410,6 +468,8 @@ class EditEventsMixin:
                 # Calculate Wall Face Snaps (Mitered Corners)
                 check_dist = self.snap_manager.snap_threshold
                 best_face_snap = None
+
+
                 
                 for wall_set in self.wall_sets:
                     for wall in wall_set:
@@ -703,6 +763,78 @@ class EditEventsMixin:
                 self.editing_polyline.start = (new_x, new_y)
             else:
                 self.editing_polyline.end = (new_x, new_y)
+
+            self.queue_draw()
+            return
+
+        # Handle roof line endpoint editing
+        if getattr(
+                self,
+                "editing_roof_line",
+                None) and getattr(
+                self,
+                "editing_roof_line_handle",
+                None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+
+            # Calculate new position based on drag offset
+            current_device_x = self.drag_start_x + \
+                offset_x if hasattr(self, 'drag_start_x') else offset_x
+            current_device_y = self.drag_start_y + \
+                offset_y if hasattr(self, 'drag_start_y') else offset_y
+
+            # Convert to model coordinates
+            new_x, new_y = self.device_to_model(
+                current_device_x, current_device_y, pixels_per_inch)
+
+            # Apply snapping if enabled
+            if self.snap_manager.snap_enabled:
+                walls = [
+                    wall for wall_set in self.wall_sets for wall in wall_set]
+                polylines = [
+                    pl for poly_set in self.polyline_sets for pl in poly_set]
+                snapped_pos, snap_type = self.snap_manager.snap_point(
+                    new_x, new_y,
+                    new_x, new_y,
+                    walls, self.rooms,
+                    canvas_width=self.get_width(),
+                    zoom=self.zoom,
+                    polylines=polylines
+                )
+                if snap_type != "none":
+                    new_x, new_y = snapped_pos
+
+            # Update the appropriate endpoint
+            if self.editing_roof_line_handle == "start":
+                self.editing_roof_line.start = (new_x, new_y)
+            else:
+                self.editing_roof_line.end = (new_x, new_y)
+
+            self.queue_draw()
+            return
+
+        # Handle roof line dragging (moves entire roof line)
+        if getattr(self, "dragging_roof_lines", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+
+            # Calculate current position in model coordinates
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(
+                current_device_x, current_device_y, pixels_per_inch)
+
+            # Calculate offset in model coordinates
+            dx = current_model[0] - self.roof_line_drag_start_model[0]
+            dy = current_model[1] - self.roof_line_drag_start_model[1]
+
+            # Update all selected roof lines by moving both endpoints
+            for rl_info in self.dragging_roof_lines:
+                rl = rl_info["roof_line"]
+                orig_start = rl_info["original_start"]
+                orig_end = rl_info["original_end"]
+
+                rl.start = (orig_start[0] + dx, orig_start[1] + dy)
+                rl.end = (orig_end[0] + dx, orig_end[1] + dy)
 
             self.queue_draw()
             return

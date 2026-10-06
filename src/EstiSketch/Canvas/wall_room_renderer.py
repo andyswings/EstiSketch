@@ -330,6 +330,131 @@ def draw_walls(self, cr):
             
             cr.restore()
 
+    draw_sloped_wall_indicators(self, cr)
+
+
+def draw_sloped_wall_indicators(self, cr):
+    """Draw slope direction arrows and height labels for sloped/variable height walls."""
+    import math
+
+    pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+    zoom_transform = self.zoom * pixels_per_inch
+
+    all_walls = []
+    for wall_set in getattr(self, 'wall_sets', []):
+        all_walls.extend(wall_set)
+    all_walls.extend(getattr(self, 'walls', []))
+
+    for wall in all_walls:
+        if not getattr(wall, 'is_sloped', False):
+            continue
+
+        start_h = float(wall.height)
+        end_h = float(getattr(wall, 'height_at_end', start_h))
+        if abs(start_h - end_h) < 0.01:
+            continue
+
+        p_start = wall.start
+        p_end = wall.end
+        dx = p_end[0] - p_start[0]
+        dy = p_end[1] - p_start[1]
+        length = math.hypot(dx, dy)
+        if length < 1e-4:
+            continue
+
+        # Unit vector along wall
+        ux = dx / length
+        uy = dy / length
+
+        # Center point
+        mid_x = (p_start[0] + p_end[0]) / 2.0
+        mid_y = (p_start[1] + p_end[1]) / 2.0
+
+        # Normal vector for offsetting label
+        nx = -uy
+        ny = ux
+
+        cr.save()
+
+        # Format label text
+        if hasattr(self, 'converter'):
+            s_str = self.converter.format_measurement(start_h, use_fraction=False)
+            e_str = self.converter.format_measurement(end_h, use_fraction=False)
+        else:
+            s_str = f"{start_h:.0f}\""
+            e_str = f"{end_h:.0f}\""
+
+        label_text = f"{s_str} ↗ {e_str}"
+
+        # Uphill direction vector
+        if end_h > start_h:
+            dir_x, dir_y = ux, uy
+        else:
+            dir_x, dir_y = -ux, -uy
+
+        # Draw slope arrow along centerline
+        arrow_len = min(24.0, length * 0.3)
+        a_start_x = mid_x - dir_x * (arrow_len / 2.0)
+        a_start_y = mid_y - dir_y * (arrow_len / 2.0)
+        a_end_x = mid_x + dir_x * (arrow_len / 2.0)
+        a_end_y = mid_y + dir_y * (arrow_len / 2.0)
+
+        cr.set_source_rgba(0.1, 0.4, 0.8, 0.9)
+        cr.set_line_width(2.0 / zoom_transform)
+
+        cr.move_to(a_start_x, a_start_y)
+        cr.line_to(a_end_x, a_end_y)
+        cr.stroke()
+
+        # Arrowhead
+        head_size = 6.0 / zoom_transform
+        angle = math.atan2(dir_y, dir_x)
+        left_head_x = a_end_x - head_size * math.cos(angle - math.pi / 6)
+        left_head_y = a_end_y - head_size * math.sin(angle - math.pi / 6)
+        right_head_x = a_end_x - head_size * math.cos(angle + math.pi / 6)
+        right_head_y = a_end_y - head_size * math.sin(angle + math.pi / 6)
+
+        cr.move_to(a_end_x, a_end_y)
+        cr.line_to(left_head_x, left_head_y)
+        cr.line_to(right_head_x, right_head_y)
+        cr.close_path()
+        cr.fill()
+
+        # Draw text label parallel to wall, slightly offset from wall centerline
+        offset_dist = (wall.width / 2.0 + 8.0)
+        text_x = mid_x + nx * offset_dist
+        text_y = mid_y + ny * offset_dist
+
+        # Compute wall alignment angle (keep right-side up)
+        wall_angle = math.atan2(dy, dx)
+        if wall_angle > math.pi / 2 or wall_angle < -math.pi / 2:
+            wall_angle += math.pi
+
+        cr.save()
+        cr.translate(text_x, text_y)
+        cr.rotate(wall_angle)
+
+        cr.select_font_face("Sans", 0, 1)
+        cr.set_font_size(11.0 / zoom_transform)
+        extents = cr.text_extents(label_text)
+
+        pad = 3.0 / zoom_transform
+        rect_x = -extents.width / 2.0 - pad
+        rect_y = -extents.height / 2.0 - pad
+        rect_w = extents.width + 2 * pad
+        rect_h = extents.height + 2 * pad
+
+        cr.set_source_rgba(1.0, 1.0, 1.0, 0.85)
+        cr.rectangle(rect_x, rect_y, rect_w, rect_h)
+        cr.fill()
+
+        cr.set_source_rgba(0.1, 0.4, 0.8, 1.0)
+        cr.move_to(-extents.width / 2.0, extents.height / 2.0)
+        cr.show_text(label_text)
+        cr.restore()
+
+        cr.restore()
+
 
 def draw_rooms(self, cr, zoom_transform):
     cr.set_line_width(1.0 / zoom_transform)

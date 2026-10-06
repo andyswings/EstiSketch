@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
-from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc
-from .roof_components import Roof, RoofEdge
+from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair
+from .roof_components import Roof, RoofEdge, RoofLine
 
 
 def save_project(canvas, window_width, window_height, filepath):
@@ -72,6 +72,7 @@ def save_project(canvas, window_width, window_height, filepath):
                     wall.end[1]))
             ET.SubElement(wall_elem, "Width").text = str(wall.width)
             ET.SubElement(wall_elem, "Height").text = str(wall.height)
+            ET.SubElement(wall_elem, "HeightAtEnd").text = str(getattr(wall, 'height_at_end', wall.height))
             ET.SubElement(
                 wall_elem,
                 "ExteriorWall").text = str(
@@ -292,14 +293,50 @@ def save_project(canvas, window_width, window_height, filepath):
         r_elem.set("overhang", str(roof.overhang))
         r_elem.set("material", roof.material)
         
-        # Save edges
+        # Save edges with overrides
         edges_elem = ET.SubElement(r_elem, "Edges")
         for edge in roof.edges:
             e_elem = ET.SubElement(edges_elem, "Edge")
             e_elem.set("wall_identifier", edge.wall_identifier)
             e_elem.set("edge_type", edge.edge_type)
-        
-        # Save calculated geometry (for faster loading, can be recalculated)
+            if getattr(edge, "pitch_rise", None) is not None:
+                e_elem.set("pitch_rise", str(edge.pitch_rise))
+            if getattr(edge, "overhang", None) is not None:
+                e_elem.set("overhang", str(edge.overhang))
+
+        # Save manual roof lines (sketched)
+        manual_elem = ET.SubElement(r_elem, "ManualLines")
+        for ml in getattr(roof, "manual_lines", []):
+            l_elem = ET.SubElement(manual_elem, "RoofLine")
+            l_elem.set("identifier", ml.identifier)
+            l_elem.set("line_type", ml.line_type)
+            l_elem.set("x1", str(ml.start[0]))
+            l_elem.set("y1", str(ml.start[1]))
+            l_elem.set("x2", str(ml.end[0]))
+            l_elem.set("y2", str(ml.end[1]))
+            if ml.pitch_rise is not None:
+                l_elem.set("pitch_rise", str(ml.pitch_rise))
+            if ml.overhang is not None:
+                l_elem.set("overhang", str(ml.overhang))
+            l_elem.set("is_auto", str(ml.is_auto_generated))
+
+        # Save solved topology lines
+        solved_elem = ET.SubElement(r_elem, "SolvedLines")
+        for sl in getattr(roof, "solved_lines", []):
+            l_elem = ET.SubElement(solved_elem, "RoofLine")
+            l_elem.set("identifier", sl.identifier)
+            l_elem.set("line_type", sl.line_type)
+            l_elem.set("x1", str(sl.start[0]))
+            l_elem.set("y1", str(sl.start[1]))
+            l_elem.set("x2", str(sl.end[0]))
+            l_elem.set("y2", str(sl.end[1]))
+            if sl.pitch_rise is not None:
+                l_elem.set("pitch_rise", str(sl.pitch_rise))
+            if sl.overhang is not None:
+                l_elem.set("overhang", str(sl.overhang))
+            l_elem.set("is_auto", str(sl.is_auto_generated))
+
+        # Save calculated geometry
         ridge_elem = ET.SubElement(r_elem, "RidgeLines")
         for (p1, p2) in roof.ridge_lines:
             line_elem = ET.SubElement(ridge_elem, "Line")
@@ -307,7 +344,7 @@ def save_project(canvas, window_width, window_height, filepath):
             line_elem.set("y1", str(p1[1]))
             line_elem.set("x2", str(p2[0]))
             line_elem.set("y2", str(p2[1]))
-        
+
         hip_elem = ET.SubElement(r_elem, "HipLines")
         for (p1, p2) in roof.hip_lines:
             line_elem = ET.SubElement(hip_elem, "Line")
@@ -315,7 +352,7 @@ def save_project(canvas, window_width, window_height, filepath):
             line_elem.set("y1", str(p1[1]))
             line_elem.set("x2", str(p2[0]))
             line_elem.set("y2", str(p2[1]))
-        
+
         valley_elem = ET.SubElement(r_elem, "ValleyLines")
         for (p1, p2) in roof.valley_lines:
             line_elem = ET.SubElement(valley_elem, "Line")
@@ -323,17 +360,135 @@ def save_project(canvas, window_width, window_height, filepath):
             line_elem.set("y1", str(p1[1]))
             line_elem.set("x2", str(p2[0]))
             line_elem.set("y2", str(p2[1]))
-        
+
+        rake_elem = ET.SubElement(r_elem, "RakeLines")
+        for (p1, p2) in getattr(roof, "rake_lines", []):
+            line_elem = ET.SubElement(rake_elem, "Line")
+            line_elem.set("x1", str(p1[0]))
+            line_elem.set("y1", str(p1[1]))
+            line_elem.set("x2", str(p2[0]))
+            line_elem.set("y2", str(p2[1]))
+
+        eave_elem = ET.SubElement(r_elem, "EaveLines")
+        for (p1, p2) in getattr(roof, "eave_lines", []):
+            line_elem = ET.SubElement(eave_elem, "Line")
+            line_elem.set("x1", str(p1[0]))
+            line_elem.set("y1", str(p1[1]))
+            line_elem.set("x2", str(p2[0]))
+            line_elem.set("y2", str(p2[1]))
+
+        tie_in_elem = ET.SubElement(r_elem, "TieInLines")
+        for (p1, p2) in getattr(roof, "tie_in_lines", []):
+            line_elem = ET.SubElement(tie_in_elem, "Line")
+            line_elem.set("x1", str(p1[0]))
+            line_elem.set("y1", str(p1[1]))
+            line_elem.set("x2", str(p2[0]))
+            line_elem.set("y2", str(p2[1]))
+
         outline_elem = ET.SubElement(r_elem, "Outline")
         for pt in roof.outline_points:
             pt_elem = ET.SubElement(outline_elem, "Point")
             pt_elem.set("x", str(pt[0]))
             pt_elem.set("y", str(pt[1]))
 
+    # Save Stairs
+    stairs_elem = ET.SubElement(root, "Stairs")
+    for stair in getattr(canvas, 'stairs', []):
+        s_elem = ET.SubElement(stairs_elem, "Stair")
+        s_elem.set("identifier", stair.identifier)
+        s_elem.set("layer_id", getattr(stair, 'layer_id', ''))
+        
+        # Placement
+        s_elem.set("start_x", str(stair.start_point[0]))
+        s_elem.set("start_y", str(stair.start_point[1]))
+        s_elem.set("direction_angle", str(stair.direction_angle))
+        
+        # Level IDs
+        s_elem.set("start_level_id", str(stair.start_level_id))
+        s_elem.set("end_level_id", str(stair.end_level_id))
+        
+        # Type & Dimensions
+        s_elem.set("stair_type", stair.stair_type)
+        s_elem.set("width", str(stair.width))
+        s_elem.set("total_rise", str(stair.total_rise))
+        s_elem.set("riser_height", str(stair.riser_height))
+        s_elem.set("num_steps", str(stair.num_steps))
+        s_elem.set("tread_depth", str(stair.tread_depth))
+        s_elem.set("total_run", str(stair.total_run))
+        s_elem.set("nosing", str(stair.nosing))
+        
+        # Railings
+        s_elem.set("has_left_rail", str(stair.has_left_rail))
+        s_elem.set("has_right_rail", str(stair.has_right_rail))
+        s_elem.set("rail_height", str(stair.rail_height))
+        
+        # Visual
+        s_elem.set("show_up_arrow", str(stair.show_up_arrow))
+        s_elem.set("show_step_count", str(stair.show_step_count))
+
     # Write out the XML to the given file (with declaration and proper
     # encoding).
     tree = ET.ElementTree(root)
     tree.write(filepath, encoding="utf-8", xml_declaration=True)
+
+
+def _get_elem_text(parent, tag, default=""):
+    elem = parent.find(tag)
+    if elem is not None and elem.text is not None:
+        return elem.text
+    return default
+
+
+def _get_elem_float(parent, tag, default=0.0):
+    val = _get_elem_text(parent, tag, None)
+    if val is not None:
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            pass
+    return default
+
+
+def _get_elem_int(parent, tag, default=0):
+    val = _get_elem_text(parent, tag, None)
+    if val is not None:
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            pass
+    return default
+
+
+def _get_elem_bool(parent, tag, default=False):
+    val = _get_elem_text(parent, tag, None)
+    if val is not None:
+        return val.lower() == "true"
+    return default
+
+
+def _get_attr_text(elem, attr, default=""):
+    val = elem.get(attr)
+    return val if val is not None else default
+
+
+def _get_attr_int(elem, attr, default=0):
+    val = elem.get(attr)
+    if val is not None:
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            pass
+    return default
+
+
+def _get_attr_float(elem, attr, default=0.0):
+    val = elem.get(attr)
+    if val is not None:
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            pass
+    return default
 
 
 def open_project(canvas, filepath):
@@ -354,16 +509,15 @@ def open_project(canvas, filepath):
     tree = ET.parse(filepath)
     root = tree.getroot()
 
-    # Retrieve window dimensions.
-    window_width = int(root.get("window_width"))
-    window_height = int(root.get("window_height"))
+    # Retrieve window dimensions (with fallback defaults if missing or invalid).
+    window_width = _get_attr_int(root, "window_width", 800)
+    window_height = _get_attr_int(root, "window_height", 600)
 
     # Clear the current canvas state.
     canvas.wall_sets.clear()
     canvas.rooms.clear()
     canvas.doors.clear()
     canvas.windows.clear()
-    canvas.texts.clear()
     canvas.texts.clear()
     canvas.dimensions.clear()
     if hasattr(canvas, 'layers'):
@@ -376,10 +530,10 @@ def open_project(canvas, filepath):
     if levels_elem is not None:
         for level_elem in levels_elem.findall("Level"):
             level = Level(
-                id=level_elem.get("id"),
-                name=level_elem.get("name", "Level"),
-                elevation=float(level_elem.get("elevation", "0.0")),
-                height=float(level_elem.get("height", "96.0"))
+                id=_get_attr_text(level_elem, "id", ""),
+                name=_get_attr_text(level_elem, "name", "Level"),
+                elevation=_get_attr_float(level_elem, "elevation", 0.0),
+                height=_get_attr_float(level_elem, "height", 96.0)
             )
             if hasattr(canvas, 'levels'):
                 canvas.levels.append(level)
@@ -389,7 +543,7 @@ def open_project(canvas, filepath):
         canvas.levels.append(Level(id="level-1", name="Level 1"))
 
     # Restore active level ID
-    active_level_id = root.get("active_level_id", "")
+    active_level_id = _get_attr_text(root, "active_level_id", "")
     if hasattr(canvas, 'active_level_id'):
         if active_level_id:
             canvas.active_level_id = active_level_id
@@ -400,23 +554,22 @@ def open_project(canvas, filepath):
     layers_elem = root.find("Layers")
     if layers_elem is not None:
         for layer_elem in layers_elem.findall("Layer"):
-            # Handle legacy files: assign to active level (first one) if
-            # level_id missing
-            legacy_level_id = canvas.levels[0].id if canvas.levels else ""
+            # Handle legacy files: assign to active level (first one) if level_id missing
+            legacy_level_id = canvas.levels[0].id if (hasattr(canvas, 'levels') and canvas.levels) else ""
 
             layer = Layer(
-                id=layer_elem.get("id", ""),
-                name=layer_elem.get("name", "Layer"),
-                visible=layer_elem.get("visible", "True") == "True",
-                locked=layer_elem.get("locked", "False") == "True",
-                opacity=float(layer_elem.get("opacity", "1.0")),
-                level_id=layer_elem.get("level_id", legacy_level_id)
+                id=_get_attr_text(layer_elem, "id", ""),
+                name=_get_attr_text(layer_elem, "name", "Layer"),
+                visible=_get_attr_text(layer_elem, "visible", "True") == "True",
+                locked=_get_attr_text(layer_elem, "locked", "False") == "True",
+                opacity=_get_attr_float(layer_elem, "opacity", 1.0),
+                level_id=_get_attr_text(layer_elem, "level_id", legacy_level_id)
             )
             if hasattr(canvas, 'layers'):
                 canvas.layers.append(layer)
 
     # Restore active layer ID
-    active_layer_id = root.get("active_layer_id", "")
+    active_layer_id = _get_attr_text(root, "active_layer_id", "")
     if hasattr(canvas, 'active_layer_id'):
         canvas.active_layer_id = active_layer_id
 
@@ -429,35 +582,37 @@ def open_project(canvas, filepath):
                 # Get start and end coordinates.
                 start_elem = wall_elem.find("Start")
                 end_elem = wall_elem.find("End")
+                if start_elem is None or end_elem is None:
+                    continue
                 start = (
-                    float(
-                        start_elem.get("x")), float(
-                        start_elem.get("y")))
-                end = (float(end_elem.get("x")), float(end_elem.get("y")))
-                width = float(wall_elem.find("Width").text)
-                height = float(wall_elem.find("Height").text)
-                exterior_text = wall_elem.find("ExteriorWall").text
-                exterior_wall = exterior_text.lower() == "true"
+                    _get_attr_float(start_elem, "x", 0.0),
+                    _get_attr_float(start_elem, "y", 0.0)
+                )
+                end = (
+                    _get_attr_float(end_elem, "x", 0.0),
+                    _get_attr_float(end_elem, "y", 0.0)
+                )
+                width = _get_elem_float(wall_elem, "Width", 4.5)
+                height = _get_elem_float(wall_elem, "Height", 96.0)
+                height_at_end = _get_elem_float(wall_elem, "HeightAtEnd", height)
+                exterior_wall = _get_elem_bool(wall_elem, "ExteriorWall", False)
 
                 # Create a new Wall instance.
-                wall = Wall(start, end, width, height, exterior_wall)
-                wall.layer_id = wall_elem.find("LayerId").text if wall_elem.find(
-                    "LayerId") is not None else ""
-                wall.material = wall_elem.find("Material").text
-                wall.interior_finish = wall_elem.find("InteriorFinish").text
-                wall.exterior_finish = wall_elem.find("ExteriorFinish").text
-                wall.stud_spacing = int(wall_elem.find("StudSpacing").text)
-                wall.insulation_type = wall_elem.find("InsulationType").text
-                wall.fire_rating = wall_elem.find("FireRating").text
+                wall = Wall(start, end, width, height, exterior_wall, height_at_end=height_at_end)
+                wall.layer_id = _get_elem_text(wall_elem, "LayerId", "")
+                wall.material = _get_elem_text(wall_elem, "Material", "2x4 Wood Stud")
+                wall.interior_finish = _get_elem_text(wall_elem, "InteriorFinish", "1/2\" Drywall")
+                wall.exterior_finish = _get_elem_text(wall_elem, "ExteriorFinish", "Vinyl Siding")
+                wall.stud_spacing = _get_elem_int(wall_elem, "StudSpacing", 16)
+                wall.insulation_type = _get_elem_text(wall_elem, "InsulationType", "Fiberglass Batt")
+                wall.fire_rating = _get_elem_text(wall_elem, "FireRating", "None")
 
                 # Restore footer properties (with defaults for legacy files)
-                footer_elem = wall_elem.find("Footer")
-                wall.footer = footer_elem is not None and footer_elem.text.lower() == "true"
-                wall.footer_left_offset = float(wall_elem.find("FooterLeftOffset").text) if wall_elem.find("FooterLeftOffset") is not None else 6.0
-                wall.footer_right_offset = float(wall_elem.find("FooterRightOffset").text) if wall_elem.find("FooterRightOffset") is not None else 6.0
-                wall.footer_depth = float(wall_elem.find("FooterDepth").text) if wall_elem.find("FooterDepth") is not None else 8.0
-                symbolic_elem = wall_elem.find("Symbolic")
-                wall.symbolic = symbolic_elem is not None and symbolic_elem.text.lower() == "true"
+                wall.footer = _get_elem_bool(wall_elem, "Footer", False)
+                wall.footer_left_offset = _get_elem_float(wall_elem, "FooterLeftOffset", 6.0)
+                wall.footer_right_offset = _get_elem_float(wall_elem, "FooterRightOffset", 6.0)
+                wall.footer_depth = _get_elem_float(wall_elem, "FooterDepth", 8.0)
+                wall.symbolic = _get_elem_bool(wall_elem, "Symbolic", False)
 
                 wall_set.append(wall)
             canvas.wall_sets.append(wall_set)
@@ -470,24 +625,22 @@ def open_project(canvas, filepath):
             points_elem = room_elem.find("Points")
             if points_elem is not None:
                 for pt_elem in points_elem.findall("Point"):
-                    x = float(pt_elem.get("x"))
-                    y = float(pt_elem.get("y"))
+                    x = _get_attr_float(pt_elem, "x", 0.0)
+                    y = _get_attr_float(pt_elem, "y", 0.0)
                     points.append((x, y))
-            height = float(room_elem.find("Height").text)
+            height = _get_elem_float(room_elem, "Height", 96.0)
             room = Room(points, height)
-            room.floor_type = room_elem.find("FloorType").text
-            room.wall_finish = room_elem.find("WallFinish").text
-            room.room_type = room_elem.find("RoomType").text
-            room.name = room_elem.find("Name").text
-            room.layer_id = room_elem.find("LayerId").text if room_elem.find(
-                "LayerId") is not None else ""
+            room.floor_type = _get_elem_text(room_elem, "FloorType", "Hardwood")
+            room.wall_finish = _get_elem_text(room_elem, "WallFinish", "Paint")
+            room.room_type = _get_elem_text(room_elem, "RoomType", "Living Room")
+            room.name = _get_elem_text(room_elem, "Name", "Room")
+            room.layer_id = _get_elem_text(room_elem, "LayerId", "")
 
             # Restore slab properties (with defaults for legacy files)
-            is_slab_elem = room_elem.find("IsSlab")
-            room.is_slab = is_slab_elem is not None and is_slab_elem.text.lower() == "true"
-            room.slab_thickness = float(room_elem.find("SlabThickness").text) if room_elem.find("SlabThickness") is not None else 4.0
-            room.slab_reinforcement = room_elem.find("SlabReinforcement").text if room_elem.find("SlabReinforcement") is not None else "wire_mesh"
-            room.slab_edge_type = room_elem.find("SlabEdgeType").text if room_elem.find("SlabEdgeType") is not None else "thickened"
+            room.is_slab = _get_elem_bool(room_elem, "IsSlab", False)
+            room.slab_thickness = _get_elem_float(room_elem, "SlabThickness", 4.0)
+            room.slab_reinforcement = _get_elem_text(room_elem, "SlabReinforcement", "wire_mesh")
+            room.slab_edge_type = _get_elem_text(room_elem, "SlabEdgeType", "thickened")
 
             canvas.rooms.append(room)
 
@@ -495,21 +648,20 @@ def open_project(canvas, filepath):
     doors_elem = root.find("Doors")
     if doors_elem is not None:
         for door_elem in doors_elem.findall("Door"):
-            door_type = door_elem.find("DoorType").text
-            width = float(door_elem.find("Width").text)
-            height = float(door_elem.find("Height").text)
-            swing = door_elem.find("Swing").text
-            orientation = door_elem.find("Orientation").text
-            ratio = float(door_elem.find("AttachedToWallRatio").text)
+            door_type = _get_elem_text(door_elem, "DoorType", "single")
+            width = _get_elem_float(door_elem, "Width", 36.0)
+            height = _get_elem_float(door_elem, "Height", 80.0)
+            swing = _get_elem_text(door_elem, "Swing", "left")
+            orientation = _get_elem_text(door_elem, "Orientation", "inswing")
+            ratio = _get_elem_float(door_elem, "AttachedToWallRatio", 0.5)
 
             door = Door(door_type, width, height, swing, orientation)
-            door.layer_id = door_elem.find("LayerId").text if door_elem.find(
-                "LayerId") is not None else ""
+            door.layer_id = _get_elem_text(door_elem, "LayerId", "")
             attached_wall = None
             wall_ref_elem = door_elem.find("WallReference")
             if wall_ref_elem is not None:
-                set_index = int(wall_ref_elem.get("set_index", "-1"))
-                wall_index = int(wall_ref_elem.get("wall_index", "-1"))
+                set_index = _get_attr_int(wall_ref_elem, "set_index", -1)
+                wall_index = _get_attr_int(wall_ref_elem, "wall_index", -1)
                 if set_index >= 0 and wall_index >= 0 and set_index < len(
                         canvas.wall_sets):
                     wall_set = canvas.wall_sets[set_index]
@@ -521,19 +673,18 @@ def open_project(canvas, filepath):
     windows_elem = root.find("Windows")
     if windows_elem is not None:
         for win_elem in windows_elem.findall("Window"):
-            win_width = float(win_elem.find("Width").text)
-            win_height = float(win_elem.find("Height").text)
-            window_type = win_elem.find("WindowType").text
-            ratio = float(win_elem.find("AttachedToWallRatio").text)
+            win_width = _get_elem_float(win_elem, "Width", 36.0)
+            win_height = _get_elem_float(win_elem, "Height", 48.0)
+            window_type = _get_elem_text(win_elem, "WindowType", "sliding")
+            ratio = _get_elem_float(win_elem, "AttachedToWallRatio", 0.5)
 
             window_obj = Window(win_width, win_height, window_type)
-            window_obj.layer_id = win_elem.find(
-                "LayerId").text if win_elem.find("LayerId") is not None else ""
+            window_obj.layer_id = _get_elem_text(win_elem, "LayerId", "")
             attached_wall = None
             wall_ref_elem = win_elem.find("WallReference")
             if wall_ref_elem is not None:
-                set_index = int(wall_ref_elem.get("set_index", "-1"))
-                wall_index = int(wall_ref_elem.get("wall_index", "-1"))
+                set_index = _get_attr_int(wall_ref_elem, "set_index", -1)
+                wall_index = _get_attr_int(wall_ref_elem, "wall_index", -1)
                 if set_index >= 0 and wall_index >= 0 and set_index < len(
                         canvas.wall_sets):
                     wall_set = canvas.wall_sets[set_index]
@@ -545,20 +696,20 @@ def open_project(canvas, filepath):
     texts_elem = root.find("Texts")
     if texts_elem is not None:
         for t_elem in texts_elem.findall("Text"):
-            x = float(t_elem.get("x"))
-            y = float(t_elem.get("y"))
-            width = float(t_elem.get("width"))
-            height = float(t_elem.get("height"))
-            content = t_elem.get("content", "Text")
-            identifier = t_elem.get("identifier", "")
+            x = _get_attr_float(t_elem, "x", 0.0)
+            y = _get_attr_float(t_elem, "y", 0.0)
+            width = _get_attr_float(t_elem, "width", 100.0)
+            height = _get_attr_float(t_elem, "height", 30.0)
+            content = _get_attr_text(t_elem, "content", "Text")
+            identifier = _get_attr_text(t_elem, "identifier", "")
 
             text_obj = Text(x, y, content, width, height, identifier)
-            text_obj.font_size = float(t_elem.get("font_size", "12.0"))
-            text_obj.font_family = t_elem.get("font_family", "Sans")
-            text_obj.bold = t_elem.get("bold", "False") == "True"
-            text_obj.italic = t_elem.get("italic", "False") == "True"
-            text_obj.underline = t_elem.get("underline", "False") == "True"
-            text_obj.layer_id = t_elem.get("layer_id", "")
+            text_obj.font_size = _get_attr_float(t_elem, "font_size", 12.0)
+            text_obj.font_family = _get_attr_text(t_elem, "font_family", "Sans")
+            text_obj.bold = _get_attr_text(t_elem, "bold", "False") == "True"
+            text_obj.italic = _get_attr_text(t_elem, "italic", "False") == "True"
+            text_obj.underline = _get_attr_text(t_elem, "underline", "False") == "True"
+            text_obj.layer_id = _get_attr_text(t_elem, "layer_id", "")
 
             canvas.texts.append(text_obj)
 
@@ -566,12 +717,12 @@ def open_project(canvas, filepath):
     dimensions_elem = root.find("Dimensions")
     if dimensions_elem is not None:
         for d_elem in dimensions_elem.findall("Dimension"):
-            start_x = float(d_elem.get("start_x"))
-            start_y = float(d_elem.get("start_y"))
-            end_x = float(d_elem.get("end_x"))
-            end_y = float(d_elem.get("end_y"))
-            offset = float(d_elem.get("offset"))
-            identifier = d_elem.get("identifier", "")
+            start_x = _get_attr_float(d_elem, "start_x", 0.0)
+            start_y = _get_attr_float(d_elem, "start_y", 0.0)
+            end_x = _get_attr_float(d_elem, "end_x", 0.0)
+            end_y = _get_attr_float(d_elem, "end_y", 0.0)
+            offset = _get_attr_float(d_elem, "offset", 0.0)
+            identifier = _get_attr_text(d_elem, "identifier", "")
 
             dimension_obj = Dimension(
                 start=(start_x, start_y),
@@ -579,15 +730,14 @@ def open_project(canvas, filepath):
                 offset=offset,
                 identifier=identifier
             )
-            dimension_obj.text_size = float(d_elem.get("text_size", "12.0"))
-            dimension_obj.show_arrows = d_elem.get(
-                "show_arrows", "True") == "True"
-            dimension_obj.line_style = d_elem.get("line_style", "solid")
-            color_r = float(d_elem.get("color_r", "0.0"))
-            color_g = float(d_elem.get("color_g", "0.0"))
-            color_b = float(d_elem.get("color_b", "0.0"))
+            dimension_obj.text_size = _get_attr_float(d_elem, "text_size", 12.0)
+            dimension_obj.show_arrows = _get_attr_text(d_elem, "show_arrows", "True") == "True"
+            dimension_obj.line_style = _get_attr_text(d_elem, "line_style", "solid")
+            color_r = _get_attr_float(d_elem, "color_r", 0.0)
+            color_g = _get_attr_float(d_elem, "color_g", 0.0)
+            color_b = _get_attr_float(d_elem, "color_b", 0.0)
             dimension_obj.color = (color_r, color_g, color_b)
-            dimension_obj.layer_id = d_elem.get("layer_id", "")
+            dimension_obj.layer_id = _get_attr_text(d_elem, "layer_id", "")
 
             canvas.dimensions.append(dimension_obj)
 
@@ -599,21 +749,19 @@ def open_project(canvas, filepath):
             for set_elem in polyline_sets_elem.findall("PolylineSet"):
                 poly_set = []
                 for pl_elem in set_elem.findall("Polyline"):
-                    start = (float(pl_elem.get("start_x")), float(pl_elem.get("start_y")))
-                    end = (float(pl_elem.get("end_x")), float(pl_elem.get("end_y")))
-                    identifier = pl_elem.get("identifier", "")
-                    
-                    # Create Polyline - allow init to handle new args
-                    # Handle color manually if not in init or after init
+                    start = (_get_attr_float(pl_elem, "start_x", 0.0), _get_attr_float(pl_elem, "start_y", 0.0))
+                    end = (_get_attr_float(pl_elem, "end_x", 0.0), _get_attr_float(pl_elem, "end_y", 0.0))
+                    identifier = _get_attr_text(pl_elem, "identifier", "")
+
                     pl = Polyline(start, end, identifier)
-                    pl.layer_id = pl_elem.get("layer_id", "")
-                    pl.style = pl_elem.get("style", "solid")
-                    
-                    color_r = float(pl_elem.get("color_r", "0.0"))
-                    color_g = float(pl_elem.get("color_g", "0.0"))
-                    color_b = float(pl_elem.get("color_b", "0.0"))
+                    pl.layer_id = _get_attr_text(pl_elem, "layer_id", "")
+                    pl.style = _get_attr_text(pl_elem, "style", "solid")
+
+                    color_r = _get_attr_float(pl_elem, "color_r", 0.0)
+                    color_g = _get_attr_float(pl_elem, "color_g", 0.0)
+                    color_b = _get_attr_float(pl_elem, "color_b", 0.0)
                     pl.color = (color_r, color_g, color_b)
-                    
+
                     poly_set.append(pl)
                 canvas.polyline_sets.append(poly_set)
 
@@ -623,19 +771,19 @@ def open_project(canvas, filepath):
         circles_elem = root.find("Circles")
         if circles_elem is not None:
             for c_elem in circles_elem.findall("Circle"):
-                center = (float(c_elem.get("center_x")), float(c_elem.get("center_y")))
-                radius = float(c_elem.get("radius"))
-                identifier = c_elem.get("identifier", "")
-                
+                center = (_get_attr_float(c_elem, "center_x", 0.0), _get_attr_float(c_elem, "center_y", 0.0))
+                radius = _get_attr_float(c_elem, "radius", 0.0)
+                identifier = _get_attr_text(c_elem, "identifier", "")
+
                 c = Circle(center, radius, identifier)
-                c.layer_id = c_elem.get("layer_id", "")
-                c.line_style = c_elem.get("line_style", "solid")
-                
-                color_r = float(c_elem.get("color_r", "0.0"))
-                color_g = float(c_elem.get("color_g", "0.0"))
-                color_b = float(c_elem.get("color_b", "0.0"))
+                c.layer_id = _get_attr_text(c_elem, "layer_id", "")
+                c.line_style = _get_attr_text(c_elem, "line_style", "solid")
+
+                color_r = _get_attr_float(c_elem, "color_r", 0.0)
+                color_g = _get_attr_float(c_elem, "color_g", 0.0)
+                color_b = _get_attr_float(c_elem, "color_b", 0.0)
                 c.color = (color_r, color_g, color_b)
-                
+
                 canvas.circles.append(c)
 
     # --- Restore Arcs ---
@@ -644,93 +792,211 @@ def open_project(canvas, filepath):
         arcs_elem = root.find("Arcs")
         if arcs_elem is not None:
             for a_elem in arcs_elem.findall("Arc"):
-                center = (float(a_elem.get("center_x")), float(a_elem.get("center_y")))
-                radius = float(a_elem.get("radius"))
-                start_angle = float(a_elem.get("start_angle"))
-                end_angle = float(a_elem.get("end_angle"))
-                identifier = a_elem.get("identifier", "")
-                
+                center = (_get_attr_float(a_elem, "center_x", 0.0), _get_attr_float(a_elem, "center_y", 0.0))
+                radius = _get_attr_float(a_elem, "radius", 0.0)
+                start_angle = _get_attr_float(a_elem, "start_angle", 0.0)
+                end_angle = _get_attr_float(a_elem, "end_angle", 0.0)
+                identifier = _get_attr_text(a_elem, "identifier", "")
+
                 a = Arc(center, radius, start_angle, end_angle, identifier)
-                a.layer_id = a_elem.get("layer_id", "")
-                a.line_style = a_elem.get("line_style", "solid")
-                
-                color_r = float(a_elem.get("color_r", "0.0"))
-                color_g = float(a_elem.get("color_g", "0.0"))
-                color_b = float(a_elem.get("color_b", "0.0"))
+                a.layer_id = _get_attr_text(a_elem, "layer_id", "")
+                a.line_style = _get_attr_text(a_elem, "line_style", "solid")
+
+                color_r = _get_attr_float(a_elem, "color_r", 0.0)
+                color_g = _get_attr_float(a_elem, "color_g", 0.0)
+                color_b = _get_attr_float(a_elem, "color_b", 0.0)
                 a.color = (color_r, color_g, color_b)
-                
+
                 canvas.arcs.append(a)
 
     # --- Restore Roofs ---
     if hasattr(canvas, 'roofs'):
         canvas.roofs.clear()
-        roofs_elem = root.find("Roofs")
-        if roofs_elem is not None:
-            for r_elem in roofs_elem.findall("Roof"):
-                identifier = r_elem.get("identifier", "")
-                layer_id = r_elem.get("layer_id", "")
-                roof_type = r_elem.get("roof_type", "gable")
-                pitch_rise = int(r_elem.get("pitch_rise", "6"))
-                pitch_run = int(r_elem.get("pitch_run", "12"))
-                overhang = float(r_elem.get("overhang", "12.0"))
-                material = r_elem.get("material", "asphalt_shingle")
-                
-                # Load edges
-                edges = []
-                edges_elem = r_elem.find("Edges")
-                if edges_elem is not None:
-                    for e_elem in edges_elem.findall("Edge"):
-                        edges.append(RoofEdge(
-                            wall_identifier=e_elem.get("wall_identifier", ""),
-                            edge_type=e_elem.get("edge_type", "eave")
-                        ))
-                
-                # Load geometry
-                ridge_lines = []
-                ridge_elem = r_elem.find("RidgeLines")
-                if ridge_elem is not None:
-                    for line_elem in ridge_elem.findall("Line"):
-                        p1 = (float(line_elem.get("x1")), float(line_elem.get("y1")))
-                        p2 = (float(line_elem.get("x2")), float(line_elem.get("y2")))
-                        ridge_lines.append((p1, p2))
-                
-                hip_lines = []
-                hip_elem = r_elem.find("HipLines")
-                if hip_elem is not None:
-                    for line_elem in hip_elem.findall("Line"):
-                        p1 = (float(line_elem.get("x1")), float(line_elem.get("y1")))
-                        p2 = (float(line_elem.get("x2")), float(line_elem.get("y2")))
-                        hip_lines.append((p1, p2))
-                
-                valley_lines = []
-                valley_elem = r_elem.find("ValleyLines")
-                if valley_elem is not None:
-                    for line_elem in valley_elem.findall("Line"):
-                        p1 = (float(line_elem.get("x1")), float(line_elem.get("y1")))
-                        p2 = (float(line_elem.get("x2")), float(line_elem.get("y2")))
-                        valley_lines.append((p1, p2))
-                
-                outline_points = []
-                outline_elem = r_elem.find("Outline")
-                if outline_elem is not None:
-                    for pt_elem in outline_elem.findall("Point"):
-                        outline_points.append((float(pt_elem.get("x")), float(pt_elem.get("y"))))
-                
-                roof = Roof(
-                    identifier=identifier,
-                    layer_id=layer_id,
-                    edges=edges,
-                    roof_type=roof_type,
-                    pitch_rise=pitch_rise,
-                    pitch_run=pitch_run,
-                    overhang=overhang,
-                    ridge_lines=ridge_lines,
-                    hip_lines=hip_lines,
-                    valley_lines=valley_lines,
-                    outline_points=outline_points,
-                    material=material
-                )
-                canvas.roofs.append(roof)
+
+    if hasattr(canvas, 'stairs'):
+        canvas.stairs.clear()
+
+    roofs_elem = root.find("Roofs")
+    if roofs_elem is not None and hasattr(canvas, 'roofs'):
+        for r_elem in roofs_elem.findall("Roof"):
+            identifier = _get_attr_text(r_elem, "identifier", "")
+            layer_id = _get_attr_text(r_elem, "layer_id", "")
+            roof_type = _get_attr_text(r_elem, "roof_type", "gable")
+            pitch_rise = _get_attr_float(r_elem, "pitch_rise", 6.0)
+            pitch_run = _get_attr_float(r_elem, "pitch_run", 12.0)
+            overhang = _get_attr_float(r_elem, "overhang", 12.0)
+            material = _get_attr_text(r_elem, "material", "asphalt_shingle")
+
+            # Load edges with overrides
+            edges = []
+            edges_elem = r_elem.find("Edges")
+            if edges_elem is not None:
+                for e_elem in edges_elem.findall("Edge"):
+                    e_pitch = _get_attr_float(e_elem, "pitch_rise", None) if "pitch_rise" in e_elem.attrib else None
+                    e_overhang = _get_attr_float(e_elem, "overhang", None) if "overhang" in e_elem.attrib else None
+                    edges.append(RoofEdge(
+                        wall_identifier=_get_attr_text(e_elem, "wall_identifier", ""),
+                        edge_type=_get_attr_text(e_elem, "edge_type", "eave"),
+                        pitch_rise=e_pitch,
+                        overhang=e_overhang
+                    ))
+
+            # Load manual roof lines (sketched)
+            manual_lines = []
+            manual_elem = r_elem.find("ManualLines")
+            if manual_elem is not None:
+                for l_elem in manual_elem.findall("RoofLine"):
+                    p_rise = _get_attr_float(l_elem, "pitch_rise", 6.0) if "pitch_rise" in l_elem.attrib else None
+                    oh = _get_attr_float(l_elem, "overhang", 12.0) if "overhang" in l_elem.attrib else None
+                    manual_lines.append(RoofLine(
+                        identifier=_get_attr_text(l_elem, "identifier", ""),
+                        line_type=_get_attr_text(l_elem, "line_type", "ridge"),
+                        start=(_get_attr_float(l_elem, "x1", 0.0), _get_attr_float(l_elem, "y1", 0.0)),
+                        end=(_get_attr_float(l_elem, "x2", 0.0), _get_attr_float(l_elem, "y2", 0.0)),
+                        pitch_rise=p_rise,
+                        overhang=oh,
+                        is_auto_generated=_get_attr_text(l_elem, "is_auto", "False") == "True"
+                    ))
+
+            # Load solved topology lines
+            solved_lines = []
+            solved_elem = r_elem.find("SolvedLines")
+            if solved_elem is not None:
+                for l_elem in solved_elem.findall("RoofLine"):
+                    p_rise = _get_attr_float(l_elem, "pitch_rise", 6.0) if "pitch_rise" in l_elem.attrib else None
+                    oh = _get_attr_float(l_elem, "overhang", 12.0) if "overhang" in l_elem.attrib else None
+                    solved_lines.append(RoofLine(
+                        identifier=_get_attr_text(l_elem, "identifier", ""),
+                        line_type=_get_attr_text(l_elem, "line_type", "ridge"),
+                        start=(_get_attr_float(l_elem, "x1", 0.0), _get_attr_float(l_elem, "y1", 0.0)),
+                        end=(_get_attr_float(l_elem, "x2", 0.0), _get_attr_float(l_elem, "y2", 0.0)),
+                        pitch_rise=p_rise,
+                        overhang=oh,
+                        is_auto_generated=_get_attr_text(l_elem, "is_auto", "False") == "True"
+                    ))
+
+            # Load geometry
+            ridge_lines = []
+            ridge_elem = r_elem.find("RidgeLines")
+            if ridge_elem is not None:
+                for line_elem in ridge_elem.findall("Line"):
+                    p1 = (_get_attr_float(line_elem, "x1", 0.0), _get_attr_float(line_elem, "y1", 0.0))
+                    p2 = (_get_attr_float(line_elem, "x2", 0.0), _get_attr_float(line_elem, "y2", 0.0))
+                    ridge_lines.append((p1, p2))
+
+            hip_lines = []
+            hip_elem = r_elem.find("HipLines")
+            if hip_elem is not None:
+                for line_elem in hip_elem.findall("Line"):
+                    p1 = (_get_attr_float(line_elem, "x1", 0.0), _get_attr_float(line_elem, "y1", 0.0))
+                    p2 = (_get_attr_float(line_elem, "x2", 0.0), _get_attr_float(line_elem, "y2", 0.0))
+                    hip_lines.append((p1, p2))
+
+            valley_lines = []
+            valley_elem = r_elem.find("ValleyLines")
+            if valley_elem is not None:
+                for line_elem in valley_elem.findall("Line"):
+                    p1 = (_get_attr_float(line_elem, "x1", 0.0), _get_attr_float(line_elem, "y1", 0.0))
+                    p2 = (_get_attr_float(line_elem, "x2", 0.0), _get_attr_float(line_elem, "y2", 0.0))
+                    valley_lines.append((p1, p2))
+
+            rake_lines = []
+            rake_elem = r_elem.find("RakeLines")
+            if rake_elem is not None:
+                for line_elem in rake_elem.findall("Line"):
+                    p1 = (_get_attr_float(line_elem, "x1", 0.0), _get_attr_float(line_elem, "y1", 0.0))
+                    p2 = (_get_attr_float(line_elem, "x2", 0.0), _get_attr_float(line_elem, "y2", 0.0))
+                    rake_lines.append((p1, p2))
+
+            eave_lines = []
+            eave_elem = r_elem.find("EaveLines")
+            if eave_elem is not None:
+                for line_elem in eave_elem.findall("Line"):
+                    p1 = (_get_attr_float(line_elem, "x1", 0.0), _get_attr_float(line_elem, "y1", 0.0))
+                    p2 = (_get_attr_float(line_elem, "x2", 0.0), _get_attr_float(line_elem, "y2", 0.0))
+                    eave_lines.append((p1, p2))
+
+            tie_in_lines = []
+            tie_in_elem = r_elem.find("TieInLines")
+            if tie_in_elem is not None:
+                for line_elem in tie_in_elem.findall("Line"):
+                    p1 = (_get_attr_float(line_elem, "x1", 0.0), _get_attr_float(line_elem, "y1", 0.0))
+                    p2 = (_get_attr_float(line_elem, "x2", 0.0), _get_attr_float(line_elem, "y2", 0.0))
+                    tie_in_lines.append((p1, p2))
+
+            outline_points = []
+            outline_elem = r_elem.find("Outline")
+            if outline_elem is not None:
+                for pt_elem in outline_elem.findall("Point"):
+                    outline_points.append((_get_attr_float(pt_elem, "x", 0.0), _get_attr_float(pt_elem, "y", 0.0)))
+
+            roof = Roof(
+                identifier=identifier,
+                layer_id=layer_id,
+                edges=edges,
+                manual_lines=manual_lines,
+                solved_lines=solved_lines,
+                roof_type=roof_type,
+                pitch_rise=pitch_rise,
+                pitch_run=pitch_run,
+                overhang=overhang,
+                ridge_lines=ridge_lines,
+                hip_lines=hip_lines,
+                valley_lines=valley_lines,
+                rake_lines=rake_lines,
+                eave_lines=eave_lines,
+                tie_in_lines=tie_in_lines,
+                outline_points=outline_points,
+                material=material
+            )
+
+            # Re-extract roof planes for takeoff if lines exist
+            from .Canvas.roof_solver import extract_3d_roof_planes
+            lines_for_planes = solved_lines or manual_lines
+            if lines_for_planes:
+                roof.roof_planes = extract_3d_roof_planes(lines_for_planes, pitch_rise)
+
+            canvas.roofs.append(roof)
+
+    # --- Restore Stairs ---
+    stairs_elem = root.find("Stairs")
+    if stairs_elem is not None and hasattr(canvas, 'stairs'):
+        for s_elem in stairs_elem.findall("Stair"):
+            identifier = _get_attr_text(s_elem, "identifier", "")
+            layer_id = _get_attr_text(s_elem, "layer_id", "")
+
+            start_x = _get_attr_float(s_elem, "start_x", 0.0)
+            start_y = _get_attr_float(s_elem, "start_y", 0.0)
+            direction_angle = _get_attr_float(s_elem, "direction_angle", 0.0)
+
+            stair = Stair(
+                identifier=identifier,
+                layer_id=layer_id,
+                start_point=(start_x, start_y),
+                direction_angle=direction_angle
+            )
+
+            stair.start_level_id = _get_attr_text(s_elem, "start_level_id", "")
+            stair.end_level_id = _get_attr_text(s_elem, "end_level_id", "")
+
+            stair.stair_type = _get_attr_text(s_elem, "stair_type", "straight")
+            stair.width = _get_attr_float(s_elem, "width", 36.0)
+            stair.total_rise = _get_attr_float(s_elem, "total_rise", 106.0)
+            stair.riser_height = _get_attr_float(s_elem, "riser_height", 7.57)
+            stair.num_steps = _get_attr_int(s_elem, "num_steps", 14)
+            stair.tread_depth = _get_attr_float(s_elem, "tread_depth", 11.0)
+            stair.total_run = _get_attr_float(s_elem, "total_run", 143.0)
+            stair.nosing = _get_attr_float(s_elem, "nosing", 1.0)
+
+            stair.has_left_rail = _get_attr_text(s_elem, "has_left_rail", "True") == "True"
+            stair.has_right_rail = _get_attr_text(s_elem, "has_right_rail", "True") == "True"
+            stair.rail_height = _get_attr_float(s_elem, "rail_height", 36.0)
+
+            stair.show_up_arrow = _get_attr_text(s_elem, "show_up_arrow", "True") == "True"
+            stair.show_step_count = _get_attr_text(s_elem, "show_step_count", "True") == "True"
+
+            canvas.stairs.append(stair)
 
     # Return the saved window size.
     return window_width, window_height
+

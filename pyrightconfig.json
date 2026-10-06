@@ -1,0 +1,8 @@
+{
+  "extraPaths": [
+    "src"
+  ],
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none",
+  "reportAttributeAccessIssue": "none"
+}

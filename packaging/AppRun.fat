@@ -1,0 +1,23 @@
+#!/bin/bash
+# AppRun launcher for EstiSketch Fat AppImage (with bundled Python + GTK4)
+
+HERE="$(dirname "$(readlink -f "${0}")")"
+
+# Set up Python environment
+export PYTHONHOME="$HERE/usr"
+export PYTHONPATH="$HERE/usr/lib/python3/dist-packages:$HERE/usr/lib/python3.11/site-packages:$PYTHONPATH"
+
+# Set up library paths
+export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
+
+# Set up GObject Introspection
+export GI_TYPELIB_PATH="$HERE/usr/lib/girepository-1.0:$GI_TYPELIB_PATH"
+
+# Set up data directories
+export XDG_DATA_DIRS="$HERE/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+# Set up PATH
+export PATH="$HERE/usr/bin:$PATH"
+
+# Use bundled Python
+exec "$HERE/usr/bin/python3.11" -m EstiSketch.main "$@"

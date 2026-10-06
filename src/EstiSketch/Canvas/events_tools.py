@@ -1,6 +1,7 @@
 import math
 from gi.repository import Gtk
 from ..components import Door, Window, Polyline
+from ..Resources.tool_hints import TOOL_HINTS
 
 
 class CanvasToolsMixin:
@@ -133,6 +134,7 @@ class CanvasToolsMixin:
                 layer_id=self.active_layer_id)
         self.existing_ids.append(door_identifier)
         self.doors.append((selected_wall, new_door, selected_ratio))
+        self.save_state()
         self.emit('content-changed')
         self.queue_draw()
 
@@ -244,6 +246,7 @@ class CanvasToolsMixin:
             layer_id=self.active_layer_id)
         self.existing_ids.append(window_identifier)
         self.windows.append((selected_wall, new_window, selected_ratio))
+        self.save_state()
         self.emit('content-changed')
         self.queue_draw()
 
@@ -325,7 +328,6 @@ class CanvasToolsMixin:
             self.current_polyline_preview = None
 
             # Reset hint
-            from ..Resources.tool_hints import TOOL_HINTS
             self.update_hint(TOOL_HINTS["add_polyline"])
 
     def _handle_text_click(self, n_press: int, x: float, y: float) -> None:
@@ -405,7 +407,6 @@ class CanvasToolsMixin:
             self.dimension_end = (canvas_x, canvas_y)
             print(f"Dimension end set at {self.dimension_end}")
             self.queue_draw()
-            from ..Resources.tool_hints import TOOL_HINTS
             self.update_hint(TOOL_HINTS["add_dimension_active"])
         else:
             # Third click - finalize with offset
@@ -439,7 +440,6 @@ class CanvasToolsMixin:
             self.emit('content-changed')
             self.queue_draw()
 
-            from ..Resources.tool_hints import TOOL_HINTS
             self.update_hint(TOOL_HINTS["add_dimension"])
 
     def _handle_auto_dimension(
@@ -536,15 +536,9 @@ class CanvasToolsMixin:
             end=edge_end,
             offset=final_offset,
             identifier=dim_id,
-            layer_id=self.active_layer_id
-        )
+            layer_id=self.active_layer_id)
         self.dimensions.append(new_dimension)
         self.existing_ids.append(dim_id)
-
-        print(
-            f"Auto-dimension created for wall from {
-                edge_start} to {
-                edge_end}")
         self.save_state()
         self.emit('content-changed')
         self.queue_draw()
@@ -644,7 +638,6 @@ class CanvasToolsMixin:
              self.circle_radius_preview = 0.0
              self.circle_radius_preview = 0.0
              print(f"Circle center set at {self.circle_center}")
-             from ..Resources.tool_hints import TOOL_HINTS
              self.update_hint(TOOL_HINTS["add_circle_active"])
         else:
              # Second click: Set Radius and Finalize
@@ -666,7 +659,6 @@ class CanvasToolsMixin:
              self.drawing_circle = False
              self.circle_center = None
              self.circle_radius_preview = None
-             from ..Resources.tool_hints import TOOL_HINTS
              self.update_hint(TOOL_HINTS["add_circle"])
         
         
@@ -695,7 +687,6 @@ class CanvasToolsMixin:
             self.arc_preview_point = None
             print(f"Arc start set at {self.arc_start}")
             
-            from ..Resources.tool_hints import TOOL_HINTS
             self.update_hint(TOOL_HINTS["add_arc_active_end"])
         
         elif self.arc_end is None:
@@ -704,7 +695,6 @@ class CanvasToolsMixin:
                 self.arc_end = (sx, sy)
                 print(f"Arc end set at {self.arc_end}")
                 
-                from ..Resources.tool_hints import TOOL_HINTS
                 self.update_hint(TOOL_HINTS["add_arc_active_mid"])
             else:
                 print("Arc end cannot be same as start")
@@ -786,7 +776,6 @@ class CanvasToolsMixin:
             self.arc_end = None
             self.arc_preview_point = None
             
-            from ..Resources.tool_hints import TOOL_HINTS
             self.update_hint(TOOL_HINTS["add_arc"])
             
         # Emit change if we just finished an arc

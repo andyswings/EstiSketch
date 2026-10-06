@@ -1,0 +1,14 @@
+#!/bin/bash
+# AppRun launcher for EstiSketch AppImage
+
+HERE="$(dirname "$(readlink -f "${0}")")"
+
+# Set up environment
+export PYTHONPATH="$HERE/usr/lib/python3/dist-packages:$PYTHONPATH"
+export LD_LIBRARY_PATH="$HERE/usr/lib:$LD_LIBRARY_PATH"
+export XDG_DATA_DIRS="$HERE/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export PATH="$HERE/usr/bin:$PATH"
+
+# Use system Python and GTK libraries (AppImage doesn't bundle them)
+# This is intentional - we rely on the system having Python3 and GTK4 installed
+exec python3 -m EstiSketch.main "$@"

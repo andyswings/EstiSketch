@@ -1,0 +1,18 @@
+[workspace]
+channels = ["conda-forge"]
+name = "EstiSketch"
+platforms = ["win-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = "3.10.*"
+gtk4 = ">=4.20.3,<5"
+pygobject = ">=3.54.5,<4"
+gobject-introspection = ">=1.84.0,<2"
+cairo = ">=1.18.4,<2"
+pkg-config = ">=0.29.2,<0.30"
+constructor = ">=3.14.0,<4"
+conda-build = ">=24.5.1,<25"
+boa = ">=0.17.0,<0.18"

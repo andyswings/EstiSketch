@@ -48,6 +48,25 @@ class CanvasSelectionMixin:
         best_dist = float('inf')
         selected_item = None
 
+        # Clear transient editing states
+        self.editing_wall = None
+        self.editing_handle = None
+        self.editing_stair = None
+        self.editing_stair_handle = None
+        self.editing_dimension = None
+        self.editing_dimension_handle = None
+        self.editing_polyline = None
+        self.editing_polyline_handle = None
+        self.editing_circle = None
+        self.editing_circle_handle = None
+        self.editing_arc = None
+        self.editing_arc_handle = None
+        self.editing_curved_wall = None
+        self.editing_curved_wall_handle = None
+        self.editing_roof_line = None
+        self.editing_roof_line_handle = None
+        self.editing_roof_line_roof = None
+
         # Check for wall handle clicks (for editing)
         T = self.zoom * pixels_per_inch
         for item in self.selected_items:
@@ -198,18 +217,101 @@ class CanvasSelectionMixin:
                     circle = item["object"]
                     if self.is_object_on_locked_layer(circle):
                         continue
+                        
+                    # Radius handle
                     cx, cy = circle.center
-                    hx = cx + circle.radius
-                    hy = cy
+                    handle_x = cx + circle.radius
+                    handle_y = cy
                     
-                    tx = (hx * T) + self.offset_x
-                    ty = (hy * T) + self.offset_y
+                    pt_widget = (
+                        (handle_x * T) + self.offset_x,
+                        (handle_y * T) + self.offset_y
+                    )
+                    dist = math.hypot(click_pt[0] - pt_widget[0], click_pt[1] - pt_widget[1])
                     
-                    dist = math.hypot(click_pt[0] - tx, click_pt[1] - ty)
                     if dist < self.handle_radius:
                         self.editing_circle = circle
                         self.editing_circle_handle = "radius"
                         selected_item = {"type": "circle_handle", "object": (circle, "radius")}
+                        break
+                        
+                elif item["type"] == "arc":
+                    arc = item["object"]
+                    if self.is_object_on_locked_layer(arc):
+                         continue
+                         
+                    # Check start/end/mid handles
+                    cx, cy = arc.center
+                    r = arc.radius
+                    
+                    handles = [
+                        ("start", arc.start_angle),
+                        ("end", arc.end_angle),
+                        ("mid", (arc.start_angle + arc.end_angle)/2) # Approximation
+                    ]
+                    
+                    for name, angle in handles:
+                        hx = cx + r * math.cos(angle)
+                        hy = cy + r * math.sin(angle)
+                        
+                        pt_widget = (
+                            (hx * T) + self.offset_x,
+                            (hy * T) + self.offset_y
+                        )
+                        dist = math.hypot(click_pt[0] - pt_widget[0], click_pt[1] - pt_widget[1])
+                        
+                        if dist < self.handle_radius:
+                            self.editing_arc = arc
+                            self.editing_arc_handle = name
+                            selected_item = {"type": "arc_handle", "object": (arc, name)}
+                            break
+                    if selected_item:
+                        break
+                
+                elif item["type"] == "stair":
+                    stair = item["object"]
+                    if self.is_object_on_locked_layer(stair):
+                        continue
+                    
+                    # Calculate handle positions in model space
+                    sx, sy = stair.start_point
+                    angle = stair.direction_angle
+                    run = stair.total_run
+                    
+                    # Rotate Handle: (-12, 0) local
+                    # Length Handle: (run + 12, 0) local
+                    
+                    cos_a = math.cos(angle)
+                    sin_a = math.sin(angle)
+                    
+                    # Rotate Handle
+                    rx = sx + (-12.0) * cos_a - (0) * sin_a
+                    ry = sy + (-12.0) * sin_a + (0) * cos_a
+                    
+                    # Length Handle
+                    lx = sx + (run + 12.0) * cos_a - (0) * sin_a
+                    ly = sy + (run + 12.0) * sin_a + (0) * cos_a
+                    
+                    handles = [
+                        ("rotate", (rx, ry))
+                    ]
+                    
+                    for name, pt in handles:
+                         pt_widget = (
+                             (pt[0] * T) + self.offset_x,
+                             (pt[1] * T) + self.offset_y
+                         )
+                         dist = math.hypot(click_pt[0] - pt_widget[0], click_pt[1] - pt_widget[1])
+                         
+                         if dist < self.handle_radius:
+                             self.editing_stair = stair
+                             self.editing_stair_handle = name
+                             # Also store check info if needed
+                             self.stair_edit_start_angle = angle
+                             self.stair_edit_start_run = run
+                             selected_item = {"type": "stair_handle", "object": (stair, name)}
+                             break
+                    if selected_item:
                         break
                         
                 elif item["type"] == "arc":
@@ -240,6 +342,23 @@ class CanvasSelectionMixin:
                             self.editing_arc = arc
                             self.editing_arc_handle = h_name
                             selected_item = {"type": "arc_handle", "object": (arc, h_name)}
+                            break
+                    if selected_item:
+                        break
+
+                elif item["type"] == "roof_line":
+                    rline = item["object"]
+                    for handle_name, pt in [("start", rline.start), ("end", rline.end)]:
+                        pt_widget = (
+                            (pt[0] * T) + self.offset_x,
+                            (pt[1] * T) + self.offset_y
+                        )
+                        dist = math.hypot(click_pt[0] - pt_widget[0], click_pt[1] - pt_widget[1])
+                        if dist < self.handle_radius:
+                            self.editing_roof_line = rline
+                            self.editing_roof_line_handle = handle_name
+                            self.editing_roof_line_roof = item.get("roof")
+                            selected_item = {"type": "roof_line_handle", "object": (rline, handle_name), "roof": item.get("roof")}
                             break
                     if selected_item:
                         break
@@ -358,10 +477,7 @@ class CanvasSelectionMixin:
                             "type": "vertex", "object": (
                                 room, i + 1)}
 
-                        print(
-                            f"Inserted new room vertex at ({
-                                new_x:.1f}, {
-                                new_y:.1f})")
+                        print(f"Inserted new room vertex at ({new_x:.1f}, {new_y:.1f})")
                         self.save_state()
                         break
                 if selected_item:
@@ -617,17 +733,242 @@ class CanvasSelectionMixin:
                  if self.is_object_on_locked_layer(roof) or not self.is_object_on_visible_layer(roof):
                      continue
                  
+                 # First check individual roof lines (manual and solved lines)
+                 all_roof_lines = (roof.solved_lines or []) + (roof.manual_lines or [])
+                 for rline in all_roof_lines:
+                     p1_dev = self.model_to_device(rline.start[0], rline.start[1], pixels_per_inch)
+                     p2_dev = self.model_to_device(rline.end[0], rline.end[1], pixels_per_inch)
+                     if self.distance_point_to_segment(click_pt, p1_dev, p2_dev) < fixed_threshold:
+                         selected_item = {"type": "roof_line", "object": rline, "roof": roof}
+                         self.update_hint("Click to select roof line")
+                         break
+                 if selected_item:
+                     break
+
                  # Convert outline to widget coords
-                 poly_widget = [
-                     self.model_to_device(pt[0], pt[1], pixels_per_inch)
-                     for pt in roof.outline_points
-                 ]
+                 if getattr(roof, 'outline_points', None):
+                     poly_widget = [
+                         self.model_to_device(pt[0], pt[1], pixels_per_inch)
+                         for pt in roof.outline_points
+                     ]
+                     
+                     if self._point_in_polygon(click_pt, poly_widget):
+                         selected_item = {"type": "roof", "object": roof}
+                         self.update_hint("Click to select roof")
+                         break
+
+
+        # Check Stairs  
+        if selected_item is None:
+            for stair in getattr(self, 'stairs', []):
+                 if self.is_object_on_locked_layer(stair) or not self.is_object_on_visible_layer(stair):
+                     continue
                  
-                 if self._point_in_polygon(click_pt, poly_widget):
-                     selected_item = {"type": "roof", "object": roof}
+                 # Calculate stair bounding box/polygons based on type
+                 start_x, start_y = stair.start_point
+                 angle = stair.direction_angle
+                 width = stair.width
+                 
+                 stair_type = getattr(stair, 'stair_type', 'straight')
+                 
+                 # Transform click point to local stair coordinates
+                 # First convert device click to model coordinates
+                 T = self.zoom * pixels_per_inch
+                 mx = (click_pt[0] - self.offset_x) / T
+                 my = (click_pt[1] - self.offset_y) / T
+                 
+                 # Local: (0,0) is start_point, X is direction of ascent
+                 cos_a = math.cos(-angle)
+                 sin_a = math.sin(-angle)
+                 dx = mx - start_x
+                 dy = my - start_y
+                 local_x = dx * cos_a - dy * sin_a
+                 local_y = dx * sin_a + dy * cos_a
+                 
+                 hit = False
+                 half_width = width / 2.0
+                 
+                 if stair_type == 'straight':
+                     run = stair.total_run
+                     # Simple Hit test: 0 <= x <= run, -half <= y <= half
+                     if 0 <= local_x <= run and -half_width <= local_y <= half_width:
+                         hit = True
+                         
+                 elif stair_type == 'L-shaped':
+                     # Need to reconstruct geometry
+                     total_steps = stair.num_steps
+                     steps_before_landing = getattr(stair, 'steps_before_landing', 0)
+                     if steps_before_landing <= 0 or steps_before_landing >= total_steps:
+                         steps_before = total_steps // 2
+                     else:
+                         steps_before = steps_before_landing
+                     
+                     tread_depth = stair.tread_depth
+                     run_before = (steps_before - 1) * tread_depth
+                     
+                     steps_after = total_steps - steps_before
+                     run_after = (steps_after - 1) * tread_depth
+                     
+                     landing_depth = getattr(stair, 'landing_depth', 36.0)
+                     turn_dir = getattr(stair, 'turn_direction', 'left')
+                     
+                     # 1. Flight 1: Rect(0, -half, run_before, width)
+                     if 0 <= local_x <= run_before and -half_width <= local_y <= half_width:
+                         hit = True
+                     
+                     # 2. Landing
+                     # Render logic: cr.rectangle(landing_x, -half_width, landing_depth, width)
+                     # So rect is: x=[landing_x, landing_x+depth], y=[-half, +half]
+                     landing_x = run_before
+                     if not hit:
+                         if landing_x <= local_x <= landing_x + landing_depth and -half_width <= local_y <= half_width:
+                             hit = True
+                             
+                     # 3. Flight 2
+                     if not hit:
+                         # Render logic:
+                         # if left: translate(landing_x + depth - half, -half). rotate(-90)
+                         # if right: translate(landing_x + depth - half, half). rotate(90)
+                         # Draw rect(0, -half, run_after, width)
+                         
+                         if turn_dir == 'left':
+                             # Transform local_pt to F2 coords
+                             # F2 Origin in local coords:
+                             ox = landing_x + landing_depth - half_width
+                             oy = -half_width
+                             
+                             # Point relative to F2 Origin
+                             dx2 = local_x - ox
+                             dy2 = local_y - oy
+                             
+                             # Rotate -90 degrees (CW relative to standard?)
+                             # -90 rad: cos=0, sin=-1
+                             # x' = dx*0 - dy*-1 = dy
+                             # y' = dx*-1 + dy*0 = -dx
+                             f2_x = -dy2
+                             f2_y = dx2
+                             
+                             # Check if point is in draw rect: 0..run, -half..half
+                             if 0 <= f2_x <= run_after and -half_width <= f2_y <= half_width:
+                                 hit = True
+                                 
+                         else: # Right
+                             # F2 Origin:
+                             ox = landing_x + landing_depth - half_width
+                             oy = half_width
+                             
+                             dx2 = local_x - ox
+                             dy2 = local_y - oy
+                             
+                             # Rotate 90 degrees
+                             # 90 rad: cos=0, sin=1
+                             # x' = dx*0 - dy*1 = -dy
+                             # y' = dx*1 + dy*0 = dx
+                             f2_x = dy2
+                             f2_y = -dx2
+                             
+                             if 0 <= f2_x <= run_after and -half_width <= f2_y <= half_width:
+                                 hit = True
+
+                 elif stair_type == 'U-shaped':
+                     # Need params
+                     total_steps = stair.num_steps
+                     steps_before_landing = getattr(stair, 'steps_before_landing', 0)
+                     if steps_before_landing <= 0 or steps_before_landing >= total_steps:
+                         steps_before = total_steps // 2
+                     else:
+                         steps_before = steps_before_landing
+                     
+                     tread_depth = stair.tread_depth
+                     run_before = (steps_before - 1) * tread_depth
+                     run_after = (total_steps - steps_before - 1) * tread_depth
+                     
+                     landing_depth = getattr(stair, 'landing_depth', 36.0)
+                     turn_dir = getattr(stair, 'turn_direction', 'left')
+                     well = getattr(stair, 'inner_radius', 0.0)
+                     
+                     # 1. Flight 1
+                     if 0 <= local_x <= run_before and -half_width <= local_y <= half_width:
+                         hit = True
+                         
+                     # 2. Landing
+                     if not hit:
+                         lx_min = run_before
+                         lx_max = run_before + landing_depth
+                         
+                         if turn_dir == 'left':
+                             ly_min = -half_width - well - width
+                             ly_max = half_width
+                         else:
+                             ly_min = -half_width
+                             ly_max = half_width + well + width
+                             
+                         if lx_min <= local_x <= lx_max and ly_min <= local_y <= ly_max:
+                             hit = True
+                             
+                     # 3. Flight 2
+                     if not hit:
+                         # Parallel to Flight 1 (X direction) but backwards?
+                         # Render: rotate(180). Draw(0..run_after).
+                         # So it goes negative X.
+                         # Y Offset: width + well
+                         
+                         f2_len = run_after
+                         # X range: [landing_x - f2_len, landing_x] ?
+                         # Render translate(landing_x, offset_y). rotate(180).
+                         # So starts at landing_x, goes towards -X.
+                         fx_max = run_before
+                         fx_min = run_before - f2_len
+                         
+                         if turn_dir == 'left':
+                             fy_c = -(width + well)
+                             fy_min = fy_c - half_width
+                             fy_max = fy_c + half_width
+                         else:
+                             fy_c = (width + well)
+                             fy_min = fy_c - half_width
+                             fy_max = fy_c + half_width
+                             
+                         if fx_min <= local_x <= fx_max and fy_min <= local_y <= fy_max:
+                             hit = True
+
+                 elif stair_type == 'spiral':
+                     inner = getattr(stair, 'inner_radius', 6.0)
+                     outer = inner + width
+                     
+                     dist_sq = local_x*local_x + local_y*local_y
+                     if inner*inner <= dist_sq <= outer*outer:
+                         # Check angle?
+                         # For now, full circle check is probably fine or check partial
+                         # Compute angle of point
+                         # local angle
+                         pt_angle = math.atan2(local_y, local_x)
+                         # Normalize to [0, 2pi] relative to start?
+                         # Spiral starts at angle 0 in LOCAL coords (since we rotated by -angle)
+                         # Draws to rotation_radians.
+                         
+                         rot_deg = getattr(stair, 'rotation_degrees', 270.0)
+                         rot_rad = math.radians(rot_deg)
+                         turn_dir = getattr(stair, 'turn_direction', 'left')
+                         
+                         # Check if angle is within range [0, rot_rad] (if right/CW) or [0, -rot_rad] (if left/CCW)
+                         # Normalize pt_angle to match
+                         
+                         if turn_dir == 'left': # Angles are negative (0 to -rot)
+                             # Normalize pt_angle to [-2pi, 2pi]
+                             # If pt_angle is positive, minus 2pi?
+                             if pt_angle > 0: pt_angle -= 2*math.pi
+                             if -rot_rad <= pt_angle <= 0.1: # slight tolerance
+                                 hit = True
+                         else: # Right (0 to rot)
+                             if pt_angle < 0: pt_angle += 2*math.pi
+                             if -0.1 <= pt_angle <= rot_rad:
+                                 hit = True
+                 
+                 if hit:
+                     selected_item = {"type": "stair", "object": stair}
                      from ..Resources.tool_hints import TOOL_HINTS
-                     # Need to ensure hint exists or use generic
-                     self.update_hint("Click to select roof, Drag to move (not impl)")
+                     self.update_hint("Click to select stair")
                      break
 
         event = gesture.get_current_event()
@@ -708,7 +1049,8 @@ class CanvasSelectionMixin:
         # box_select_start.
         if (getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None)) or \
            (getattr(self, "editing_circle", None) and getattr(self, "editing_circle_handle", None)) or \
-           (getattr(self, "editing_arc", None) and getattr(self, "editing_arc_handle", None)):
+           (getattr(self, "editing_arc", None) and getattr(self, "editing_arc_handle", None)) or \
+           (getattr(self, "editing_roof_line", None) and getattr(self, "editing_roof_line_handle", None)):
             
             # Initializing drag start coordinates for calculating drag offset
             self.drag_start_x = start_x
@@ -1005,6 +1347,35 @@ class CanvasSelectionMixin:
                         self.arc_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
                         self.box_selecting = False
 
+                # Check for stair dragging
+                elif item["type"] == "stair" and not getattr(self, "editing_stair", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_circle", None) and not getattr(self, "dragging_arc", None):
+                    if not self.is_object_on_locked_layer(item["object"]):
+                        self.dragging_stair = item["object"]
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        self.stair_drag_start_pos = self.dragging_stair.start_point
+                        
+                        self.box_selecting = False
+
+                # Check for roof line dragging
+                elif item["type"] == "roof_line" and not getattr(self, "editing_roof_line", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_circle", None) and not getattr(self, "dragging_arc", None) and not getattr(self, "dragging_stair", None):
+                    self.dragging_roof_lines = []
+                    pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                    model_x, model_y = self.device_to_model(start_x, start_y, pixels_per_inch)
+                    for itm in self.selected_items:
+                        if itm.get("type") == "roof_line":
+                            rl = itm["object"]
+                            self.dragging_roof_lines.append({
+                                "roof_line": rl,
+                                "original_start": rl.start,
+                                "original_end": rl.end,
+                                "roof": itm.get("roof")
+                            })
+                    self.drag_start_x = start_x
+                    self.drag_start_y = start_y
+                    self.roof_line_drag_start_model = (model_x, model_y)
+                    self.box_selecting = False
+
         elif self.tool_mode == "add_text":
             self.drag_start_x = start_x
             self.drag_start_y = start_y
@@ -1113,6 +1484,66 @@ class CanvasSelectionMixin:
             self.queue_draw()
             return
 
+        if getattr(self, "dragging_roof_lines", None):
+            # Finalize roof line drag and clear dragging state
+            roofs_to_solve = []
+            for rinfo in self.dragging_roof_lines:
+                r = rinfo.get("roof")
+                rl = rinfo.get("roof_line")
+                if r and rl:
+                    if r not in roofs_to_solve:
+                        roofs_to_solve.append(r)
+                    
+                    # Mark line as user-customized so solver preserves the dragged position
+                    rl.is_auto_generated = False
+                    
+                    # Sync into roof.manual_lines
+                    found = False
+                    for ml in r.manual_lines:
+                        if ml.identifier == rl.identifier:
+                            ml.start = rl.start
+                            ml.end = rl.end
+                            ml.is_auto_generated = False
+                            found = True
+                            break
+                    if not found:
+                        r.manual_lines.append(rl)
+
+                    # If this is a ridge line on a gable roof, calculate updated pitches across the span
+                    if rl.line_type == "ridge" and r.roof_type == "gable":
+                        all_walls = self.get_all_walls() if hasattr(self, 'get_all_walls') else []
+                        eave_walls = []
+                        for edge in r.edges:
+                            if edge.edge_type == "eave":
+                                for w in all_walls:
+                                    if w.identifier == edge.wall_identifier:
+                                        eave_walls.append((w, edge))
+                        if len(eave_walls) >= 2:
+                            w1, e1 = eave_walls[0]
+                            w2, e2 = eave_walls[1]
+                            from .roof_solver import distance_point_to_segment
+                            r_mid = ((rl.start[0] + rl.end[0]) / 2.0, (rl.start[1] + rl.end[1]) / 2.0)
+                            d1 = distance_point_to_segment(r_mid, w1.start, w1.end)[0]
+                            d2 = distance_point_to_segment(r_mid, w2.start, w2.end)[0]
+                            span = d1 + d2
+                            if span > 10.0 and d1 > 2.0 and d2 > 2.0:
+                                base_pitch = r.pitch_rise or 6.0
+                                p1 = max(0.5, min(24.0, round(base_pitch * span / (2.0 * d1), 1)))
+                                p2 = max(0.5, min(24.0, round(base_pitch * span / (2.0 * d2), 1)))
+                                e1.pitch_rise = p1
+                                e2.pitch_rise = p2
+
+            self.dragging_roof_lines = None
+            self.roof_line_drag_start_model = None
+            for r in roofs_to_solve:
+                if hasattr(self, "solve_active_roof"):
+                    self.solve_active_roof(r)
+            if hasattr(self, 'emit') and getattr(self, 'selected_items', None):
+                self.emit("selection-changed", self.selected_items)
+            self.save_state()
+            self.queue_draw()
+            return
+
         if getattr(
                 self,
                 "editing_polyline",
@@ -1124,6 +1555,40 @@ class CanvasSelectionMixin:
             self.editing_polyline = None
             self.editing_polyline_handle = None
             self.save_state()
+            return
+
+        if getattr(
+                self,
+                "editing_roof_line",
+                None) and getattr(
+                self,
+                "editing_roof_line_handle",
+                None):
+            # Finalize roof line endpoint editing
+            roof = getattr(self, "editing_roof_line_roof", None)
+            rl = getattr(self, "editing_roof_line", None)
+            if roof and rl:
+                rl.is_auto_generated = False
+                found = False
+                for ml in roof.manual_lines:
+                    if ml.identifier == rl.identifier:
+                        ml.start = rl.start
+                        ml.end = rl.end
+                        ml.is_auto_generated = False
+                        found = True
+                        break
+                if not found:
+                    roof.manual_lines.append(rl)
+
+            self.editing_roof_line = None
+            self.editing_roof_line_handle = None
+            self.editing_roof_line_roof = None
+            if hasattr(self, "solve_active_roof"):
+                self.solve_active_roof(roof)
+            if hasattr(self, 'emit') and getattr(self, 'selected_items', None):
+                self.emit("selection-changed", self.selected_items)
+            self.save_state()
+            self.queue_draw()
             return
 
         if getattr(self, "rotating_text", None):
@@ -1184,6 +1649,23 @@ class CanvasSelectionMixin:
             self.queue_draw()
             return
 
+        if getattr(self, "dragging_stair", None):
+            # Finalize stair drag
+            self.dragging_stair = None
+            self.stair_drag_start_pos = None
+            self.save_state()
+            self.queue_draw()
+            return
+
+        if getattr(self, "editing_stair", None) and getattr(self, "editing_stair_handle", None):
+            self.editing_stair = None
+            self.editing_stair_handle = None
+            self.save_state()
+            self.queue_draw()
+            return
+            
+
+            
         if getattr(self, "dragging_dimensions", None):
             # Finalize dimension drag and clear dragging state
             self.dragging_dimensions = None
@@ -1402,6 +1884,49 @@ class CanvasSelectionMixin:
                          new_selection.append({"type": "roof", "object": roof})
                          break
 
+            # Check Roof Lines
+            for roof in getattr(self, "roofs", []):
+                if self.is_object_on_locked_layer(roof) or not self.is_object_on_visible_layer(roof):
+                    continue
+                all_lines = (getattr(roof, "manual_lines", []) or []) + (getattr(roof, "solved_lines", []) or [])
+                for rline in all_lines:
+                    sx, sy = rline.start
+                    ex, ey = rline.end
+                    if (x1 <= sx <= x2 and y1 <= sy <= y2) or (x1 <= ex <= x2 and y1 <= ey <= y2):
+                        new_selection.append({"type": "roof_line", "object": rline, "roof": roof})
+
+            # Check Stairs
+            for stair in getattr(self, "stairs", []):
+                 if self.is_object_on_locked_layer(stair) or not self.is_object_on_visible_layer(stair):
+                     continue
+                 
+                 # Calculate stair corners
+                 start_x, start_y = stair.start_point
+                 angle = stair.direction_angle
+                 width = stair.width
+                 run = stair.total_run
+                 
+                 half_width = width / 2.0
+                 corners_local = [
+                     (0, -half_width),
+                     (run, -half_width),
+                     (run, half_width),
+                     (0, half_width)
+                 ]
+                 
+                 # Rotate and translate
+                 cos_a = math.cos(angle)
+                 sin_a = math.sin(angle)
+                 
+                 # Check if any corner is inside box
+                 for lx, ly in corners_local:
+                     wx = start_x + lx * cos_a - ly * sin_a
+                     wy = start_y + lx * sin_a + ly * cos_a
+                     
+                     if (x1 <= wx <= x2) and (y1 <= wy <= y2):
+                         new_selection.append({"type": "stair", "object": stair})
+                         break
+
             if hasattr(self, "box_select_extend") and self.box_select_extend:
                 for item in new_selection:
                     if not any(
@@ -1511,6 +2036,10 @@ class CanvasSelectionMixin:
             item for item in self.selected_items if item.get("type") == "text"]
         selected_dimensions = [
             item for item in self.selected_items if item.get("type") == "dimension"]
+        selected_roof_lines = [
+            item for item in self.selected_items if item.get("type") == "roof_line"]
+        selected_roofs = [
+            item for item in self.selected_items if item.get("type") == "roof"]
 
         # Create a popover to serve as the context menu
         parent_popover = Gtk.Popover()
@@ -1538,6 +2067,13 @@ class CanvasSelectionMixin:
                         self.mark_walls_as_gable([w["object"] for w in selected_walls]),
                         parent_popover.popdown()))
                 box.append(mark_gable_btn)
+
+                mark_tie_in_btn = Gtk.Button(label="Mark as Tie-In")
+                mark_tie_in_btn.connect(
+                    "clicked", lambda btn: (
+                        self.mark_walls_as_tie_in([w["object"] for w in selected_walls]),
+                        parent_popover.popdown()))
+                box.append(mark_tie_in_btn)
 
             # Generate Roof button (if we have markings)
             if markings:
@@ -1668,18 +2204,8 @@ class CanvasSelectionMixin:
         use_add_footer_button = False
         use_remove_footer_button = False
         for wall in selected_walls:
-            print(
-                f"Wall {
-                    wall['object'].start} to {
-                    wall['object'].end} has footer: {
-                    wall['object'].footer} and footer depth: {
-                    wall['object'].footer_depth} and footer offsets: {
-                        wall['object'].footer_left_offset}, {
-                            wall['object'].footer_right_offset}")
-            print(
-                f"Width: {
-                    wall['object'].width}, Height: {
-                    wall['object'].height}")
+            print(f"Wall {wall['object'].start} to {wall['object'].end} has footer: {wall['object'].footer} and footer depth: {wall['object'].footer_depth} and footer offsets: {wall['object'].footer_left_offset}, {wall['object'].footer_right_offset}")
+            print(f"Width: {wall['object'].width}, Height: {wall['object'].height}")
             if wall["object"].footer == False and use_add_footer_button == False:
                 use_add_footer_button = True
             elif wall["object"].footer and use_remove_footer_button == False:
@@ -1777,6 +2303,13 @@ class CanvasSelectionMixin:
                     parent_popover.popdown()))
             box.append(mark_gable_btn)
 
+            mark_tie_in_btn = Gtk.Button(label="Mark as Tie-In (Roof)")
+            mark_tie_in_btn.connect(
+                "clicked", lambda btn: (
+                    self.mark_walls_as_tie_in([w["object"] for w in selected_walls]),
+                    parent_popover.popdown()))
+            box.append(mark_tie_in_btn)
+
             # Generate Roof button (if we have markings)
             if markings:
                 generate_roof_btn = Gtk.Button(label="Generate Roof")
@@ -1860,6 +2393,43 @@ class CanvasSelectionMixin:
                 "clicked", lambda btn: self.mirror_dimension_offset(
                     selected_dimensions, parent_popover))
             box.append(mirror_offset_btn)
+
+        # Roof line specific options
+        if selected_roof_lines:
+            rline_sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            box.append(rline_sep)
+
+            del_rline_btn = Gtk.Button(label="Delete Roof Line")
+            del_rline_btn.connect(
+                "clicked", lambda btn: (
+                    self.delete_selected(),
+                    parent_popover.popdown()))
+            box.append(del_rline_btn)
+
+            solve_roof_btn = Gtk.Button(label="Solve / Clean Roof Topology")
+            solve_roof_btn.connect(
+                "clicked", lambda btn: (
+                    self.solve_active_roof(selected_roof_lines[0].get("roof")),
+                    parent_popover.popdown()))
+            box.append(solve_roof_btn)
+
+        elif selected_roofs:
+            roof_sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            box.append(roof_sep)
+
+            del_roof_btn = Gtk.Button(label="Delete Roof")
+            del_roof_btn.connect(
+                "clicked", lambda btn: (
+                    self.delete_selected(),
+                    parent_popover.popdown()))
+            box.append(del_roof_btn)
+
+            solve_roof_btn = Gtk.Button(label="Solve / Clean Roof Topology")
+            solve_roof_btn.connect(
+                "clicked", lambda btn: (
+                    self.solve_active_roof(selected_roofs[0]["object"]),
+                    parent_popover.popdown()))
+            box.append(solve_roof_btn)
 
         # Position the popover at the click location
         rect = Gdk.Rectangle()

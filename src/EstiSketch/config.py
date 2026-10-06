@@ -1,7 +1,10 @@
 import json
 import os
+from pathlib import Path
 
-CONFIG_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
+# Use XDG config directory for settings (writable location)
+CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "estisketch")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "settings.json")
 
 DEFAULT_SETTINGS = {
     "WINDOW_TITLE": "EstiSketch",
@@ -73,6 +76,20 @@ DEFAULT_SETTINGS = {
     "LAYERS_PROPERTIES_SPLIT": 200,
     "JOINT_SNAP_TOLERANCE": 1,
     "MAX_WALL_PLATE_INCHES": 192,
+    "DEFAULT_STUD_SPACING": 16.0,
+    "SHEATHING_WIDTH_FT": 4.0,
+    "SHEATHING_HEIGHT_FT": 8.0,
+    "SHEATHING_THICKNESS": '7/16"',
+    "SHEATHING_MATERIAL_TYPE": "OSB",
+    "HOUSEWRAP_ROLL_WIDTH_FT": 9.0,
+    "HOUSEWRAP_ROLL_LENGTH_FT": 150.0,
+    "HOUSEWRAP_OVERLAP_PCT": 10.0,
+    "ROOF_FRAMING_TYPE": "truss",
+    "ROOF_RAFTER_SPACING_IN": 16.0,
+    "ROOF_USE_LVL_RIDGE": False,
+    "ROOF_WASTE_PCT": 10.0,
+    "ROOF_SHEATHING_THICKNESS": '5/8"',
+    "ROOF_SHEATHING_TYPE": "OSB",
     "LAYER_FOCUS_MODE": False
 }
 
