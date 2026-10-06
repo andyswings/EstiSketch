@@ -1,5 +1,6 @@
 from .layers_panel import LayersPanel
 from .properties_stair import StairPropertiesWidget
+from ui.properties_panel import bind_roof_overhang, bind_plane_pitch
 from gi.repository import Gtk, GObject
 import gi
 import os

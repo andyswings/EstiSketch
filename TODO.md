@@ -148,13 +148,13 @@
 ## 🐛 Known Bugs / FIXMEs
 - [ ] Importing from SH3D walls are not mitered correctly
 - [ ] Auto-generated rooms do not correctly draw when room includes curved walls. It just draws straight between wall endpoints instead of following the curve.
-- [ ] Introduced some weird bugs in basic auto roof drawing... will detail more once I explore them a bit more.
 
 ## 💡 Takeoffs
 - [ ] Material Estimator
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Refactored and implemented unified 3D roof geometry engine supporting both auto-generated and manually edited roofs via functional mathematical pipeline, variable eave overhang offsetting, analytical asymmetric pitch solving, algebraic 3-plane junction solving, and Phase 4 headless invariant test suite. (2026-10-05)
 - [x] Complex roof auto-generation for L-shaped, T-shaped, and multisided homes: auto-generates dual/intersecting ridges, valleys from ridge intersection to inside corners/overhang, hips from ridge intersection through outside corner to overhang, rakes/eaves at wing ends (supporting both gable and hip treatments), straight skeleton solver for multisided convex roofs, smart wall marking inference, and dynamic recalculation on overhang adjustment. (2026-10-03)
 - [x] building_takeoff.py lines 694 and 695 should not have a hardcoded fallback value. Warned user via UserWarning and returned empty results when geometry is missing instead of hardcoded fallbacks. (2026-09-29)
 - [x] After marking walls and then auto generating a gable roof, ridge line does not extend or retract to follow overhang when overhang size is edited. (2026-09-29)

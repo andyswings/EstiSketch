@@ -9,6 +9,13 @@ and extract closed 3D roof plane polygons for takeoff estimation.
 import math
 from typing import List, Tuple, Dict, Optional, Set
 from ..roof_components import Roof, RoofLine, RoofEdge
+from geometry.roof_solver import (
+    build_plane_equations,
+    intersect_planes,
+    solve_junction_vertex,
+    clip_facets_to_boundary,
+    solve_roof_geometry,
+)
 
 
 def pt_distance(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:

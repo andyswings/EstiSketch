@@ -6,17 +6,25 @@ from the main components.py to isolate complexity and support future
 expansion to complex roof types.
 """
 from dataclasses import dataclass, field
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Any, Union
 
-# Color mapping for visual rendering of roof line types
-ROOF_LINE_COLORS: Dict[str, str] = {
-    "ridge": "#E53935",    # Crimson Red - Horizontal / sloped roof peak
-    "hip": "#FB8C00",      # Amber Orange - External sloped corner
-    "valley": "#00ACC1",   # Cyan Blue - Internal drainage channel
-    "rake": "#8E24AA",     # Purple - Gable end sloped edge
-    "eave": "#43A047",     # Emerald Green - Horizontal lower drip edge
-    "tie_in": "#D81B60",   # Magenta / Pink - Abutting wall / plane transition
-}
+from models.roof import (
+    ROOF_LINE_COLORS,
+    RoofEdge,
+    RoofVertex,
+    RoofPlane,
+    RoofFacet,
+    Plane3D,
+    Line3D,
+    RoofEdgeType,
+    EAVE,
+    RIDGE,
+    HIP,
+    VALLEY,
+    RAKE,
+    TIE_IN,
+    GABLE,
+)
 
 
 @dataclass
@@ -43,16 +51,6 @@ class RoofLine:
     def length_ft(self) -> float:
         """Length of line segment in feet."""
         return self.length_in / 12.0
-
-
-
-@dataclass
-class RoofEdge:
-    """Links a wall to a roof with edge-type info and optional per-edge overrides."""
-    wall_identifier: str  # Reference to wall's identifier
-    edge_type: str  # "eave", "gable", "tie_in"
-    pitch_rise: Optional[float] = None
-    overhang: Optional[float] = None
 
 
 @dataclass
