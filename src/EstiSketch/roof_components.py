@@ -91,8 +91,8 @@ class Roof:
     outline_points: List[Tuple[float, float]] = field(default_factory=list)
     
     # Extracted 3D Roof Planes for Takeoff Calculation
-    # Each dict: {"name": str, "pitch": float, "polygon_2d": [...], "area_3d_sqft": float}
-    roof_planes: List[Dict] = field(default_factory=list)
+    # Each item is a RoofFacet or dict: {"name": str, "pitch": float, "polygon_2d": [...], "area_3d_sqft": float}
+    roof_planes: List[Any] = field(default_factory=list)
     
     # Materials
     material: str = "asphalt_shingle"

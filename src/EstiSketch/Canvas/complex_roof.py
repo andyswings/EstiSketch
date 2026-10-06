@@ -516,14 +516,45 @@ def generate_convex_multisided_roof(
         c_ext = get_offset_corner(p_prev, p_curr, p_next, overhang, winding_flip)
         ext_corners.append(c_ext)
 
-    # Check if polygon is regular / equi-radial from centroid (e.g. regular octagon, hexagon, square)
+    # Calculate centroid and radial distances
     cx = sum(p[0] for p in work_pts) / m
     cy = sum(p[1] for p in work_pts) / m
     center = (cx, cy)
-    dists = [math.hypot(p[0] - cx, p[1] - cy) for p in work_pts]
-    min_d, max_d = min(dists), max(dists)
-    if max_d > 0 and (max_d - min_d) / max_d < 0.02:
-        # Regular polygon hip roof: all vertices connect directly to centroid
+    center_dists = [math.hypot(p[0] - cx, p[1] - cy) for p in work_pts]
+    min_d, max_d = min(center_dists), max(center_dists)
+
+    # 1. Triangle (m == 3): All 3 roof planes always meet at a single apex (incenter).
+    # There is never a ridge line on a triangular hip roof; all hip lines converge directly to the incenter.
+    if m == 3:
+        p0, p1, p2 = work_pts[0], work_pts[1], work_pts[2]
+        l0 = math.hypot(p2[0] - p1[0], p2[1] - p1[1])  # side opposite p0
+        l1 = math.hypot(p0[0] - p2[0], p0[1] - p2[1])  # side opposite p1
+        l2 = math.hypot(p1[0] - p0[0], p1[1] - p0[0])  # side opposite p2
+        perim = l0 + l1 + l2
+        if perim > 1e-6:
+            ix = (l0 * p0[0] + l1 * p1[0] + l2 * p2[0]) / perim
+            iy = (l0 * p0[1] + l1 * p1[1] + l2 * p2[1]) / perim
+            apex = (ix, iy)
+        else:
+            apex = (cx, cy)
+        hip_lines = [(apex, c_ext) for c_ext in ext_corners]
+        outline_points = calculate_polygon_outline(ordered_walls, overhang)
+        return [], hip_lines, [], [], [], outline_points
+
+    # 2. Polygons with all equal sides (square for m == 4, or regular m >= 5):
+    # All hip lines converge directly to the centroid with NO ridge line.
+    side_lens = [math.hypot(work_pts[(i + 1) % m][0] - work_pts[i][0], work_pts[(i + 1) % m][1] - work_pts[i][1]) for i in range(m)]
+    min_side, max_side = min(side_lens), max(side_lens)
+    is_equal_sides = max_side > 0 and ((max_side - min_side) / max_side < 0.03)
+
+    if m == 4 and is_equal_sides:
+        # Square hip roof: pyramid hip with 4 hips meeting at centroid, no ridge
+        hip_lines = [(center, c_ext) for c_ext in ext_corners]
+        outline_points = calculate_polygon_outline(ordered_walls, overhang)
+        return [], hip_lines, [], [], [], outline_points
+
+    if m >= 5 and (is_equal_sides or (max_d > 0 and (max_d - min_d) / max_d < 0.02)):
+        # Regular multisided convex hip roof (pentagon, hexagon, octagon)
         hip_lines = [(center, c_ext) for c_ext in ext_corners]
         outline_points = calculate_polygon_outline(ordered_walls, overhang)
         return [], hip_lines, [], [], [], outline_points

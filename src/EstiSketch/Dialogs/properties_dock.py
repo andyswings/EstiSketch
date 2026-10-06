@@ -1,11 +1,12 @@
+import math
+import os
+import json
+import gi
+gi.require_version('Gtk', '4.0')
+from gi.repository import Gtk, GObject
 from .layers_panel import LayersPanel
 from .properties_stair import StairPropertiesWidget
 from ui.properties_panel import bind_roof_overhang, bind_plane_pitch
-from gi.repository import Gtk, GObject
-import gi
-import os
-import json
-gi.require_version('Gtk', '4.0')
 
 # Stub widgets—you can flesh these out with real controls
 
@@ -195,9 +196,9 @@ class RoofPropertiesWidget(Gtk.Box):
         frame.set_child(box)
         self.append(frame)
 
-        # Base Pitch Rise
+        # Pitch Rise
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        row.append(Gtk.Label(label="Base Pitch Rise:"))
+        row.append(Gtk.Label(label="Pitch:"))
         self.pitch_rise_spin = Gtk.SpinButton.new_with_range(0.5, 24.0, 0.5)
         self.pitch_rise_spin.connect("value-changed", self.on_pitch_changed)
         row.append(self.pitch_rise_spin)
@@ -284,8 +285,9 @@ class RoofPropertiesWidget(Gtk.Box):
         self.slopes_frame.set_child(self.slopes_box)
         self.append(self.slopes_frame)
 
-        # Embedded Roof Line Properties Sub-Widget
+        # Embedded Roof Line Properties Sub-Widget (hidden unless individual line selected)
         self.line_widget = RoofLinePropertiesWidget()
+        self.line_widget.set_visible(False)
         self.append(self.line_widget)
 
     def on_solve_clicked(self, btn):
@@ -329,7 +331,12 @@ class RoofPropertiesWidget(Gtk.Box):
         if hasattr(self, "canvas") and self.canvas:
             self.canvas.save_state()
             self.emit_property_changed()
-        self.refresh_slopes_list(self.current_roofs[0])
+        if self.current_roofs:
+            first = self.current_roofs[0]
+            if hasattr(first, 'roof_planes') and first.roof_planes:
+                total_area = sum(p.get("area_3d_sqft", 0.0) for p in first.roof_planes)
+                self.summary_label.set_text(f"Solved: {len(getattr(first, 'solved_lines', []))} lines, {total_area:.1f} sq ft 3D area")
+            self.refresh_slopes_list(first)
 
     def on_pitch_mode_changed(self, combo):
         if self._block_updates or not self.current_roofs:
@@ -353,7 +360,12 @@ class RoofPropertiesWidget(Gtk.Box):
             if hasattr(self, "canvas") and self.canvas:
                 self.canvas.save_state()
                 self.emit_property_changed()
-            self.refresh_slopes_list(self.current_roofs[0])
+            if self.current_roofs:
+                first = self.current_roofs[0]
+                if hasattr(first, 'roof_planes') and first.roof_planes:
+                    total_area = sum(p.get("area_3d_sqft", 0.0) for p in first.roof_planes)
+                    self.summary_label.set_text(f"Solved: {len(getattr(first, 'solved_lines', []))} lines, {total_area:.1f} sq ft 3D area")
+                self.refresh_slopes_list(first)
         else:
             self.on_side_pitch_changed(None)
 
@@ -383,7 +395,12 @@ class RoofPropertiesWidget(Gtk.Box):
         if hasattr(self, "canvas") and self.canvas:
             self.canvas.save_state()
             self.emit_property_changed()
-        self.refresh_slopes_list(self.current_roofs[0])
+        if self.current_roofs:
+            first = self.current_roofs[0]
+            if hasattr(first, 'roof_planes') and first.roof_planes:
+                total_area = sum(p.get("area_3d_sqft", 0.0) for p in first.roof_planes)
+                self.summary_label.set_text(f"Solved: {len(getattr(first, 'solved_lines', []))} lines, {total_area:.1f} sq ft 3D area")
+            self.refresh_slopes_list(first)
 
     def refresh_slopes_list(self, roof=None):
         if not roof and self.current_roofs:
@@ -418,43 +435,9 @@ class RoofPropertiesWidget(Gtk.Box):
             name_lbl.set_hexpand(True)
             row.append(name_lbl)
 
-            spin = Gtk.SpinButton.new_with_range(0.5, 24.0, 0.5)
-            spin.set_value(p_pitch)
-            
-            def make_handler(plane_idx):
-                def handler(s):
-                    if self._block_updates or not self.current_roofs:
-                        return
-                    new_val = s.get_value()
-                    r = self.current_roofs[0]
-                    # Update edge if index matches eave
-                    eaves = [e for e in getattr(r, 'edges', []) if e.edge_type == 'eave']
-                    if 0 <= plane_idx < len(eaves):
-                        eaves[plane_idx].pitch_rise = new_val
-                        self._block_updates = True
-                        if plane_idx == 0:
-                            self.pitch_a_spin.set_value(new_val)
-                        elif plane_idx == 1:
-                            self.pitch_b_spin.set_value(new_val)
-                        self._block_updates = False
-                    
-                    eave_lines = [l for l in getattr(r, 'manual_lines', []) if l.line_type == 'eave']
-                    if 0 <= plane_idx < len(eave_lines):
-                        eave_lines[plane_idx].pitch_rise = new_val
-
-                    if hasattr(self, "canvas") and self.canvas:
-                        self.canvas.recalculate_roof(r)
-                        self.canvas.save_state()
-                        self.emit_property_changed()
-                    self.refresh_slopes_list(r)
-                return handler
-
-            spin.connect("value-changed", make_handler(idx))
-            row.append(spin)
-            row.append(Gtk.Label(label="/12"))
-
-            area_lbl = Gtk.Label(label=f"({p_area:.1f} sq ft)")
-            row.append(area_lbl)
+            detail_lbl = Gtk.Label(label=f"{p_pitch:g}/12 pitch  •  {p_area:.1f} sq ft")
+            detail_lbl.set_xalign(1.0)
+            row.append(detail_lbl)
 
             self.slopes_box.append(row)
 
@@ -472,7 +455,12 @@ class RoofPropertiesWidget(Gtk.Box):
         if hasattr(self, "canvas") and self.canvas:
             self.canvas.save_state()
             self.emit_property_changed()
-        self.refresh_slopes_list(self.current_roofs[0])
+        if self.current_roofs:
+            first = self.current_roofs[0]
+            if hasattr(first, 'roof_planes') and first.roof_planes:
+                total_area = sum(p.get("area_3d_sqft", 0.0) for p in first.roof_planes)
+                self.summary_label.set_text(f"Solved: {len(getattr(first, 'solved_lines', []))} lines, {total_area:.1f} sq ft 3D area")
+            self.refresh_slopes_list(first)
 
     def on_material_changed(self, combo):
         if self._block_updates or not self.current_roofs:

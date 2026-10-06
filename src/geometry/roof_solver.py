@@ -443,7 +443,7 @@ def solve_roof_geometry(
     if len(eave_planes) == 2:
         p1 = eave_planes[0].plane_equation
         p2 = eave_planes[1].plane_equation
-        if p1 and p2:
+        if p1 and p2 and p1.eave_start and p1.eave_end and p2.eave_start and p2.eave_end:
             ridge_line = intersect_planes(p1, p2)
             
             # Eave corners
@@ -551,7 +551,7 @@ def solve_roof_geometry(
                 roof.outline_points = outline
 
     # Step 4: Extract closed 3D facets
-    facets = clip_facets_to_boundary(plane_equations, solved_vertices, roof_planes)
+    facets: List[Any] = clip_facets_to_boundary(plane_equations, solved_vertices, roof_planes)
 
     # Step 5: Convert solved edges to 2D RoofLine objects for canvas rendering
     solved_lines = []

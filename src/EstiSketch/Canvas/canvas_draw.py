@@ -1,11 +1,39 @@
 import math
 import cairo
+from typing import Any, Optional, Tuple, List, Dict, Union
 from gi.repository import Gtk, Pango, PangoCairo
 from . import door_window_renderer as dwr
 from . import wall_room_renderer as wr
 
 
 class CanvasDrawMixin:
+    # State attributes mixed in from CanvasArea / CanvasEvents
+    zoom: float
+    offset_x: float
+    offset_y: float
+    tool_mode: str
+    config: Any
+    converter: Any
+    handle_radius: float
+    snap_type: str
+    drawing_wall: bool
+    drawing_circle: bool
+    drawing_arc: bool
+    drawing_polyline: bool
+    current_wall: Any
+    arc_start: Any
+    arc_end: Any
+    arc_preview_point: Any
+    _last_mouse_pos: Any
+    polylines: Any
+    polyline_sets: Any
+    current_polyline_start: Any
+    current_polyline_preview: Any
+    raw_current_end: Any
+    alignment_candidate: Any
+    dimension_start: Any
+    dimension_end: Any
+    Arc: Any
     # Helper: convert a model coordinate (in inches) to device coordinates.
     def model_to_device(self, x, y, pixels_per_inch):
         T = self.zoom * pixels_per_inch
@@ -260,12 +288,14 @@ class CanvasDrawMixin:
                     cr.restore()
             elif self.arc_start and hasattr(self, '_last_mouse_pos'):
                  # Preview line from Start to Mouse (waiting for End click)
+                 arc_s: Any = self.arc_start
+                 last_pos: Any = self._last_mouse_pos
                  cr.save()
                  cr.set_source_rgb(0.5, 0.5, 0.5)
                  cr.set_line_width(1.0 / (self.zoom * getattr(self.config, "PIXELS_PER_INCH", 2.0)))
                  cr.set_dash([4.0, 4.0])
-                 cr.move_to(self.arc_start[0], self.arc_start[1])
-                 cr.line_to(self._last_mouse_pos[0], self._last_mouse_pos[1])
+                 cr.move_to(arc_s[0], arc_s[1])
+                 cr.line_to(last_pos[0], last_pos[1])
                  cr.stroke()
                  cr.restore()
 
@@ -299,7 +329,8 @@ class CanvasDrawMixin:
         if self.polylines:
             cr.save()
             cr.set_line_width(1.0 / self.zoom)
-            for pl in self.polylines:
+            polylines_list: Any = self.polylines
+            for pl in polylines_list:
                 opacity = 1.0
                 if hasattr(self, 'get_object_opacity'):
                     opacity = self.get_object_opacity(pl)
@@ -329,11 +360,13 @@ class CanvasDrawMixin:
             else:
                 cr.set_dash([])
 
-            last_pt = self.current_polyline_start or self.polylines[-1].end
+            polylines_list = self.polylines
+            preview_pt: Any = self.current_polyline_preview
+            last_pt = self.current_polyline_start or polylines_list[-1].end
             cr.move_to(last_pt[0], last_pt[1])
             cr.line_to(
-                self.current_polyline_preview[0],
-                self.current_polyline_preview[1])
+                preview_pt[0],
+                preview_pt[1])
             cr.stroke()
             cr.restore()
 
@@ -727,7 +760,8 @@ class CanvasDrawMixin:
                   geom = self.get_circle_from_3_points(self.arc_start, self.arc_end, self.arc_preview_point)
                   if geom:
                        (cx, cy), radius = geom
-                       angle_start = math.atan2(self.arc_start[1] - cy, self.arc_start[0] - cx)
+                       arc_s: Any = self.arc_start
+                       angle_start = math.atan2(arc_s[1] - cy, arc_s[0] - cx)
                        arcs_to_label.append(self.Arc(center=(cx, cy), radius=radius, start_angle=angle_start, end_angle=0))
         
         # Add currently edited objects (handles selected)
@@ -909,8 +943,8 @@ class CanvasDrawMixin:
 
         # Arc span preview (first step of arc creation: start to end point)
         if self.tool_mode == "add_arc" and self.drawing_arc and self.arc_start and not self.arc_end and hasattr(self, '_last_mouse_pos'):
-             start = self.arc_start
-             end = self._last_mouse_pos
+             start: Any = self.arc_start
+             end: Any = self._last_mouse_pos
              dx = end[0] - start[0]
              dy = end[1] - start[1]
              length = math.hypot(dx, dy)
@@ -943,8 +977,10 @@ class CanvasDrawMixin:
         if not (
                 self.drawing_wall and self.current_wall and self.alignment_candidate and self.raw_current_end):
             return
-        dx = self.raw_current_end[0] - self.alignment_candidate[0]
-        dy = self.raw_current_end[1] - self.alignment_candidate[1]
+        raw_end: Any = self.raw_current_end
+        cand: Any = self.alignment_candidate
+        dx = raw_end[0] - cand[0]
+        dy = raw_end[1] - cand[1]
         if math.hypot(dx, dy) < 1:
             return
         cr.save()
@@ -952,8 +988,8 @@ class CanvasDrawMixin:
         dash = 2.0 / (self.zoom * pixels_per_inch)
         cr.set_dash([dash, dash])
         cr.set_source_rgb(0.7, 0.7, 0.7)
-        cr.move_to(self.raw_current_end[0], self.raw_current_end[1])
-        cr.line_to(self.alignment_candidate[0], self.alignment_candidate[1])
+        cr.move_to(raw_end[0], raw_end[1])
+        cr.line_to(cand[0], cand[1])
         cr.stroke()
         cr.restore()
 
@@ -1206,12 +1242,14 @@ class CanvasDrawMixin:
                     cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
                     cr.set_dash([4.0 / (self.zoom * pixels_per_inch),
                                 4.0 / (self.zoom * pixels_per_inch)])
+                    dim_start: Any = self.dimension_start
+                    mouse_pos: Any = self._last_mouse_pos
                     cr.move_to(
-                        self.dimension_start[0],
-                        self.dimension_start[1])
+                        dim_start[0],
+                        dim_start[1])
                     cr.line_to(
-                        self._last_mouse_pos[0],
-                        self._last_mouse_pos[1])
+                        mouse_pos[0],
+                        mouse_pos[1])
                     cr.stroke()
                     cr.restore()
 
@@ -1518,7 +1556,7 @@ class CanvasDrawMixin:
             # Angles increase clockwise in cairo (y down).
             # So start_angle to end_angle is the "positive" direction (Clockwise).
             
-            mid_angle = start_angle + angle_diff / 2
+            mid_angle = arc.start_angle + angle_diff / 2
             mx = cx + arc.radius * math.cos(mid_angle)
             my = cy + arc.radius * math.sin(mid_angle)
 
@@ -1573,7 +1611,7 @@ class CanvasDrawMixin:
         from ..roof_components import ROOF_LINE_COLORS
         
         # Helper to convert hex color to RGB floats
-        def hex_to_rgb(hex_str: str) -> Tuple[float, float, float]:
+        def hex_to_rgb(hex_str: str) -> tuple[float, float, float]:
             hex_str = hex_str.lstrip('#')
             return (
                 int(hex_str[0:2], 16) / 255.0,
@@ -1700,13 +1738,20 @@ class CanvasDrawMixin:
                 cr.stroke()
 
             # Draw pitch annotation near ridge or peak center
-            pitch_text = f"{roof.pitch_rise:.0f}/{roof.pitch_run:.0f}"
+            eave_pitches = [e.pitch_rise for e in getattr(roof, 'edges', []) if e.edge_type == 'eave' and e.pitch_rise is not None]
+            if len(eave_pitches) >= 2 and abs(eave_pitches[0] - eave_pitches[1]) > 0.05:
+                pitch_text = f"{eave_pitches[0]:g}/{roof.pitch_run:.0f} & {eave_pitches[1]:g}/{roof.pitch_run:.0f}"
+            else:
+                pitch_text = f"{roof.pitch_rise:g}/{roof.pitch_run:.0f}"
+
             mid_x, mid_y = None, None
-            
             if roof.ridge_lines:
                 ridge = roof.ridge_lines[0]
                 mid_x = (ridge[0][0] + ridge[1][0]) / 2
                 mid_y = (ridge[0][1] + ridge[1][1]) / 2
+            elif roof.hip_lines:
+                # Pyramid / triangle apex
+                mid_x, mid_y = roof.hip_lines[0][0][0], roof.hip_lines[0][0][1]
             elif lines_to_draw:
                 first = lines_to_draw[0]
                 mid_x = (first.start[0] + first.end[0]) / 2

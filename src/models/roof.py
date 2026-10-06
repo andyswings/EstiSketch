@@ -115,7 +115,7 @@ class RoofEdge:
         # Signature B (Legacy wall-binding): RoofEdge(wall_identifier, edge_type, pitch_rise, overhang)
         if isinstance(arg1, str) and (isinstance(arg2, str) or arg2 is None):
             self.wall_identifier: Optional[str] = arg1
-            self.edge_type: str = str(arg2) if arg2 is not None else "eave"
+            self.edge_type: str = arg2 if arg2 is not None else "eave"
             self.start_vertex: Optional[RoofVertex] = start_vertex
             self.end_vertex: Optional[RoofVertex] = end_vertex
         else:
@@ -132,7 +132,7 @@ class RoofEdge:
             if isinstance(edge_type, RoofEdgeType):
                 self.edge_type = edge_type.value
             else:
-                self.edge_type = str(edge_type).lower() if edge_type is not None else "eave"
+                self.edge_type = edge_type.lower() if edge_type is not None else "eave"
             self.wall_identifier = wall_identifier
 
         self.pitch_rise: Optional[float] = pitch_rise

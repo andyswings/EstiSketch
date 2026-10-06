@@ -356,3 +356,101 @@ def test_roof_edge_color_coding_preservation():
 
     edge_eave = RoofEdge(v1, v2, edge_type=EAVE)
     assert edge_eave.color == "#43A047"
+
+
+def test_triangular_house_hip_roof_no_ridge():
+    """
+    Asserts a triangular house (n=3) with a hip roof has NO ridge line
+    and all 3 hip lines converge directly to the incenter.
+    """
+    from EstiSketch.Canvas.complex_roof import calculate_complex_roof_geometry
+
+    # Equilateral triangle side 300
+    p0 = (0.0, 0.0)
+    p1 = (300.0, 0.0)
+    p2 = (150.0, 300.0 * math.sqrt(3) / 2.0)
+    w1 = DummyWall("W1", p0, p1)
+    w2 = DummyWall("W2", p1, p2)
+    w3 = DummyWall("W3", p2, p0)
+    walls = [w1, w2, w3]
+    markings = {"W1": "eave", "W2": "eave", "W3": "eave"}
+
+    r_lines, h_lines, v_lines, rk_lines, ev_lines, outline = \
+        calculate_complex_roof_geometry(walls, markings, overhang=12.0, pitch_rise=6.0, pitch_run=12.0)
+
+    # Invariant: Triangular hip roofs have ZERO ridge lines
+    assert len(r_lines) == 0
+
+    # Invariant: Exactly 3 hip lines
+    assert len(h_lines) == 3
+
+    # Invariant: All 3 hip lines converge to the exact same apex point (the incenter)
+    apex = h_lines[0][0]
+    expected_apex_x = (p0[0] + p1[0] + p2[0]) / 3.0
+    expected_apex_y = (p0[1] + p1[1] + p2[1]) / 3.0
+    assert abs(apex[0] - expected_apex_x) < 1e-3
+    assert abs(apex[1] - expected_apex_y) < 1e-3
+    for h in h_lines:
+        assert math.hypot(h[0][0] - apex[0], h[0][1] - apex[1]) < 1e-4
+
+
+def test_square_house_pyramid_hip_no_ridge():
+    """
+    Asserts a square house (equal width and length) with a hip roof has NO ridge line
+    and all 4 hip lines converge directly to the centroid (pyramid hip).
+    """
+    from EstiSketch.Canvas.complex_roof import calculate_complex_roof_geometry
+
+    # 300 x 300 square
+    w1 = DummyWall("W1", (0.0, 0.0), (300.0, 0.0))
+    w2 = DummyWall("W2", (300.0, 0.0), (300.0, 300.0))
+    w3 = DummyWall("W3", (300.0, 300.0), (0.0, 300.0))
+    w4 = DummyWall("W4", (0.0, 300.0), (0.0, 0.0))
+    walls = [w1, w2, w3, w4]
+    markings = {"W1": "eave", "W2": "eave", "W3": "eave", "W4": "eave"}
+
+    r_lines, h_lines, v_lines, rk_lines, ev_lines, outline = \
+        calculate_complex_roof_geometry(walls, markings, overhang=12.0, pitch_rise=6.0, pitch_run=12.0)
+
+    # Invariant: Square pyramid hip has ZERO ridge lines
+    assert len(r_lines) == 0
+
+    # Invariant: Exactly 4 hip lines
+    assert len(h_lines) == 4
+
+    # Invariant: All 4 hip lines meet at center (150, 150)
+    apex = h_lines[0][0]
+    assert abs(apex[0] - 150.0) < 1e-3
+    assert abs(apex[1] - 150.0) < 1e-3
+    for h in h_lines:
+        assert math.hypot(h[0][0] - apex[0], h[0][1] - apex[1]) < 1e-4
+
+
+def test_solve_and_clean_triangular_roof():
+    """
+    Asserts solve_and_clean_roof correctly converts a triangular house
+    to a Roof object with 0 ridge lines, 3 hip lines, and clean apex.
+    """
+    p0 = (0.0, 0.0)
+    p1 = (300.0, 0.0)
+    p2 = (150.0, 200.0)
+    w1 = DummyWall("W1", p0, p1)
+    w2 = DummyWall("W2", p1, p2)
+    w3 = DummyWall("W3", p2, p0)
+    walls = [w1, w2, w3]
+
+    edges = [
+        RoofEdge("W1", "eave"),
+        RoofEdge("W2", "eave"),
+        RoofEdge("W3", "eave"),
+    ]
+    roof = Roof(identifier="ROOF-TRI", edges=edges, pitch_rise=6.0, overhang=12.0)
+    solve_and_clean_roof(roof, walls)
+
+    assert len(roof.ridge_lines) == 0
+    assert len(roof.hip_lines) == 3
+    # All hip lines share the apex
+    apex = roof.hip_lines[0][0]
+    for h in roof.hip_lines:
+        assert math.hypot(h[0][0] - apex[0], h[0][1] - apex[1]) < 1e-4
+
