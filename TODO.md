@@ -1,7 +1,14 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add Stairs tool (Winder)
+- [ ] Mimic SweetHome3D wall labels (while drawing) use this behavior for all labels on walls windows and doors, etc. so that labels are upright when possible or easy to read when not possible.
+- [ ] Add window and door ghosts. When using the relevant tool and mousing over a wall, a window or door ghost appears on the wall where the actual window or door would be if the user made a click.
+- [ ] Add Winder stairs to the Stairs tool. Add property dock controls for the number of winders.
+- [ ] Look into what we are missing to reach feature parity with the 2D part of SweetHome3D.
+- [ ] Make sure roof and overhang tools work with 0 wall thickness.
+- [ ] Make sure roof and overhang tools work with walls on different levels.
+- [ ] Make sure roof and overhang tools work with angled walls.
+- [ ] Clean up the code base. I feel like we have a few things that are redundant, no longer used, or are in other ways unnecessary.
 
 ## Ideas to think about
 - [ ] Refine capability to snap new wall's edges to existing wall edges instead of just endpoints to endpoints (should have same capabilities for editing walls as well) (This is useful for aligning walls of different thicknesses end to end)
@@ -9,7 +16,7 @@
 ## ✨ Core Features (essential functionality)
 
 ### Architectural Elements
-- [ ] Columns/PostsS
+- [ ] Columns/Posts
 - [ ] Beams
 - [ ] Ceiling types (dropped, vaulted, cathedral)
 - [ ] Railings/Guardrails (deck, stair, balcony)
