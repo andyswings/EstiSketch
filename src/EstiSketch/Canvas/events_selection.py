@@ -795,21 +795,18 @@ class CanvasSelectionMixin:
                          hit = True
                          
                  elif stair_type == 'L-shaped':
-                     # Need to reconstruct geometry
-                     total_steps = stair.num_steps
-                     steps_before_landing = getattr(stair, 'steps_before_landing', 0)
-                     if steps_before_landing <= 0 or steps_before_landing >= total_steps:
-                         steps_before = total_steps // 2
-                     else:
-                         steps_before = steps_before_landing
-                     
-                     tread_depth = stair.tread_depth
-                     run_before = (steps_before - 1) * tread_depth
-                     
-                     steps_after = total_steps - steps_before
-                     run_after = (steps_after - 1) * tread_depth
-                     
-                     landing_depth = getattr(stair, 'landing_depth', 36.0)
+                     # Shared layout with the renderer (handles winders vs landing)
+                     from .winder_geometry import l_stair_layout
+                     _lay = l_stair_layout(
+                         stair.num_steps,
+                         getattr(stair, 'steps_before_landing', 0),
+                         stair.tread_depth,
+                         getattr(stair, 'landing_depth', 36.0),
+                         width,
+                         getattr(stair, 'winder_count', 0))
+                     run_before = _lay["run_before"]
+                     run_after = _lay["run_after"]
+                     landing_depth = _lay["landing_depth"]
                      turn_dir = getattr(stair, 'turn_direction', 'left')
                      
                      # 1. Flight 1: Rect(0, -half, run_before, width)

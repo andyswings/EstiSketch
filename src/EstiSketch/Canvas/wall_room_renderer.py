@@ -425,10 +425,9 @@ def draw_sloped_wall_indicators(self, cr):
         text_x = mid_x + nx * offset_dist
         text_y = mid_y + ny * offset_dist
 
-        # Compute wall alignment angle (keep right-side up)
-        wall_angle = math.atan2(dy, dx)
-        if wall_angle > math.pi / 2 or wall_angle < -math.pi / 2:
-            wall_angle += math.pi
+        # Compute wall alignment angle (SweetHome3D-style upright text)
+        from .label_utils import upright_angle
+        wall_angle = upright_angle(math.atan2(dy, dx))
 
         cr.save()
         cr.translate(text_x, text_y)

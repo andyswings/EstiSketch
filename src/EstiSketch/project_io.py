@@ -426,6 +426,12 @@ def save_project(canvas, window_width, window_height, filepath):
         s_elem.set("show_up_arrow", str(stair.show_up_arrow))
         s_elem.set("show_step_count", str(stair.show_step_count))
 
+        # L/U/Spiral specifics (incl. winders)
+        s_elem.set("turn_direction", str(getattr(stair, 'turn_direction', 'left')))
+        s_elem.set("landing_depth", str(getattr(stair, 'landing_depth', 36.0)))
+        s_elem.set("steps_before_landing", str(getattr(stair, 'steps_before_landing', 0)))
+        s_elem.set("winder_count", str(getattr(stair, 'winder_count', 0)))
+
     # Write out the XML to the given file (with declaration and proper
     # encoding).
     tree = ET.ElementTree(root)
@@ -994,6 +1000,11 @@ def open_project(canvas, filepath):
 
             stair.show_up_arrow = _get_attr_text(s_elem, "show_up_arrow", "True") == "True"
             stair.show_step_count = _get_attr_text(s_elem, "show_step_count", "True") == "True"
+
+            stair.turn_direction = _get_attr_text(s_elem, "turn_direction", "left")
+            stair.landing_depth = _get_attr_float(s_elem, "landing_depth", 36.0)
+            stair.steps_before_landing = _get_attr_int(s_elem, "steps_before_landing", 0)
+            stair.winder_count = _get_attr_int(s_elem, "winder_count", 0)
 
             canvas.stairs.append(stair)
 

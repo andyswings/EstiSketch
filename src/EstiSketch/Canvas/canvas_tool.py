@@ -1,6 +1,7 @@
 class CanvasToolMixin:
     def set_tool_mode(self, mode):
         self.tool_mode = mode
+        self.opening_ghost = None  # clear door/window ghost on tool change
         self.current_wall = None
         self.drawing_wall = False
         self.snap_type = "none"

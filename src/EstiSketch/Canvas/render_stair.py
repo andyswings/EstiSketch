@@ -4,6 +4,7 @@ Stair rendering logic for EstiSketch canvas.
 import math
 import cairo
 from ..components import Stair
+from .winder_geometry import winder_treads, polygon_centroid, l_stair_layout
 
 
 class CanvasStairRendererMixin:
@@ -208,26 +209,24 @@ class CanvasStairRendererMixin:
         width = stair.width
         
         # Get L-shaped specific attributes
-        landing_depth = getattr(stair, 'landing_depth', 36.0)
         turn_direction = getattr(stair, 'turn_direction', 'left')
-        
-        # Calculate steps before and after landing
-        # Default: distribute evenly, but can be customized via properties
         total_steps = stair.num_steps
-        
-        # Use user-defined split if available, otherwise default to half
-        steps_before_landing = getattr(stair, 'steps_before_landing', 0)
-        if steps_before_landing > 0 and steps_before_landing < total_steps:
-            steps_before = steps_before_landing
-        else:
-            steps_before = total_steps // 2
-            
-        steps_after = total_steps - steps_before
-        
-        # Calculate runs for each flight
         tread_depth = stair.tread_depth
-        run_before = (steps_before - 1) * tread_depth if steps_before > 0 else 0
-        run_after = (steps_after - 1) * tread_depth if steps_after > 0 else 0
+
+        # Shared layout (also used by hit-testing); handles winders vs landing
+        layout = l_stair_layout(
+            total_steps,
+            getattr(stair, 'steps_before_landing', 0),
+            tread_depth,
+            getattr(stair, 'landing_depth', 36.0),
+            width,
+            getattr(stair, 'winder_count', 0))
+        steps_before = layout["steps_before"]
+        steps_after = layout["steps_after"]
+        run_before = layout["run_before"]
+        run_after = layout["run_after"]
+        landing_depth = layout["landing_depth"]
+        winder_count = layout["winder_count"]
         
         cr.save()
         
@@ -269,9 +268,27 @@ class CanvasStairRendererMixin:
         # --- Draw Landing ---
         # Landing is inline with first flight, continuing straight
         landing_x = run_before
-        cr.rectangle(landing_x, -half_width, landing_depth, width)
         cr.set_line_width(line_width)
-        cr.stroke()
+        if winder_count:
+            # Winder treads: pie-shaped wedges fanning around the inner corner
+            cr.set_font_size(8.0 / scale)
+            cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+            for idx, poly in enumerate(winder_treads(width, winder_count, turn_direction)):
+                pts = [(landing_x + u, -half_width + v) for (u, v) in poly]
+                cr.move_to(*pts[0])
+                for pt in pts[1:]:
+                    cr.line_to(*pt)
+                cr.close_path()
+                cr.stroke()
+                # Step number at the wedge centroid
+                label = str(steps_before + idx + 1)
+                cu, cv = polygon_centroid(poly)
+                ext = cr.text_extents(label)
+                cr.move_to(landing_x + cu - ext.width / 2, -half_width + cv + ext.height / 2)
+                cr.show_text(label)
+        else:
+            cr.rectangle(landing_x, -half_width, landing_depth, width)
+            cr.stroke()
         
         # --- Draw Second Flight ---
         # Perpendicular to first flight, starting from side of landing

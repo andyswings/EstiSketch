@@ -295,6 +295,7 @@ class Stair:
     landing_depth: float = 36.0
     turn_direction: str = "left"  # "left", "right"
     steps_before_landing: int = 0  # 0 = auto-calculate (half)
+    winder_count: int = 0  # L-shaped: 0 = flat landing, 2-5 = pie-shaped winder treads
     
     # Spiral Specifics (for future use)
     inner_radius: float = 6.0

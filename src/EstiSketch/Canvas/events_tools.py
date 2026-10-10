@@ -5,6 +5,113 @@ from ..Resources.tool_hints import TOOL_HINTS
 
 
 class CanvasToolsMixin:
+    def _locate_on_wall(self, x, y, opening_width=None):
+        """Find the wall nearest to widget point (x, y) and the position ratio on it.
+
+        Shared by door/window placement clicks and the placement ghost so the
+        preview always matches what a click would create.
+
+        Args:
+            x, y: Pointer position in widget coordinates.
+            opening_width: Optional opening width (inches). For straight walls
+                the ratio is clamped so the opening stays within the wall.
+
+        Returns:
+            (wall, ratio) or None if no wall is within tolerance.
+        """
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        canvas_x = (x - self.offset_x) / (self.zoom * pixels_per_inch)
+        canvas_y = (y - self.offset_y) / (self.zoom * pixels_per_inch)
+        click_pt = (canvas_x, canvas_y)
+
+        tolerance = 10 / (self.zoom * pixels_per_inch)
+        best_dist = float('inf')
+        selected_wall = None
+        selected_ratio = None
+
+        def normalize(a):
+            return a % (2 * math.pi)
+
+        for wall_set in self.wall_sets:
+            for wall in wall_set:
+                curved = bool(wall.is_curved and wall.arc_center and wall.arc_radius)
+                if curved:
+                    dist = self.distance_point_to_arc(
+                        click_pt, wall.arc_center, wall.arc_radius,
+                        math.atan2(wall.start[1] - wall.arc_center[1], wall.start[0] - wall.arc_center[0]),
+                        math.atan2(wall.end[1] - wall.arc_center[1], wall.end[0] - wall.arc_center[0])
+                    )
+                else:
+                    dist = self.distance_point_to_segment(
+                        click_pt, wall.start, wall.end)
+
+                if not (dist < tolerance and dist < best_dist):
+                    continue
+                best_dist = dist
+                selected_wall = wall
+
+                if curved:
+                    cx, cy = wall.arc_center
+                    angle = normalize(math.atan2(canvas_y - cy, canvas_x - cx))
+                    start_angle = normalize(math.atan2(wall.start[1] - cy, wall.start[0] - cx))
+                    end_angle = normalize(math.atan2(wall.end[1] - cy, wall.end[0] - cx))
+                    if start_angle < end_angle:
+                        arc_span = end_angle - start_angle
+                        if start_angle <= angle <= end_angle:
+                            selected_ratio = (angle - start_angle) / arc_span
+                        else:
+                            selected_ratio = 0.0 if abs(angle - start_angle) < abs(angle - end_angle) else 1.0
+                    else:  # Arc crosses 0
+                        arc_span = (2 * math.pi - start_angle) + end_angle
+                        if angle >= start_angle:
+                            selected_ratio = (angle - start_angle) / arc_span
+                        elif angle <= end_angle:
+                            selected_ratio = (2 * math.pi - start_angle + angle) / arc_span
+                        else:
+                            selected_ratio = 0.5
+                    selected_ratio = max(0.0, min(1.0, selected_ratio))
+                else:
+                    dx = wall.end[0] - wall.start[0]
+                    dy = wall.end[1] - wall.start[1]
+                    wall_length = math.hypot(dx, dy)
+                    if wall_length > 0:
+                        t = ((canvas_x - wall.start[0]) * dx + (canvas_y - wall.start[1]) * dy) / (wall_length ** 2)
+                        lo, hi = 0.0, 1.0
+                        if opening_width and opening_width < wall_length:
+                            half = (opening_width / 2.0) / wall_length
+                            lo, hi = half, 1.0 - half
+                        selected_ratio = max(lo, min(hi, t))
+                    else:
+                        selected_ratio = 0.5
+
+        if selected_wall is None:
+            return None
+        return selected_wall, selected_ratio
+
+    def _default_door_dims(self):
+        """Return (width, height) of the door the tool would currently place."""
+        door_type = getattr(self.config, "DEFAULT_DOOR_TYPE", "single")
+        if door_type == "garage":
+            return 96.0, 80.0
+        if door_type in ("double", "sliding"):
+            return 72.0, 80.0
+        return 36.0, 80.0
+
+    def _build_default_door(self, identifier=""):
+        """Build the door the door tool would place (used for click and ghost)."""
+        door_type = getattr(self.config, "DEFAULT_DOOR_TYPE", "single")
+        width, height = self._default_door_dims()
+        return Door(
+            door_type, width, height, "left", "inswing",
+            identifier=identifier, layer_id=self.active_layer_id)
+
+    def _build_default_window(self, identifier=""):
+        """Build the window the window tool would place (used for click and ghost)."""
+        window_type = getattr(self.config, "DEFAULT_WINDOW_TYPE", "sliding")
+        return Window(
+            48.0, 36.0, window_type,
+            identifier=identifier, layer_id=self.active_layer_id)
+
     def _handle_door_click(self, n_press: int, x: float, y: float) -> None:
         """
         Handle the addition of a door to the nearest wall based on a click event.
@@ -23,115 +130,13 @@ class CanvasToolsMixin:
         Returns:
             None
         """
-        # Convert device (widget) coordinates to model coordinates using zoom
-        # and pixels-per-inch.
-        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
-        canvas_x = (x - self.offset_x) / (self.zoom * pixels_per_inch)
-        canvas_y = (y - self.offset_y) / (self.zoom * pixels_per_inch)
-        click_pt = (canvas_x, canvas_y)
-
-        tolerance = 10 / (self.zoom * pixels_per_inch)
-        best_dist = float('inf')
-        selected_wall = None
-        selected_ratio = None
-
-        for wall_set in self.wall_sets:
-            for wall in wall_set:
-                # Check distance to wall (straight or curved)
-                if wall.is_curved and wall.arc_center and wall.arc_radius:
-                    # Curved wall - check distance to arc
-                    dist = self.distance_point_to_arc(
-                        click_pt, wall.arc_center, wall.arc_radius,
-                        math.atan2(wall.start[1] - wall.arc_center[1], wall.start[0] - wall.arc_center[0]),
-                        math.atan2(wall.end[1] - wall.arc_center[1], wall.end[0] - wall.arc_center[0])
-                    )
-                else:
-                    dist = self.distance_point_to_segment(
-                        click_pt, wall.start, wall.end)
-                
-                if dist < tolerance and dist < best_dist:
-                    best_dist = dist
-                    selected_wall = wall
-                    
-                    # Calculate ratio along wall (arc length for curved, linear for straight)
-                    if wall.is_curved and wall.arc_center and wall.arc_radius:
-                        # For curved walls: find angle of closest point on arc
-                        cx, cy = wall.arc_center
-                        angle = math.atan2(canvas_y - cy, canvas_x - cx)
-                        start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
-                        end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
-                        
-                        # Normalize angles
-                        def normalize(a):
-                            while a < 0: a += 2 * math.pi
-                            while a >= 2 * math.pi: a -= 2 * math.pi
-                            return a
-                        
-                        angle = normalize(angle)
-                        start_angle = normalize(start_angle)
-                        end_angle = normalize(end_angle)
-                        
-                        # Calculate arc length ratio
-                        if start_angle < end_angle:
-                            arc_span = end_angle - start_angle
-                            if start_angle <= angle <= end_angle:
-                                selected_ratio = (angle - start_angle) / arc_span
-                            else:
-                                # Clamp to nearest endpoint
-                                selected_ratio = 0.0 if abs(angle - start_angle) < abs(angle - end_angle) else 1.0
-                        else:  # Arc crosses 0
-                            arc_span = (2 * math.pi - start_angle) + end_angle
-                            if angle >= start_angle:
-                                selected_ratio = (angle - start_angle) / arc_span
-                            elif angle <= end_angle:
-                                selected_ratio = (2 * math.pi - start_angle + angle) / arc_span
-                            else:
-                                selected_ratio = 0.5
-                        
-                        selected_ratio = max(0.0, min(1.0, selected_ratio))
-                    else:
-                        # Straight wall - linear projection
-                        dx = wall.end[0] - wall.start[0]
-                        dy = wall.end[1] - wall.start[1]
-                        wall_length = math.hypot(dx, dy)
-                        if wall_length > 0:
-                            t = ((canvas_x - wall.start[0]) * dx + (canvas_y - wall.start[1]) * dy) / (wall_length ** 2)
-                            selected_ratio = max(0.0, min(1.0, t))
-                        else:
-                            selected_ratio = 0.5
-
-        if selected_wall is None:
+        hit = self._locate_on_wall(x, y, opening_width=self._default_door_dims()[0])
+        if hit is None:
             print("No wall was found near the click for door addition.")
             return
-        door_type = getattr(self.config, "DEFAULT_DOOR_TYPE", "single")
+        selected_wall, selected_ratio = hit
         door_identifier = self.generate_identifier("door", self.existing_ids)
-        if door_type == "garage":
-            new_door = Door(
-                door_type,
-                96.0,
-                80.0,
-                "left",
-                "inswing",
-                identifier=door_identifier,
-                layer_id=self.active_layer_id)
-        elif door_type == "double" or door_type == "sliding":
-            new_door = Door(
-                door_type,
-                72.0,
-                80.0,
-                "left",
-                "inswing",
-                identifier=door_identifier,
-                layer_id=self.active_layer_id)
-        else:
-            new_door = Door(
-                door_type,
-                36.0,
-                80.0,
-                "left",
-                "inswing",
-                identifier=door_identifier,
-                layer_id=self.active_layer_id)
+        new_door = self._build_default_door(identifier=door_identifier)
         self.existing_ids.append(door_identifier)
         self.doors.append((selected_wall, new_door, selected_ratio))
         self.save_state()
@@ -156,94 +161,15 @@ class CanvasToolsMixin:
         Returns:
             None
         """
-        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
-        canvas_x = (x - self.offset_x) / (self.zoom * pixels_per_inch)
-        canvas_y = (y - self.offset_y) / (self.zoom * pixels_per_inch)
-        click_pt = (canvas_x, canvas_y)
-
-        tolerance = 10 / (self.zoom * pixels_per_inch)
-        best_dist = float('inf')
-        selected_wall = None
-        selected_ratio = None
-
-        for wall_set in self.wall_sets:
-            for wall in wall_set:
-                # Check distance to wall (straight or curved)
-                if wall.is_curved and wall.arc_center and wall.arc_radius:
-                    # Curved wall - check distance to arc
-                    dist = self.distance_point_to_arc(
-                        click_pt, wall.arc_center, wall.arc_radius,
-                        math.atan2(wall.start[1] - wall.arc_center[1], wall.start[0] - wall.arc_center[0]),
-                        math.atan2(wall.end[1] - wall.arc_center[1], wall.end[0] - wall.arc_center[0])
-                    )
-                else:
-                    dist = self.distance_point_to_segment(
-                        click_pt, wall.start, wall.end)
-                
-                if dist < tolerance and dist < best_dist:
-                    best_dist = dist
-                    selected_wall = wall
-                    
-                    # Calculate ratio along wall (arc length for curved, linear for straight)
-                    if wall.is_curved and wall.arc_center and wall.arc_radius:
-                        # For curved walls: find angle of closest point on arc
-                        cx, cy = wall.arc_center
-                        angle = math.atan2(canvas_y - cy, canvas_x - cx)
-                        start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
-                        end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
-                        
-                        # Normalize angles
-                        def normalize(a):
-                            while a < 0: a += 2 * math.pi
-                            while a >= 2 * math.pi: a -= 2 * math.pi
-                            return a
-                        
-                        angle = normalize(angle)
-                        start_angle = normalize(start_angle)
-                        end_angle = normalize(end_angle)
-                        
-                        # Calculate arc length ratio
-                        if start_angle < end_angle:
-                            arc_span = end_angle - start_angle
-                            if start_angle <= angle <= end_angle:
-                                selected_ratio = (angle - start_angle) / arc_span
-                            else:
-                                # Clamp to nearest endpoint
-                                selected_ratio = 0.0 if abs(angle - start_angle) < abs(angle - end_angle) else 1.0
-                        else:  # Arc crosses 0
-                            arc_span = (2 * math.pi - start_angle) + end_angle
-                            if angle >= start_angle:
-                                selected_ratio = (angle - start_angle) / arc_span
-                            elif angle <= end_angle:
-                                selected_ratio = (2 * math.pi - start_angle + angle) / arc_span
-                            else:
-                                selected_ratio = 0.5
-                        
-                        selected_ratio = max(0.0, min(1.0, selected_ratio))
-                    else:
-                        # Straight wall - linear projection
-                        dx = wall.end[0] - wall.start[0]
-                        dy = wall.end[1] - wall.start[1]
-                        wall_length = math.hypot(dx, dy)
-                        if wall_length > 0:
-                            t = ((canvas_x - wall.start[0]) * dx + (canvas_y - wall.start[1]) * dy) / (wall_length ** 2)
-                            selected_ratio = max(0.0, min(1.0, t))
-                        else:
-                            selected_ratio = 0.5
-
-        if selected_wall is None:
+        hit = self._locate_on_wall(x, y, opening_width=48.0)
+        if hit is None:
             print("No wall was found near the click for window addition.")
             return
 
-        window_type = getattr(self.config, "DEFAULT_WINDOW_TYPE", "sliding")
+        selected_wall, selected_ratio = hit
         window_identifier = self.generate_identifier(
             "window", self.existing_ids)
-        new_window = Window(
-            48.0,
-            36.0,
-            window_type,
-            identifier=window_identifier,
-            layer_id=self.active_layer_id)
+        new_window = self._build_default_window(identifier=window_identifier)
         self.existing_ids.append(window_identifier)
         self.windows.append((selected_wall, new_window, selected_ratio))
         self.save_state()

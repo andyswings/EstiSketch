@@ -265,6 +265,41 @@ class CanvasEventsMixin:
                         self.moving_text.x, self.moving_text.y)
                     return
 
+    def _update_opening_ghost(self, x: float, y: float) -> None:
+        """Show/hide the translucent door or window ghost under the pointer.
+
+        Uses the same wall hit-test as the click handlers so the ghost matches
+        exactly what a click would place. Hidden when the pointer is not near a
+        wall or the active layer is locked.
+        """
+        new_ghost = None
+        if self.tool_mode in ("add_doors", "add_windows"):
+            active_layer = self.get_layer_by_id(self.active_layer_id)
+            layer_locked = bool(active_layer and active_layer.locked)
+            if not layer_locked:
+                if self.tool_mode == "add_doors":
+                    opening = self._build_default_door(identifier="ghost")
+                    width = opening.width
+                    kind = "door"
+                else:
+                    opening = self._build_default_window(identifier="ghost")
+                    width = opening.width
+                    kind = "window"
+                hit = self._locate_on_wall(x, y, opening_width=width)
+                if hit is not None:
+                    wall, ratio = hit
+                    new_ghost = (kind, (wall, opening, ratio))
+        old = getattr(self, "opening_ghost", None)
+        self.opening_ghost = new_ghost
+        if old is not None or new_ghost is not None:
+            self.queue_draw()
+
+    def _on_pointer_leave(self, controller) -> None:
+        """Clear the door/window ghost when the pointer leaves the canvas."""
+        if getattr(self, "opening_ghost", None) is not None:
+            self.opening_ghost = None
+            self.queue_draw()
+
     def on_motion(
             self,
             controller: Gtk.EventControllerMotion,
@@ -295,6 +330,9 @@ class CanvasEventsMixin:
 
         # Store last mouse position for dimension preview
         self._last_mouse_pos = (canvas_x, canvas_y)
+
+        # Door/window placement ghost
+        self._update_opening_ghost(x, y)
 
         # Update dimension preview if in dimension drawing mode
         if self.tool_mode == "add_dimension" and self.drawing_dimension:

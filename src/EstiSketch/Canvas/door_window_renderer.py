@@ -1,4 +1,5 @@
 import math
+from .label_utils import upright_angle
 
 
 def get_point_on_wall(wall, ratio):
@@ -97,7 +98,8 @@ def get_wall_direction(wall, ratio):
 
 
 
-def draw_doors(self, cr, pixels_per_inch):
+def draw_doors(self, cr, pixels_per_inch, items=None, opacity_override=None):
+    """Draw doors. ``items``/``opacity_override`` let callers draw a ghost."""
     # Draw doors
     cr.save()
     zoom_transform = self.zoom * pixels_per_inch
@@ -113,9 +115,9 @@ def draw_doors(self, cr, pixels_per_inch):
             return self.get_object_opacity(obj)
         return 1.0
 
-    for door_item in self.doors:
+    for door_item in (self.doors if items is None else items):
         wall, door, ratio = door_item
-        opacity = get_opacity(door)
+        opacity = get_opacity(door) if opacity_override is None else opacity_override
 
         # Skip invalid entries or hidden doors
         if wall is None or not is_visible(door):
@@ -835,12 +837,8 @@ def draw_doors(self, cr, pixels_per_inch):
         # Compute the wall's angle
         theta = math.atan2(d[1], d[0])
 
-        # Adjust theta to avoid upside-down text
-        theta_adjusted = theta % (2 * math.pi)
-        if theta_adjusted > math.pi / 2 and theta_adjusted < 3 * math.pi / 2:
-            theta_text = theta + math.pi
-        else:
-            theta_text = theta
+        # Adjust theta to avoid upside-down text (SweetHome3D-style)
+        theta_text = upright_angle(theta)
 
         # Save the Cairo context
         cr.save()
@@ -871,7 +869,8 @@ def draw_doors(self, cr, pixels_per_inch):
     cr.restore()
 
 
-def draw_windows(self, cr, pixels_per_inch):
+def draw_windows(self, cr, pixels_per_inch, items=None, opacity_override=None):
+    """Draw windows. ``items``/``opacity_override`` let callers draw a ghost."""
     cr.save()
     zoom_transform = self.zoom * pixels_per_inch
 
@@ -887,10 +886,10 @@ def draw_windows(self, cr, pixels_per_inch):
         return 1.0
 
     # Draw windows
-    for window_item in self.windows:  # window_item = (wall, window, ratio)
+    for window_item in (self.windows if items is None else items):  # (wall, window, ratio)
         # wall is a Wall object, window is a Window object, ratio is a float
         wall, window, ratio = window_item
-        opacity = get_opacity(window)
+        opacity = get_opacity(window) if opacity_override is None else opacity_override
 
         # Skip invalid entries or hidden windows
         if wall is None or not is_visible(window):
@@ -1178,12 +1177,8 @@ def draw_windows(self, cr, pixels_per_inch):
         cr.save()
         cr.translate(label_pos[0], label_pos[1])
         theta = math.atan2(d[1], d[0])  # Angle of the wall
-        # Adjust theta to avoid upside-down text
-        theta_adjusted = theta % (2 * math.pi)
-        if theta_adjusted > math.pi / 2 and theta_adjusted < 3 * math.pi / 2:
-            theta_text = theta + math.pi  # Flip if upside down
-        else:
-            theta_text = theta
+        # Adjust theta to avoid upside-down text (SweetHome3D-style)
+        theta_text = upright_angle(theta)
         cr.rotate(theta_text)
         font_size = 12 / zoom_transform  # Adjust for zoom and DPI
         cr.select_font_face("Sans", 0, 0)

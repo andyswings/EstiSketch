@@ -1,17 +1,16 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Mimic SweetHome3D wall labels (while drawing) use this behavior for all labels on walls windows and doors, etc. so that labels are upright when possible or easy to read when not possible.
-- [ ] Add window and door ghosts. When using the relevant tool and mousing over a wall, a window or door ghost appears on the wall where the actual window or door would be if the user made a click.
-- [ ] Add Winder stairs to the Stairs tool. Add property dock controls for the number of winders.
 - [ ] Look into what we are missing to reach feature parity with the 2D part of SweetHome3D.
 - [ ] Make sure roof and overhang tools work with 0 wall thickness.
 - [ ] Make sure roof and overhang tools work with walls on different levels.
 - [ ] Make sure roof and overhang tools work with angled walls.
-- [ ] Clean up the code base. I feel like we have a few things that are redundant, no longer used, or are in other ways unnecessary.
+- [ ] Add railings to the stairs (all types) currently the properties panel has checkboxes for left or right rails, but they are not implemented beyond that.
+
 
 ## Ideas to think about
 - [ ] Refine capability to snap new wall's edges to existing wall edges instead of just endpoints to endpoints (should have same capabilities for editing walls as well) (This is useful for aligning walls of different thicknesses end to end)
+- [ ] Clean up the code base. I feel like we have a few things that are redundant, or code that is basically duplicates and needs to be reworked avoid having duplicates.
 
 ## ✨ Core Features (essential functionality)
 
@@ -40,7 +39,7 @@
 - [ ] Basic 3D modeling/view
 - [ ] 3D navigation (orbit, walk through)
 - [ ] Material textures in 3D
-- [ ] Lighting (sun position, artificial lights)
+- [ ] Lighting (sun position , artificial lights)
 - [ ] Rendering (photorealistic)
 - [ ] Camera views (save perspectives)
 - [ ] Section cuts (slice through building)
@@ -156,6 +155,9 @@
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Added SweetHome3D-style upright labels via a shared `upright_angle` helper: wall, live-drawing, radius, arc, door and window labels follow the wall angle and flip when upside down (vertical text reads bottom-to-top) (2026-10-10)
+- [x] Added door and window placement ghosts: a 40% opacity preview of the real symbol follows the cursor along walls, using the same hit-test as the click (shared `_locate_on_wall`), clamped inside the wall and hidden on locked layers (2026-10-10)
+- [x] Added winder stairs for L-shaped stairs: "Winders" control in the stair properties dock (0 = flat landing, 2-5 = pie-shaped treads) with step numbering, hit-testing, and persistence of winder/turn/landing fields in project files (2026-10-10)
 - [x] Fixed importing from SH3D: connected walls are now properly grouped into wall sets with snapped joints and loop closures, enabling Cairo miter joins across all connected walls and loop corners, and added support for curved walls via `arcExtent` (2026-10-10)
 - [x] Fixed auto-generated rooms for curved walls: rooms created from closed loops containing curved walls now sample points along the arc, allowing rooms to follow wall curvature accurately, correctly detecting clicks in curved wall bulges, and supporting 2-wall curved room loops (2026-10-10)
 - [x] Streamlined pitch spinners in Roof Properties Dock (consolidated redundant spinners into a single pitch control with dual-pitch mode and clean read-only slope takeoff rows), updated live 3D surface area and canvas annotations immediately on pitch adjustment, and ensured triangular and equal-sided polygons with hip roofs generate 0 ridge lines with all hips meeting at a single apex. (2026-10-05)

@@ -121,6 +121,17 @@ class StairPropertiesWidget(Gtk.Box):
         type_box.append(row_steps_before)
         self.row_steps_before = row_steps_before  # Save reference
         
+        # Winders (for L-shaped only): 0 = flat landing, 2-5 = pie-shaped treads
+        row_winders = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        lbl_winders = Gtk.Label(label="Winders (0 = landing):")
+        lbl_winders.set_xalign(0)
+        self.spin_winders = Gtk.SpinButton.new_with_range(0, 5, 1)
+        self.spin_winders.connect("value-changed", self.on_winders_changed)
+        row_winders.append(lbl_winders)
+        row_winders.append(self.spin_winders)
+        type_box.append(row_winders)
+        self.row_winders = row_winders  # Save reference for show/hide
+
         # Well Width / Gap (for U-shaped only)
         row_well = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         lbl_well = Gtk.Label(label="Well Width (in):")
@@ -217,6 +228,7 @@ class StairPropertiesWidget(Gtk.Box):
         self.row_turn.set_visible(is_multi_segment or is_spiral)
         self.row_landing.set_visible(is_multi_segment)
         self.row_steps_before.set_visible(is_multi_segment)
+        self.row_winders.set_visible(stair_type == 'L-shaped')
         
         self.row_well.set_visible(is_u_shaped or is_spiral)
         if is_spiral:
@@ -225,6 +237,9 @@ class StairPropertiesWidget(Gtk.Box):
             self.lbl_well.set_label("Well Width (in):")
             
         self.row_rotation.set_visible(is_spiral)
+        
+        if stair_type == 'L-shaped':
+            self.spin_winders.set_value(getattr(stair, 'winder_count', 0))
         
         if is_multi_segment or is_spiral:
             turn_dir = getattr(stair, 'turn_direction', 'left')
@@ -366,6 +381,7 @@ class StairPropertiesWidget(Gtk.Box):
         self.row_turn.set_visible(is_multi_segment or is_spiral)
         self.row_landing.set_visible(is_multi_segment)
         self.row_steps_before.set_visible(is_multi_segment)
+        self.row_winders.set_visible(stair_type == "L-shaped")
         
         # Well/Gap row is reused for Inner Radius in Spiral
         self.row_well.set_visible(is_u_shaped or is_spiral)
@@ -413,6 +429,29 @@ class StairPropertiesWidget(Gtk.Box):
              
         self.emit_property_changed()
         
+    def on_winders_changed(self, spin):
+        """Handle winder count change (L-shaped stairs).
+
+        A single winder can't form a turn, so the spinner skips 1 (0 -> 2 and
+        2 -> 0). The renderer additionally clamps the count against the
+        total number of steps.
+        """
+        if self._block_updates or not self.current_stairs:
+            return
+
+        val = int(spin.get_value())
+        if val == 1:
+            # Skip the invalid value 1 in the direction of travel
+            prev = getattr(self.current_stairs[0], 'winder_count', 0)
+            val = 2 if prev == 0 else 0
+            self._block_updates = True
+            spin.set_value(val)
+            self._block_updates = False
+        for stair in self.current_stairs:
+            stair.winder_count = val
+
+        self.emit_property_changed()
+
     def on_well_changed(self, spin):
         """Handle well width (gap) change."""
         if self._block_updates or not self.current_stairs:

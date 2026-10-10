@@ -216,6 +216,7 @@ class CanvasArea(Gtk.DrawingArea,
 
         motion_controller = Gtk.EventControllerMotion.new()
         motion_controller.connect("motion", self.on_motion)
+        motion_controller.connect("leave", self._on_pointer_leave)
         self.add_controller(motion_controller)
 
         pinch_gesture = Gtk.GestureZoom.new()

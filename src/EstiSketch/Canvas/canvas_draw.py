@@ -4,6 +4,7 @@ from typing import Any, Optional, Tuple, List, Dict, Union
 from gi.repository import Gtk, Pango, PangoCairo
 from . import door_window_renderer as dwr
 from . import wall_room_renderer as wr
+from .label_utils import upright_angle
 
 
 class CanvasDrawMixin:
@@ -149,6 +150,15 @@ class CanvasDrawMixin:
 
         # Draw windows
         dwr.draw_windows(self, cr, pixels_per_inch)
+
+        # Door/window placement ghost (translucent preview of the click result)
+        ghost = getattr(self, "opening_ghost", None)
+        if ghost is not None:
+            kind, item = ghost
+            if kind == "door":
+                dwr.draw_doors(self, cr, pixels_per_inch, items=[item], opacity_override=0.4)
+            else:
+                dwr.draw_windows(self, cr, pixels_per_inch, items=[item], opacity_override=0.4)
 
         # Draw texts
         self.draw_texts(cr)
@@ -791,13 +801,9 @@ class CanvasDrawMixin:
             text = f'{measurement_str} @ {deg:.1f}°'
             cr.save()
             cr.translate(mid_x, mid_y)
-            cr.rotate(angle)
+            cr.rotate(upright_angle(angle))
             offset = 20 / (self.zoom * pixels_per_inch)
-            if -90 < deg < 90:
-                cr.move_to(0, offset)
-            else:
-                cr.rotate(math.radians(180))
-                cr.move_to(0, offset)
+            cr.move_to(0, offset)
             cr.set_source_rgb(0, 0, 0)
             cr.select_font_face("Sans", 0, 0)
             cr.set_font_size(12 / (self.zoom * pixels_per_inch))
@@ -922,12 +928,7 @@ class CanvasDrawMixin:
              cr.translate(mid_x, mid_y)
              # Rotate text to align with radius line? Or keep horizontal?
              # Let's align
-             cr.rotate(angle)
-             
-             # Ensure text is upright
-             deg = math.degrees(angle) % 360
-             if 90 < deg < 270:
-                  cr.rotate(math.pi)
+             cr.rotate(upright_angle(angle))
              
              cr.move_to(0, -5 / (self.zoom * pixels_per_inch))
              
@@ -959,13 +960,9 @@ class CanvasDrawMixin:
 
                   cr.save()
                   cr.translate(mid_x, mid_y)
-                  cr.rotate(angle)
+                  cr.rotate(upright_angle(angle))
                   offset = 20 / (self.zoom * pixels_per_inch)
-                  if -90 < deg < 90:
-                       cr.move_to(0, offset)
-                  else:
-                       cr.rotate(math.radians(180))
-                       cr.move_to(0, offset)
+                  cr.move_to(0, offset)
                   cr.set_source_rgb(0, 0, 0)
                   cr.select_font_face("Sans", 0, 0)
                   cr.set_font_size(12 / (self.zoom * pixels_per_inch))
