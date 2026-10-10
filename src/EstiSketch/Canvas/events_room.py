@@ -62,10 +62,10 @@ class CanvasRoomMixin:
                 
                 self.update_hint(TOOL_HINTS["draw_rooms"])
             for wall_set in self.wall_sets:
-                if len(wall_set) < 3:
+                if len(wall_set) < 2:
                     continue
                 if self._is_closed_polygon(wall_set):
-                    poly = [w.start for w in wall_set]
+                    poly = self._get_wall_set_polygon(wall_set)
                     if self._point_in_polygon((snapped_x, snapped_y), poly):
                         new_room = self.Room(
                             poly, layer_id=self.active_layer_id)

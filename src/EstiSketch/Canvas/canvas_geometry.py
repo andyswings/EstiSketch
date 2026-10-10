@@ -56,16 +56,66 @@ class CanvasGeometryMixin:
         return inside
 
     def _is_closed_polygon(self, wall_set):
-        if not wall_set or len(wall_set) < 3:
+        if not wall_set or len(wall_set) < 2:
+            return False
+        if len(wall_set) == 2 and not any(getattr(w, 'is_curved', False) for w in wall_set):
             return False
         first = wall_set[0].start
         last = wall_set[-1].end
-        tolerance = 5 / self.zoom
-        return abs(
-            first[0] -
-            last[0]) < tolerance and abs(
-            first[1] -
-            last[1]) < tolerance
+        zoom = getattr(self, 'zoom', 1.0) or 1.0
+        tolerance = 5.0 / zoom
+        return abs(first[0] - last[0]) < tolerance and abs(first[1] - last[1]) < tolerance
+
+    def _get_wall_set_polygon(self, wall_set):
+        """
+        Extract the polygon boundary for a wall set.
+        For curved walls, intermediate points along the arc are sampled
+        so that auto-generated rooms follow wall curves accurately.
+        """
+        if not wall_set:
+            return []
+
+        poly = []
+        n = len(wall_set)
+
+        for i, wall in enumerate(wall_set):
+            next_wall = wall_set[(i + 1) % n]
+            d_end_to_next = min(
+                math.hypot(wall.end[0] - next_wall.start[0], wall.end[1] - next_wall.start[1]),
+                math.hypot(wall.end[0] - next_wall.end[0], wall.end[1] - next_wall.end[1])
+            )
+            d_start_to_next = min(
+                math.hypot(wall.start[0] - next_wall.start[0], wall.start[1] - next_wall.start[1]),
+                math.hypot(wall.start[0] - next_wall.end[0], wall.start[1] - next_wall.end[1])
+            )
+            is_reversed = (d_start_to_next < d_end_to_next) and (n > 1)
+            p_start = wall.end if is_reversed else wall.start
+            p_end = wall.start if is_reversed else wall.end
+
+            if getattr(wall, 'is_curved', False) and getattr(wall, 'arc_center', None) and getattr(wall, 'arc_radius', None):
+                cx, cy = wall.arc_center
+                radius = wall.arc_radius
+
+                start_angle = math.atan2(p_start[1] - cy, p_start[0] - cx)
+                end_angle = math.atan2(p_end[1] - cy, p_end[0] - cx)
+
+                angle_diff = end_angle - start_angle
+                while angle_diff > math.pi:
+                    angle_diff -= 2 * math.pi
+                while angle_diff < -math.pi:
+                    angle_diff += 2 * math.pi
+
+                span_deg = math.degrees(abs(angle_diff))
+                num_segs = max(8, min(32, int(math.ceil(span_deg / 5.0))))
+
+                for seg in range(num_segs):
+                    t = seg / float(num_segs)
+                    ang = start_angle + t * angle_diff
+                    poly.append((cx + radius * math.cos(ang), cy + radius * math.sin(ang)))
+            else:
+                poly.append(p_start)
+
+        return poly
 
     def _get_corner_point_for_dimension(self, wall, nominal_point, simple_offset_point, offset_vec):
         """

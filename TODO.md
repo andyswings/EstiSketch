@@ -36,7 +36,7 @@
 - [ ] Schedules (door/window/material)
 - [ ] Tags/Labels (room names, numbers)
 
-### 3D Visualization (long term)
+### 3D Visualization (long term) (I wonder if this part might better be done in Rust for speed?)
 - [ ] Basic 3D modeling/view
 - [ ] 3D navigation (orbit, walk through)
 - [ ] Material textures in 3D
@@ -145,22 +145,19 @@
 ## 🎨 Presentation & Visualization
 - [ ] Line weights/types control
 - [ ] Colors by layer
-- [ ] 2D shadows
 - [ ] Rendering styles (sketch, blueprint, presentation)
 - [ ] Dark mode toggle
 - [ ] Themes
 
-## 🛠️ Tech Debt / Refactoring
-
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Importing from SH3D walls are not mitered correctly
-- [ ] Auto-generated rooms do not correctly draw when room includes curved walls. It just draws straight between wall endpoints instead of following the curve.
 
 ## 💡 Takeoffs
 - [ ] Material Estimator
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Fixed importing from SH3D: connected walls are now properly grouped into wall sets with snapped joints and loop closures, enabling Cairo miter joins across all connected walls and loop corners, and added support for curved walls via `arcExtent` (2026-10-10)
+- [x] Fixed auto-generated rooms for curved walls: rooms created from closed loops containing curved walls now sample points along the arc, allowing rooms to follow wall curvature accurately, correctly detecting clicks in curved wall bulges, and supporting 2-wall curved room loops (2026-10-10)
 - [x] Streamlined pitch spinners in Roof Properties Dock (consolidated redundant spinners into a single pitch control with dual-pitch mode and clean read-only slope takeoff rows), updated live 3D surface area and canvas annotations immediately on pitch adjustment, and ensured triangular and equal-sided polygons with hip roofs generate 0 ridge lines with all hips meeting at a single apex. (2026-10-05)
 - [x] Refactored and implemented unified 3D roof geometry engine supporting both auto-generated and manually edited roofs via functional mathematical pipeline, variable eave overhang offsetting, analytical asymmetric pitch solving, algebraic 3-plane junction solving, and Phase 4 headless invariant test suite. (2026-10-05)
 - [x] Complex roof auto-generation for L-shaped, T-shaped, and multisided homes: auto-generates dual/intersecting ridges, valleys from ridge intersection to inside corners/overhang, hips from ridge intersection through outside corner to overhang, rakes/eaves at wing ends (supporting both gable and hip treatments), straight skeleton solver for multisided convex roofs, smart wall marking inference, and dynamic recalculation on overhang adjustment. (2026-10-03)

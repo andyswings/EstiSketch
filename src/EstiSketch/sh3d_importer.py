@@ -55,6 +55,37 @@ def import_sh3d(sh3d_file_path: str, canvas_area: CanvasArea) -> dict:
                     wall_elem_height_end = wall_elem_height
                 thickness = float(wall_elem.get('thickness', 0)) * cm_to_in
                 identifier = wall_elem.get('id', '')
+
+                # Parse curved wall (arcExtent in radians)
+                is_curved = False
+                arc_center = None
+                arc_radius = None
+                arc_extent_attr = wall_elem.get('arcExtent')
+                if arc_extent_attr is not None:
+                    try:
+                        arc_extent = float(arc_extent_attr)
+                        if abs(arc_extent) > 1e-4:
+                            dx = x_end - x_start
+                            dy = y_end - y_start
+                            chord = math.hypot(dx, dy)
+                            if chord > 1e-4:
+                                radius = abs((chord / 2.0) / math.sin(arc_extent / 2.0))
+                                sagitta = (chord / 2.0) * math.tan(arc_extent / 4.0)
+                                mid_x = (x_start + x_end) / 2.0
+                                mid_y = (y_start + y_end) / 2.0
+                                nx = -dy / chord
+                                ny = dx / chord
+                                bulge_x = mid_x + sagitta * nx
+                                bulge_y = mid_y + sagitta * ny
+                                d = 2.0 * (x_start * (y_end - bulge_y) + x_end * (bulge_y - y_start) + bulge_x * (y_start - y_end))
+                                if abs(d) > 1e-9:
+                                    cx = ((x_start**2 + y_start**2) * (y_end - bulge_y) + (x_end**2 + y_end**2) * (bulge_y - y_start) + (bulge_x**2 + bulge_y**2) * (y_start - y_end)) / d
+                                    cy = ((x_start**2 + y_start**2) * (bulge_x - x_end) + (x_end**2 + y_end**2) * (x_start - bulge_x) + (bulge_x**2 + bulge_y**2) * (x_end - x_start)) / d
+                                    is_curved = True
+                                    arc_center = (cx, cy)
+                                    arc_radius = radius
+                    except ValueError:
+                        pass
             except ValueError as e:
                 print(f"Error parsing wall element: {e}")
                 continue
@@ -69,7 +100,10 @@ def import_sh3d(sh3d_file_path: str, canvas_area: CanvasArea) -> dict:
                 width=thickness,
                 height=wall_elem_height,
                 height_at_end=wall_elem_height_end,
-                identifier=identifier)
+                identifier=identifier,
+                is_curved=is_curved,
+                arc_center=arc_center,
+                arc_radius=arc_radius)
             identifiers.append(identifier)
             walls.append(wall)
         print(f"Extracted {len(walls)} walls.")
@@ -89,7 +123,72 @@ def import_sh3d(sh3d_file_path: str, canvas_area: CanvasArea) -> dict:
                 room = Room(points=points, height=wall_height)
                 rooms.append(room)
 
-        wall_sets = [[wall] for wall in walls]
+        # Group walls into connected sets (chains) so Cairo renders miter joints
+        def group_walls_into_sets(wall_list: list, tolerance: float = 2.0) -> list:
+            if not wall_list:
+                return []
+            remaining = wall_list.copy()
+            grouped_sets = []
+
+            def points_close(p1, p2, tol):
+                return math.hypot(p1[0] - p2[0], p1[1] - p2[1]) <= tol
+
+            while remaining:
+                component_walls = [remaining.pop(0)]
+                changed = True
+                while changed:
+                    changed = False
+                    head_pt = component_walls[0].start
+                    for w in remaining:
+                        if points_close(w.end, head_pt, tolerance):
+                            w.end = head_pt
+                            component_walls.insert(0, w)
+                            remaining.remove(w)
+                            changed = True
+                            break
+                        elif points_close(w.start, head_pt, tolerance):
+                            w.start, w.end = w.end, w.start
+                            w.end = head_pt
+                            component_walls.insert(0, w)
+                            remaining.remove(w)
+                            changed = True
+                            break
+
+                    if changed:
+                        continue
+
+                    tail_pt = component_walls[-1].end
+                    for w in remaining:
+                        if points_close(w.start, tail_pt, tolerance):
+                            w.start = tail_pt
+                            component_walls.append(w)
+                            remaining.remove(w)
+                            changed = True
+                            break
+                        elif points_close(w.end, tail_pt, tolerance):
+                            w.start, w.end = w.end, w.start
+                            w.start = tail_pt
+                            component_walls.append(w)
+                            remaining.remove(w)
+                            changed = True
+                            break
+
+                # Loop closure: if head and tail are within tolerance, close the loop
+                if len(component_walls) > 1:
+                    head_pt = component_walls[0].start
+                    tail_pt = component_walls[-1].end
+                    if points_close(head_pt, tail_pt, tolerance):
+                        component_walls[-1].end = head_pt
+
+                # Ensure consecutive joints connect with exact float equality (< 1e-6)
+                for i in range(len(component_walls) - 1):
+                    component_walls[i + 1].start = component_walls[i].end
+
+                grouped_sets.append(component_walls)
+
+            return grouped_sets
+
+        wall_sets = group_walls_into_sets(walls, tolerance=2.0)
 
         # Helper: Project point P onto segment AB.
         def project_point(P, A, B):
@@ -104,6 +203,40 @@ def import_sh3d(sh3d_file_path: str, canvas_area: CanvasArea) -> dict:
             proj_y = ay + t * dy
             dist = math.hypot(px - proj_x, py - proj_y)
             return dist, t
+
+        def project_point_onto_wall(P, wall):
+            if getattr(wall, 'is_curved', False) and getattr(wall, 'arc_center', None) and getattr(wall, 'arc_radius', None):
+                cx, cy = wall.arc_center
+                radius = wall.arc_radius
+                px, py = P
+                start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
+                end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
+                angle_diff = end_angle - start_angle
+                while angle_diff > math.pi:
+                    angle_diff -= 2 * math.pi
+                while angle_diff < -math.pi:
+                    angle_diff += 2 * math.pi
+
+                pt_angle = math.atan2(py - cy, px - cx)
+                rel_angle = pt_angle - start_angle
+                while rel_angle > math.pi:
+                    rel_angle -= 2 * math.pi
+                while rel_angle < -math.pi:
+                    rel_angle += 2 * math.pi
+
+                if abs(angle_diff) > 1e-6:
+                    t = rel_angle / angle_diff
+                    t = max(0.0, min(1.0, t))
+                else:
+                    t = 0.0
+
+                proj_ang = start_angle + t * angle_diff
+                proj_x = cx + radius * math.cos(proj_ang)
+                proj_y = cy + radius * math.sin(proj_ang)
+                dist = math.hypot(px - proj_x, py - proj_y)
+                return dist, t
+            else:
+                return project_point(P, wall.start, wall.end)
 
         # Extract doors and windows
         doors = []
@@ -133,7 +266,7 @@ def import_sh3d(sh3d_file_path: str, canvas_area: CanvasArea) -> dict:
             best_ratio = 0
             associated_wall = None
             for wall in walls:
-                dist, t = project_point(center, wall.start, wall.end)
+                dist, t = project_point_onto_wall(center, wall)
                 if dist < best_dist:
                     best_dist = dist
                     best_ratio = t
