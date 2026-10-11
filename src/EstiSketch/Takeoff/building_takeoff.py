@@ -662,6 +662,99 @@ def generate_housewrap_report(walls: List[Dict], roll_width_ft: float = 9.0, rol
     return "\n".join(lines)
 
 
+def generate_stair_takeoff(canvas) -> Dict:
+    """Calculate stair and railing material takeoff from canvas stair objects."""
+    stairs = getattr(canvas, 'stairs', []) or []
+    from ..Canvas.stair_rail_geometry import stair_rail_length_3d
+
+    total_rail_lf = 0.0
+    total_steps = 0
+    stair_details = []
+
+    for idx, stair in enumerate(stairs, 1):
+        lens = stair_rail_length_3d(stair)
+        left_lf = lens["left"] / 12.0
+        right_lf = lens["right"] / 12.0
+        stair_lf = (lens["left"] + lens["right"]) / 12.0
+        total_rail_lf += stair_lf
+        num_steps = int(getattr(stair, 'num_steps', 14) or 14)
+        total_steps += num_steps
+
+        has_l = bool(getattr(stair, 'has_left_rail', True))
+        has_r = bool(getattr(stair, 'has_right_rail', True))
+        posts = 0
+        st_type = getattr(stair, 'stair_type', 'straight')
+        active_sides = (1 if has_l else 0) + (1 if has_r else 0)
+        if st_type == 'straight':
+            posts = active_sides * 2
+        elif st_type == 'L-shaped':
+            posts = active_sides * 2 + (1 if (has_l or has_r) else 0)
+        elif st_type == 'U-shaped':
+            posts = active_sides * 2 + (2 if (has_l or has_r) else 0)
+        elif st_type == 'spiral':
+            posts = active_sides * 2
+
+        stair_details.append({
+            "id": getattr(stair, 'identifier', f"STAIR-{idx:02d}"),
+            "type": st_type,
+            "width_in": getattr(stair, 'width', 36.0),
+            "num_steps": num_steps,
+            "total_rise_in": getattr(stair, 'total_rise', 106.0),
+            "has_left_rail": has_l,
+            "has_right_rail": has_r,
+            "rail_height_in": getattr(stair, 'rail_height', 36.0),
+            "left_rail_lf": left_lf,
+            "right_rail_lf": right_lf,
+            "total_rail_lf": stair_lf,
+            "posts": posts,
+        })
+
+    balusters = int(math.ceil(total_rail_lf * 3.0))
+    handrail_12ft_sticks = int(math.ceil((total_rail_lf * 1.10) / 12.0)) if total_rail_lf > 0 else 0
+    total_newel_posts = sum(d["posts"] for d in stair_details)
+
+    return {
+        "stair_count": len(stairs),
+        "total_steps": total_steps,
+        "total_rail_lf": total_rail_lf,
+        "balusters": balusters,
+        "newel_posts": total_newel_posts,
+        "handrail_12ft_sticks": handrail_12ft_sticks,
+        "stairs": stair_details
+    }
+
+
+def generate_stair_takeoff_report(canvas) -> str:
+    """Generate formatted text report for stair & railing takeoff."""
+    data = generate_stair_takeoff(canvas)
+    lines = []
+    lines.append("=" * 80)
+    lines.append("ESTISKETCH STAIR & RAILING MATERIAL TAKEOFF REPORT")
+    lines.append("=" * 80)
+    lines.append(f"Total Staircases: {data['stair_count']}")
+    lines.append(f"Total Steps / Risers: {data['total_steps']}")
+    lines.append(f"Total Railing Linear Footage: {data['total_rail_lf']:.1f} LF")
+    lines.append("-" * 80)
+    lines.append(f"{'Stair ID':<12} {'Type':<12} {'Width':<8} {'Steps':<8} {'Left Rail':<12} {'Right Rail':<12} {'Total LF':<10}")
+    lines.append("-" * 80)
+
+    for st in data["stairs"]:
+        l_str = f"{st['left_rail_lf']:.1f} LF" if st['has_left_rail'] else "None"
+        r_str = f"{st['right_rail_lf']:.1f} LF" if st['has_right_rail'] else "None"
+        lines.append(
+            f"{st['id']:<12} {st['type']:<12} {st['width_in']:.0f}\"      {st['num_steps']:<8} "
+            f"{l_str:<12} {r_str:<12} {st['total_rail_lf']:.1f} LF"
+        )
+
+    lines.append("-" * 80)
+    lines.append("PROCUREMENT & MATERIAL QUANTITIES:")
+    lines.append(f"  Handrail Sticks (12' standard): {data['handrail_12ft_sticks']} Stick(s)")
+    lines.append(f"  Balusters (code 4\" spacing):   {data['balusters']} Pc(s)")
+    lines.append(f"  Newel / Corner Posts:         {data['newel_posts']} Post(s)")
+    lines.append("=" * 80)
+    return "\n".join(lines)
+
+
 def generate_roof_takeoff(canvas, config) -> Dict:
     """Calculate roof material takeoff from canvas roof polylines and solved topology planes."""
     roof_sections = []
@@ -1031,6 +1124,45 @@ def get_supplier_quote_items(canvas, config, custom_items: Optional[List[Dict]] 
                 'qty': roof_data['fascia_16ft_boards'],
                 'unit': 'Boards',
                 'notes': f"Sub-fascia trim ({roof_data['total_fascia_lf']:.1f}' linear total)",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+
+    # Include stair & railing materials if stairs exist
+    stair_data = generate_stair_takeoff(canvas)
+    if stair_data.get('total_rail_lf', 0.0) > 0.0:
+        if stair_data['handrail_12ft_sticks'] > 0:
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': "Molded Handrail (12' Clear Wood / Primed Stick)",
+                'qty': stair_data['handrail_12ft_sticks'],
+                'unit': 'Sticks',
+                'notes': f"Stair railing ({stair_data['total_rail_lf']:.1f}' linear footage)",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+
+        if stair_data['newel_posts'] > 0:
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': "Starting & Landing Newel Posts (3\" x 3\" x 48\")",
+                'qty': stair_data['newel_posts'],
+                'unit': 'Posts',
+                'notes': "Stair rail support newel posts",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+
+        if stair_data['balusters'] > 0:
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': "Square / Turned Stair Balusters (1-1/4\" x 36\")",
+                'qty': stair_data['balusters'],
+                'unit': 'Pieces',
+                'notes': "Balusters (max 4\" on-center code spacing)",
                 'is_auto': True,
                 'is_excluded': False
             })

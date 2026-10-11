@@ -136,12 +136,43 @@ def classify_polygon_shape(ordered_walls: List[Dict[str, Any]]) -> Tuple[str, Li
         return 'general', reflex_indices, convex_indices
 
 
+def get_edge_offset(item: Dict[str, Any], overhang: float) -> float:
+    """Calculate outward offset for an edge: overhang + half wall thickness."""
+    wall = item.get('wall')
+    width = float(getattr(wall, 'width', 0.0) or 0.0)
+    return overhang + 0.5 * width
+
+
+def get_corner_at_vertex(
+    pts: List[Tuple[float, float]],
+    ordered_walls: List[Dict[str, Any]],
+    i: int,
+    overhang: float,
+    winding_flip: float
+) -> Tuple[float, float]:
+    """Calculate the overhang offset corner at vertex i using adjacent wall thicknesses."""
+    n = len(pts)
+    p_prev = pts[(i - 1) % n]
+    p_curr = pts[i]
+    p_next = pts[(i + 1) % n]
+    off_prev = get_edge_offset(ordered_walls[(i - 1) % n], overhang)
+    off_curr = get_edge_offset(ordered_walls[i], overhang)
+    return get_offset_corner(
+        p_prev, p_curr, p_next,
+        overhang, winding_flip,
+        overhang_prev=off_prev,
+        overhang_next=off_curr
+    )
+
+
 def get_offset_corner(
     p_prev: Tuple[float, float],
     p_curr: Tuple[float, float],
     p_next: Tuple[float, float],
     overhang: float,
-    winding_flip: float
+    winding_flip: float,
+    overhang_prev: Optional[float] = None,
+    overhang_next: Optional[float] = None
 ) -> Tuple[float, float]:
     """
     Calculate the exact overhang outline corner at p_curr by intersecting
@@ -163,10 +194,13 @@ def get_offset_corner(
     nx2 = (-dy2 / l2) * winding_flip
     ny2 = (dx2 / l2) * winding_flip
 
+    off1 = overhang if overhang_prev is None else overhang_prev
+    off2 = overhang if overhang_next is None else overhang_next
+
     # Outward-offset lines:
-    p1 = (p_curr[0] + nx1 * overhang, p_curr[1] + ny1 * overhang)
+    p1 = (p_curr[0] + nx1 * off1, p_curr[1] + ny1 * off1)
     p2 = (p1[0] + dx1, p1[1] + dy1)
-    p3 = (p_curr[0] + nx2 * overhang, p_curr[1] + ny2 * overhang)
+    p3 = (p_curr[0] + nx2 * off2, p_curr[1] + ny2 * off2)
     p4 = (p3[0] + dx2, p3[1] + dy2)
 
     denom = (p1[0] - p2[0]) * (p3[1] - p4[1]) - (p1[1] - p2[1]) * (p3[0] - p4[0])
@@ -181,7 +215,7 @@ def get_offset_corner(
 
 
 def calculate_polygon_outline(ordered_walls: List[Dict[str, Any]], overhang: float) -> List[Tuple[float, float]]:
-    """Calculate the roof outline polygon offset by overhang."""
+    """Calculate the roof outline polygon offset by overhang from exterior wall faces."""
     n = len(ordered_walls)
     if n < 3:
         return []
@@ -196,10 +230,7 @@ def calculate_polygon_outline(ordered_walls: List[Dict[str, Any]], overhang: flo
 
     outline = []
     for i in range(n):
-        p_prev = pts[(i - 1) % n]
-        p_curr = pts[i]
-        p_next = pts[(i + 1) % n]
-        corner = get_offset_corner(p_prev, p_curr, p_next, overhang, winding_flip)
+        corner = get_corner_at_vertex(pts, ordered_walls, i, overhang, winding_flip)
         outline.append(corner)
 
     return outline
@@ -254,15 +285,11 @@ def generate_l_shaped_roof(
     I = ((v_in[0] + v_out[0]) / 2.0, (v_in[1] + v_out[1]) / 2.0)
 
     # Valley line: from I through v_in extending to overhang corner
-    v_in_prev = pts[(r - 1) % n]
-    v_in_next = pts[(r + 1) % n]
-    valley_end = get_offset_corner(v_in_prev, v_in, v_in_next, overhang, winding_flip)
+    valley_end = get_corner_at_vertex(pts, ordered_walls, r, overhang, winding_flip)
     valley_lines = [(I, valley_end)]
 
     # Hip line: from I through v_out extending to overhang corner
-    v_out_prev = pts[((r + 3) - 1) % n]
-    v_out_next = pts[((r + 3) + 1) % n]
-    hip_end = get_offset_corner(v_out_prev, v_out, v_out_next, overhang, winding_flip)
+    hip_end = get_corner_at_vertex(pts, ordered_walls, (r + 3) % n, overhang, winding_flip)
     hip_lines = [(I, hip_end)]
 
     ridge_lines = []
@@ -280,17 +307,15 @@ def generate_l_shaped_roof(
             return
         ux, uy = dx / dist, dy / dist
 
-        # Find extended corners for p1 and p2
-        # p1 is corner between previous wall and this end wall
-        # p2 is corner between this end wall and next wall
         idx1 = pts.index(p1)
         idx2 = pts.index(p2)
-        c1_ext = get_offset_corner(pts[(idx1 - 1) % n], p1, pts[(idx1 + 1) % n], overhang, winding_flip)
-        c2_ext = get_offset_corner(pts[(idx2 - 1) % n], p2, pts[(idx2 + 1) % n], overhang, winding_flip)
+        c1_ext = get_corner_at_vertex(pts, ordered_walls, idx1, overhang, winding_flip)
+        c2_ext = get_corner_at_vertex(pts, ordered_walls, idx2, overhang, winding_flip)
 
+        wall_w = float(getattr(wall_obj, 'width', 0.0) or 0.0)
         if edge_type == 'gable':
-            # Ridge extends past gable wall by overhang
-            r_end = (mid[0] + ux * overhang, mid[1] + uy * overhang)
+            # Ridge extends past gable wall by overhang + half wall thickness
+            r_end = (mid[0] + ux * (overhang + 0.5 * wall_w), mid[1] + uy * (overhang + 0.5 * wall_w))
             ridge_lines.append((I, r_end))
             rake_lines.append((c1_ext, c2_ext))
         else:
@@ -317,10 +342,8 @@ def generate_l_shaped_roof(
     # Add eave lines for all other walls marked eave
     for idx, item in enumerate(ordered_walls):
         if idx not in ((r - 2) % n, (r + 1) % n) and item.get('edge_type') == 'eave':
-            p1 = pts[idx]
-            p2 = pts[(idx + 1) % n]
-            c1_ext = get_offset_corner(pts[(idx - 1) % n], p1, p2, overhang, winding_flip)
-            c2_ext = get_offset_corner(p1, p2, pts[(idx + 2) % n], overhang, winding_flip)
+            c1_ext = get_corner_at_vertex(pts, ordered_walls, idx, overhang, winding_flip)
+            c2_ext = get_corner_at_vertex(pts, ordered_walls, (idx + 1) % n, overhang, winding_flip)
             eave_lines.append((c1_ext, c2_ext))
 
     outline_points = calculate_polygon_outline(ordered_walls, overhang)
@@ -398,8 +421,8 @@ def generate_t_shaped_roof(
     I = (base_mid[0] - s_ux * (main_width / 2.0), base_mid[1] - s_uy * (main_width / 2.0))
 
     # Two valley lines from I to extended inside corners
-    v1_ext = get_offset_corner(pts[(r_start - 1) % n], v_in1, pts[(r_start + 1) % n], overhang, winding_flip)
-    v2_ext = get_offset_corner(pts[(r_end - 1) % n], v_in2, pts[(r_end + 1) % n], overhang, winding_flip)
+    v1_ext = get_corner_at_vertex(pts, ordered_walls, r_start, overhang, winding_flip)
+    v2_ext = get_corner_at_vertex(pts, ordered_walls, r_end, overhang, winding_flip)
     valley_lines = [(I, v1_ext), (I, v2_ext)]
     hip_lines = []
     ridge_lines = []
@@ -409,11 +432,12 @@ def generate_t_shaped_roof(
     # 1. Stem wing ridge
     stem_seg = ordered_walls[(r_start + 1) % n]
     stem_type = stem_seg.get('edge_type', 'eave')
-    c1_ext = get_offset_corner(pts[r_start], stem_c1, stem_c2, overhang, winding_flip)
-    c2_ext = get_offset_corner(stem_c1, stem_c2, pts[r_end], overhang, winding_flip)
+    stem_wall_w = float(getattr(stem_seg.get('wall'), 'width', 0.0) or 0.0)
+    c1_ext = get_corner_at_vertex(pts, ordered_walls, (r_start + 1) % n, overhang, winding_flip)
+    c2_ext = get_corner_at_vertex(pts, ordered_walls, (r_start + 2) % n, overhang, winding_flip)
 
     if stem_type == 'gable':
-        r_stem_end = (stem_mid[0] + s_ux * overhang, stem_mid[1] + s_uy * overhang)
+        r_stem_end = (stem_mid[0] + s_ux * (overhang + 0.5 * stem_wall_w), stem_mid[1] + s_uy * (overhang + 0.5 * stem_wall_w))
         ridge_lines.append((I, r_stem_end))
         rake_lines.append((c1_ext, c2_ext))
     else:
@@ -435,11 +459,12 @@ def generate_t_shaped_roof(
     e1_dist = math.hypot(e1_dx, e1_dy) or 1.0
     e1_ux, e1_uy = e1_dx / e1_dist, e1_dy / e1_dist
 
-    e1_c1_ext = get_offset_corner(pts[(r_start + 3) % n], p_e1_1, p_e1_2, overhang, winding_flip)
-    e1_c2_ext = get_offset_corner(p_e1_1, p_e1_2, pts[(r_start + 6) % n], overhang, winding_flip)
+    e1_wall_w = float(getattr(end1_seg.get('wall'), 'width', 0.0) or 0.0)
+    e1_c1_ext = get_corner_at_vertex(pts, ordered_walls, (r_start + 4) % n, overhang, winding_flip)
+    e1_c2_ext = get_corner_at_vertex(pts, ordered_walls, (r_start + 5) % n, overhang, winding_flip)
 
     if end1_seg.get('edge_type') == 'gable':
-        r1_end = (e1_mid[0] + e1_ux * overhang, e1_mid[1] + e1_uy * overhang)
+        r1_end = (e1_mid[0] + e1_ux * (overhang + 0.5 * e1_wall_w), e1_mid[1] + e1_uy * (overhang + 0.5 * e1_wall_w))
         ridge_lines.append((I, r1_end))
         rake_lines.append((e1_c1_ext, e1_c2_ext))
     else:
@@ -460,11 +485,12 @@ def generate_t_shaped_roof(
     e2_dist = math.hypot(e2_dx, e2_dy) or 1.0
     e2_ux, e2_uy = e2_dx / e2_dist, e2_dy / e2_dist
 
-    e2_c1_ext = get_offset_corner(pts[(r_start + 5) % n], p_e2_1, p_e2_2, overhang, winding_flip)
-    e2_c2_ext = get_offset_corner(p_e2_1, p_e2_2, pts[(r_start + 8) % n], overhang, winding_flip)
+    end2_wall_w = float(getattr(end2_seg.get('wall'), 'width', 0.0) or 0.0)
+    e2_c1_ext = get_corner_at_vertex(pts, ordered_walls, (r_start + 6) % n, overhang, winding_flip)
+    e2_c2_ext = get_corner_at_vertex(pts, ordered_walls, (r_start + 7) % n, overhang, winding_flip)
 
     if end2_seg.get('edge_type') == 'gable':
-        r2_end = (e2_mid[0] + e2_ux * overhang, e2_mid[1] + e2_uy * overhang)
+        r2_end = (e2_mid[0] + e2_ux * (overhang + 0.5 * end2_wall_w), e2_mid[1] + e2_uy * (overhang + 0.5 * end2_wall_w))
         ridge_lines.append((I, r2_end))
         rake_lines.append((e2_c1_ext, e2_c2_ext))
     else:
@@ -510,10 +536,8 @@ def generate_convex_multisided_roof(
     # Map extended corners for work_pts
     ext_corners = []
     for i in range(m):
-        p_prev = work_pts[(i - 1) % m]
-        p_curr = work_pts[i]
-        p_next = work_pts[(i + 1) % m]
-        c_ext = get_offset_corner(p_prev, p_curr, p_next, overhang, winding_flip)
+        orig_i = i if is_ccw else (n - 1 - i)
+        c_ext = get_corner_at_vertex(pts, ordered_walls, orig_i, overhang, winding_flip)
         ext_corners.append(c_ext)
 
     # Calculate centroid and radial distances
@@ -760,8 +784,10 @@ def calculate_complex_roof_geometry(
                 rdy = ridge_pts[1][1] - ridge_pts[0][1]
                 rlen = math.hypot(rdx, rdy) or 1.0
                 ux, uy = rdx / rlen, rdy / rlen
-                r_start = (ridge_pts[0][0] - ux * overhang, ridge_pts[0][1] - uy * overhang)
-                r_end = (ridge_pts[1][0] + ux * overhang, ridge_pts[1][1] + uy * overhang)
+                gw0_w = float(getattr(gable_walls[0], 'width', 0.0) or 0.0)
+                gw1_w = float(getattr(gable_walls[1], 'width', 0.0) or 0.0)
+                r_start = (ridge_pts[0][0] - ux * (overhang + 0.5 * gw0_w), ridge_pts[0][1] - uy * (overhang + 0.5 * gw0_w))
+                r_end = (ridge_pts[1][0] + ux * (overhang + 0.5 * gw1_w), ridge_pts[1][1] + uy * (overhang + 0.5 * gw1_w))
                 outline = calculate_polygon_outline(ordered_walls, overhang)
                 return [(r_start, r_end)], [], [], [], [], outline
         else:

@@ -174,6 +174,24 @@ class CanvasRoofEventsMixin:
             return (vx / length, vy / length)
         return (0, 0)
 
+    def get_wall_top_elevations(self, wall) -> Tuple[float, float]:
+        """
+        Calculate the top elevation at start and end of a wall including level elevation.
+        Returns (z_start, z_end) in inches.
+        """
+        base = 0.0
+        layer_id = getattr(wall, 'layer_id', None)
+        if layer_id and hasattr(self, 'get_layer_by_id'):
+            layer = self.get_layer_by_id(layer_id)
+            if layer and hasattr(layer, 'level_id') and hasattr(self, 'levels'):
+                level = next((l for l in self.levels if l.id == layer.level_id), None)
+                if level and hasattr(level, 'elevation'):
+                    base = float(level.elevation or 0.0)
+
+        h_start = float(getattr(wall, 'height', 96.0) or 96.0)
+        h_end = float(getattr(wall, 'height_at_end', h_start) or h_start)
+        return (base + h_start, base + h_end)
+
     def _calculate_gable_roof_geometry(self, eave_walls, gable_walls, overhang: float, ratio: float = 0.5):
         """
         Calculate ridge line for a gable roof.
@@ -209,10 +227,12 @@ class CanvasRoofEventsMixin:
             if ridge_len > 0:
                 ridge_ux = ridge_dx / ridge_len
                 ridge_uy = ridge_dy / ridge_len
-                ridge_start = (ridge_pts[0][0] - ridge_ux * overhang, 
-                              ridge_pts[0][1] - ridge_uy * overhang)
-                ridge_end = (ridge_pts[1][0] + ridge_ux * overhang, 
-                            ridge_pts[1][1] + ridge_uy * overhang)
+                gw0_w = float(getattr(gable_walls[0], 'width', 0.0) or 0.0)
+                gw1_w = float(getattr(gable_walls[1], 'width', 0.0) or 0.0)
+                ridge_start = (ridge_pts[0][0] - ridge_ux * (overhang + 0.5 * gw0_w), 
+                              ridge_pts[0][1] - ridge_uy * (overhang + 0.5 * gw0_w))
+                ridge_end = (ridge_pts[1][0] + ridge_ux * (overhang + 0.5 * gw1_w), 
+                            ridge_pts[1][1] + ridge_uy * (overhang + 0.5 * gw1_w))
             else:
                 ridge_start = ridge_pts[0]
                 ridge_end = ridge_pts[1]
@@ -637,6 +657,15 @@ class CanvasRoofEventsMixin:
         winding_flip = 1.0 if signed_area > 0 else -1.0
         
         # Calculate offset lines for each segment
+        def _get_wall_width_for_seg(s, e):
+            for w in walls:
+                ws = (float(w.start[0]), float(w.start[1]))
+                we = (float(w.end[0]), float(w.end[1]))
+                if (math.hypot(ws[0]-s[0], ws[1]-s[1]) < 1.0 and math.hypot(we[0]-e[0], we[1]-e[1]) < 1.0) or \
+                   (math.hypot(ws[0]-e[0], ws[1]-e[1]) < 1.0 and math.hypot(we[0]-s[0], we[1]-s[1]) < 1.0):
+                    return float(getattr(w, 'width', 0.0) or 0.0)
+            return 0.0
+
         offset_lines = []
         for start, end in ordered_segments:
             dx = end[0] - start[0]
@@ -648,9 +677,11 @@ class CanvasRoofEventsMixin:
                 # Apply winding flip to ensure outward direction
                 nx = (-dy / length) * winding_flip
                 ny = (dx / length) * winding_flip
-                # Offset the segment by overhang
-                offset_start = (start[0] + nx * overhang, start[1] + ny * overhang)
-                offset_end = (end[0] + nx * overhang, end[1] + ny * overhang)
+                # Offset the segment by overhang + half wall width
+                wall_w = _get_wall_width_for_seg(start, end)
+                seg_oh = overhang + 0.5 * wall_w
+                offset_start = (start[0] + nx * seg_oh, start[1] + ny * seg_oh)
+                offset_end = (end[0] + nx * seg_oh, end[1] + ny * seg_oh)
                 offset_lines.append((offset_start, offset_end))
             else:
                 offset_lines.append((start, end))
@@ -764,13 +795,23 @@ class CanvasRoofEventsMixin:
                 else:
                     gable_walls.append(wall)
         
-        # Determine pitch ratio based on eave walls if per-edge pitches are set
+        # Determine pitch ratio based on eave walls if per-edge pitches or wall plate heights differ
         ratio = 0.5
         if len(eave_walls) >= 2:
             p1 = getattr(eave_walls[0], 'pitch_rise', None) or pitch_rise
             p2 = getattr(eave_walls[1], 'pitch_rise', None) or pitch_rise
-            if p1 + p2 > 0:
-                ratio = p2 / (p1 + p2)
+            s1 = p1 / 12.0
+            s2 = p2 / 12.0
+            z1_start, z1_end = self.get_wall_top_elevations(eave_walls[0])
+            z2_start, z2_end = self.get_wall_top_elevations(eave_walls[1])
+            z1 = (z1_start + z1_end) / 2.0
+            z2 = (z2_start + z2_end) / 2.0
+            from .roof_solver import distance_point_to_segment
+            mid1 = ((eave_walls[0].start[0] + eave_walls[0].end[0]) / 2.0, (eave_walls[0].start[1] + eave_walls[0].end[1]) / 2.0)
+            span = distance_point_to_segment(mid1, eave_walls[1].start, eave_walls[1].end)[0] or 1.0
+            if s1 + s2 > 0:
+                raw_ratio = (s2 + (z2 - z1) / span) / (s1 + s2)
+                ratio = max(0.05, min(0.95, raw_ratio))
 
         # Calculate geometry using complex roof solver
         from .complex_roof import calculate_complex_roof_geometry
@@ -877,15 +918,24 @@ class CanvasRoofEventsMixin:
                 else:
                     gable_walls.append(wall)
         
-        # Calculate pitch ratio across span if edges have pitch overrides
+        # Calculate pitch ratio across span if edges have pitch overrides or plate height differences
         ratio = 0.5
-        if len(roof.edges) >= 2:
+        if len(roof.edges) >= 2 and len(eave_walls) >= 2:
             eave_edges = [e for e in roof.edges if e.edge_type == "eave"]
-            if len(eave_edges) >= 2:
-                p1 = eave_edges[0].pitch_rise if eave_edges[0].pitch_rise is not None else roof.pitch_rise
-                p2 = eave_edges[1].pitch_rise if eave_edges[1].pitch_rise is not None else roof.pitch_rise
-                if p1 + p2 > 0:
-                    ratio = p2 / (p1 + p2)
+            p1 = eave_edges[0].pitch_rise if (eave_edges and eave_edges[0].pitch_rise is not None) else roof.pitch_rise
+            p2 = eave_edges[1].pitch_rise if (len(eave_edges) > 1 and eave_edges[1].pitch_rise is not None) else roof.pitch_rise
+            s1 = p1 / 12.0
+            s2 = p2 / 12.0
+            z1_start, z1_end = self.get_wall_top_elevations(eave_walls[0])
+            z2_start, z2_end = self.get_wall_top_elevations(eave_walls[1])
+            z1 = (z1_start + z1_end) / 2.0
+            z2 = (z2_start + z2_end) / 2.0
+            from .roof_solver import distance_point_to_segment
+            mid1 = ((eave_walls[0].start[0] + eave_walls[0].end[0]) / 2.0, (eave_walls[0].start[1] + eave_walls[0].end[1]) / 2.0)
+            span = distance_point_to_segment(mid1, eave_walls[1].start, eave_walls[1].end)[0] or 1.0
+            if s1 + s2 > 0:
+                raw_ratio = (s2 + (z2 - z1) / span) / (s1 + s2)
+                ratio = max(0.05, min(0.95, raw_ratio))
 
         # Recalculate geometry
         markings = {edge.wall_identifier: edge.edge_type for edge in roof.edges}
@@ -1101,7 +1151,7 @@ class CanvasRoofEventsMixin:
         from .roof_solver import solve_and_clean_roof
         all_walls = self.get_all_walls() if hasattr(self, 'get_all_walls') else []
         
-        solve_and_clean_roof(roof, all_walls)
+        solve_and_clean_roof(roof, all_walls, canvas=self)
         self.queue_draw()
         print(f"Solved roof topology for {roof.identifier}: {len(roof.solved_lines)} lines, {len(roof.roof_planes)} planes.")
         return roof

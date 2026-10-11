@@ -13,7 +13,7 @@ import math
 import pytest
 import numpy as np
 
-from models.roof import (
+from EstiSketch.models.roof import (
     RoofPlane,
     RoofEdge,
     RoofVertex,
@@ -29,7 +29,7 @@ from models.roof import (
     RAKE,
     normalize_pitch_values,
 )
-from geometry.roof_solver import (
+from EstiSketch.geometry.roof_solver import (
     build_plane_equations,
     intersect_planes,
     solve_junction_vertex,
@@ -192,7 +192,7 @@ def test_variable_overhang():
     assert abs(pl2.eave_end[0] - (-24.0)) < 1e-4
 
     # 2D corner intersection
-    from geometry.roof_solver import line_2d_intersection
+    from EstiSketch.geometry.roof_solver import line_2d_intersection
     corner = line_2d_intersection(
         pl1.eave_start, pl1.eave_end,
         pl2.eave_start, pl2.eave_end

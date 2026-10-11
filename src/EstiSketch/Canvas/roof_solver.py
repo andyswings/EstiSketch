@@ -9,7 +9,7 @@ and extract closed 3D roof plane polygons for takeoff estimation.
 import math
 from typing import List, Tuple, Dict, Optional, Set
 from ..roof_components import Roof, RoofLine, RoofEdge
-from geometry.roof_solver import (
+from ..geometry.roof_solver import (
     build_plane_equations,
     intersect_planes,
     solve_junction_vertex,
@@ -405,7 +405,7 @@ def intersect_and_clean_lines(
     return final_lines
 
 
-def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None) -> Roof:
+def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None, canvas: Optional[Any] = None) -> Roof:
     """
     Main entry point for the Roof Topology & Clean-Up Engine.
     """
@@ -573,8 +573,25 @@ def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None) -> Roof:
                 if len(marked_eaves) >= 2:
                     p1 = marked_eaves[0][1]
                     p2 = marked_eaves[1][1]
-                    if p1 + p2 > 0:
-                        ratio = p2 / (p1 + p2)
+                    s1 = p1 / 12.0
+                    s2 = p2 / 12.0
+                    w1 = marked_eaves[0][0]
+                    w2 = marked_eaves[1][0]
+                    if canvas and hasattr(canvas, 'get_wall_top_elevations'):
+                        z1_s, z1_e = canvas.get_wall_top_elevations(w1)
+                        z2_s, z2_e = canvas.get_wall_top_elevations(w2)
+                    else:
+                        z1_s = float(getattr(w1, 'height', 96.0) or 96.0)
+                        z1_e = float(getattr(w1, 'height_at_end', z1_s) or z1_s)
+                        z2_s = float(getattr(w2, 'height', 96.0) or 96.0)
+                        z2_e = float(getattr(w2, 'height_at_end', z2_s) or z2_s)
+                    z1 = (z1_s + z1_e) / 2.0
+                    z2 = (z2_s + z2_e) / 2.0
+                    mid1 = ((w1.start[0] + w1.end[0]) / 2.0, (w1.start[1] + w1.end[1]) / 2.0)
+                    span = distance_point_to_segment(mid1, w2.start, w2.end)[0] or 1.0
+                    if s1 + s2 > 0:
+                        raw_ratio = (s2 + (z2 - z1) / span) / (s1 + s2)
+                        ratio = max(0.05, min(0.95, raw_ratio))
                 r_lines, h_lines, v_lines, rk_lines, ev_lines, outline = \
                     calculate_complex_roof_geometry(marked_walls, markings, roof.overhang, roof.pitch_rise, roof.pitch_run, ratio=ratio)
                 for idx, (s, e) in enumerate(r_lines):

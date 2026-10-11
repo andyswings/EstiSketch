@@ -14,6 +14,7 @@ from ..Takeoff.building_takeoff import (
     generate_sheathing_report,
     generate_housewrap_report,
     generate_roof_takeoff,
+    generate_stair_takeoff_report,
     get_supplier_quote_items,
     export_supplier_quote_txt,
     export_supplier_quote_csv,
@@ -83,7 +84,8 @@ def create_estimate_materials_dialog(parent, canvas):
         ("detailed_walls", "Detailed Wall Listing"),
         ("sheathing", "Exterior Sheathing (OSB / Plywood)"),
         ("housewrap", "Exterior House Wrap (Weather Barrier)"),
-        ("roof", "Roof Material Takeoff")
+        ("roof", "Roof Material Takeoff"),
+        ("stairs", "Stair & Railing Material Takeoff")
     ]
     for key, name in report_types:
         report_combo.append(key, name)
@@ -147,6 +149,8 @@ def create_estimate_materials_dialog(parent, canvas):
         elif active_id == "roof":
             roof_data = generate_roof_takeoff(canvas, config_object)
             text = format_takeoff_report(roof_data) if roof_data else "No roof polyline data."
+        elif active_id == "stairs":
+            text = generate_stair_takeoff_report(canvas)
         else:
             text = "Select a report."
 

@@ -8,7 +8,7 @@ expansion to complex roof types.
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Optional, Any, Union
 
-from models.roof import (
+from .models.roof import (
     ROOF_LINE_COLORS,
     RoofEdge,
     RoofVertex,

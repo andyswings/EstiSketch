@@ -6,7 +6,7 @@ from EstiSketch.Takeoff.building_takeoff import generate_roof_takeoff, extract_w
 
 
 class DummyWall:
-    def __init__(self, wall_id, start, end, width=5.5, height=96.0):
+    def __init__(self, wall_id, start, end, width=0.0, height=96.0):
         self.identifier = wall_id
         self.start = start
         self.end = end

@@ -135,6 +135,9 @@ class CanvasStairRendererMixin:
         if stair.show_step_count:
             self._draw_stair_labels(cr, stair, scale, opacity)
             
+        # --- Draw Railings ---
+        self._draw_stair_railings(cr, stair, scale, opacity)
+
         # --- Restore Context ---
         cr.restore()
         
@@ -373,6 +376,9 @@ class CanvasStairRendererMixin:
             cr.move_to(cx - extents.width/2, cy + extents.height/2)
             cr.show_text(label)
         
+        # --- Draw Railings ---
+        self._draw_stair_railings(cr, stair, scale, opacity)
+
         cr.restore()  # Restore from main transform
 
     def _draw_u_shaped_stair(self, cr: cairo.Context, stair: Stair, scale: float, opacity: float):
@@ -590,6 +596,9 @@ class CanvasStairRendererMixin:
             cr.move_to(cx - extents.width/2, cy + extents.height/2)
             cr.show_text(label)
         
+        # --- Draw Railings ---
+        self._draw_stair_railings(cr, stair, scale, opacity)
+
         cr.restore()  # Restore from main transform
 
     def _draw_spiral_stair(self, cr: cairo.Context, stair: Stair, scale: float, opacity: float):
@@ -760,6 +769,47 @@ class CanvasStairRendererMixin:
             cr.set_source_rgba(0.0, 0.0, 0.0, opacity)
             cr.move_to(cx - extents.width/2, cy + extents.height/2)
             cr.show_text(label)
+
+        # --- Draw Railings ---
+        self._draw_stair_railings(cr, stair, scale, opacity)
+
+        cr.restore()
+
+    def _draw_stair_railings(self, cr: cairo.Context, stair: Stair, scale: float, opacity: float):
+        """Draw 2D railing symbols along stair flights."""
+        has_left = getattr(stair, 'has_left_rail', False)
+        has_right = getattr(stair, 'has_right_rail', False)
+        if not (has_left or has_right):
+            return
+
+        from .stair_rail_geometry import stair_rail_paths
+        rail_data = stair_rail_paths(stair)
+
+        cr.save()
+        cr.set_source_rgba(0.1, 0.1, 0.1, opacity)
+        cr.set_line_width(2.0 / scale)
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        cr.set_line_join(cairo.LINE_JOIN_ROUND)
+
+        paths_to_draw = []
+        if has_left:
+            paths_to_draw.extend(rail_data.get("left", []))
+        if has_right:
+            paths_to_draw.extend(rail_data.get("right", []))
+
+        for polyline in paths_to_draw:
+            if not polyline or len(polyline) < 2:
+                continue
+            cr.move_to(polyline[0][0], polyline[0][1])
+            for pt in polyline[1:]:
+                cr.line_to(pt[0], pt[1])
+            cr.stroke()
+
+            # Draw small post markers at endpoints
+            post_radius = 2.5 / scale
+            for pt in (polyline[0], polyline[-1]):
+                cr.arc(pt[0], pt[1], post_radius, 0, 2 * math.pi)
+                cr.fill()
 
         cr.restore()
 

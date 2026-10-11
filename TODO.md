@@ -1,21 +1,21 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Look into what we are missing to reach feature parity with the 2D part of SweetHome3D.
-- [ ] Make sure roof and overhang tools work with 0 wall thickness.
-- [ ] Make sure roof and overhang tools work with walls on different levels.
-- [ ] Make sure roof and overhang tools work with angled walls.
-- [ ] Add railings to the stairs (all types) currently the properties panel has checkboxes for left or right rails, but they are not implemented beyond that.
+- [ ] Background Image Blueprint Calibration Wizard (Two-click reference distance calibration tool for imported blueprint images).
+- [ ] Edge-to-Edge Wall Snapping (Aligning outer or inner wall faces flush for walls of different thicknesses).
+- [ ] Continuous Dimension Chains (Continuous aligned dimension strings with summary dimension) & Leader Callout Arrows.
+- [ ] Architectural Fixtures & Cabinetry 2D Symbols (Kitchen base/wall cabinets, bathroom fixtures, major appliances).
+- [ ] Room Cutouts / Interior Holes (Support for stairwell openings, lightwells, and courtyards within room polygons).
+- [ ] Scaled Vector Export & Architectural PDF Plotting (Cairo vector SVG export and scaled PDF sheets with title blocks).
 
 
 ## Ideas to think about
-- [ ] Refine capability to snap new wall's edges to existing wall edges instead of just endpoints to endpoints (should have same capabilities for editing walls as well) (This is useful for aligning walls of different thicknesses end to end)
 - [ ] Clean up the code base. I feel like we have a few things that are redundant, or code that is basically duplicates and needs to be reworked avoid having duplicates.
 
 ## ✨ Core Features (essential functionality)
 
-### Architectural Elements
-- [ ] Columns/Posts
+### Architectural Elements (all elements should be procedural so that once created they can easily be modified)
+- [ ] Columns/Posts (rectangular, round, square) (Maybe we should be able to select an edge of a room, and specify approximate spacing or number of posts/columns and the app should automatically draw them with the correct spacing. Once drawn though, each post should be able to be independently edited (location, size, etc...). We should be able to place constraints on posts as well, like constraining two posts to be centered on a door for example, so that if you adjust one post the other will move automatically to preserve it's being centered on the door or if the door is moved the posts move with it.)
 - [ ] Beams
 - [ ] Ceiling types (dropped, vaulted, cathedral)
 - [ ] Railings/Guardrails (deck, stair, balcony)
@@ -155,6 +155,12 @@
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] SweetHome3D 2D feature parity gap analysis and ranked roadmap (deliverable: [docs/sh3d_2d_parity.md](file:///home/andrew/Documents/Python_Projects/EstiSketch/docs/sh3d_2d_parity.md) and updated TODO.md) (2026-10-10)
+- [x] Added 2D & 3D stair railings to all stair types (straight, L-shaped, U-shaped switchback, winders, spiral) with left/right toggles, rail height, 2D plan rendering, and material takeoff & supplier quote itemization (2026-10-10)
+- [x] Roof and overhang tools work with angled walls (sloped-top walls with height != height_at_end): eave planes calculate exact along-eave slope gradient g = (z_end - z_start)/length and sloping ridges (2026-10-10)
+- [x] Roof and overhang tools work with walls on different levels: each eave starts at wall top elevation (level.elevation + wall.height), and asymmetric ridges shift automatically to plane intersection (2026-10-10)
+- [x] Roof and overhang tools work with 0 wall thickness and correctly measure overhang from exterior wall face (centerline + wall.width/2), while strictly degrading to centerline math for 0-thickness walls (2026-10-10)
+- [x] Reorganized roof engine into src/EstiSketch/ (models/roof.py, geometry/roof_solver.py, ui/properties_panel.py) with backwards-compatibility shims at root src/ (2026-10-10)
 - [x] Added SweetHome3D-style upright labels via a shared `upright_angle` helper: wall, live-drawing, radius, arc, door and window labels follow the wall angle and flip when upside down (vertical text reads bottom-to-top) (2026-10-10)
 - [x] Added door and window placement ghosts: a 40% opacity preview of the real symbol follows the cursor along walls, using the same hit-test as the click (shared `_locate_on_wall`), clamped inside the wall and hidden on locked layers (2026-10-10)
 - [x] Added winder stairs for L-shaped stairs: "Winders" control in the stair properties dock (0 = flat landing, 2-5 = pie-shaped treads) with step numbering, hit-testing, and persistence of winder/turn/landing fields in project files (2026-10-10)
