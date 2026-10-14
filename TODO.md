@@ -7,6 +7,7 @@
 - [ ] Architectural Fixtures & Cabinetry 2D Symbols (Kitchen base/wall cabinets, bathroom fixtures, major appliances).
 - [ ] Room Cutouts / Interior Holes (Support for stairwell openings, lightwells, and courtyards within room polygons).
 - [ ] Scaled Vector Export & Architectural PDF Plotting (Cairo vector SVG export and scaled PDF sheets with title blocks).
+- [ ] Add all build files for building windows and linux packages to the .gitignore file and remove them from the online repo.
 
 
 ## Ideas to think about
