@@ -1,8 +1,8 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
+- [ ] Snapping guides / indicators should appear when in wall or room drawing mode even when not actively drawing, so that the user can see exactly where the wall or room point will be drawn upon clicking.
 - [ ] Background Image Blueprint Calibration Wizard (Two-click reference distance calibration tool for imported blueprint images).
-- [ ] Edge-to-Edge Wall Snapping (Aligning outer or inner wall faces flush for walls of different thicknesses).
 - [ ] Continuous Dimension Chains (Continuous aligned dimension strings with summary dimension) & Leader Callout Arrows.
 - [ ] Architectural Fixtures & Cabinetry 2D Symbols (Kitchen base/wall cabinets, bathroom fixtures, major appliances).
 - [ ] Room Cutouts / Interior Holes (Support for stairwell openings, lightwells, and courtyards within room polygons).
@@ -156,6 +156,7 @@
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Edge-to-Edge Wall Snapping (SH3D parity Phase 1): face-flush/abutting snaps for walls of different thickness with cyan/orange guides, snapping now considers committed walls, and mixed-thickness corner joins are filled (2026-10-13)
 - [x] SweetHome3D 2D feature parity gap analysis and ranked roadmap (deliverable: [docs/sh3d_2d_parity.md](file:///home/andrew/Documents/Python_Projects/EstiSketch/docs/sh3d_2d_parity.md) and updated TODO.md) (2026-10-10)
 - [x] Added 2D & 3D stair railings to all stair types (straight, L-shaped, U-shaped switchback, winders, spiral) with left/right toggles, rail height, 2D plan rendering, and material takeoff & supplier quote itemization (2026-10-10)
 - [x] Roof and overhang tools work with angled walls (sloped-top walls with height != height_at_end): eave planes calculate exact along-eave slope gradient g = (z_end - z_start)/length and sloping ridges (2026-10-10)

@@ -134,6 +134,12 @@ class EventsHelpersMixin:
             point for wall_set in self.wall_sets for wall in wall_set for point in (
                 wall.start, wall.end)]
 
+    def _get_snap_walls(self) -> list:
+        """All walls (committed wall sets plus the in-progress chain) that the
+        snapping manager should consider for edge/face alignment."""
+        return [w for wall_set in self.wall_sets for w in wall_set] + list(self.walls)
+
+
     def _points_close(self, p1, p2, tol):
         return math.hypot(p1[0] - p2[0], p1[1] - p2[1]) < tol
     

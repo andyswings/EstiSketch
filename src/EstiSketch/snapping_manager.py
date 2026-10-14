@@ -1,7 +1,28 @@
 import math
 
+from .geometry.wall_joins import face_flush_offsets
+
 
 class SnappingManager:
+    # Lower number means higher priority.
+    SNAP_PRIORITY = {
+        "endpoint": 1,
+        "midpoint": 2,
+        "wall_centerline": 2.5,  # Snap to wall centerline
+        "face_flush": 3,        # Parallel wall face/center alignment
+        "wall_edge": 3.5,       # Wall outer/inner face edge
+        "alignment_cross": 4,   # Snapped to both H and V alignment with points
+        "alignment_vertical": 5,
+        "alignment_horizontal": 5,
+        "angle": 6,
+        "axis": 7,
+        "perpendicular": 8,
+        "grid": 9,
+        "distance": 10,
+        "tangent": 11,
+        "none": 100,
+    }
+
     def __init__(
             self,
             snap_enabled=True,
@@ -30,6 +51,10 @@ class SnappingManager:
             315,
             337.5]
         self.angle_tolerance = 10  # Increased from 5 to 10
+        # Guide for the face-flush snap chosen by the last snap_point call:
+        # (line_start, line_end, kind) or None.
+        self.face_flush_guide = None
+        self._face_guides = {}
 
     def collect_points_of_interest(
             self,
@@ -92,15 +117,40 @@ class SnappingManager:
         best_candidate = (x, y)
         best_dist_sq = self.snap_threshold ** 2
         best_type = "none"
+
+        wall_endpoints = {w.start for w in walls} | {w.end for w in walls}
+        wall_midpoints = {
+            ((w.start[0] + w.end[0]) / 2.0, (w.start[1] + w.end[1]) / 2.0)
+            for w in walls if not getattr(w, 'is_curved', False)
+        }
+        edge_points = set()
+        for w in walls:
+            if not getattr(w, 'is_curved', False):
+                dx = w.end[0] - w.start[0]
+                dy = w.end[1] - w.start[1]
+                length = math.hypot(dx, dy)
+                if length > 0:
+                    perp_x = -dy / length
+                    perp_y = dx / length
+                    offset = w.width / 2.0
+                    edge_points.add((w.start[0] + perp_x * offset, w.start[1] + perp_y * offset))
+                    edge_points.add((w.start[0] - perp_x * offset, w.start[1] - perp_y * offset))
+                    edge_points.add((w.end[0] + perp_x * offset, w.end[1] + perp_y * offset))
+                    edge_points.add((w.end[0] - perp_x * offset, w.end[1] - perp_y * offset))
+
         for px, py in points:
             d_sq = (x - px) ** 2 + (y - py) ** 2
-            # print(f"Checking point ({px}, {py}), distance squared: {d_sq}, threshold squared: {best_dist_sq}")
             if d_sq < best_dist_sq:
                 best_candidate = (px, py)
                 best_dist_sq = d_sq
-                best_type = "endpoint" if (px, py) in [
-                    w.start for w in walls] + [w.end for w in walls] else "midpoint"
-        # print(f\"Best point snap: {best_candidate}, type: {best_type}")
+                if (px, py) in wall_endpoints:
+                    best_type = "endpoint"
+                elif (px, py) in wall_midpoints:
+                    best_type = "midpoint"
+                elif (px, py) in edge_points:
+                    best_type = "wall_edge"
+                else:
+                    best_type = "endpoint"
         return best_candidate, best_type
 
     def get_wall_edge_lines(self, wall):
@@ -186,6 +236,125 @@ class SnappingManager:
         if best_dist_sq < self.snap_threshold ** 2:
             return best_point, "wall_edge"
         return (x, y), "none"
+
+    def snap_to_wall_centerline(self, x, y, walls):
+        """Snap to nearby wall centerlines.
+
+        Finds the closest point on any wall centerline segment (or arc centerline for curved walls)
+        and snaps if within threshold.
+        """
+        best_point = (x, y)
+        best_dist_sq = self.snap_threshold ** 2
+
+        for wall in walls:
+            if getattr(wall, 'is_curved', False) and getattr(wall, 'arc_center', None) and getattr(wall, 'arc_radius', None):
+                cx, cy = wall.arc_center
+                radius = wall.arc_radius
+                dx, dy = x - cx, y - cy
+                dist = math.hypot(dx, dy)
+                if dist > 1e-9:
+                    pt_circle = (cx + radius * dx / dist, cy + radius * dy / dist)
+                    start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
+                    end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
+                    pt_angle = math.atan2(pt_circle[1] - cy, pt_circle[0] - cx)
+                    diff = (end_angle - start_angle)
+                    while diff > math.pi:
+                        diff -= 2 * math.pi
+                    while diff < -math.pi:
+                        diff += 2 * math.pi
+                    p_diff = (pt_angle - start_angle)
+                    while p_diff > math.pi:
+                        p_diff -= 2 * math.pi
+                    while p_diff < -math.pi:
+                        p_diff += 2 * math.pi
+                    if (diff >= 0 and 0 <= p_diff <= diff) or (diff < 0 and diff <= p_diff <= 0):
+                        dist_sq = (x - pt_circle[0]) ** 2 + (y - pt_circle[1]) ** 2
+                        if dist_sq < best_dist_sq:
+                            best_point = pt_circle
+                            best_dist_sq = dist_sq
+            else:
+                closest = self.closest_point_on_line(x, y, wall.start, wall.end)
+                dist_sq = (x - closest[0]) ** 2 + (y - closest[1]) ** 2
+                if dist_sq < best_dist_sq:
+                    best_point = closest
+                    best_dist_sq = dist_sq
+
+        if best_dist_sq < self.snap_threshold ** 2:
+            return best_point, "wall_centerline"
+        return (x, y), "none"
+
+    def snap_to_face_flush(self, x, y, base_x, base_y, walls, new_width,
+                           max_extension=240.0, direction=None):
+        """Snap so a new wall of ``new_width`` sits face-flush with an existing wall.
+
+        For each straight wall parallel to the new wall's direction (or any
+        wall when no direction is known yet), the new centerline is offset so
+        one of its faces is coplanar with a face of the existing wall, either
+        overlapping on the same side ("flush") or touching alongside ("abut").
+
+        ``direction`` (unit vector) overrides the base->cursor direction; use it
+        when the wall's orientation is already known (e.g. moving a wall).
+        """
+        self._face_guides = {}
+        best = None
+        best_d = self.snap_threshold
+
+        if direction is None:
+            bdx, bdy = x - base_x, y - base_y
+            blen = math.hypot(bdx, bdy)
+            if blen > self.snap_threshold * 2:
+                direction = (bdx / blen, bdy / blen)
+
+        for wall in walls:
+            if getattr(wall, 'is_curved', False):
+                continue
+            dx = wall.end[0] - wall.start[0]
+            dy = wall.end[1] - wall.start[1]
+            length = math.hypot(dx, dy)
+            if length < 1e-9:
+                continue
+            ux, uy = dx / length, dy / length
+            if direction is not None:
+                # Require the new wall to run (nearly) parallel to this wall.
+                if abs(ux * direction[1] - uy * direction[0]) > 0.0872:
+                    continue
+            nx, ny = -uy, ux
+
+            # Position of the cursor relative to this wall's frame.
+            rx, ry = x - wall.start[0], y - wall.start[1]
+            along = rx * ux + ry * uy
+            if along < -max_extension or along > length + max_extension:
+                continue
+            across = rx * nx + ry * ny
+
+            for offset, side, kind in face_flush_offsets(wall.width, new_width):
+                d = abs(across - offset)
+                if d < best_d:
+                    best_d = d
+                    px = x - (across - offset) * nx
+                    py = y - (across - offset) * ny
+                    face = side * wall.width / 2.0
+                    g0 = (wall.start[0] + nx * face - ux * max_extension,
+                          wall.start[1] + ny * face - uy * max_extension)
+                    g1 = (wall.end[0] + nx * face + ux * max_extension,
+                          wall.end[1] + ny * face + uy * max_extension)
+                    best = ((px, py), (g0, g1, kind))
+
+        if best is None:
+            return (x, y), "none"
+        point, guide = best
+        self._face_guides[point] = guide
+        return point, "face_flush"
+
+    def snap_face_flush_for_edit(self, x, y, base_x, base_y, walls, width,
+                                 direction=None):
+        """snap_to_face_flush for editing existing walls; also publishes the
+        guide in ``face_flush_guide`` (None when nothing snapped)."""
+        pt, kind = self.snap_to_face_flush(
+            x, y, base_x, base_y, walls, width, direction=direction)
+        self.face_flush_guide = (
+            self._face_guides.get(pt) if kind == "face_flush" else None)
+        return pt, kind
 
     def snap_to_axis(self, x, y, base_x, base_y):
         if abs(x - base_x) < self.snap_threshold:
@@ -364,7 +533,10 @@ class SnappingManager:
             last_wall=None,
             canvas_width=1024,
             zoom=1.0,
-            polylines=None):
+            polylines=None,
+            new_wall_width=None,
+            wall_direction=None):
+        self.face_flush_guide = None
         if not self.snap_enabled:
             print("Snapping disabled")
             return (x, y), "none"
@@ -374,7 +546,11 @@ class SnappingManager:
             walls, rooms, current_wall, in_progress_points, polylines)
         candidates = [
             self.snap_to_points(x, y, points, walls),  # Endpoint/midpoint
-            self.snap_to_wall_edge(x, y, walls),  # Wall edge (face) snapping
+            self.snap_to_wall_centerline(x, y, walls),  # Snap to wall centerline
+            (self.snap_to_face_flush(x, y, base_x, base_y, walls, new_wall_width,
+                                     direction=wall_direction)
+             if new_wall_width else self.snap_to_wall_edge(x, y, walls)),
+            self.snap_to_wall_edge(x, y, walls),  # Wall outer/inner face edge
             # Multi-direction alignment with any point
             self.snap_to_alignment(x, y, points),
             self.snap_to_angle(x, y, base_x, base_y),    # Angle
@@ -391,21 +567,7 @@ class SnappingManager:
         ]
 
         # Define priority: lower number means higher priority.
-        priority_map = {
-            "endpoint": 1,
-            "wall_edge": 2,  # Wall edge (face) - high priority for aligning walls
-            "midpoint": 3,
-            "alignment_cross": 4,  # Snapped to both H and V alignment with points
-            "alignment_vertical": 5,
-            "alignment_horizontal": 5,
-            "angle": 6,
-            "axis": 7,
-            "perpendicular": 8,
-            "grid": 9,
-            "distance": 10,
-            "tangent": 11,
-            "none": 100
-        }
+        priority_map = self.SNAP_PRIORITY
         valid_candidates = []
         for (snap_candidate, snap_type) in candidates:
             dist = math.sqrt(
@@ -426,6 +588,9 @@ class SnappingManager:
             best_candidate, best_type, best_dist, _ = valid_candidates[0]
         else:
             best_candidate, best_type = (x, y), "none"
+
+        if best_type == "face_flush":
+            self.face_flush_guide = self._face_guides.get(best_candidate)
 
         # print(f"Final snap: {best_candidate}, type: {best_type}")
         return best_candidate, best_type

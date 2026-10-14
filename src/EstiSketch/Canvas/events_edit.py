@@ -239,24 +239,58 @@ class EditEventsMixin:
             new_x = origin[0] + (offset_x / T)
             new_y = origin[1] + (offset_y / T)
 
-            # --- Angle Snapping Logic ---
+            # --- Snapping & Guide Logic for Endpoint Editing ---
+            raw_point = (new_x, new_y)
+            self.raw_current_end = raw_point
+            self.alignment_candidate = None
+            self.snap_pos = None
+            self.snap_type = "none"
+            self.edit_face_guide = None
             best_snap = (new_x, new_y)
 
             # Only apply snapping if enabled in settings
             if self.snap_manager.snap_enabled:
-                # Check against anchors of all connected walls
-                for wall_obj, endpoint_name in getattr(
-                        self, "connected_endpoints", []):
-                    # The anchor is the OTHER end of the wall
-                    anchor = wall_obj.end if endpoint_name == "start" else wall_obj.start
+                connected = getattr(self, "connected_endpoints", [])
+                edited = {id(w) for w, _ in connected}
+                edited.add(id(self.editing_wall))
+                primary = self.editing_wall
+                anchor = (primary.end if self.editing_handle == "start"
+                          else primary.start)
+                others = [w for w in self._get_snap_walls()
+                          if id(w) not in edited]
+                canvas_width = getattr(getattr(self, "get_allocation", lambda: None)(), "width", None) or getattr(self.config, "WINDOW_WIDTH", 1024)
 
-                    # Try snapping to angle relative to this anchor
-                    snap_pt, snap_type = self.snap_manager.snap_to_angle(
-                        new_x, new_y, anchor[0], anchor[1])
+                snapped_pt, snap_type = self.snap_manager.snap_point(
+                    new_x, new_y, anchor[0], anchor[1], others, self.rooms,
+                    current_wall=primary, canvas_width=canvas_width,
+                    zoom=self.zoom, new_wall_width=primary.width
+                )
 
-                    if snap_type != "none":
-                        best_snap = snap_pt
-                        break  # Snap to the first valid alignment we find
+                # Check angle snapping against any connected walls if snap_type was none
+                if snap_type == "none":
+                    for wall_obj, endpoint_name in connected:
+                        other_anchor = wall_obj.end if endpoint_name == "start" else wall_obj.start
+                        ang_pt, ang_type = self.snap_manager.snap_to_angle(
+                            new_x, new_y, other_anchor[0], other_anchor[1])
+                        if ang_type != "none":
+                            snapped_pt = ang_pt
+                            snap_type = ang_type
+                            break
+
+                # Horizontal / vertical alignment snapping to other vertices
+                aligned_x, aligned_y, candidate = self._apply_alignment_snapping(
+                    new_x, new_y, exclude_points=[origin])
+                self.alignment_candidate = candidate
+
+                if snap_type in ("none", "grid", "angle") and candidate is not None:
+                    snapped_pt = (aligned_x, aligned_y)
+                    snap_type = "alignment"
+
+                best_snap = snapped_pt
+                self.snap_type = snap_type
+                self.snap_pos = snapped_pt
+                if snap_type == "face_flush":
+                    self.edit_face_guide = self.snap_manager.face_flush_guide
 
             new_point = best_snap
 
@@ -862,6 +896,83 @@ class EditEventsMixin:
             new_end = (
                 self.wall_drag_original_end[0] + dx,
                 self.wall_drag_original_end[1] + dy)
+
+            # Face-to-face, centerline, and endpoint snapping for whole-wall drag
+            self.edit_face_guide = None
+            self.snap_pos = None
+            self.snap_type = "none"
+            self.alignment_candidate = None
+            self.raw_current_end = None
+
+            sm = self.snap_manager
+            wlen = math.hypot(new_end[0] - new_start[0], new_end[1] - new_start[1])
+            if (sm.snap_enabled and wlen > 1e-6 and
+                    not getattr(wall, "is_curved", False)):
+                excluded = {id(wall)}
+                excluded.update(id(w) for w, _ in getattr(
+                    self, "wall_drag_connected_start", []))
+                excluded.update(id(w) for w, _ in getattr(
+                    self, "wall_drag_connected_end", []))
+                others = [w for w in self._get_snap_walls()
+                          if id(w) not in excluded]
+                mid = ((new_start[0] + new_end[0]) / 2.0,
+                       (new_start[1] + new_end[1]) / 2.0)
+                direction = ((new_end[0] - new_start[0]) / wlen,
+                             (new_end[1] - new_start[1]) / wlen)
+                snapped_mid, kind = sm.snap_face_flush_for_edit(
+                    mid[0], mid[1], mid[0], mid[1], others, wall.width,
+                    direction=direction)
+                if kind == "face_flush":
+                    sx, sy = snapped_mid[0] - mid[0], snapped_mid[1] - mid[1]
+                    new_start = (new_start[0] + sx, new_start[1] + sy)
+                    new_end = (new_end[0] + sx, new_end[1] + sy)
+                    self.edit_face_guide = sm.face_flush_guide
+                    self.snap_type = "face_flush"
+                    self.snap_pos = ((new_start[0] + new_end[0]) / 2.0,
+                                     (new_start[1] + new_end[1]) / 2.0)
+                else:
+                    # Endpoint-to-point / centerline snapping for the dragged wall
+                    points = sm.collect_points_of_interest(others, self.rooms)
+                    snap_candidates = []
+                    pt_s, type_s = sm.snap_to_points(new_start[0], new_start[1], points, others)
+                    if type_s != "none":
+                        snap_candidates.append((pt_s, type_s, new_start))
+                    else:
+                        pt_sc, type_sc = sm.snap_to_wall_centerline(new_start[0], new_start[1], others)
+                        if type_sc != "none":
+                            snap_candidates.append((pt_sc, type_sc, new_start))
+
+                    pt_e, type_e = sm.snap_to_points(new_end[0], new_end[1], points, others)
+                    if type_e != "none":
+                        snap_candidates.append((pt_e, type_e, new_end))
+                    else:
+                        pt_ec, type_ec = sm.snap_to_wall_centerline(new_end[0], new_end[1], others)
+                        if type_ec != "none":
+                            snap_candidates.append((pt_ec, type_ec, new_end))
+
+                    if snap_candidates:
+                        snap_candidates.sort(key=lambda item: (item[0][0] - item[2][0])**2 + (item[0][1] - item[2][1])**2)
+                        target_pt, snap_k, orig_pt = snap_candidates[0]
+                        sx = target_pt[0] - orig_pt[0]
+                        sy = target_pt[1] - orig_pt[1]
+                        new_start = (new_start[0] + sx, new_start[1] + sy)
+                        new_end = (new_end[0] + sx, new_end[1] + sy)
+                        self.snap_type = snap_k
+                        self.snap_pos = target_pt
+                    else:
+                        # Try alignment snapping on the wall midpoint
+                        raw_mid = mid
+                        self.raw_current_end = raw_mid
+                        exclude_pts = [self.wall_drag_original_start, self.wall_drag_original_end]
+                        aligned_x, aligned_y, candidate = self._apply_alignment_snapping(
+                            raw_mid[0], raw_mid[1], exclude_points=exclude_pts)
+                        self.alignment_candidate = candidate
+                        if candidate is not None:
+                            sx, sy = aligned_x - raw_mid[0], aligned_y - raw_mid[1]
+                            new_start = (new_start[0] + sx, new_start[1] + sy)
+                            new_end = (new_end[0] + sx, new_end[1] + sy)
+                            self.snap_type = "alignment"
+                            self.snap_pos = candidate
 
             wall.start = new_start
             wall.end = new_end

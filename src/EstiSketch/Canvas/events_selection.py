@@ -1415,8 +1415,13 @@ class CanvasSelectionMixin:
             self.editing_wall = None
             self.editing_handle = None
             self.connected_endpoints = []
-            self.connected_endpoints = []
             self.joint_drag_origin = None
+            self.edit_face_guide = None
+            self.snap_pos = None
+            self.snap_type = "none"
+            self.alignment_candidate = None
+            self.raw_current_end = None
+            self.queue_draw()
             return
 
         # If we were editing a circle, clear that state and save
@@ -1625,6 +1630,11 @@ class CanvasSelectionMixin:
             self.wall_drag_start_model = None
             self.wall_drag_connected_start = []
             self.wall_drag_connected_end = []
+            self.edit_face_guide = None
+            self.snap_pos = None
+            self.snap_type = "none"
+            self.alignment_candidate = None
+            self.raw_current_end = None
             self.save_state()
             self.queue_draw()
             return

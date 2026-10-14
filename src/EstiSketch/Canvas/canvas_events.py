@@ -1,8 +1,13 @@
 import math
+from typing import Any
 from gi.repository import Gtk
 
 
 class CanvasEventsMixin:
+    walls: Any
+    current_room_points: Any
+    circle_center: Any
+
     def on_click(
             self,
             gesture: Gtk.Gesture,
@@ -354,16 +359,18 @@ class CanvasEventsMixin:
             (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
                 canvas_x, canvas_y,
                 self.current_wall.start[0], self.current_wall.start[1],
-                self.walls, self.rooms,
+                self._get_snap_walls(), self.rooms,
                 current_wall=self.current_wall, last_wall=last_wall,
                 in_progress_points=candidate_points,
                 canvas_width=canvas_width, zoom=self.zoom,
-                polylines=polylines
+                polylines=polylines,
+                new_wall_width=self.config.DEFAULT_WALL_WIDTH
             )
             self.raw_current_end = raw_point
             aligned_x, aligned_y, candidate = self._apply_alignment_snapping(
                 canvas_x, canvas_y)
-            snapped_x, snapped_y = aligned_x, aligned_y
+            if self.snap_type != "face_flush":
+                snapped_x, snapped_y = aligned_x, aligned_y
             self.alignment_candidate = candidate
 
             # Check if we're in curve mode - update curve preview point

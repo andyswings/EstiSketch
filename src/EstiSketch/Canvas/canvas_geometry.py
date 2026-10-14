@@ -2,7 +2,7 @@ import math
 
 
 class CanvasGeometryMixin:
-    def _apply_alignment_snapping(self, x, y):
+    def _apply_alignment_snapping(self, x, y, exclude_points=None):
         candidates = []
         for wall_set in self.wall_sets:
             for wall in wall_set:
@@ -15,6 +15,8 @@ class CanvasGeometryMixin:
             candidates.append(self.current_wall.start)
         if self.tool_mode == "draw_rooms":
             candidates.extend(self.current_room_points)
+        if exclude_points:
+            candidates = [pt for pt in candidates if pt not in exclude_points]
         tolerance = 10 / self.zoom
         aligned_x = x
         aligned_y = y
@@ -106,7 +108,7 @@ class CanvasGeometryMixin:
                     angle_diff += 2 * math.pi
 
                 span_deg = math.degrees(abs(angle_diff))
-                num_segs = max(8, min(32, int(math.ceil(span_deg / 5.0))))
+                num_segs = max(8, min(32, math.ceil(span_deg / 5.0)))
 
                 for seg in range(num_segs):
                     t = seg / float(num_segs)

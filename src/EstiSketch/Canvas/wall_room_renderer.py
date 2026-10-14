@@ -1,3 +1,44 @@
+from ..geometry.wall_joins import wall_join_polygon
+
+
+def _fill_mismatched_wall_joins(cr, wall_set, is_visible, get_opacity):
+    """Fill the outer corner where consecutive walls of different thickness meet.
+
+    Walls are stroked with butt caps, so a joint between walls of different
+    widths (e.g. 8" exterior to 4.5" partition) would otherwise leave a notch
+    at the outer corner. Equal-width joints are already mitered by the stroke.
+    """
+    n = len(wall_set)
+    if n < 2:
+        return
+    pairs = [(wall_set[i], wall_set[i + 1]) for i in range(n - 1)]
+    first, last = wall_set[0], wall_set[-1]
+    if (n > 2 and abs(last.end[0] - first.start[0]) < 1e-6 and
+            abs(last.end[1] - first.start[1]) < 1e-6):
+        pairs.append((last, first))  # closed loop
+
+    for a, b in pairs:
+        if (getattr(a, 'is_curved', False) or getattr(b, 'is_curved', False) or
+                getattr(a, 'symbolic', False) or getattr(b, 'symbolic', False)):
+            continue
+        if not (is_visible(a) and is_visible(b)):
+            continue
+        if abs(a.width - b.width) < 1e-6:
+            continue
+        if abs(a.end[0] - b.start[0]) > 1e-6 or abs(a.end[1] - b.start[1]) > 1e-6:
+            continue
+        poly = wall_join_polygon(a.start, a.end, a.width, b.start, b.end, b.width)
+        if not poly:
+            continue
+        cr.save()
+        cr.set_source_rgba(0, 0, 0, min(get_opacity(a), get_opacity(b)))
+        cr.move_to(*poly[0])
+        for pt in poly[1:]:
+            cr.line_to(*pt)
+        cr.close_path()
+        cr.fill()
+        cr.restore()
+
 
 def draw_walls(self, cr):
     cr.set_line_join(0)  # 0 = miter join.
@@ -145,6 +186,8 @@ def draw_walls(self, cr):
                abs(cur_pt[1] - path_start_point[1]) < 1e-4:
                 cr.close_path()
             cr.stroke()
+
+        _fill_mismatched_wall_joins(cr, wall_set, is_visible, get_opacity)
 
     # Draw active drawing chain
     active_chain = []

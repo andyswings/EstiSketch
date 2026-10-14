@@ -691,6 +691,7 @@ class CanvasDrawMixin:
         self.draw_live_measurements(cr, pixels_per_inch)
         self.draw_alignment_guide(cr, pixels_per_inch)
         self.draw_snap_indicator(cr, pixels_per_inch)
+        self.draw_edit_face_guide(cr, pixels_per_inch)
 
         cr.restore()  # Return to device coordinates.
 
@@ -971,8 +972,14 @@ class CanvasDrawMixin:
 
 
     def draw_alignment_guide(self, cr, pixels_per_inch):
-        if not (
-                self.drawing_wall and self.current_wall and self.alignment_candidate and self.raw_current_end):
+        if not (self.alignment_candidate and self.raw_current_end):
+            return
+        is_active = (
+            (getattr(self, "drawing_wall", False) and getattr(self, "current_wall", None)) or
+            (getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None)) or
+            getattr(self, "dragging_wall", None)
+        )
+        if not is_active:
             return
         raw_end: Any = self.raw_current_end
         cand: Any = self.alignment_candidate
@@ -981,8 +988,9 @@ class CanvasDrawMixin:
         if math.hypot(dx, dy) < 1:
             return
         cr.save()
-        cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
-        dash = 2.0 / (self.zoom * pixels_per_inch)
+        scale = self.zoom * pixels_per_inch
+        cr.set_line_width(1.0 / scale)
+        dash = 2.0 / scale
         cr.set_dash([dash, dash])
         cr.set_source_rgb(0.7, 0.7, 0.7)
         cr.move_to(raw_end[0], raw_end[1])
@@ -990,65 +998,187 @@ class CanvasDrawMixin:
         cr.stroke()
         cr.restore()
 
-    def draw_snap_indicator(self, cr, pixels_per_inch):
-        if self.snap_type == "none" or not self.drawing_wall or not self.current_wall:
+    def _stroke_face_guide(self, cr, guide, pixels_per_inch):
+        """Stroke a face-flush or centerline guide.
+
+        Returns the label text for the guide's kind."""
+        g0, g1, kind = guide
+        scale = self.zoom * pixels_per_inch
+        if kind == "flush":
+            cr.set_source_rgb(0.0, 0.7, 0.8)
+            label = "Faces flush"
+        elif kind == "center":
+            cr.set_source_rgb(0.7, 0.2, 0.9)
+            label = "Centerline aligned"
+        else:
+            cr.set_source_rgb(0.95, 0.5, 0.1)
+            label = "Faces abutting"
+        cr.set_line_width(1.5 / scale)
+        cr.set_dash([6.0 / scale, 4.0 / scale])
+        cr.move_to(g0[0], g0[1])
+        cr.line_to(g1[0], g1[1])
+        cr.stroke()
+        cr.set_dash([])
+        return label
+
+    def draw_edit_face_guide(self, cr, pixels_per_inch):
+        """Face guide shown while dragging a wall or wall endpoint if not drawn by snap_indicator."""
+        if getattr(self, "snap_type", "none") == "face_flush":
+            return  # Already drawn by draw_snap_indicator
+        guide = getattr(self, "edit_face_guide", None)
+        if not guide:
             return
         cr.save()
-        snap_x, snap_y = self.current_wall.end
-        cr.set_line_width(2.0 / (self.zoom * pixels_per_inch))
-        cr.set_font_size(12 / (self.zoom * pixels_per_inch))
+        label = self._stroke_face_guide(cr, guide, pixels_per_inch)
+        target = getattr(self, "dragging_wall", None) or getattr(
+            self, "editing_wall", None)
+        if target is not None:
+            if getattr(self, "dragging_wall", None):
+                lx = (target.start[0] + target.end[0]) / 2.0
+                ly = (target.start[1] + target.end[1]) / 2.0
+            else:
+                handle = getattr(self, "editing_handle", "end")
+                lx, ly = target.start if handle == "start" else target.end
+            scale = self.zoom * pixels_per_inch
+            cr.set_font_size(12 / scale)
+            cr.select_font_face("Sans", 0, 0)
+            cr.move_to(lx + 15 / scale, ly - 10 / scale)
+            cr.show_text(label)
+        cr.restore()
+
+    def draw_snap_indicator(self, cr, pixels_per_inch):
+        if getattr(self, "snap_type", "none") == "none":
+            return
+        is_active = (
+            (getattr(self, "drawing_wall", False) and getattr(self, "current_wall", None)) or
+            (getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None)) or
+            getattr(self, "dragging_wall", None)
+        )
+        if not is_active:
+            return
+
+        snap_x = None
+        snap_y = None
+        base_x = None
+        base_y = None
+
+        if getattr(self, "snap_pos", None) is not None:
+            snap_x, snap_y = self.snap_pos
+        elif getattr(self, "drawing_wall", False) and getattr(self, "current_wall", None):
+            snap_x, snap_y = self.current_wall.end
+            base_x, base_y = self.current_wall.start
+        elif getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None):
+            wall = self.editing_wall
+            snap_x, snap_y = wall.start if self.editing_handle == "start" else wall.end
+            base_x, base_y = wall.end if self.editing_handle == "start" else wall.start
+        elif getattr(self, "dragging_wall", None):
+            wall = self.dragging_wall
+            snap_x, snap_y = (wall.start[0] + wall.end[0]) / 2.0, (wall.start[1] + wall.end[1]) / 2.0
+            base_x, base_y = snap_x, snap_y
+
+        if snap_x is None or snap_y is None:
+            return
+        if base_x is None or base_y is None:
+            if getattr(self, "current_wall", None):
+                base_x, base_y = self.current_wall.start
+            elif getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None):
+                base_x, base_y = self.editing_wall.end if self.editing_handle == "start" else self.editing_wall.start
+            else:
+                base_x, base_y = snap_x, snap_y
+
+        cr.save()
+        scale = self.zoom * pixels_per_inch
+        cr.set_line_width(2.0 / scale)
+        cr.set_font_size(12 / scale)
         cr.select_font_face("Sans", 0, 0)
         if self.snap_type == "endpoint":
             cr.set_source_rgb(1, 0, 0)
-            cr.arc(snap_x, snap_y, 10 / (self.zoom *
-                   pixels_per_inch), 0, 2 * math.pi)
+            cr.arc(snap_x, snap_y, 10 / scale, 0, 2 * math.pi)
             cr.fill()
-            cr.move_to(snap_x + 15 / (self.zoom * pixels_per_inch), snap_y)
+            cr.move_to(snap_x + 15 / scale, snap_y)
             cr.show_text("Endpoint")
         elif self.snap_type == "midpoint":
             cr.set_source_rgb(0, 0, 1)
-            cr.arc(snap_x, snap_y, 10 / (self.zoom *
-                   pixels_per_inch), 0, 2 * math.pi)
+            cr.arc(snap_x, snap_y, 10 / scale, 0, 2 * math.pi)
             cr.stroke()
-            cr.move_to(snap_x + 15 / (self.zoom * pixels_per_inch), snap_y)
+            cr.move_to(snap_x + 15 / scale, snap_y)
             cr.show_text("Midpoint")
+        elif self.snap_type == "wall_centerline":
+            cr.set_source_rgb(0.7, 0.2, 0.9)
+            cr.arc(snap_x, snap_y, 8 / scale, 0, 2 * math.pi)
+            cr.stroke()
+            cr.arc(snap_x, snap_y, 3 / scale, 0, 2 * math.pi)
+            cr.fill()
+            cr.move_to(snap_x + 15 / scale, snap_y)
+            cr.show_text("Centerline")
+        elif self.snap_type == "face_flush":
+            guide = getattr(self.snap_manager, "face_flush_guide", None) or getattr(self, "edit_face_guide", None)
+            if guide:
+                label = self._stroke_face_guide(cr, guide, pixels_per_inch)
+                if guide[2] == "flush":
+                    cr.set_source_rgb(0.0, 0.7, 0.8)
+                elif guide[2] == "center":
+                    cr.set_source_rgb(0.7, 0.2, 0.9)
+                else:
+                    cr.set_source_rgb(0.95, 0.5, 0.1)
+            else:
+                cr.set_source_rgb(0.0, 0.7, 0.8)
+                label = "Faces flush"
+            cr.arc(snap_x, snap_y, 5 / scale, 0, 2 * math.pi)
+            cr.fill()
+            cr.move_to(snap_x + 15 / scale, snap_y)
+            cr.show_text(label)
+        elif self.snap_type == "wall_edge":
+            cr.set_source_rgb(0.0, 0.7, 0.8)
+            cr.arc(snap_x, snap_y, 5 / scale, 0, 2 * math.pi)
+            cr.fill()
+            cr.move_to(snap_x + 15 / scale, snap_y)
+            cr.show_text("Wall Edge")
         elif self.snap_type == "axis":
             cr.set_source_rgb(0, 1, 0)
-            cr.move_to(snap_x - 20 / (self.zoom * pixels_per_inch), snap_y)
-            cr.line_to(snap_x + 20 / (self.zoom * pixels_per_inch), snap_y)
-            cr.move_to(snap_x, snap_y - 20 / (self.zoom * pixels_per_inch))
-            cr.line_to(snap_x, snap_y + 20 / (self.zoom * pixels_per_inch))
+            cr.move_to(snap_x - 20 / scale, snap_y)
+            cr.line_to(snap_x + 20 / scale, snap_y)
+            cr.move_to(snap_x, snap_y - 20 / scale)
+            cr.line_to(snap_x, snap_y + 20 / scale)
             cr.stroke()
-            cr.move_to(snap_x + 15 / (self.zoom * pixels_per_inch), snap_y)
+            cr.move_to(snap_x + 15 / scale, snap_y)
             cr.show_text("Axis")
         elif self.snap_type in ["angle", "perpendicular"]:
             cr.set_source_rgb(1, 0, 1)
-            cr.move_to(self.current_wall.start[0], self.current_wall.start[1])
+            cr.move_to(base_x, base_y)
             cr.line_to(snap_x, snap_y)
             cr.stroke()
             if self.snap_type == "perpendicular":
-                cr.move_to(snap_x + 15 / (self.zoom * pixels_per_inch), snap_y)
+                cr.move_to(snap_x + 15 / scale, snap_y)
                 cr.show_text("Perpendicular")
+            else:
+                cr.move_to(snap_x + 15 / scale, snap_y)
+                cr.show_text("Angle")
         elif self.snap_type == "grid":
             cr.set_source_rgb(0.5, 0.5, 0.5)
-            cr.rectangle(snap_x - 10 / (self.zoom * pixels_per_inch),
-                         snap_y - 10 / (self.zoom * pixels_per_inch),
-                         20 / (self.zoom * pixels_per_inch),
-                         20 / (self.zoom * pixels_per_inch))
+            cr.rectangle(snap_x - 10 / scale,
+                         snap_y - 10 / scale,
+                         20 / scale,
+                         20 / scale)
             cr.stroke()
-            cr.move_to(snap_x + 15 / (self.zoom * pixels_per_inch), snap_y)
+            cr.move_to(snap_x + 15 / scale, snap_y)
             cr.show_text("Grid")
         elif self.snap_type == "distance":
             cr.set_source_rgb(1, 0.5, 0)
-            cr.move_to(snap_x + 15 / (self.zoom * pixels_per_inch), snap_y)
+            cr.move_to(snap_x + 15 / scale, snap_y)
             cr.show_text("Distance")
         elif self.snap_type == "tangent":
             cr.set_source_rgb(0, 1, 1)
-            cr.arc(snap_x, snap_y, 10 / (self.zoom *
-                   pixels_per_inch), 0, 2 * math.pi)
+            cr.arc(snap_x, snap_y, 10 / scale, 0, 2 * math.pi)
             cr.fill()
-            cr.move_to(snap_x + 15 / (self.zoom * pixels_per_inch), snap_y)
+            cr.move_to(snap_x + 15 / scale, snap_y)
             cr.show_text("Tangent")
+        elif self.snap_type in ["alignment", "alignment_cross", "alignment_vertical", "alignment_horizontal"]:
+            cr.set_source_rgb(0.3, 0.6, 1.0)
+            cr.arc(snap_x, snap_y, 6 / scale, 0, 2 * math.pi)
+            cr.stroke()
+            cr.move_to(snap_x + 15 / scale, snap_y)
+            cr.show_text("Aligned")
         cr.restore()
 
     def draw_rulers(self, cr, width, height, pixels_per_inch):

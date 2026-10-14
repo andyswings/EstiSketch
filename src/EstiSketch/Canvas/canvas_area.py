@@ -141,6 +141,9 @@ class CanvasArea(Gtk.DrawingArea,
         self.raw_current_end = None
 
         self.snap_type = "none"
+        # Face-flush guide (line_start, line_end, kind) shown while editing
+        # an existing wall; None when no face snap is active.
+        self.edit_face_guide = None
         self.tool_mode = None  # "draw_walls" or "draw_rooms"
 
         # ID stack

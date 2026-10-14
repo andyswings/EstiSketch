@@ -37,15 +37,16 @@ class CanvasWallMixin:
         candidate_points = self._get_candidate_points()
 
         (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
-            canvas_x, canvas_y, base_x, base_y, self.walls, self.rooms,
+            canvas_x, canvas_y, base_x, base_y, self._get_snap_walls(), self.rooms,
             current_wall=self.current_wall, last_wall=last_wall,
             in_progress_points=candidate_points, canvas_width=canvas_width,
-            zoom=self.zoom
+            zoom=self.zoom, new_wall_width=self.config.DEFAULT_WALL_WIDTH
         )
         self.raw_current_end = raw_point
         aligned_x, aligned_y, candidate = self._apply_alignment_snapping(
             canvas_x, canvas_y)
-        snapped_x, snapped_y = aligned_x, aligned_y
+        if self.snap_type != "face_flush":
+            snapped_x, snapped_y = aligned_x, aligned_y
         self.alignment_candidate = candidate
 
         if n_press == 1:
