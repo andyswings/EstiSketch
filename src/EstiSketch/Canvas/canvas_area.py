@@ -16,6 +16,8 @@ from .canvas_geometry import CanvasGeometryMixin
 from .canvas_state import CanvasStateMixin
 from .canvas_events import CanvasEventsMixin
 from .canvas_draw import CanvasDrawMixin
+from .blueprint import CanvasBlueprintMixin
+from .blueprint_straighten import CanvasBlueprintStraightenMixin
 from ..snapping_manager import SnappingManager
 from ..components import Wall, Room, Text, Dimension, Layer, Level
 from ..measurement_utils import MeasurementConverter
@@ -27,6 +29,8 @@ gi.require_version('Gtk', '4.0')
 class CanvasArea(Gtk.DrawingArea,
                  CanvasDrawMixin,
                  CanvasEventsMixin,
+                 CanvasBlueprintMixin,
+                 CanvasBlueprintStraightenMixin,
                  CanvasStateMixin,
                  CanvasGeometryMixin,
                  CanvasToolMixin,
@@ -192,6 +196,9 @@ class CanvasArea(Gtk.DrawingArea,
         # Stair state
         self.stairs = []  # List of Stair objects
 
+        # Blueprint underlay state
+        self._init_blueprint_state()
+
         # Initialize snapping manager
         self.snap_manager = SnappingManager(
             snap_enabled=self.config.SNAP_ENABLED,
@@ -268,6 +275,7 @@ class CanvasArea(Gtk.DrawingArea,
         self.arcs = []
         self.roofs = []
         self.stairs = []
+        self.reset_blueprints()
 
         # Clear selection
         self.selected_items = []

@@ -75,6 +75,8 @@ class CanvasEventsMixin:
             self._handle_arc_click(n_press, x, y)
         elif self.tool_mode == "add_stair":
             self._handle_stair_click(n_press, x, y)
+        elif self.tool_mode == "calibrate_blueprint":
+            self._handle_calibration_click(n_press, x, y)
 
 
     def on_click_pressed(
@@ -465,6 +467,8 @@ class CanvasEventsMixin:
             self._handle_stair_motion(x, y)
         elif self.tool_mode == "add_roof_line":
             self._handle_roof_line_motion(x, y)
+        elif self.tool_mode == "calibrate_blueprint":
+            self._handle_calibration_motion(x, y)
 
 
     def on_zoom_changed(

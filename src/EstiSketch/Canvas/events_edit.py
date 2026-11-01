@@ -221,6 +221,10 @@ class EditEventsMixin:
         """
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
 
+        if self.tool_mode in ("move_blueprint", "straighten_blueprint"):
+            self._blueprint_drag_update(offset_x, offset_y)
+            return
+
         # Handle wall endpoint editing
         if getattr(
                 self,

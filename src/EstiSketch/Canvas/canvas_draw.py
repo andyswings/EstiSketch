@@ -133,6 +133,9 @@ class CanvasDrawMixin:
         visible_layer_ids = self.get_visible_layer_ids() if hasattr(
             self, 'get_visible_layer_ids') else set()
 
+        # Blueprint underlays are painted first so everything draws over them
+        self.draw_blueprints(cr)
+
         # Draw grid, walls, rooms, etc. in model coordinates.
         self.draw_grid(cr)
 
@@ -692,6 +695,7 @@ class CanvasDrawMixin:
         self.draw_alignment_guide(cr, pixels_per_inch)
         self.draw_snap_indicator(cr, pixels_per_inch)
         self.draw_edit_face_guide(cr, pixels_per_inch)
+        self.draw_blueprint_overlays(cr)
 
         cr.restore()  # Return to device coordinates.
 

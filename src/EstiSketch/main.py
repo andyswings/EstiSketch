@@ -85,6 +85,11 @@ class EstimatorApp(Gtk.Application):
         import_action.connect("activate", self.on_import_sh3d)
         self.add_action(import_action)
 
+        # Import a blueprint image as a drawing underlay.
+        import_bp_action = Gio.SimpleAction.new("import_blueprint", None)
+        import_bp_action.connect("activate", self.on_import_blueprint)
+        self.add_action(import_bp_action)
+
         # Save project
         save_action = Gio.SimpleAction.new("save", None)
         save_action.connect("activate", lambda a, p: self.show_save_dialog())
@@ -689,6 +694,9 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["add_stair"].set_active(True)
                 return True
             elif keyname == "escape":
+                if self.canvas.tool_mode in ("calibrate_blueprint", "move_blueprint", "straighten_blueprint"):
+                    self.canvas.cancel_blueprint_tool()
+                    return True
                 if self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall:
                     self.canvas.wall_sets.append(self.canvas.walls.copy())
                     self.canvas.walls = []
@@ -733,6 +741,9 @@ class EstimatorApp(Gtk.Application):
                     self.canvas.queue_draw()
                     return True
             elif keyname == "return":
+                if self.canvas.tool_mode == "straighten_blueprint":
+                    self.canvas.apply_straighten()
+                    return True
                 self.canvas.enter_wall_length()
                 return True
             elif keyname == "c":
@@ -982,6 +993,36 @@ class EstimatorApp(Gtk.Application):
                 self.canvas.queue_draw()
             except Exception as e:
                 print(f"Error importing SH3D file: {e}")
+        dialog.destroy()
+
+    def on_import_blueprint(self, action: Gio.SimpleAction, parameter) -> None:
+        """Choose an image to use as a blueprint underlay, then calibrate it."""
+        dialog = Gtk.FileChooserDialog(
+            title="Import Blueprint Image",
+            transient_for=self.window,
+            action=Gtk.FileChooserAction.OPEN
+        )
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Open", Gtk.ResponseType.OK)
+
+        image_filter = Gtk.FileFilter()
+        image_filter.set_name("Images (PNG, JPG, BMP, GIF, TIFF)")
+        for mime in ("image/png", "image/jpeg", "image/bmp", "image/gif", "image/tiff"):
+            image_filter.add_mime_type(mime)
+        dialog.add_filter(image_filter)
+
+        dialog.connect("response", self.on_import_blueprint_response)
+        dialog.show()
+
+    def on_import_blueprint_response(self, dialog: Gtk.FileChooserDialog, response: Gtk.ResponseType) -> None:
+        """Import the chosen image and start the two-click calibration."""
+        if response == Gtk.ResponseType.OK:
+            path = dialog.get_file().get_path()
+            try:
+                self.canvas.import_blueprint(path)
+            except Exception as e:
+                print(f"Error importing blueprint: {e}")
+                self.canvas.update_hint(f"Could not import blueprint: {e}")
         dialog.destroy()
 
     def on_new(self, action: Gio.SimpleAction, parameter) -> None:

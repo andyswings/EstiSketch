@@ -27,5 +27,8 @@ TOOL_HINTS = {
     "design_roof": "Select walls and right-click to mark as Eave/Gable | Click Generate to create roof",
     "add_roof_line": "Click to start drawing roof line (ridge/hip/valley/eave)",
     "add_roof_line_active": "Click end point to finalize line | Edit type & pitch in Properties Dock | Esc to cancel",
+    "calibrate_blueprint": "Calibrate: click the first reference point on the blueprint | Esc to cancel",
+    "straighten_blueprint": "Straighten: drag corners onto the plan's corners, drag edge handles to bend | Enter to apply | Esc to cancel",
+    "move_blueprint": "Drag to move the blueprint | Esc when done",
 }
 

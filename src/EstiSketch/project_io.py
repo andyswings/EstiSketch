@@ -1,5 +1,6 @@
+import base64
 import xml.etree.ElementTree as ET
-from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair
+from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair, BackgroundImage
 from .roof_components import Roof, RoofEdge, RoofLine
 
 
@@ -431,6 +432,26 @@ def save_project(canvas, window_width, window_height, filepath):
         s_elem.set("landing_depth", str(getattr(stair, 'landing_depth', 36.0)))
         s_elem.set("steps_before_landing", str(getattr(stair, 'steps_before_landing', 0)))
         s_elem.set("winder_count", str(getattr(stair, 'winder_count', 0)))
+
+    # Save Blueprint underlays (image bytes are embedded so the project is
+    # self-contained and portable between machines).
+    blueprints_elem = ET.SubElement(root, "Blueprints")
+    for bp in getattr(canvas, 'blueprints', []):
+        b_elem = ET.SubElement(blueprints_elem, "Blueprint")
+        b_elem.set("identifier", bp.identifier)
+        b_elem.set("name", bp.name)
+        b_elem.set("image_path", bp.image_path)
+        b_elem.set("x", str(bp.x))
+        b_elem.set("y", str(bp.y))
+        b_elem.set("scale_x", str(bp.scale_x))
+        b_elem.set("scale_y", str(bp.scale_y))
+        b_elem.set("rotation", str(bp.rotation))
+        b_elem.set("opacity", str(bp.opacity))
+        b_elem.set("visible", str(bp.visible))
+        b_elem.set("locked", str(bp.locked))
+        b_elem.set("level_id", bp.level_id)
+        data_elem = ET.SubElement(b_elem, "ImageData")
+        data_elem.text = base64.b64encode(bp.image_data).decode("ascii")
 
     # Write out the XML to the given file (with declaration and proper
     # encoding).
@@ -1007,6 +1028,39 @@ def open_project(canvas, filepath):
             stair.winder_count = _get_attr_int(s_elem, "winder_count", 0)
 
             canvas.stairs.append(stair)
+
+    # --- Restore Blueprints ---
+    if hasattr(canvas, 'blueprints'):
+        canvas.blueprints.clear()
+        if hasattr(canvas, '_blueprint_surfaces'):
+            canvas._blueprint_surfaces.clear()
+        blueprints_elem = root.find("Blueprints")
+        if blueprints_elem is not None:
+            for b_elem in blueprints_elem.findall("Blueprint"):
+                data_elem = b_elem.find("ImageData")
+                try:
+                    image_data = base64.b64decode(
+                        (data_elem.text or "") if data_elem is not None else "")
+                except Exception:
+                    image_data = b""
+                bp = BackgroundImage(
+                    identifier=_get_attr_text(b_elem, "identifier", ""),
+                    name=_get_attr_text(b_elem, "name", ""),
+                    image_path=_get_attr_text(b_elem, "image_path", ""),
+                    x=_get_attr_float(b_elem, "x", 0.0),
+                    y=_get_attr_float(b_elem, "y", 0.0),
+                    scale_x=_get_attr_float(b_elem, "scale_x", 1.0),
+                    scale_y=_get_attr_float(b_elem, "scale_y", 1.0),
+                    rotation=_get_attr_float(b_elem, "rotation", 0.0),
+                    opacity=_get_attr_float(b_elem, "opacity", 0.5),
+                    visible=_get_attr_text(b_elem, "visible", "True") == "True",
+                    locked=_get_attr_text(b_elem, "locked", "True") == "True",
+                    level_id=_get_attr_text(b_elem, "level_id", ""),
+                    image_data=image_data,
+                )
+                if hasattr(canvas, 'get_blueprint_surface'):
+                    canvas.get_blueprint_surface(bp)  # decodes & sets pixel size
+                canvas.blueprints.append(bp)
 
     # Return the saved window size.
     return window_width, window_height

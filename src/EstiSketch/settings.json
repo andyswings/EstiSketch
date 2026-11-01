@@ -1,7 +1,7 @@
 {
     "WINDOW_TITLE": "EstiSketch",
     "WINDOW_WIDTH": 1024,
-    "WINDOW_HEIGHT": 904,
+    "WINDOW_HEIGHT": 1196,
     "SAVE_LABEL": "Save",
     "OPEN_LABEL": "Open File",
     "EXPORT_LABEL": "Export as PDF",
@@ -74,5 +74,5 @@
     "SIDEBAR_WIDTH": 338,
     "DEFAULT_LEVEL_HEIGHT": 96.0,
     "LAYER_FOCUS_MODE": true,
-    "LAYERS_PROPERTIES_SPLIT": 259
+    "LAYERS_PROPERTIES_SPLIT": 551
 }

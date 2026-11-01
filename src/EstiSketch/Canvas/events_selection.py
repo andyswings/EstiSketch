@@ -1,10 +1,69 @@
 import math
+from typing import Any, List, Dict, Tuple, Optional
 from gi.repository import Gtk, Gdk
 from .door_window_renderer import get_point_on_wall, get_wall_direction
 
 
-
 class CanvasSelectionMixin:
+    # State attributes mixed in from CanvasArea
+    zoom: float
+    offset_x: float
+    offset_y: float
+    tool_mode: Any
+    config: Any
+    selected_items: List[Dict[str, Any]]
+    clipboard: List[Any]
+    walls: List[Any]
+    wall_sets: List[Any]
+    rooms: List[Any]
+    doors: List[Any]
+    windows: List[Any]
+    polylines: List[Any]
+    polyline_sets: List[Any]
+    dimensions: List[Any]
+    circles: List[Any]
+    arcs: List[Any]
+    stairs: List[Any]
+    roofs: List[Any]
+    blueprints: List[Any]
+    handle_radius: float
+
+    # Transient editing and dragging state
+    editing_wall: Any
+    editing_handle: Any
+    editing_stair: Any
+    editing_stair_handle: Any
+    editing_dimension: Any
+    editing_dimension_handle: Any
+    editing_polyline: Any
+    editing_polyline_handle: Any
+    editing_circle: Any
+    editing_circle_handle: Any
+    editing_arc: Any
+    editing_arc_handle: Any
+    editing_curved_wall: Any
+    editing_curved_wall_handle: Any
+    editing_roof_line: Any
+    editing_roof_line_handle: Any
+    editing_roof_line_roof: Any
+    dragging_door_window: Any
+    dragging_door_window_start_ratio: Any
+    dragging_wall: Any
+    dragging_wall_start_pos: Any
+    dragging_wall_initial_states: Any
+    wall_drag_connected_start: Any
+    wall_drag_connected_end: Any
+    dragging_vertices: Any
+    dragging_dimensions: Any
+    dragging_stair: Any
+    dragging_stair_start_pos: Any
+    box_selecting: bool
+    box_select_start: Any
+    box_select_end: Any
+    box_select_extend: bool
+    drag_start_x: float
+    drag_start_y: float
+
     def _handle_pointer_click(
             self,
             gesture: Gtk.GestureClick,
@@ -601,7 +660,6 @@ class CanvasSelectionMixin:
                         "_obj_id": id(pl)
                     }
                     break
-                    break
             if selected_item:
                 break
 
@@ -1042,6 +1100,10 @@ class CanvasSelectionMixin:
         self.drag_start_x = start_x
         self.drag_start_y = start_y
 
+        if self.tool_mode in ("move_blueprint", "straighten_blueprint"):
+            self._blueprint_drag_begin(start_x, start_y)
+            return
+
         # If we already entered handle-editing on press, don't overwrite
         # box_select_start.
         if (getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None)) or \
@@ -1398,6 +1460,10 @@ class CanvasSelectionMixin:
         Returns:
             None
         """
+
+        if self.tool_mode in ("move_blueprint", "straighten_blueprint"):
+            self._blueprint_drag_end(offset_x, offset_y)
+            return
 
         # If we were editing a wall endpoint, just clear that state and stop.
         if getattr(
@@ -1993,6 +2059,29 @@ class CanvasSelectionMixin:
         Returns:
             None
         """
+        if self.tool_mode == "straighten_blueprint":
+            popover = Gtk.Popover()
+            popover.set_parent(self)
+            menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            for setter in (menu_box.set_margin_top, menu_box.set_margin_bottom,
+                           menu_box.set_margin_start, menu_box.set_margin_end):
+                setter(6)
+            apply_btn = Gtk.Button(label="Apply Straighten")
+            apply_btn.add_css_class("suggested-action")
+            apply_btn.connect("clicked", lambda b: (popover.popdown(), self.apply_straighten()))
+            menu_box.append(apply_btn)
+
+            cancel_btn = Gtk.Button(label="Cancel")
+            cancel_btn.connect("clicked", lambda b: (popover.popdown(), self.cancel_blueprint_tool()))
+            menu_box.append(cancel_btn)
+
+            popover.set_child(menu_box)
+            rect = Gdk.Rectangle()
+            rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
+            popover.set_pointing_to(rect)
+            popover.popup()
+            return
+
         # Invoke the existing right-click handler.
         self._handle_pointer_right_click(gesture, n_press, x, y)
 
@@ -2747,7 +2836,7 @@ class CanvasSelectionMixin:
     def set_ext_int(
             self,
             selected_walls: list,
-            state: str,
+            state: bool,
             popover: Gtk.Popover) -> None:
         """
         Set the exterior or interior state of selected walls.
@@ -2757,7 +2846,7 @@ class CanvasSelectionMixin:
 
         Args:
             selected_walls (list): List of selected wall items to update.
-            state (str): The state to set ("True" for exterior, "False" for interior).
+            state (bool): The state to set (True for exterior, False for interior).
             popover (Gtk.Popover): The popover to close after the action.
 
         Returns:

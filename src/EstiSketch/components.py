@@ -300,3 +300,29 @@ class Stair:
     # Spiral Specifics (for future use)
     inner_radius: float = 6.0
     rotation_degrees: float = 270.0
+
+
+@dataclass(eq=False)
+class BackgroundImage:
+    """A raster blueprint/underlay image placed behind the drawing.
+
+    The image is positioned by its top-left corner (``x``, ``y``) in model
+    inches and scaled by ``scale_x``/``scale_y`` (inches per source pixel).
+    The raw encoded file bytes are kept in ``image_data`` so projects stay
+    portable; ``image_path`` is only informational.
+    """
+    identifier: str = ""
+    image_path: str = ""
+    x: float = 0.0          # Origin (top-left) in model inches
+    y: float = 0.0
+    scale_x: float = 1.0    # Inches per pixel
+    scale_y: float = 1.0
+    rotation: float = 0.0   # Degrees, rotated about the origin
+    opacity: float = 0.5    # 0.0 to 1.0
+    visible: bool = True
+    locked: bool = True     # Locked from accidental drag
+    level_id: str = ""      # Associated building level ("" = every level)
+    name: str = ""
+    image_data: bytes = b""  # Encoded image file contents (PNG/JPG/...)
+    pixel_width: int = 0
+    pixel_height: int = 0

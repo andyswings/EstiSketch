@@ -19,7 +19,8 @@ class CanvasStateMixin:
             "circles": copy.deepcopy(self.circles),
             "arcs": copy.deepcopy(self.arcs),
             "roofs": copy.deepcopy(getattr(self, "roofs", [])),
-            "stairs": copy.deepcopy(getattr(self, "stairs", []))
+            "stairs": copy.deepcopy(getattr(self, "stairs", [])),
+            "blueprints": copy.deepcopy(getattr(self, "blueprints", []))
         }
         self.undo_stack.append(state)
         if len(self.undo_stack) > self.config.UNDO_REDO_LIMIT:
@@ -49,8 +50,11 @@ class CanvasStateMixin:
         self.arcs = copy.deepcopy(state.get("arcs", []))
         self.roofs = copy.deepcopy(state.get("roofs", []))
         self.stairs = copy.deepcopy(state.get("stairs", []))
+        self.blueprints = copy.deepcopy(state.get("blueprints", []))
         self.snap_type = "none"
         self.queue_draw()
+        if hasattr(self, "emit"):
+            self.emit('content-changed')
         print(
             f"restore_state: {len(self.wall_sets)} wall sets, {len(self.walls)} walls, {len(self.rooms)} rooms")
 

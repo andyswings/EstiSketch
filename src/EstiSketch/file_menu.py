@@ -11,6 +11,7 @@ def create_file_menu(app):
     menu_model.append("Open", "app.open")
     menu_model.append("Open Recent Project", "app.open_recent")
     menu_model.append("Import SH3D", "app.import_sh3d")
+    menu_model.append("Import Blueprint...", "app.import_blueprint")
     # Separator
     menu_model.append_section("", Gio.Menu())
     menu_model.append("Save", "app.save")

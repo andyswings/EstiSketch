@@ -48,3 +48,28 @@ class MeasurementConverter:
             return f"{feet}' {whole_inches}{frac_str}\""
         else:
             return f"{feet}' {round(remaining_inches, 2)}\""
+
+
+_METRIC_UNITS = {"mm": 1 / 25.4, "cm": 1 / 2.54, "m": 100 / 2.54}
+
+
+def parse_distance(text: str) -> float:
+    """Parse a user-typed distance into inches.
+
+    Accepts imperial (``24' 0"``, ``24'``, ``288``, ``288"``) and metric
+    (``7500 mm``, ``750 cm``, ``7.5 m``) input. Plain numbers are inches.
+    Raises ``ValueError`` for empty, malformed or non-positive values.
+    """
+    if text is None or not str(text).strip():
+        raise ValueError("Enter a distance.")
+    s = str(text).strip().lower()
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(mm|cm|m)", s)
+    if m:
+        value = float(m.group(1)) * _METRIC_UNITS[m.group(2)]
+    else:
+        if s.endswith('"') and "'" not in s:
+            s = s[:-1].strip()
+        value = MeasurementConverter.parse_measurement(s)
+    if value <= 0:
+        raise ValueError("Distance must be greater than zero.")
+    return value

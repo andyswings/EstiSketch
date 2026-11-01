@@ -9,7 +9,7 @@ Provides UI for:
 - Adding and removing layers
 """
 
-from gi.repository import Gtk, GObject, Pango
+from gi.repository import Gtk, GObject, Pango, GLib
 
 
 class LayersPanel(Gtk.Box):
@@ -63,6 +63,16 @@ class LayersPanel(Gtk.Box):
         button_row.append(remove_btn)
 
         self.append(button_row)
+
+        # Blueprint underlays section
+        bp_header = Gtk.Label(label="Blueprints", xalign=0)
+        bp_header.add_css_class("heading")
+        self.append(bp_header)
+        self.blueprint_list = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.append(self.blueprint_list)
+        self.canvas.connect(
+            "content-changed", lambda w: self.refresh_blueprints())
         
         # Store expanders to preserve state
         self.layer_expanders = {} 
@@ -334,6 +344,157 @@ class LayersPanel(Gtk.Box):
                     
                 self.layer_list.append(row_expander)
                 self.layer_expanders[layer.id] = row_expander
+
+        self.refresh_blueprints()
+
+    # ------------------------------------------------------------------
+    # Blueprint underlays
+    # ------------------------------------------------------------------
+    def refresh_blueprints(self):
+        """Rebuild the blueprint rows from canvas.blueprints."""
+        while True:
+            child = self.blueprint_list.get_first_child()
+            if child is None:
+                break
+            self.blueprint_list.remove(child)
+
+        blueprints = getattr(self.canvas, "blueprints", [])
+        if not blueprints:
+            empty = Gtk.Label(label="None (File > Import Blueprint...)", xalign=0)
+            empty.add_css_class("dim-label")
+            self.blueprint_list.append(empty)
+            return
+        for bp in blueprints:
+            self.blueprint_list.append(self._create_blueprint_row(bp))
+
+    def _create_blueprint_row(self, bp):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        vis_btn = Gtk.ToggleButton()
+        vis_btn.set_has_frame(False)
+        vis_btn.set_active(bp.visible)
+        vis_btn.set_label("👁" if bp.visible else "○")
+        vis_btn.set_tooltip_text("Toggle blueprint visibility")
+        vis_btn.add_css_class("layer-control")
+        vis_btn.connect("toggled", self.on_blueprint_visibility_toggled, bp)
+        top.append(vis_btn)
+
+        lock_btn = Gtk.ToggleButton()
+        lock_btn.set_has_frame(False)
+        lock_btn.set_active(bp.locked)
+        lock_btn.set_label("🔒" if bp.locked else "🔓")
+        lock_btn.set_tooltip_text("Lock blueprint (prevents accidental moves)")
+        lock_btn.add_css_class("layer-control")
+        lock_btn.connect("toggled", self.on_blueprint_lock_toggled, bp)
+        top.append(lock_btn)
+
+        name_lbl = Gtk.Label(label=bp.name or "Blueprint", xalign=0)
+        name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        name_lbl.set_hexpand(True)
+        top.append(name_lbl)
+
+        opacity_adj = Gtk.Adjustment(
+            value=bp.opacity, lower=0.05, upper=1.0, step_increment=0.05)
+        scale = Gtk.Scale(
+            orientation=Gtk.Orientation.HORIZONTAL, adjustment=opacity_adj)
+        scale.set_draw_value(False)
+        scale.set_size_request(70, -1)
+        scale.set_tooltip_text("Blueprint opacity")
+        scale.connect("value-changed", self.on_blueprint_opacity_changed, bp)
+        top.append(scale)
+        box.append(top)
+
+        is_straightening = (
+            getattr(self.canvas, "tool_mode", None) == "straighten_blueprint" and
+            getattr(self.canvas, "straighten_bp", None) is bp
+        )
+
+        if is_straightening:
+            str_ctrls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            str_ctrls.set_margin_start(4)
+            apply_btn = Gtk.Button(label="✓ Apply")
+            apply_btn.add_css_class("suggested-action")
+            apply_btn.set_hexpand(True)
+            apply_btn.set_tooltip_text("Apply straightening transform")
+            apply_btn.connect("clicked", lambda b: self.canvas.apply_straighten())
+            str_ctrls.append(apply_btn)
+
+            cancel_btn = Gtk.Button(label="Cancel")
+            cancel_btn.set_hexpand(True)
+            cancel_btn.set_tooltip_text("Cancel without applying")
+            cancel_btn.connect("clicked", lambda b: self.canvas.cancel_blueprint_tool())
+            str_ctrls.append(cancel_btn)
+            box.append(str_ctrls)
+        else:
+            row1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            row1.set_margin_start(4)
+            cal_btn = Gtk.Button(label="Calibrate")
+            cal_btn.set_tooltip_text("Click two points and enter their real distance")
+            cal_btn.set_hexpand(True)
+            cal_btn.connect("clicked", lambda b: self.canvas.start_calibration(bp))
+            row1.append(cal_btn)
+
+            str_btn = Gtk.Button(label="Straighten")
+            str_btn.set_tooltip_text("Perspective and curved paper correction")
+            str_btn.set_hexpand(True)
+            str_btn.connect("clicked", lambda b: self.canvas.start_straighten(bp))
+            row1.append(str_btn)
+            box.append(row1)
+
+            row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            row2.set_margin_start(4)
+            move_btn = Gtk.Button(label="Move")
+            move_btn.set_tooltip_text("Drag the blueprint (must be unlocked)")
+            move_btn.set_hexpand(True)
+            move_btn.connect("clicked", lambda b: self.canvas.start_blueprint_move(bp))
+            row2.append(move_btn)
+
+            rot_lbl = Gtk.Label(label="Rot°", xalign=0)
+            row2.append(rot_lbl)
+            rot_adj = Gtk.Adjustment(
+                value=bp.rotation, lower=-360.0, upper=360.0, step_increment=0.5)
+            rot_spin = Gtk.SpinButton(adjustment=rot_adj, digits=1)
+            rot_spin.set_width_chars(5)
+            rot_spin.set_tooltip_text("Rotation (degrees)")
+            rot_spin.connect("value-changed", self.on_blueprint_rotation_changed, bp)
+            row2.append(rot_spin)
+
+            rm_btn = Gtk.Button(label="✕")
+            rm_btn.set_tooltip_text("Remove blueprint")
+            rm_btn.connect("clicked", lambda b: self.canvas.remove_blueprint(bp))
+            row2.append(rm_btn)
+            box.append(row2)
+
+        return box
+
+
+    def on_blueprint_visibility_toggled(self, button, bp):
+        button.set_label("👁" if button.get_active() else "○")
+        self.canvas.update_blueprint(bp, visible=button.get_active())
+
+    def on_blueprint_lock_toggled(self, button, bp):
+        button.set_label("🔒" if button.get_active() else "🔓")
+        self.canvas.update_blueprint(bp, locked=button.get_active())
+        if button.get_active() and self.canvas.active_blueprint is bp:
+            self.canvas.cancel_blueprint_tool()
+
+    def on_blueprint_opacity_changed(self, scale, bp):
+        bp.opacity = scale.get_value()
+        self.canvas.queue_draw()
+        # Record a single undo snapshot once the slider settles.
+        pending = getattr(self, "_bp_opacity_timer", None)
+        if pending:
+            GLib.source_remove(pending)
+
+        def commit():
+            self._bp_opacity_timer = None
+            self.canvas.save_state()
+            return False
+        self._bp_opacity_timer = GLib.timeout_add(400, commit)
+
+    def on_blueprint_rotation_changed(self, spin, bp):
+        self.canvas.update_blueprint(bp, rotation=spin.get_value())
                 
     def refresh_layer_contents(self):
         """Refresh only the object lists within existing layer expanders."""
