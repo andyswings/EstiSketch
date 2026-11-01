@@ -19,7 +19,7 @@ from .canvas_draw import CanvasDrawMixin
 from .blueprint import CanvasBlueprintMixin
 from .blueprint_straighten import CanvasBlueprintStraightenMixin
 from ..snapping_manager import SnappingManager
-from ..components import Wall, Room, Text, Dimension, Layer, Level
+from ..components import Wall, Room, Text, Dimension, Layer, Level, DimensionChain, LeaderCallout
 from ..measurement_utils import MeasurementConverter
 from gi.repository import Gtk, Gdk, GObject
 import gi
@@ -140,6 +140,19 @@ class CanvasArea(Gtk.DrawingArea,
         self.dimension_end = None  # Second click point (x, y)
         self.dimension_offset_preview = None  # Mouse position for offset preview
 
+        # Dimension chain & leader callout state
+        self.dimension_chains = []  # List of DimensionChain objects
+        self.drawing_dimension_chain = False
+        self.dimension_chain_points = []
+        self.dimension_chain_offset = None
+        self.dimension_chain_preview_point = None
+
+        self.leader_callouts = []  # List of LeaderCallout objects
+        self.drawing_leader = False
+        self.leader_tip = None
+        self.leader_elbow = None
+        self.leader_preview_point = None
+
         # Alignment snapping (used for walls and rooms)
         self.alignment_candidate = None
         self.raw_current_end = None
@@ -166,11 +179,12 @@ class CanvasArea(Gtk.DrawingArea,
         # Clipboard for copy/paste operations
         self.clipboard = []
 
-        # Expose Wall and Room for mixins
         self.Wall = Wall
         self.Room = Room
         self.Text = Text
         self.Dimension = Dimension
+        self.DimensionChain = DimensionChain
+        self.LeaderCallout = LeaderCallout
         from ..components import Circle, Arc
         self.Circle = Circle
         self.Arc = Arc
@@ -269,9 +283,10 @@ class CanvasArea(Gtk.DrawingArea,
         self.polylines = []
         self.polyline_sets = []
         self.dimensions = []
+        self.dimension_chains = []
+        self.leader_callouts = []
         self.texts = []
         self.circles = []
-        self.arcs = []
         self.arcs = []
         self.roofs = []
         self.stairs = []
@@ -498,6 +513,16 @@ class CanvasArea(Gtk.DrawingArea,
         for dim in self.dimensions:
             if dim.layer_id == layer_id:
                 objects.append(("dimension", dim))
+
+        # Dimension chains
+        for chain in getattr(self, 'dimension_chains', []):
+            if chain.layer_id == layer_id:
+                objects.append(("dimension_chain", chain))
+
+        # Leader callouts
+        for callout in getattr(self, 'leader_callouts', []):
+            if callout.layer_id == layer_id:
+                objects.append(("leader_callout", callout))
                 
         # Polylines
         for poly_set in self.polyline_sets:
@@ -710,6 +735,22 @@ class CanvasArea(Gtk.DrawingArea,
                 if dim_obj in self.dimensions:
                     self.dimensions.remove(dim_obj)
 
+            # Dimension chain
+            elif item_type in ("dimension_chain", "dimension_chain_handle"):
+                chain_obj = item["object"]
+                if isinstance(chain_obj, tuple):
+                    chain_obj = chain_obj[0]
+                if chain_obj in getattr(self, 'dimension_chains', []):
+                    self.dimension_chains.remove(chain_obj)
+
+            # Leader callout
+            elif item_type in ("leader_callout", "leader_handle"):
+                lead_obj = item["object"]
+                if isinstance(lead_obj, tuple):
+                    lead_obj = lead_obj[0]
+                if lead_obj in getattr(self, 'leader_callouts', []):
+                    self.leader_callouts.remove(lead_obj)
+
             # Circle
             elif item_type == "circle":
                 circle_obj = item["object"]
@@ -828,6 +869,20 @@ class CanvasArea(Gtk.DrawingArea,
                     dim) and self.is_object_on_visible_layer(dim):
                 self.selected_items.append(
                     {"type": "dimension", "object": dim})
+
+        # Select all dimension chains
+        for chain in getattr(self, 'dimension_chains', []):
+            if not self.is_object_on_locked_layer(
+                    chain) and self.is_object_on_visible_layer(chain):
+                self.selected_items.append(
+                    {"type": "dimension_chain", "object": chain})
+
+        # Select all leader callouts
+        for callout in getattr(self, 'leader_callouts', []):
+            if not self.is_object_on_locked_layer(
+                    callout) and self.is_object_on_visible_layer(callout):
+                self.selected_items.append(
+                    {"type": "leader_callout", "object": callout})
 
         # Select all polylines
         for polyline_set in self.polyline_sets:
@@ -1035,6 +1090,29 @@ class CanvasArea(Gtk.DrawingArea,
                 self.dimensions.append(new_dim)
                 self.selected_items.append(
                     {"type": "dimension", "object": new_dim})
+
+            elif item_type == "dimension_chain":
+                chain = item["object"]
+                new_points = [(p[0] + offset[0], p[1] + offset[1]) for p in chain.points]
+                new_chain = copy_module.deepcopy(chain)
+                new_chain.points = new_points
+                new_chain.identifier = self.generate_identifier(
+                    "dim_chain", self.existing_ids)
+                self.dimension_chains.append(new_chain)
+                self.selected_items.append(
+                    {"type": "dimension_chain", "object": new_chain})
+
+            elif item_type == "leader_callout":
+                lead = item["object"]
+                new_lead = copy_module.deepcopy(lead)
+                new_lead.tip = (lead.tip[0] + offset[0], lead.tip[1] + offset[1])
+                new_lead.elbow = (lead.elbow[0] + offset[0], lead.elbow[1] + offset[1])
+                new_lead.shoulder = (lead.shoulder[0] + offset[0], lead.shoulder[1] + offset[1])
+                new_lead.identifier = self.generate_identifier(
+                    "leader", self.existing_ids)
+                self.leader_callouts.append(new_lead)
+                self.selected_items.append(
+                    {"type": "leader_callout", "object": new_lead})
 
             elif item_type == "polyline":
                 poly = item["object"]

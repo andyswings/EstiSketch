@@ -454,6 +454,22 @@ class EstimatorApp(Gtk.Application):
             else:
                 self.canvas.set_tool_mode(None)
 
+        def on_add_dimension_chain_toggled(toggle_button):
+            if toggle_button.get_active():
+                self.canvas.set_tool_mode("add_dimension_chain")
+                print("Add dimension chain mode activated")
+            else:
+                if self.canvas.tool_mode == "add_dimension_chain":
+                    self.canvas.set_tool_mode(None)
+
+        def on_add_leader_toggled(toggle_button):
+            if toggle_button.get_active():
+                self.canvas.set_tool_mode("add_leader")
+                print("Add leader callout mode activated")
+            else:
+                if self.canvas.tool_mode == "add_leader":
+                    self.canvas.set_tool_mode(None)
+
         callbacks = {
             "pointer": on_pointer_toggled,
             "panning": on_panning_toggled,
@@ -463,6 +479,8 @@ class EstimatorApp(Gtk.Application):
             "add_windows": on_add_windows_toggled,
             "add_polyline": on_add_polyline_toggled,
             "add_dimension": on_add_dimension_toggled,
+            "add_dimension_chain": on_add_dimension_chain_toggled,
+            "add_leader": on_add_leader_toggled,
             "add_text": on_add_text_toggled,
             "add_circle": on_add_circle_toggled,
             "add_arc": on_add_arc_toggled,
@@ -731,6 +749,22 @@ class EstimatorApp(Gtk.Application):
                     self.canvas.update_hint(TOOL_HINTS.get("add_roof_line", "Click to start drawing roof line (ridge/hip/valley/eave)"))
                     self.canvas.queue_draw()
                     return True
+                elif self.canvas.tool_mode == "add_dimension_chain" and getattr(self.canvas, 'drawing_dimension_chain', False):
+                    self.canvas.drawing_dimension_chain = False
+                    self.canvas.dimension_chain_points = []
+                    self.canvas.dimension_chain_offset = None
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS.get("add_dimension_chain", ""))
+                    self.canvas.queue_draw()
+                    return True
+                elif self.canvas.tool_mode == "add_leader" and getattr(self.canvas, 'drawing_leader', False):
+                    self.canvas.drawing_leader = False
+                    self.canvas.leader_tip = None
+                    self.canvas.leader_elbow = None
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS.get("add_leader", ""))
+                    self.canvas.queue_draw()
+                    return True
             elif keyname == "f1":
                 self.on_help_clicked(None)
                 return True
@@ -743,6 +777,12 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "return":
                 if self.canvas.tool_mode == "straighten_blueprint":
                     self.canvas.apply_straighten()
+                    return True
+                elif self.canvas.tool_mode == "add_dimension_chain" and getattr(self.canvas, 'drawing_dimension_chain', False):
+                    self.canvas.finalize_dimension_chain()
+                    return True
+                elif self.canvas.tool_mode == "add_leader" and getattr(self.canvas, 'drawing_leader', False):
+                    self.canvas.finalize_leader()
                     return True
                 self.canvas.enter_wall_length()
                 return True
@@ -763,6 +803,12 @@ class EstimatorApp(Gtk.Application):
                  return True
             elif keyname == "l":
                  self.tool_buttons["add_roof_line"].set_active(True)
+                 return True
+            elif keyname == "m":
+                 self.tool_buttons["add_dimension_chain"].set_active(True)
+                 return True
+            elif keyname == "t":
+                 self.tool_buttons["add_leader"].set_active(True)
                  return True
             elif keyname == "c":
                 if self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall and self.canvas.walls:

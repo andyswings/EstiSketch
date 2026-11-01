@@ -33,7 +33,7 @@ class CanvasEventsMixin:
         # Check if active layer is locked for creation tools
         creating_tools = [
             "draw_walls", "draw_rooms", "add_doors", "add_windows", 
-            "add_polyline", "add_dimension", "add_text", 
+            "add_polyline", "add_dimension", "add_dimension_chain", "add_leader", "add_text", 
             "add_circle", "add_arc", "add_stair", "design_roof", "add_roof_line"
         ]
         
@@ -67,6 +67,10 @@ class CanvasEventsMixin:
             self._handle_polyline_click(n_press, x, y)
         elif self.tool_mode == "add_dimension":
             self._handle_dimension_click(n_press, x, y)
+        elif self.tool_mode == "add_dimension_chain":
+            self._handle_dimension_chain_click(n_press, x, y)
+        elif self.tool_mode == "add_leader":
+            self._handle_leader_click(n_press, x, y)
         elif self.tool_mode == "add_text":
             self._handle_text_click(n_press, x, y)
         elif self.tool_mode == "add_circle":
@@ -209,6 +213,58 @@ class CanvasEventsMixin:
                             pass
                         return
 
+            if item.get("type") == "dimension_chain":
+                chain = item.get("object")
+                if not self.is_object_on_locked_layer(chain):
+                    pts = getattr(chain, "points", [])
+                    # Check point handles
+                    for idx, pt in enumerate(pts):
+                        pt_widget = ((pt[0] * T) + self.offset_x, (pt[1] * T) + self.offset_y)
+                        if math.hypot(x - pt_widget[0], y - pt_widget[1]) < self.handle_radius:
+                            self.editing_dimension_chain = chain
+                            self.editing_dimension_chain_handle = ("point", idx)
+                            self.box_select_start = pt
+                            try:
+                                self.save_state()
+                            except Exception:
+                                pass
+                            return
+                    # Check offset handle (midpoint of chain line)
+                    if len(pts) >= 2:
+                        p0, p1 = pts[0], pts[1]
+                        blen = math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+                        if blen > 1e-4:
+                            ux, uy = (p1[0] - p0[0]) / blen, (p1[1] - p0[1]) / blen
+                            px, py = -uy, ux
+                            projs = [(p[0] - p0[0]) * ux + (p[1] - p0[1]) * uy for p in pts]
+                            mid_t = (min(projs) + max(projs)) / 2.0
+                            h_pt = (p0[0] + mid_t * ux + chain.offset * px, p0[1] + mid_t * uy + chain.offset * py)
+                            h_widget = ((h_pt[0] * T) + self.offset_x, (h_pt[1] * T) + self.offset_y)
+                            if math.hypot(x - h_widget[0], y - h_widget[1]) < self.handle_radius:
+                                self.editing_dimension_chain = chain
+                                self.editing_dimension_chain_handle = ("offset", 0)
+                                self.box_select_start = h_pt
+                                try:
+                                    self.save_state()
+                                except Exception:
+                                    pass
+                                return
+
+            if item.get("type") == "leader_callout":
+                callout = item.get("object")
+                if not self.is_object_on_locked_layer(callout):
+                    for h_name, h_pos in [("tip", callout.tip), ("elbow", callout.elbow), ("shoulder", callout.shoulder)]:
+                        h_widget = ((h_pos[0] * T) + self.offset_x, (h_pos[1] * T) + self.offset_y)
+                        if math.hypot(x - h_widget[0], y - h_widget[1]) < self.handle_radius:
+                            self.editing_leader = callout
+                            self.editing_leader_handle = h_name
+                            self.box_select_start = h_pos
+                            try:
+                                self.save_state()
+                            except Exception:
+                                pass
+                            return
+
         # If no handle was pressed, proceed with normal click selection
         self._handle_pointer_click(gesture, n_press, x, y)
 
@@ -350,6 +406,12 @@ class CanvasEventsMixin:
             # After first click, preview line is drawn using _last_mouse_pos
             elif self.dimension_start:
                 self.queue_draw()
+
+        if self.tool_mode == "add_dimension_chain" and getattr(self, "drawing_dimension_chain", False):
+            self.queue_draw()
+
+        if self.tool_mode == "add_leader" and getattr(self, "drawing_leader", False):
+            self.queue_draw()
 
         if self.tool_mode == "draw_walls" and self.drawing_wall and self.current_wall:
             last_wall = self.walls[-1] if self.walls else None

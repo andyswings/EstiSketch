@@ -1,4 +1,6 @@
 import math
+import gi
+gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
 
 
@@ -576,6 +578,46 @@ class EditEventsMixin:
             self.queue_draw()
             return
 
+        # Handle editing dimension chain handles
+        if getattr(self, "editing_dimension_chain", None) and getattr(self, "editing_dimension_chain_handle", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            if hasattr(self, "click_start"):
+                cur_dev_x = self.click_start[0] + offset_x
+                cur_dev_y = self.click_start[1] + offset_y
+                new_x, new_y = self.device_to_model(cur_dev_x, cur_dev_y, pixels_per_inch)
+                chain = self.editing_dimension_chain
+                handle_type, handle_idx = self.editing_dimension_chain_handle
+
+                if handle_type == "offset":
+                    if len(chain.points) >= 2:
+                        chain.offset = self._calculate_dimension_offset(chain.points[0], chain.points[1], (new_x, new_y))
+                elif handle_type == "point":
+                    if 0 <= handle_idx < len(chain.points):
+                        chain.points[handle_idx] = (new_x, new_y)
+
+                self.queue_draw()
+                return
+
+        # Handle editing leader callout handles
+        if getattr(self, "editing_leader", None) and getattr(self, "editing_leader_handle", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            if hasattr(self, "click_start"):
+                cur_dev_x = self.click_start[0] + offset_x
+                cur_dev_y = self.click_start[1] + offset_y
+                new_x, new_y = self.device_to_model(cur_dev_x, cur_dev_y, pixels_per_inch)
+                callout = self.editing_leader
+                handle_name = self.editing_leader_handle
+
+                if handle_name == "tip":
+                    callout.tip = self._snap_leader_target(new_x, new_y, 16.0 / (self.zoom * pixels_per_inch))
+                elif handle_name == "elbow":
+                    callout.elbow = (new_x, new_y)
+                elif handle_name == "shoulder":
+                    callout.shoulder = (new_x, new_y)
+
+                self.queue_draw()
+                return
+
         # Handle text rotation
         if getattr(self, "rotating_text", None):
             pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
@@ -706,6 +748,41 @@ class EditEventsMixin:
 
                 dim.start = (orig_start[0] + dx, orig_start[1] + dy)
                 dim.end = (orig_end[0] + dx, orig_end[1] + dy)
+
+            self.queue_draw()
+            return
+
+        # Handle dimension chain dragging - translates all points together
+        if getattr(self, "dragging_dimension_chains", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            dx = current_model[0] - self.dimension_chain_drag_start_model[0]
+            dy = current_model[1] - self.dimension_chain_drag_start_model[1]
+
+            for item in self.dragging_dimension_chains:
+                ch = item["chain"]
+                orig_pts = item["original_points"]
+                ch.points = [(p[0] + dx, p[1] + dy) for p in orig_pts]
+
+            self.queue_draw()
+            return
+
+        # Handle leader callout dragging - translates tip, elbow, shoulder together
+        if getattr(self, "dragging_leaders", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            dx = current_model[0] - self.leader_drag_start_model[0]
+            dy = current_model[1] - self.leader_drag_start_model[1]
+
+            for item in self.dragging_leaders:
+                ld = item["leader"]
+                ld.tip = (item["original_tip"][0] + dx, item["original_tip"][1] + dy)
+                ld.elbow = (item["original_elbow"][0] + dx, item["original_elbow"][1] + dy)
+                ld.shoulder = (item["original_shoulder"][0] + dx, item["original_shoulder"][1] + dy)
 
             self.queue_draw()
             return

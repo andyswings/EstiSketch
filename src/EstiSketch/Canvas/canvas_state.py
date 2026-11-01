@@ -20,7 +20,9 @@ class CanvasStateMixin:
             "arcs": copy.deepcopy(self.arcs),
             "roofs": copy.deepcopy(getattr(self, "roofs", [])),
             "stairs": copy.deepcopy(getattr(self, "stairs", [])),
-            "blueprints": copy.deepcopy(getattr(self, "blueprints", []))
+            "blueprints": copy.deepcopy(getattr(self, "blueprints", [])),
+            "dimension_chains": copy.deepcopy(getattr(self, "dimension_chains", [])),
+            "leader_callouts": copy.deepcopy(getattr(self, "leader_callouts", []))
         }
         self.undo_stack.append(state)
         if len(self.undo_stack) > self.config.UNDO_REDO_LIMIT:
@@ -51,6 +53,8 @@ class CanvasStateMixin:
         self.roofs = copy.deepcopy(state.get("roofs", []))
         self.stairs = copy.deepcopy(state.get("stairs", []))
         self.blueprints = copy.deepcopy(state.get("blueprints", []))
+        self.dimension_chains = copy.deepcopy(state.get("dimension_chains", []))
+        self.leader_callouts = copy.deepcopy(state.get("leader_callouts", []))
         self.snap_type = "none"
         self.queue_draw()
         if hasattr(self, "emit"):

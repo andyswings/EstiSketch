@@ -1,8 +1,9 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
+- [ ] Walls can currently snap to edges of other walls, but rooms do not. We need to fix this.
 - [ ] Snapping guides / indicators should appear when in wall or room drawing mode even when not actively drawing, so that the user can see exactly where the wall or room point will be drawn upon clicking.
-- [ ] Continuous Dimension Chains (Continuous aligned dimension strings with summary dimension) & Leader Callout Arrows.
+- [x] Continuous Dimension Chains (Continuous aligned dimension strings with summary dimension) & Leader Callout Arrows.
 - [ ] Architectural Fixtures & Cabinetry 2D Symbols (Kitchen base/wall cabinets, bathroom fixtures, major appliances).
 - [ ] Room Cutouts / Interior Holes (Support for stairwell openings, lightwells, and courtyards within room polygons).
 - [ ] Scaled Vector Export & Architectural PDF Plotting (Cairo vector SVG export and scaled PDF sheets with title blocks).
@@ -16,20 +17,16 @@
 
 ### Architectural Elements (all elements should be procedural so that once created they can easily be modified)
 - [ ] Columns/Posts (rectangular, round, square) (Maybe we should be able to select an edge of a room, and specify approximate spacing or number of posts/columns and the app should automatically draw them with the correct spacing. Once drawn though, each post should be able to be independently edited (location, size, etc...). We should be able to place constraints on posts as well, like constraining two posts to be centered on a door for example, so that if you adjust one post the other will move automatically to preserve it's being centered on the door or if the door is moved the posts move with it.)
-- [ ] Beams
+- [ ] Beams (load bearing, decorative, cantilever, etc...) (should be able to specify material and dimensions or let it auto calculate dimensions based on load)
 - [ ] Ceiling types (dropped, vaulted, cathedral)
 - [ ] Railings/Guardrails (deck, stair, balcony)
-- [ ] Add Cabinet Tool
-- [ ] Countertops (custom shapes)
-- [ ] Appliances library
+- [ ] Add Bath Vanity / Kitchen Tool (Should also take care of countertops) (draw it like you would a wall? Or should we just select kitchen or bath type from a list [One-wall kitchen, Galley kitchen, L-shaped Kitchen, U-shaped Kitchen, G-shaped Kitchen, Peninsula Kitchen, Island Kitchen, ...etc] and then click where we want it to go? Once done we should be able to click on the cabinets to edit them individually.) (We also need options for bathroom vanities [Single, Double, ...etc].)
+- [ ] Appliances library (fridges, stoves, dishwashers, ovens, range hoods, microwaves, washers, dryers, water heaters, furnaces, air conditioners, etc...)
 - [ ] Moldings (crown, base, chair rail, casing)
 
 ### Dimensions & Annotations
 - [ ] Add automatic room area calculations
-- [ ] Dimension chains (continuous dimensions)
 - [ ] Radial/diameter dimensions
-- [ ] Angular dimensions
-- [ ] Leaders/Callouts
 - [ ] Text styles (save and reuse formatting)
 - [ ] Area/Perimeter labels
 - [ ] Schedules (door/window/material)
@@ -67,7 +64,6 @@
 - [ ] DWG/DXF import (AutoCAD files)
 - [ ] IFC import (BIM standard)
 - [ ] SketchUp (.skp)
-- [ ] PDF/images as underlay
 - [ ] CSV data import
 
 ### Export  

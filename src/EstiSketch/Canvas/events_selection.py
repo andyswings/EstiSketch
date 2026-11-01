@@ -55,6 +55,8 @@ class CanvasSelectionMixin:
     wall_drag_connected_end: Any
     dragging_vertices: Any
     dragging_dimensions: Any
+    dragging_dimension_chains: Any
+    dragging_leaders: Any
     dragging_stair: Any
     dragging_stair_start_pos: Any
     box_selecting: bool
@@ -114,6 +116,10 @@ class CanvasSelectionMixin:
         self.editing_stair_handle = None
         self.editing_dimension = None
         self.editing_dimension_handle = None
+        self.editing_dimension_chain = None
+        self.editing_dimension_chain_handle = None
+        self.editing_leader = None
+        self.editing_leader_handle = None
         self.editing_polyline = None
         self.editing_polyline_handle = None
         self.editing_circle = None
@@ -240,6 +246,61 @@ class CanvasSelectionMixin:
                             break
                 if selected_item:
                     break
+
+        # Check for dimension chain handle clicks
+        if selected_item is None:
+            for item in self.selected_items:
+                if item["type"] == "dimension_chain":
+                    chain = item["object"]
+                    if self.is_object_on_locked_layer(chain):
+                        continue
+                    # Check point handles
+                    for idx, pt in enumerate(getattr(chain, "points", [])):
+                        pt_widget = ((pt[0] * T) + self.offset_x, (pt[1] * T) + self.offset_y)
+                        if math.hypot(click_pt[0] - pt_widget[0], click_pt[1] - pt_widget[1]) < self.handle_radius:
+                            self.editing_dimension_chain = chain
+                            self.editing_dimension_chain_handle = ("point", idx)
+                            selected_item = {"type": "dimension_chain", "object": chain}
+                            break
+                    if selected_item:
+                        break
+                    # Check offset handle (midpoint of chain line)
+                    pts = getattr(chain, "points", [])
+                    if len(pts) >= 2:
+                        p0, p1 = pts[0], pts[1]
+                        dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+                        blen = math.hypot(dx, dy)
+                        if blen > 1e-4:
+                            ux, uy = dx / blen, dy / blen
+                            px, py = -uy, ux
+                            projs = [(p[0] - p0[0]) * ux + (p[1] - p0[1]) * uy for p in pts]
+                            mid_t = (min(projs) + max(projs)) / 2.0
+                            h_pt = (p0[0] + mid_t * ux + chain.offset * px, p0[1] + mid_t * uy + chain.offset * py)
+                            h_widget = ((h_pt[0] * T) + self.offset_x, (h_pt[1] * T) + self.offset_y)
+                            if math.hypot(click_pt[0] - h_widget[0], click_pt[1] - h_widget[1]) < self.handle_radius:
+                                self.editing_dimension_chain = chain
+                                self.editing_dimension_chain_handle = ("offset", 0)
+                                selected_item = {"type": "dimension_chain", "object": chain}
+                                break
+                if selected_item:
+                    break
+
+        # Check for leader callout handle clicks
+        if selected_item is None:
+            for item in self.selected_items:
+                if item["type"] == "leader_callout":
+                    callout = item["object"]
+                    if self.is_object_on_locked_layer(callout):
+                        continue
+                    for h_name, h_pos in [("tip", callout.tip), ("elbow", callout.elbow), ("shoulder", callout.shoulder)]:
+                        h_widget = ((h_pos[0] * T) + self.offset_x, (h_pos[1] * T) + self.offset_y)
+                        if math.hypot(click_pt[0] - h_widget[0], click_pt[1] - h_widget[1]) < self.handle_radius:
+                            self.editing_leader = callout
+                            self.editing_leader_handle = h_name
+                            selected_item = {"type": "leader_callout", "object": callout}
+                            break
+                    if selected_item:
+                        break
 
         # Check for polyline endpoint clicks (for editing)
         if selected_item is None:
@@ -423,60 +484,61 @@ class CanvasSelectionMixin:
                         break
 
         # T = self.zoom * pixels_per_inch
-        for wall_set in self.wall_sets:
-            for wall in wall_set:
-                if self.is_object_on_locked_layer(
-                        wall) or not self.is_object_on_visible_layer(wall):
-                    continue
-                start_widget = (
-                    (wall.start[0] * T) + self.offset_x,
-                    (wall.start[1] * T) + self.offset_y
-                )
-                end_widget = (
-                    (wall.end[0] * T) + self.offset_x,
-                    (wall.end[1] * T) + self.offset_y
-                )
-                dist_start = math.hypot(click_pt[0] - start_widget[0],
-                                        click_pt[1] - start_widget[1])
-                dist_end = math.hypot(click_pt[0] - end_widget[0],
-                                      click_pt[1] - end_widget[1])
-                if dist_start < fixed_threshold and dist_start < best_dist:
-                    best_dist = dist_start
-                    selected_item = {"type": "wall", "object": wall}
-                if dist_end < fixed_threshold and dist_end < best_dist:
-                    best_dist = dist_end
-                    selected_item = {"type": "wall", "object": wall}
-                
-                # Check distance to wall path (straight or curved)
-                if wall.is_curved and wall.arc_center and wall.arc_radius:
-                    # Curved wall - check distance to arc
-                    # Convert center to widget coordinates
-                    center_widget = (
-                        (wall.arc_center[0] * T) + self.offset_x,
-                        (wall.arc_center[1] * T) + self.offset_y
+        if selected_item is None:
+            for wall_set in self.wall_sets:
+                for wall in wall_set:
+                    if self.is_object_on_locked_layer(
+                            wall) or not self.is_object_on_visible_layer(wall):
+                        continue
+                    start_widget = (
+                        (wall.start[0] * T) + self.offset_x,
+                        (wall.start[1] * T) + self.offset_y
                     )
-                    radius_widget = wall.arc_radius * T
-                    
-                    # Calculate angles in widget space
-                    start_angle = math.atan2(start_widget[1] - center_widget[1], 
-                                            start_widget[0] - center_widget[0])
-                    end_angle = math.atan2(end_widget[1] - center_widget[1],
-                                          end_widget[0] - center_widget[0])
-                    
-                    dist_arc = self.distance_point_to_arc(
-                        click_pt, center_widget, radius_widget, start_angle, end_angle
+                    end_widget = (
+                        (wall.end[0] * T) + self.offset_x,
+                        (wall.end[1] * T) + self.offset_y
                     )
+                    dist_start = math.hypot(click_pt[0] - start_widget[0],
+                                            click_pt[1] - start_widget[1])
+                    dist_end = math.hypot(click_pt[0] - end_widget[0],
+                                          click_pt[1] - end_widget[1])
+                    if dist_start < fixed_threshold and dist_start < best_dist:
+                        best_dist = dist_start
+                        selected_item = {"type": "wall", "object": wall}
+                    if dist_end < fixed_threshold and dist_end < best_dist:
+                        best_dist = dist_end
+                        selected_item = {"type": "wall", "object": wall}
                     
-                    if dist_arc < fixed_threshold and dist_arc < best_dist:
-                        best_dist = dist_arc
-                        selected_item = {"type": "wall", "object": wall}
-                else:
-                    # Straight wall - use line segment distance
-                    dist_seg = self.distance_point_to_segment(
-                        click_pt, start_widget, end_widget)
-                    if dist_seg < fixed_threshold and dist_seg < best_dist:
-                        best_dist = dist_seg
-                        selected_item = {"type": "wall", "object": wall}
+                    # Check distance to wall path (straight or curved)
+                    if wall.is_curved and wall.arc_center and wall.arc_radius:
+                        # Curved wall - check distance to arc
+                        # Convert center to widget coordinates
+                        center_widget = (
+                            (wall.arc_center[0] * T) + self.offset_x,
+                            (wall.arc_center[1] * T) + self.offset_y
+                        )
+                        radius_widget = wall.arc_radius * T
+                        
+                        # Calculate angles in widget space
+                        start_angle = math.atan2(start_widget[1] - center_widget[1], 
+                                                start_widget[0] - center_widget[0])
+                        end_angle = math.atan2(end_widget[1] - center_widget[1],
+                                              end_widget[0] - center_widget[0])
+                        
+                        dist_arc = self.distance_point_to_arc(
+                            click_pt, center_widget, radius_widget, start_angle, end_angle
+                        )
+                        
+                        if dist_arc < fixed_threshold and dist_arc < best_dist:
+                            best_dist = dist_arc
+                            selected_item = {"type": "wall", "object": wall}
+                    else:
+                        # Straight wall - use line segment distance
+                        dist_seg = self.distance_point_to_segment(
+                            click_pt, start_widget, end_widget)
+                        if dist_seg < fixed_threshold and dist_seg < best_dist:
+                            best_dist = dist_seg
+                            selected_item = {"type": "wall", "object": wall}
 
         for room in self.rooms:
             if self.is_object_on_locked_layer(
@@ -542,22 +604,6 @@ class CanvasSelectionMixin:
                 if selected_item:
                     break
 
-        # Check for click inside room (for whole-room dragging)
-        if selected_item is None:
-            for room in self.rooms:
-                if self.is_object_on_locked_layer(
-                        room) or not self.is_object_on_visible_layer(room):
-                    continue
-                # Convert room points to widget coordinates
-                poly_widget = [
-                    ((pt[0] * T) + self.offset_x, (pt[1] * T) + self.offset_y)
-                    for pt in room.points
-                ]
-                if self._point_in_polygon(click_pt, poly_widget):
-                    selected_item = {"type": "room", "object": room}
-                    from ..Resources.tool_hints import TOOL_HINTS
-                    self.update_hint(TOOL_HINTS["select_room"])
-                    break
 
         for door_item in self.doors:
             wall, door, ratio = door_item
@@ -726,6 +772,106 @@ class CanvasSelectionMixin:
                     click_pt, dim_start_dev, dim_end_dev)
                 if dist < fixed_threshold:
                     selected_item = {"type": "dimension", "object": dimension}
+                    break
+
+        # Check Dimension Chains
+        if selected_item is None:
+            for chain in getattr(self, "dimension_chains", []):
+                if self.is_object_on_locked_layer(chain) or not self.is_object_on_visible_layer(chain):
+                    continue
+                pts = getattr(chain, "points", [])
+                if len(pts) < 2:
+                    continue
+                p0, p1 = pts[0], pts[1]
+                dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+                blen = math.hypot(dx, dy)
+                if blen < 1e-4:
+                    continue
+                ux, uy = dx / blen, dy / blen
+                px, py = -uy, ux
+                offset = getattr(chain, "offset", 18.0)
+                s_off = 1.0 if offset >= 0 else -1.0
+                witness_overhang = getattr(chain, "witness_overhang", 6.0)
+                summary_active = getattr(chain, "summary_dimension", True)
+                summary_offset = getattr(chain, "summary_offset", 16.0)
+                sum_off = offset + s_off * summary_offset
+
+                # Check anchor points
+                hit_chain = False
+                for pt in pts:
+                    pt_dev = self.model_to_device(pt[0], pt[1], pixels_per_inch)
+                    if math.hypot(click_pt[0] - pt_dev[0], click_pt[1] - pt_dev[1]) < fixed_threshold:
+                        selected_item = {"type": "dimension_chain", "object": chain}
+                        hit_chain = True
+                        break
+                if hit_chain:
+                    break
+
+                # Project points onto baseline
+                projected = []
+                for pt in pts:
+                    t = (pt[0] - p0[0]) * ux + (pt[1] - p0[1]) * uy
+                    projected.append((t, pt))
+                projected.sort(key=lambda item: item[0])
+                unique_proj = []
+                for t, pt in projected:
+                    if not unique_proj or abs(t - unique_proj[-1][0]) > 0.01:
+                        unique_proj.append((t, pt))
+                if len(unique_proj) < 2:
+                    continue
+
+                t_min, t_max = unique_proj[0][0], unique_proj[-1][0]
+                c_start = (p0[0] + t_min * ux + offset * px, p0[1] + t_min * uy + offset * py)
+                c_end = (p0[0] + t_max * ux + offset * px, p0[1] + t_max * uy + offset * py)
+                c_start_dev = self.model_to_device(c_start[0], c_start[1], pixels_per_inch)
+                c_end_dev = self.model_to_device(c_end[0], c_end[1], pixels_per_inch)
+                if self.distance_point_to_segment(click_pt, c_start_dev, c_end_dev) < fixed_threshold:
+                    selected_item = {"type": "dimension_chain", "object": chain}
+                    break
+
+                if summary_active:
+                    s_start = (p0[0] + t_min * ux + sum_off * px, p0[1] + t_min * uy + sum_off * py)
+                    s_end = (p0[0] + t_max * ux + sum_off * px, p0[1] + t_max * uy + sum_off * py)
+                    s_start_dev = self.model_to_device(s_start[0], s_start[1], pixels_per_inch)
+                    s_end_dev = self.model_to_device(s_end[0], s_end[1], pixels_per_inch)
+                    if self.distance_point_to_segment(click_pt, s_start_dev, s_end_dev) < fixed_threshold:
+                        selected_item = {"type": "dimension_chain", "object": chain}
+                        break
+
+                # Check witness lines
+                for i, (t, pt) in enumerate(unique_proj):
+                    d_pt = (p0[0] + t * ux + offset * px, p0[1] + t * uy + offset * py)
+                    if summary_active and (i == 0 or i == len(unique_proj) - 1):
+                        w_end = (p0[0] + t * ux + (sum_off + witness_overhang * s_off) * px,
+                                 p0[1] + t * uy + (sum_off + witness_overhang * s_off) * py)
+                    else:
+                        w_end = (d_pt[0] + witness_overhang * s_off * px, d_pt[1] + witness_overhang * s_off * py)
+                    pt_dev = self.model_to_device(pt[0], pt[1], pixels_per_inch)
+                    w_end_dev = self.model_to_device(w_end[0], w_end[1], pixels_per_inch)
+                    if self.distance_point_to_segment(click_pt, pt_dev, w_end_dev) < fixed_threshold:
+                        selected_item = {"type": "dimension_chain", "object": chain}
+                        hit_chain = True
+                        break
+                if hit_chain:
+                    break
+
+        # Check Leader Callouts
+        if selected_item is None:
+            for callout in getattr(self, "leader_callouts", []):
+                if self.is_object_on_locked_layer(callout) or not self.is_object_on_visible_layer(callout):
+                    continue
+                tip_dev = self.model_to_device(callout.tip[0], callout.tip[1], pixels_per_inch)
+                elbow_dev = self.model_to_device(callout.elbow[0], callout.elbow[1], pixels_per_inch)
+                shoulder_dev = self.model_to_device(callout.shoulder[0], callout.shoulder[1], pixels_per_inch)
+
+                if self.distance_point_to_segment(click_pt, tip_dev, elbow_dev) < fixed_threshold:
+                    selected_item = {"type": "leader_callout", "object": callout}
+                    break
+                if self.distance_point_to_segment(click_pt, elbow_dev, shoulder_dev) < fixed_threshold:
+                    selected_item = {"type": "leader_callout", "object": callout}
+                    break
+                if math.hypot(click_pt[0] - shoulder_dev[0], click_pt[1] - shoulder_dev[1]) < fixed_threshold * 2:
+                    selected_item = {"type": "leader_callout", "object": callout}
                     break
 
         # Check Circles
@@ -1026,6 +1172,23 @@ class CanvasSelectionMixin:
                      self.update_hint("Click to select stair")
                      break
 
+        # Check for click inside room (for whole-room dragging) - checked after discrete objects
+        if selected_item is None:
+            for room in self.rooms:
+                if self.is_object_on_locked_layer(
+                        room) or not self.is_object_on_visible_layer(room):
+                    continue
+                # Convert room points to widget coordinates
+                poly_widget = [
+                    ((pt[0] * T) + self.offset_x, (pt[1] * T) + self.offset_y)
+                    for pt in room.points
+                ]
+                if self._point_in_polygon(click_pt, poly_widget):
+                    selected_item = {"type": "room", "object": room}
+                    from ..Resources.tool_hints import TOOL_HINTS
+                    self.update_hint(TOOL_HINTS["select_room"])
+                    break
+
         event = gesture.get_current_event()
         state = event.get_modifier_state() if hasattr(
             event, "get_modifier_state") else event.state
@@ -1109,7 +1272,11 @@ class CanvasSelectionMixin:
         if (getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None)) or \
            (getattr(self, "editing_circle", None) and getattr(self, "editing_circle_handle", None)) or \
            (getattr(self, "editing_arc", None) and getattr(self, "editing_arc_handle", None)) or \
-           (getattr(self, "editing_roof_line", None) and getattr(self, "editing_roof_line_handle", None)):
+           (getattr(self, "editing_roof_line", None) and getattr(self, "editing_roof_line_handle", None)) or \
+           (getattr(self, "editing_polyline", None) and getattr(self, "editing_polyline_handle", None)) or \
+           (getattr(self, "editing_stair", None) and getattr(self, "editing_stair_handle", None)) or \
+           (getattr(self, "editing_dimension_chain", None) and getattr(self, "editing_dimension_chain_handle", None)) or \
+           (getattr(self, "editing_leader", None) and getattr(self, "editing_leader_handle", None)):
             
             # Initializing drag start coordinates for calculating drag offset
             self.drag_start_x = start_x
@@ -1328,6 +1495,40 @@ class CanvasSelectionMixin:
                         self.dimension_drag_start_model = self.device_to_model(
                             start_x, start_y, pixels_per_inch)
 
+                        self.box_selecting = False
+
+                # Check for dimension chain dragging
+                elif item["type"] == "dimension_chain" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "editing_dimension_chain", None):
+                    selected_chains = [i["object"] for i in self.selected_items if i["type"] == "dimension_chain" and not self.is_object_on_locked_layer(i["object"])]
+                    if selected_chains:
+                        self.dragging_dimension_chains = []
+                        for ch in selected_chains:
+                            self.dragging_dimension_chains.append({
+                                "chain": ch,
+                                "original_points": list(ch.points)
+                            })
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                        self.dimension_chain_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                        self.box_selecting = False
+
+                # Check for leader callout dragging
+                elif item["type"] == "leader_callout" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "editing_leader", None):
+                    selected_leaders = [i["object"] for i in self.selected_items if i["type"] == "leader_callout" and not self.is_object_on_locked_layer(i["object"])]
+                    if selected_leaders:
+                        self.dragging_leaders = []
+                        for ld in selected_leaders:
+                            self.dragging_leaders.append({
+                                "leader": ld,
+                                "original_tip": ld.tip,
+                                "original_elbow": ld.elbow,
+                                "original_shoulder": ld.shoulder
+                            })
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                        self.leader_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
                         self.box_selecting = False
 
                 # Check for polyline dragging - supports multiple selected polylines
@@ -1740,9 +1941,36 @@ class CanvasSelectionMixin:
 
             
         if getattr(self, "dragging_dimensions", None):
-            # Finalize dimension drag and clear dragging state
             self.dragging_dimensions = None
             self.dimension_drag_start_model = None
+            self.save_state()
+            self.queue_draw()
+            return
+
+        if getattr(self, "dragging_dimension_chains", None):
+            self.dragging_dimension_chains = None
+            self.dimension_chain_drag_start_model = None
+            self.save_state()
+            self.queue_draw()
+            return
+
+        if getattr(self, "dragging_leaders", None):
+            self.dragging_leaders = None
+            self.leader_drag_start_model = None
+            self.save_state()
+            self.queue_draw()
+            return
+
+        if getattr(self, "editing_dimension_chain", None):
+            self.editing_dimension_chain = None
+            self.editing_dimension_chain_handle = None
+            self.save_state()
+            self.queue_draw()
+            return
+
+        if getattr(self, "editing_leader", None):
+            self.editing_leader = None
+            self.editing_leader_handle = None
             self.save_state()
             self.queue_draw()
             return
@@ -1902,6 +2130,29 @@ class CanvasSelectionMixin:
                 if self.line_intersects_rect(dim_start, dim_end, rect):
                     new_selection.append(
                         {"type": "dimension", "object": dimension})
+
+            for chain in getattr(self, "dimension_chains", []):
+                if self.is_object_on_locked_layer(chain) or not self.is_object_on_visible_layer(chain):
+                    continue
+                pts = getattr(chain, "points", [])
+                if len(pts) >= 2:
+                    p0, p1 = pts[0], pts[1]
+                    dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+                    blen = math.hypot(dx, dy)
+                    if blen > 1e-4:
+                        ux, uy = dx / blen, dy / blen
+                        px, py = -uy, ux
+                        projs = [(p[0] - p0[0]) * ux + (p[1] - p0[1]) * uy for p in pts]
+                        c_start = (p0[0] + min(projs) * ux + chain.offset * px, p0[1] + min(projs) * uy + chain.offset * py)
+                        c_end = (p0[0] + max(projs) * ux + chain.offset * px, p0[1] + max(projs) * uy + chain.offset * py)
+                        if self.line_intersects_rect(c_start, c_end, rect):
+                            new_selection.append({"type": "dimension_chain", "object": chain})
+
+            for callout in getattr(self, "leader_callouts", []):
+                if self.is_object_on_locked_layer(callout) or not self.is_object_on_visible_layer(callout):
+                    continue
+                if self.line_intersects_rect(callout.tip, callout.elbow, rect) or self.line_intersects_rect(callout.elbow, callout.shoulder, rect):
+                    new_selection.append({"type": "leader_callout", "object": callout})
 
             for text in self.texts:
                 if self.is_object_on_locked_layer(
@@ -2080,6 +2331,37 @@ class CanvasSelectionMixin:
             rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
             popover.set_pointing_to(rect)
             popover.popup()
+            return
+
+        if self.tool_mode == "add_dimension_chain" and getattr(self, "drawing_dimension_chain", False):
+            if len(getattr(self, "dimension_chain_points", [])) >= 2:
+                self.finalize_dimension_chain()
+            else:
+                self.drawing_dimension_chain = False
+                self.dimension_chain_points = []
+                self.dimension_chain_offset = None
+                self.queue_draw()
+            return
+
+        if self.tool_mode == "add_leader" and getattr(self, "drawing_leader", False):
+            if getattr(self, "leader_tip", None) and getattr(self, "leader_elbow", None):
+                self.finalize_leader()
+            else:
+                self.drawing_leader = False
+                self.leader_tip = None
+                self.leader_elbow = None
+                self.queue_draw()
+            return
+
+        if self.tool_mode == "add_polyline" and getattr(self, "drawing_polyline", False):
+            self.save_state()
+            if self.polylines:
+                self.polyline_sets.append(self.polylines.copy())
+            self.drawing_polyline = False
+            self.current_polyline_start = None
+            self.polylines = []
+            self.emit('content-changed')
+            self.queue_draw()
             return
 
         # Invoke the existing right-click handler.
@@ -3197,6 +3479,34 @@ class CanvasSelectionMixin:
             dist = self.distance_point_to_segment(click_pt, dim_start_dev, dim_end_dev)
             if dist < fixed_threshold:
                 candidates.append({"type": "dimension", "object": dimension})
+
+        for chain in getattr(self, "dimension_chains", []):
+            if self.is_object_on_locked_layer(chain) or not self.is_object_on_visible_layer(chain):
+                continue
+            pts = getattr(chain, "points", [])
+            if len(pts) >= 2:
+                p0, p1 = pts[0], pts[1]
+                dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+                blen = math.hypot(dx, dy)
+                if blen > 1e-4:
+                    ux, uy = dx / blen, dy / blen
+                    px, py = -uy, ux
+                    projs = [(p[0] - p0[0]) * ux + (p[1] - p0[1]) * uy for p in pts]
+                    c_start = (p0[0] + min(projs) * ux + chain.offset * px, p0[1] + min(projs) * uy + chain.offset * py)
+                    c_end = (p0[0] + max(projs) * ux + chain.offset * px, p0[1] + max(projs) * uy + chain.offset * py)
+                    c_start_dev = self.model_to_device(c_start[0], c_start[1], pixels_per_inch)
+                    c_end_dev = self.model_to_device(c_end[0], c_end[1], pixels_per_inch)
+                    if self.distance_point_to_segment(click_pt, c_start_dev, c_end_dev) < fixed_threshold:
+                        candidates.append({"type": "dimension_chain", "object": chain})
+
+        for callout in getattr(self, "leader_callouts", []):
+            if self.is_object_on_locked_layer(callout) or not self.is_object_on_visible_layer(callout):
+                continue
+            tip_dev = self.model_to_device(callout.tip[0], callout.tip[1], pixels_per_inch)
+            elbow_dev = self.model_to_device(callout.elbow[0], callout.elbow[1], pixels_per_inch)
+            shoulder_dev = self.model_to_device(callout.shoulder[0], callout.shoulder[1], pixels_per_inch)
+            if self.distance_point_to_segment(click_pt, tip_dev, elbow_dev) < fixed_threshold or self.distance_point_to_segment(click_pt, elbow_dev, shoulder_dev) < fixed_threshold:
+                candidates.append({"type": "leader_callout", "object": callout})
 
         
         # Check Circles

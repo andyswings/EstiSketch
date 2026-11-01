@@ -123,7 +123,7 @@ Allow users to import raster images (PNG, JPG) or vector blueprints as drawing u
 
 ---
 
-### Phase 3: Continuous Dimension Chains & Annotation Leaders (Roadmap Item #3)
+### Phase 3: Continuous Dimension Chains & Annotation Leaders (Roadmap Item #3) - Completed
 
 #### 3.1 Requirements
 Provide rapid architectural dimensioning via unbroken dimension strings along exterior walls and leader callouts for construction annotations.

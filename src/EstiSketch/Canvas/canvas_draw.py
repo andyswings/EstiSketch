@@ -169,6 +169,12 @@ class CanvasDrawMixin:
         # Draw dimensions
         self.draw_dimensions(cr)
 
+        # Draw dimension chains
+        self.draw_dimension_chains(cr)
+
+        # Draw leader callouts
+        self.draw_leader_callouts(cr)
+
         # Draw roofs
         self.draw_roofs(cr)
 
@@ -1549,6 +1555,512 @@ class CanvasDrawMixin:
         cr.show_text(measurement_str)
         cr.restore()
         
+        cr.restore()
+
+    def draw_dimension_chains(self, cr):
+        """Draw all continuous dimension chains and any in-progress creation preview."""
+        pixels_per_inch = self.config.PIXELS_PER_INCH
+
+        def is_visible(obj):
+            if hasattr(self, 'is_object_on_visible_layer'):
+                return self.is_object_on_visible_layer(obj)
+            return True
+
+        for chain in getattr(self, 'dimension_chains', []):
+            if not is_visible(chain):
+                continue
+            self._draw_single_dimension_chain(cr, chain, pixels_per_inch)
+
+        # Draw in-progress preview
+        if getattr(self, 'drawing_dimension_chain', False) and getattr(self, 'dimension_chain_points', None):
+            pts = list(self.dimension_chain_points)
+            mouse_pos = getattr(self, '_last_mouse_pos', None)
+
+            # Draw handle dots at all clicked points
+            cr.save()
+            for pt in pts:
+                cr.arc(pt[0], pt[1], 4.0 / (self.zoom * pixels_per_inch), 0, 2 * math.pi)
+                cr.set_source_rgba(0.15, 0.45, 0.9, 0.9)
+                cr.fill_preserve()
+                cr.set_source_rgba(1.0, 1.0, 1.0, 0.95)
+                cr.set_line_width(1.5 / (self.zoom * pixels_per_inch))
+                cr.stroke()
+            cr.restore()
+
+            if len(pts) == 1 and mouse_pos:
+                # 1st point clicked: draw dashed line to cursor
+                cr.save()
+                cr.set_source_rgba(0.2, 0.5, 0.9, 0.8)
+                cr.set_line_width(1.5 / (self.zoom * pixels_per_inch))
+                cr.set_dash([4.0 / (self.zoom * pixels_per_inch), 4.0 / (self.zoom * pixels_per_inch)])
+                cr.move_to(pts[0][0], pts[0][1])
+                cr.line_to(mouse_pos[0], mouse_pos[1])
+                cr.stroke()
+                cr.restore()
+            elif len(pts) >= 2:
+                # 2+ points: preview chain
+                offset = self.dimension_chain_offset
+                if offset is None and mouse_pos:
+                    # Calculate preview offset from baseline
+                    offset = self._calculate_dimension_offset(pts[0], pts[1], mouse_pos)
+                if offset is None or abs(offset) < 1.0:
+                    offset = 18.0
+                preview_chain = self.DimensionChain(
+                    points=pts,
+                    offset=offset,
+                    summary_dimension=True,
+                    summary_offset=16.0,
+                    text_size=12.0
+                )
+                self._draw_single_dimension_chain(cr, preview_chain, pixels_per_inch, is_preview=True)
+
+    def _draw_single_dimension_chain(self, cr, chain, pixels_per_inch, is_preview=False):
+        """Draw a single continuous dimension chain with witness lines, ticks/arrows, and summary dimension."""
+        points = getattr(chain, 'points', [])
+        if len(points) < 2:
+            return
+
+        p0 = points[0]
+        p1 = points[1]
+        dx = p1[0] - p0[0]
+        dy = p1[1] - p0[1]
+        baseline_len = math.hypot(dx, dy)
+        if baseline_len < 1e-4:
+            return
+
+        ux = dx / baseline_len
+        uy = dy / baseline_len
+        px = -uy
+        py = ux
+
+        # Project points onto baseline
+        projected = []
+        for pt in points:
+            t = (pt[0] - p0[0]) * ux + (pt[1] - p0[1]) * uy
+            projected.append((t, pt))
+
+        # Sort by t
+        projected.sort(key=lambda item: item[0])
+
+        # Remove duplicate projections
+        unique_proj = []
+        for t, pt in projected:
+            if not unique_proj or abs(t - unique_proj[-1][0]) > 0.01:
+                unique_proj.append((t, pt))
+
+        if len(unique_proj) < 2:
+            return
+
+        offset = getattr(chain, 'offset', 18.0)
+        s_off = 1.0 if offset >= 0 else -1.0
+        witness_gap = getattr(chain, 'witness_gap', 4.0)
+        witness_overhang = getattr(chain, 'witness_overhang', 6.0)
+        text_size = getattr(chain, 'text_size', 12.0)
+        show_arrows = getattr(chain, 'show_arrows', True)
+        arrow_style = getattr(chain, 'arrow_style', 'architectural_tick')
+        summary_dimension = getattr(chain, 'summary_dimension', True)
+        summary_offset = getattr(chain, 'summary_offset', 16.0)
+
+        is_selected = False
+        if not is_preview:
+            is_selected = any(
+                item.get("type") == "dimension_chain" and item.get("object") is chain
+                for item in self.selected_items
+            )
+
+        color = getattr(chain, 'color', (0.0, 0.0, 0.0))
+        cr.save()
+
+        if is_preview:
+            cr.set_source_rgba(color[0], color[1], color[2], 0.5)
+        elif is_selected:
+            cr.set_source_rgb(0.0, 0.4, 0.8)
+        else:
+            opacity = 1.0
+            if hasattr(self, 'get_object_opacity'):
+                opacity = self.get_object_opacity(chain)
+            cr.set_source_rgba(color[0], color[1], color[2], opacity)
+
+        line_width = 1.0 / (self.zoom * pixels_per_inch)
+        if is_selected:
+            line_width *= 2.0
+        cr.set_line_width(line_width)
+
+        line_style = getattr(chain, 'line_style', 'solid')
+        if line_style == 'dashed':
+            cr.set_dash([4.0 / (self.zoom * pixels_per_inch), 4.0 / (self.zoom * pixels_per_inch)])
+        else:
+            cr.set_dash([])
+
+        def dim_pt(t, off=offset):
+            return (p0[0] + t * ux + off * px, p0[1] + t * uy + off * py)
+
+        t_min = unique_proj[0][0]
+        t_max = unique_proj[-1][0]
+        start_dim = dim_pt(t_min)
+        end_dim = dim_pt(t_max)
+
+        # 1. Continuous Dimension Line
+        cr.move_to(start_dim[0], start_dim[1])
+        cr.line_to(end_dim[0], end_dim[1])
+        cr.stroke()
+
+        # 2. Witness Lines
+        cr.set_line_width(0.5 / (self.zoom * pixels_per_inch))
+        summary_active = summary_dimension and len(unique_proj) >= 2
+        sum_off = offset + s_off * summary_offset
+
+        for i, (t, pt) in enumerate(unique_proj):
+            d_pt = dim_pt(t)
+            w_start = (pt[0] + witness_gap * s_off * px, pt[1] + witness_gap * s_off * py)
+            
+            # The two extreme points extend out to the summary dimension line if enabled
+            if summary_active and (i == 0 or i == len(unique_proj) - 1):
+                w_end = (p0[0] + t * ux + (sum_off + witness_overhang * s_off) * px,
+                         p0[1] + t * uy + (sum_off + witness_overhang * s_off) * py)
+            else:
+                w_end = (d_pt[0] + witness_overhang * s_off * px, d_pt[1] + witness_overhang * s_off * py)
+
+            cr.move_to(w_start[0], w_start[1])
+            cr.line_to(w_end[0], w_end[1])
+            cr.stroke()
+
+        # 3. Ticks or Arrows at each witness intersection
+        if show_arrows:
+            slash_len = 6.0 / (self.zoom * pixels_per_inch)
+            slash_vec_x = (ux + px) * 0.7071 * slash_len
+            slash_vec_y = (uy + py) * 0.7071 * slash_len
+
+            if arrow_style == 'architectural_tick':
+                cr.set_line_width(1.8 / (self.zoom * pixels_per_inch))
+                for t, _ in unique_proj:
+                    d_pt = dim_pt(t)
+                    cr.move_to(d_pt[0] - slash_vec_x, d_pt[1] - slash_vec_y)
+                    cr.line_to(d_pt[0] + slash_vec_x, d_pt[1] + slash_vec_y)
+                    cr.stroke()
+            else:
+                # Standard arrows along segments
+                arrow_size = 8.0 / (self.zoom * pixels_per_inch)
+                arrow_angle = 25.0 * math.pi / 180.0
+                for i in range(len(unique_proj) - 1):
+                    t_a = unique_proj[i][0]
+                    t_b = unique_proj[i+1][0]
+                    pa = dim_pt(t_a)
+                    pb = dim_pt(t_b)
+                    seg_len = math.hypot(pb[0] - pa[0], pb[1] - pa[1])
+                    if seg_len > arrow_size * 2:
+                        ang = math.atan2(pb[1] - pa[1], pb[0] - pa[0])
+                        # Arrow at pa pointing to pb
+                        cr.move_to(pa[0], pa[1])
+                        cr.line_to(pa[0] + arrow_size * math.cos(ang + arrow_angle),
+                                   pa[1] + arrow_size * math.sin(ang + arrow_angle))
+                        cr.move_to(pa[0], pa[1])
+                        cr.line_to(pa[0] + arrow_size * math.cos(ang - arrow_angle),
+                                   pa[1] + arrow_size * math.sin(ang - arrow_angle))
+                        # Arrow at pb pointing to pa
+                        cr.move_to(pb[0], pb[1])
+                        cr.line_to(pb[0] - arrow_size * math.cos(ang + arrow_angle),
+                                   pb[1] - arrow_size * math.sin(ang + arrow_angle))
+                        cr.move_to(pb[0], pb[1])
+                        cr.line_to(pb[0] - arrow_size * math.cos(ang - arrow_angle),
+                                   pb[1] - arrow_size * math.sin(ang - arrow_angle))
+                        cr.stroke()
+
+        # 4. Segment Measurement Texts
+        dim_angle = math.atan2(uy, ux)
+        deg = math.degrees(dim_angle) % 360
+        flip = (90 < deg < 270)
+        text_rot = dim_angle + (math.pi if flip else 0.0)
+
+        for i in range(len(unique_proj) - 1):
+            t_a = unique_proj[i][0]
+            t_b = unique_proj[i+1][0]
+            seg_len = t_b - t_a
+            if seg_len < 0.05:
+                continue
+            mid_t = (t_a + t_b) / 2.0
+            mid_pt = dim_pt(mid_t)
+            measurement_str = self.converter.format_measurement(seg_len, use_fraction=False)
+
+            cr.save()
+            cr.translate(mid_pt[0], mid_pt[1])
+            cr.rotate(text_rot)
+            cr.select_font_face("Sans", 0, 0)
+            cr.set_font_size(text_size / (self.zoom * pixels_per_inch))
+            extents = cr.text_extents(measurement_str)
+
+            # Mask background behind text
+            cr.save()
+            pad = 2.0 / (self.zoom * pixels_per_inch)
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.85)
+            cr.rectangle(-extents.width / 2.0 - pad, -extents.height - pad, extents.width + 2 * pad, extents.height + 2 * pad)
+            cr.fill()
+            cr.restore()
+
+            if is_selected:
+                cr.set_source_rgb(0.0, 0.4, 0.8)
+            else:
+                cr.set_source_rgba(color[0], color[1], color[2], 1.0)
+            cr.move_to(-extents.width / 2.0, -extents.height * 0.1)
+            cr.show_text(measurement_str)
+            cr.restore()
+
+        # 5. Summary Dimension
+        if summary_active:
+            sum_start = dim_pt(t_min, off=sum_off)
+            sum_end = dim_pt(t_max, off=sum_off)
+
+            cr.set_line_width(line_width)
+            cr.move_to(sum_start[0], sum_start[1])
+            cr.line_to(sum_end[0], sum_end[1])
+            cr.stroke()
+
+            # Summary ticks or arrows
+            if show_arrows:
+                if arrow_style == 'architectural_tick':
+                    cr.set_line_width(2.0 / (self.zoom * pixels_per_inch))
+                    for pt_ in (sum_start, sum_end):
+                        cr.move_to(pt_[0] - slash_vec_x, pt_[1] - slash_vec_y)
+                        cr.line_to(pt_[0] + slash_vec_x, pt_[1] + slash_vec_y)
+                        cr.stroke()
+
+            # Summary Text
+            tot_len = t_max - t_min
+            sum_mid = dim_pt((t_min + t_max) / 2.0, off=sum_off)
+            sum_text = self.converter.format_measurement(tot_len, use_fraction=False)
+
+            cr.save()
+            cr.translate(sum_mid[0], sum_mid[1])
+            cr.rotate(text_rot)
+            cr.select_font_face("Sans", 0, 0)
+            cr.set_font_size((text_size + 1.0) / (self.zoom * pixels_per_inch))
+            extents = cr.text_extents(sum_text)
+
+            pad = 2.0 / (self.zoom * pixels_per_inch)
+            cr.save()
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.85)
+            cr.rectangle(-extents.width / 2.0 - pad, -extents.height - pad, extents.width + 2 * pad, extents.height + 2 * pad)
+            cr.fill()
+            cr.restore()
+
+            if is_selected:
+                cr.set_source_rgb(0.0, 0.4, 0.8)
+            else:
+                cr.set_source_rgba(color[0], color[1], color[2], 1.0)
+            cr.move_to(-extents.width / 2.0, -extents.height * 0.1)
+            cr.show_text(sum_text)
+            cr.restore()
+
+        # 6. Selected handles
+        if is_selected:
+            handle_r = 4.0 / (self.zoom * pixels_per_inch)
+            # Offset handle at center of chain
+            mid_t = (t_min + t_max) / 2.0
+            h_offset = dim_pt(mid_t)
+            cr.arc(h_offset[0], h_offset[1], handle_r, 0, 2 * math.pi)
+            cr.set_source_rgb(0.0, 0.6, 1.0)
+            cr.fill_preserve()
+            cr.set_source_rgb(1.0, 1.0, 1.0)
+            cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+            cr.stroke()
+
+            # Handles at each measured anchor point
+            for _, pt in unique_proj:
+                cr.arc(pt[0], pt[1], handle_r, 0, 2 * math.pi)
+                cr.set_source_rgb(0.0, 0.4, 0.8)
+                cr.fill_preserve()
+                cr.set_source_rgb(1.0, 1.0, 1.0)
+                cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+                cr.stroke()
+
+        cr.restore()
+
+    def draw_leader_callouts(self, cr):
+        """Draw all leader callout annotations and in-progress creation preview."""
+        pixels_per_inch = self.config.PIXELS_PER_INCH
+
+        def is_visible(obj):
+            if hasattr(self, 'is_object_on_visible_layer'):
+                return self.is_object_on_visible_layer(obj)
+            return True
+
+        for callout in getattr(self, 'leader_callouts', []):
+            if not is_visible(callout):
+                continue
+            self._draw_single_leader_callout(cr, callout, pixels_per_inch)
+
+        # In-progress preview
+        if getattr(self, 'drawing_leader', False) and getattr(self, 'leader_tip', None):
+            tip = self.leader_tip
+            elbow = getattr(self, 'leader_elbow', None)
+            mouse_pos = getattr(self, '_last_mouse_pos', None)
+            if elbow is None and mouse_pos:
+                # 1st point clicked: draw line from tip to cursor
+                cr.save()
+                cr.set_source_rgba(0.2, 0.5, 0.9, 0.7)
+                cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+                cr.set_dash([4.0 / (self.zoom * pixels_per_inch), 4.0 / (self.zoom * pixels_per_inch)])
+                cr.move_to(tip[0], tip[1])
+                cr.line_to(mouse_pos[0], mouse_pos[1])
+                cr.stroke()
+                cr.restore()
+            elif elbow is not None and mouse_pos:
+                # Tip and elbow set: preview leader to cursor
+                preview_callout = self.LeaderCallout(
+                    tip=tip,
+                    elbow=elbow,
+                    shoulder=mouse_pos,
+                    text="Note",
+                    text_size=12.0
+                )
+                self._draw_single_leader_callout(cr, preview_callout, pixels_per_inch, is_preview=True)
+
+    def _draw_single_leader_callout(self, cr, callout, pixels_per_inch, is_preview=False):
+        """Draw a single leader callout with arrowhead, elbow, landing shoulder, and multiline text."""
+        tip = getattr(callout, 'tip', (0.0, 0.0))
+        elbow = getattr(callout, 'elbow', tip)
+        shoulder = getattr(callout, 'shoulder', elbow)
+        text = getattr(callout, 'text', '')
+        text_size = getattr(callout, 'text_size', 12.0)
+        box_border = getattr(callout, 'box_border', False)
+        arrow_type = getattr(callout, 'arrow_type', 'arrow')
+        color = getattr(callout, 'color', (0.0, 0.0, 0.0))
+
+        is_selected = False
+        if not is_preview:
+            is_selected = any(
+                item.get("type") == "leader_callout" and item.get("object") is callout
+                for item in self.selected_items
+            )
+
+        cr.save()
+
+        if is_preview:
+            cr.set_source_rgba(color[0], color[1], color[2], 0.5)
+        elif is_selected:
+            cr.set_source_rgb(0.0, 0.4, 0.8)
+        else:
+            opacity = 1.0
+            if hasattr(self, 'get_object_opacity'):
+                opacity = self.get_object_opacity(callout)
+            cr.set_source_rgba(color[0], color[1], color[2], opacity)
+
+        line_width = 1.0 / (self.zoom * pixels_per_inch)
+        if is_selected:
+            line_width *= 2.0
+        cr.set_line_width(line_width)
+
+        line_style = getattr(callout, 'line_style', 'solid')
+        if line_style == 'dashed':
+            cr.set_dash([4.0 / (self.zoom * pixels_per_inch), 4.0 / (self.zoom * pixels_per_inch)])
+        else:
+            cr.set_dash([])
+
+        # Draw leader lines
+        cr.move_to(tip[0], tip[1])
+        cr.line_to(elbow[0], elbow[1])
+        cr.line_to(shoulder[0], shoulder[1])
+        cr.stroke()
+
+        # Arrowhead / Tip marker
+        dx = elbow[0] - tip[0]
+        dy = elbow[1] - tip[1]
+        dist = math.hypot(dx, dy)
+        if dist > 1e-4:
+            ang = math.atan2(dy, dx)
+            if arrow_type == "arrow":
+                arrow_len = 10.0 / (self.zoom * pixels_per_inch)
+                arrow_w = 25.0 * math.pi / 180.0
+                cr.move_to(tip[0], tip[1])
+                cr.line_to(tip[0] + arrow_len * math.cos(ang + arrow_w),
+                           tip[1] + arrow_len * math.sin(ang + arrow_w))
+                cr.line_to(tip[0] + arrow_len * math.cos(ang - arrow_w),
+                           tip[1] + arrow_len * math.sin(ang - arrow_w))
+                cr.close_path()
+                cr.fill()
+            elif arrow_type == "dot":
+                dot_r = 3.5 / (self.zoom * pixels_per_inch)
+                cr.arc(tip[0], tip[1], dot_r, 0, 2 * math.pi)
+                cr.fill()
+            elif arrow_type == "slash":
+                tick_len = 6.0 / (self.zoom * pixels_per_inch)
+                slash_ang = ang + math.pi / 4.0
+                cr.move_to(tip[0] - tick_len * math.cos(slash_ang), tip[1] - tick_len * math.sin(slash_ang))
+                cr.line_to(tip[0] + tick_len * math.cos(slash_ang), tip[1] + tick_len * math.sin(slash_ang))
+                cr.stroke()
+            elif arrow_type == "open_arrow":
+                arrow_len = 8.0 / (self.zoom * pixels_per_inch)
+                arrow_w = 25.0 * math.pi / 180.0
+                cr.move_to(tip[0] + arrow_len * math.cos(ang + arrow_w),
+                           tip[1] + arrow_len * math.sin(ang + arrow_w))
+                cr.line_to(tip[0], tip[1])
+                cr.line_to(tip[0] + arrow_len * math.cos(ang - arrow_w),
+                           tip[1] + arrow_len * math.sin(ang - arrow_w))
+                cr.stroke()
+
+        # Multiline text at shoulder
+        lines = text.split("\n") if text else ["Note"]
+        cr.select_font_face("Sans", 0, 0)
+        cr.set_font_size(text_size / (self.zoom * pixels_per_inch))
+
+        line_height = (text_size * 1.3) / (self.zoom * pixels_per_inch)
+        max_w = 0.0
+        for l in lines:
+            ext = cr.text_extents(l)
+            if ext.width > max_w:
+                max_w = ext.width
+
+        total_h = len(lines) * line_height
+        pad = 4.0 / (self.zoom * pixels_per_inch)
+
+        # Right-facing vs left-facing shoulder
+        is_right = (shoulder[0] >= elbow[0])
+        if is_right:
+            box_x = shoulder[0] + pad
+        else:
+            box_x = shoulder[0] - max_w - pad * 3
+
+        box_y = shoulder[1] - total_h / 2.0 - pad
+        box_w = max_w + pad * 2
+        box_h = total_h + pad * 2
+
+        # White background backing
+        cr.save()
+        cr.set_source_rgba(1.0, 1.0, 1.0, 0.9)
+        cr.rectangle(box_x, box_y, box_w, box_h)
+        cr.fill()
+        if box_border:
+            if is_selected:
+                cr.set_source_rgb(0.0, 0.4, 0.8)
+            else:
+                cr.set_source_rgba(color[0], color[1], color[2], 1.0)
+            cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+            cr.rectangle(box_x, box_y, box_w, box_h)
+            cr.stroke()
+        cr.restore()
+
+        # Render text lines
+        if is_selected:
+            cr.set_source_rgb(0.0, 0.4, 0.8)
+        else:
+            cr.set_source_rgba(color[0], color[1], color[2], 1.0)
+
+        for idx, line_str in enumerate(lines):
+            ty = box_y + pad + (idx + 0.85) * line_height
+            cr.move_to(box_x + pad, ty)
+            cr.show_text(line_str)
+
+        # Selection handles
+        if is_selected:
+            handle_r = 4.0 / (self.zoom * pixels_per_inch)
+            for h_pt in (tip, elbow, shoulder):
+                cr.arc(h_pt[0], h_pt[1], handle_r, 0, 2 * math.pi)
+                cr.set_source_rgb(0.0, 0.4, 0.8)
+                cr.fill_preserve()
+                cr.set_source_rgb(1.0, 1.0, 1.0)
+                cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+                cr.stroke()
+
         cr.restore()
 
     def _draw_circle(self, cr, circle, is_preview=False):

@@ -708,3 +708,281 @@ class CanvasToolsMixin:
         if not self.drawing_arc:
             self.emit('content-changed')
         self.queue_draw()
+
+    def _handle_dimension_chain_click(self, n_press: int, x: float, y: float) -> None:
+        """Handle multi-click continuous dimension chain creation."""
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        canvas_x = (x - self.offset_x) / (self.zoom * pixels_per_inch)
+        canvas_y = (y - self.offset_y) / (self.zoom * pixels_per_inch)
+
+        # Snap point
+        last = self.dimension_chain_points[-1] if getattr(self, "dimension_chain_points", None) else (canvas_x, canvas_y)
+        candidates = self._get_candidate_points() + [last]
+        (sx, sy), self.snap_type = self.snap_manager.snap_point(
+            canvas_x, canvas_y,
+            last[0], last[1],
+            self.walls, self.rooms,
+            current_wall=None, last_wall=None,
+            in_progress_points=candidates,
+            canvas_width=self.get_allocation().width or self.config.WINDOW_WIDTH,
+            zoom=self.zoom
+        )
+        ax, ay, _ = self._apply_alignment_snapping(sx, sy)
+        click_pt = (ax, ay)
+
+        # If double-click: finalize immediately (do not append duplicate point!)
+        if n_press == 2:
+            if getattr(self, "drawing_dimension_chain", False) and len(getattr(self, "dimension_chain_points", [])) >= 2:
+                if self.dimension_chain_offset is None:
+                    p0 = self.dimension_chain_points[0]
+                    p1 = self.dimension_chain_points[1]
+                    off = self._calculate_dimension_offset(p0, p1, (canvas_x, canvas_y))
+                    self.dimension_chain_offset = off if abs(off) > 1.0 else 18.0
+                self.finalize_dimension_chain()
+            return
+
+        if not getattr(self, "drawing_dimension_chain", False):
+            # First click: start of chain
+            self.selected_items = []
+            self.dimension_chain_points = [click_pt]
+            self.drawing_dimension_chain = True
+            self.dimension_chain_offset = None
+            self.update_hint(TOOL_HINTS["add_dimension_chain_baseline"])
+            self.queue_draw()
+            return
+
+        if len(self.dimension_chain_points) == 1:
+            # Second click: establishes baseline axis
+            p0 = self.dimension_chain_points[0]
+            if math.hypot(click_pt[0] - p0[0], click_pt[1] - p0[1]) < 0.5:
+                return
+            self.dimension_chain_points.append(click_pt)
+            self.update_hint(TOOL_HINTS["add_dimension_chain_offset"])
+            self.queue_draw()
+            return
+
+        # We have at least 2 points (p0 and p1) establishing the baseline
+        p0 = self.dimension_chain_points[0]
+        p1 = self.dimension_chain_points[1]
+        dx = p1[0] - p0[0]
+        dy = p1[1] - p0[1]
+        blen = math.hypot(dx, dy)
+        if blen < 1e-4:
+            return
+        ux = dx / blen
+        uy = dy / blen
+        px = -uy
+        py = ux
+
+        # Calculate perpendicular distance of click to baseline
+        d_perp = (canvas_x - p0[0]) * px + (canvas_y - p0[1]) * py
+
+        # If user clicked away from the baseline (d_perp >= 6.0),
+        # they are setting the offset and dropping the chain!
+        is_offset_click = (abs(d_perp) >= 6.0)
+
+        if is_offset_click:
+            self.dimension_chain_offset = d_perp
+            self.finalize_dimension_chain()
+            return
+
+        # Otherwise, user is clicking an additional point along the chain (e.g. wall feature)
+        last_pt = self.dimension_chain_points[-1]
+        if math.hypot(click_pt[0] - last_pt[0], click_pt[1] - last_pt[1]) >= 0.5:
+            self.dimension_chain_points.append(click_pt)
+            self.update_hint(TOOL_HINTS["add_dimension_chain_points"])
+            self.queue_draw()
+
+    def finalize_dimension_chain(self) -> None:
+        """Finalize the in-progress dimension chain and save state."""
+        pts = getattr(self, "dimension_chain_points", [])
+        if len(pts) >= 2:
+            chain_id = self.generate_identifier("dim_chain", self.existing_ids)
+            offset = self.dimension_chain_offset if self.dimension_chain_offset is not None else 18.0
+            if abs(offset) < 1.0:
+                offset = 18.0
+            new_chain = self.DimensionChain(
+                points=list(pts),
+                offset=offset,
+                identifier=chain_id,
+                layer_id=self.active_layer_id,
+                summary_dimension=True,
+                summary_offset=16.0,
+                arrow_style="architectural_tick",
+                line_style="solid",
+                text_size=12.0
+            )
+            self.dimension_chains.append(new_chain)
+            self.existing_ids.append(chain_id)
+            self.selected_items = [{"type": "dimension_chain", "object": new_chain}]
+            self.save_state()
+            self.emit('content-changed')
+            self.emit('selection-changed', self.selected_items)
+
+        self.drawing_dimension_chain = False
+        self.dimension_chain_points = []
+        self.dimension_chain_offset = None
+        self.update_hint(TOOL_HINTS["add_dimension_chain"])
+        self.queue_draw()
+
+    def _snap_leader_target(self, x: float, y: float, snap_threshold: float = 15.0) -> tuple:
+        """Snap leader arrowhead tip to wall faces, windows, doors, or stairs."""
+        best_pt = (x, y)
+        best_dist = snap_threshold
+
+        # 1. Snap to discrete object features: doors, windows, stairs
+        for door_item in getattr(self, "doors", []):
+            if isinstance(door_item, (tuple, list)) and len(door_item) >= 3 and door_item[0]:
+                wall, door, ratio = door_item[0], door_item[1], door_item[2]
+                dx = wall.end[0] - wall.start[0]
+                dy = wall.end[1] - wall.start[1]
+                center_x = wall.start[0] + ratio * dx
+                center_y = wall.start[1] + ratio * dy
+                dist = math.hypot(x - center_x, y - center_y)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_pt = (center_x, center_y)
+            elif hasattr(door_item, "floating_pos") and door_item.floating_pos:
+                dist = math.hypot(x - door_item.floating_pos[0], y - door_item.floating_pos[1])
+                if dist < best_dist:
+                    best_dist = dist
+                    best_pt = door_item.floating_pos
+
+        for win_item in getattr(self, "windows", []):
+            if isinstance(win_item, (tuple, list)) and len(win_item) >= 3 and win_item[0]:
+                wall, win, ratio = win_item[0], win_item[1], win_item[2]
+                dx = wall.end[0] - wall.start[0]
+                dy = wall.end[1] - wall.start[1]
+                center_x = wall.start[0] + ratio * dx
+                center_y = wall.start[1] + ratio * dy
+                dist = math.hypot(x - center_x, y - center_y)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_pt = (center_x, center_y)
+            elif hasattr(win_item, "floating_pos") and win_item.floating_pos:
+                dist = math.hypot(x - win_item.floating_pos[0], y - win_item.floating_pos[1])
+                if dist < best_dist:
+                    best_dist = dist
+                    best_pt = win_item.floating_pos
+
+        for stair in getattr(self, "stairs", []):
+            s_start = getattr(stair, "start_point", None)
+            if s_start:
+                dist = math.hypot(x - s_start[0], y - s_start[1])
+                if dist < best_dist:
+                    best_dist = dist
+                    best_pt = (s_start[0], s_start[1])
+
+        # If a discrete feature point was snapped, prioritize it over continuous wall surfaces
+        if best_pt != (x, y):
+            return best_pt
+
+        # 2. Snap to wall faces (centerline, outer face, inner face)
+        walls_to_check = list(getattr(self, "walls", []))
+        for wall_set in getattr(self, "wall_sets", []):
+            walls_to_check.extend(wall_set)
+
+        for wall in walls_to_check:
+            w_start = wall.start
+            w_end = wall.end
+            dx = w_end[0] - w_start[0]
+            dy = w_end[1] - w_start[1]
+            w_len = math.hypot(dx, dy)
+            if w_len == 0:
+                continue
+            ux = dx / w_len
+            uy = dy / w_len
+            px = -uy
+            py = ux
+            half_w = wall.width / 2.0
+
+            # Project point onto segment
+            t = max(0.0, min(w_len, (x - w_start[0]) * ux + (y - w_start[1]) * uy))
+            base_x = w_start[0] + t * ux
+            base_y = w_start[1] + t * uy
+
+            # Candidates: outer edge (+normal), inner edge (-normal), and centerline
+            for d_norm in (half_w, -half_w, 0.0):
+                cand_x = base_x + d_norm * px
+                cand_y = base_y + d_norm * py
+                dist = math.hypot(x - cand_x, y - cand_y)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_pt = (cand_x, cand_y)
+
+        return best_pt
+
+    def _handle_leader_click(self, n_press: int, x: float, y: float) -> None:
+        """Handle 3-click architectural leader callout placement."""
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        canvas_x = (x - self.offset_x) / (self.zoom * pixels_per_inch)
+        canvas_y = (y - self.offset_y) / (self.zoom * pixels_per_inch)
+
+        if not getattr(self, "drawing_leader", False):
+            # Click 1: Arrowhead tip
+            snap_dist = 16.0 / (self.zoom * pixels_per_inch)
+            snapped_tip = self._snap_leader_target(canvas_x, canvas_y, snap_dist)
+            self.leader_tip = snapped_tip
+            self.drawing_leader = True
+            self.leader_elbow = None
+            self.update_hint(TOOL_HINTS["add_leader_elbow"])
+            self.queue_draw()
+            return
+
+        if self.leader_elbow is None:
+            # Click 2: Elbow bend
+            self.leader_elbow = (canvas_x, canvas_y)
+            if n_press == 2:
+                # Double-click: auto horizontal shoulder landing
+                landing_dir = 16.0 if canvas_x >= self.leader_tip[0] else -16.0
+                shoulder = (canvas_x + landing_dir, canvas_y)
+                self.finalize_leader(self.leader_tip, self.leader_elbow, shoulder)
+            else:
+                self.update_hint(TOOL_HINTS["add_leader_shoulder"])
+                self.queue_draw()
+            return
+
+        # Click 3: Shoulder landing point
+        shoulder = (canvas_x, canvas_y)
+        self.finalize_leader(self.leader_tip, self.leader_elbow, shoulder)
+
+    def finalize_leader(self, tip: tuple = None, elbow: tuple = None, shoulder: tuple = None) -> None:
+        """Finalize the leader callout and select it for editing."""
+        if tip is None:
+            tip = getattr(self, "leader_tip", None)
+        if elbow is None:
+            elbow = getattr(self, "leader_elbow", None)
+        if tip is None or elbow is None:
+            self.drawing_leader = False
+            self.leader_tip = None
+            self.leader_elbow = None
+            self.queue_draw()
+            return
+        if shoulder is None:
+            shoulder = (elbow[0] + 30.0, elbow[1])
+        lead_id = self.generate_identifier("leader", self.existing_ids)
+        new_leader = self.LeaderCallout(
+            tip=tip,
+            elbow=elbow,
+            shoulder=shoulder,
+            text="Note",
+            identifier=lead_id,
+            layer_id=self.active_layer_id,
+            text_size=12.0,
+            box_border=False,
+            arrow_type="arrow",
+            line_style="solid"
+        )
+        self.leader_callouts.append(new_leader)
+        self.existing_ids.append(lead_id)
+        self.selected_items = [{"type": "leader_callout", "object": new_leader}]
+        self.emit('selection-changed', self.selected_items)
+        self.save_state()
+        self.emit('content-changed')
+
+        self.drawing_leader = False
+        self.leader_tip = None
+        self.leader_elbow = None
+        self.update_hint(TOOL_HINTS["add_leader"])
+        self.queue_draw()
+

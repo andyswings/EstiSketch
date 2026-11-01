@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
@@ -326,3 +327,115 @@ class BackgroundImage:
     image_data: bytes = b""  # Encoded image file contents (PNG/JPG/...)
     pixel_width: int = 0
     pixel_height: int = 0
+
+
+@dataclass(eq=False)
+class DimensionChain:
+    """Represents a continuous string of aligned dimensions sharing a common baseline.
+
+    Attributes:
+        points: Ordered list of (x, y) coordinates defining measurement points.
+        offset: Perpendicular offset distance (inches) from baseline.
+        summary_dimension: Whether to render an overall cumulative summary dimension.
+        summary_offset: Extra perpendicular distance (inches) for the summary line.
+        identifier: Unique string ID.
+        layer_id: Layer ID this chain belongs to.
+        visible: Whether chain is rendered.
+        locked: Whether chain is locked from editing.
+        text_size: Font size in points.
+        show_arrows: Whether to render arrows or architectural tick marks.
+        arrow_style: "architectural_tick" or "arrow".
+        line_style: "solid" or "dashed".
+        color: RGB tuple (0.0 to 1.0).
+        witness_gap: Distance (inches) from measured point to witness line start.
+        witness_overhang: Distance (inches) witness line extends past dimension line.
+    """
+    points: List[Tuple[float, float]] = field(default_factory=list)
+    offset: float = 18.0
+    summary_dimension: bool = True
+    summary_offset: float = 16.0
+    identifier: str = ""
+    layer_id: str = ""
+    visible: bool = True
+    locked: bool = False
+    text_size: float = 12.0
+    show_arrows: bool = True
+    arrow_style: str = "architectural_tick"
+    line_style: str = "solid"
+    color: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    witness_gap: float = 4.0
+    witness_overhang: float = 6.0
+
+    @property
+    def total_length(self) -> float:
+        """Returns the total measured baseline length of the chain."""
+        if len(self.points) < 2:
+            return 0.0
+        p0 = self.points[0]
+        p1 = self.points[1]
+        dx = p1[0] - p0[0]
+        dy = p1[1] - p0[1]
+        length = math.hypot(dx, dy)
+        if length == 0:
+            return 0.0
+        ux, uy = dx / length, dy / length
+        projections = [(p[0] - p0[0]) * ux + (p[1] - p0[1]) * uy for p in self.points]
+        return max(projections) - min(projections)
+
+    def get_sorted_points(self) -> List[Tuple[float, float]]:
+        """Returns the points sorted by their projection along the baseline."""
+        if len(self.points) < 2:
+            return list(self.points)
+        p0 = self.points[0]
+        p1 = self.points[1]
+        dx = p1[0] - p0[0]
+        dy = p1[1] - p0[1]
+        length = math.hypot(dx, dy)
+        if length == 0:
+            return list(self.points)
+        ux, uy = dx / length, dy / length
+        indexed = []
+        for p in self.points:
+            t = (p[0] - p0[0]) * ux + (p[1] - p0[1]) * uy
+            indexed.append((t, p))
+        indexed.sort(key=lambda item: item[0])
+        return [item[1] for item in indexed]
+
+    def get_total_length(self) -> float:
+        """Returns total length of the chain."""
+        return self.total_length
+
+
+@dataclass(eq=False)
+class LeaderCallout:
+    """Represents an architectural annotation leader with arrowhead, elbow, landing, and text.
+
+    Attributes:
+        tip: (x, y) coordinate of the arrowhead tip (pointing to feature).
+        elbow: (x, y) coordinate of the first bend.
+        shoulder: (x, y) coordinate of the landing end (text attachment point).
+        text: Multiline string annotation.
+        identifier: Unique string ID.
+        layer_id: Layer ID this callout belongs to.
+        visible: Whether callout is visible.
+        locked: Whether callout is locked.
+        text_size: Font size in points.
+        color: RGB tuple (0.0 to 1.0).
+        box_border: Whether to draw a rectangular border around the text.
+        arrow_type: "arrow", "dot", "slash", or "open_arrow".
+        line_style: "solid" or "dashed".
+    """
+    tip: Tuple[float, float] = (0.0, 0.0)
+    elbow: Tuple[float, float] = (0.0, 0.0)
+    shoulder: Tuple[float, float] = (0.0, 0.0)
+    text: str = "Note"
+    identifier: str = ""
+    layer_id: str = ""
+    visible: bool = True
+    locked: bool = False
+    text_size: float = 12.0
+    color: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    box_border: bool = False
+    arrow_type: str = "arrow"
+    line_style: str = "solid"
+

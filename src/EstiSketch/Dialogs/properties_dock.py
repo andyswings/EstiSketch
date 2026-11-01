@@ -1798,6 +1798,314 @@ class DimensionPropertiesWidget(Gtk.Box):
         self._block_updates = False
 
 
+class DimensionChainPropertiesWidget(Gtk.Box):
+    def __init__(self, canvas=None):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.canvas = canvas
+        self.current_chain = None
+        self._block_updates = False
+
+        frame = Gtk.Frame(label="Dimension Chain Properties")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        frame.set_child(box)
+        self.append(frame)
+
+        # Segments & Measurement display
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Segments:"))
+        self.segments_label = Gtk.Label(label="0 segments")
+        self.segments_label.set_halign(Gtk.Align.START)
+        row.append(self.segments_label)
+        box.append(row)
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Total Length:"))
+        self.measurement_label = Gtk.Label(label="0' 0\"")
+        self.measurement_label.set_halign(Gtk.Align.START)
+        row.append(self.measurement_label)
+        box.append(row)
+
+        # Text Size
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Text Size:"))
+        self.text_size_spin = Gtk.SpinButton.new_with_range(6, 72, 1)
+        self.text_size_spin.connect("value-changed", self.on_text_size_changed)
+        row.append(self.text_size_spin)
+        box.append(row)
+
+        # Arrow / Tick Style
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Mark Style:"))
+        self.arrow_style_combo = Gtk.ComboBoxText()
+        self.arrow_style_combo.append("architectural_tick", "Architectural Tick (45°)")
+        self.arrow_style_combo.append("arrow", "Arrows")
+        self.arrow_style_combo.connect("changed", self.on_arrow_style_changed)
+        row.append(self.arrow_style_combo)
+        box.append(row)
+
+        # Line Style
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Line Style:"))
+        self.line_style_combo = Gtk.ComboBoxText()
+        self.line_style_combo.append("solid", "Solid")
+        self.line_style_combo.append("dashed", "Dashed")
+        self.line_style_combo.connect("changed", self.on_line_style_changed)
+        row.append(self.line_style_combo)
+        box.append(row)
+
+        # Summary Dimension toggle
+        self.summary_check = Gtk.CheckButton(label="Summary Dimension")
+        self.summary_check.connect("toggled", self.on_summary_toggled)
+        box.append(self.summary_check)
+
+        # Summary Offset
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Summary Offset:"))
+        self.summary_offset_spin = Gtk.SpinButton.new_with_range(6, 120, 1)
+        self.summary_offset_spin.connect("value-changed", self.on_summary_offset_changed)
+        row.append(self.summary_offset_spin)
+        box.append(row)
+
+        # Offset
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Offset:"))
+        self.offset_spin = Gtk.SpinButton.new_with_range(-240, 240, 1)
+        self.offset_spin.connect("value-changed", self.on_offset_changed)
+        row.append(self.offset_spin)
+        box.append(row)
+
+        # Color
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Color:"))
+        self.color_button = Gtk.ColorButton()
+        self.color_button.connect("color-set", self.on_color_changed)
+        row.append(self.color_button)
+        box.append(row)
+
+    def on_offset_changed(self, spin):
+        if self._block_updates or not self.current_chain:
+            return
+        self.current_chain.offset = spin.get_value()
+        self.emit_property_changed()
+
+    def on_text_size_changed(self, spin):
+        if self._block_updates or not self.current_chain:
+            return
+        self.current_chain.text_size = spin.get_value()
+        self.emit_property_changed()
+
+    def on_arrow_style_changed(self, combo):
+        if self._block_updates or not self.current_chain:
+            return
+        self.current_chain.arrow_style = combo.get_active_id() or "architectural_tick"
+        self.emit_property_changed()
+
+    def on_line_style_changed(self, combo):
+        if self._block_updates or not self.current_chain:
+            return
+        self.current_chain.line_style = combo.get_active_id() or "solid"
+        self.emit_property_changed()
+
+    def on_summary_toggled(self, check):
+        if self._block_updates or not self.current_chain:
+            return
+        self.current_chain.summary_dimension = check.get_active()
+        self.emit_property_changed()
+
+    def on_summary_offset_changed(self, spin):
+        if self._block_updates or not self.current_chain:
+            return
+        self.current_chain.summary_offset = spin.get_value()
+        self.emit_property_changed()
+
+    def on_color_changed(self, color_button):
+        if self._block_updates or not self.current_chain:
+            return
+        rgba = color_button.get_rgba()
+        self.current_chain.color = (rgba.red, rgba.green, rgba.blue)
+        self.emit_property_changed()
+
+    def emit_property_changed(self):
+        if hasattr(self, "canvas") and self.canvas:
+            self.canvas.save_state()
+            self.canvas.queue_draw()
+
+    def set_chain(self, chain):
+        self._block_updates = True
+        self.current_chain = chain
+        if not chain:
+            self._block_updates = False
+            return
+
+        pts = getattr(chain, "points", [])
+        seg_count = max(0, len(pts) - 1)
+        self.segments_label.set_text(f"{seg_count} segment{'s' if seg_count != 1 else ''}")
+
+        total_l = getattr(chain, "total_length", 0.0)
+        if hasattr(self, "canvas") and hasattr(self.canvas, "converter"):
+            measurement_str = self.canvas.converter.format_measurement(total_l, use_fraction=False)
+        else:
+            measurement_str = f"{total_l:.2f}\""
+        self.measurement_label.set_text(measurement_str)
+
+        self.offset_spin.set_value(getattr(chain, "offset", 18.0))
+        self.text_size_spin.set_value(getattr(chain, "text_size", 12.0))
+        self.arrow_style_combo.set_active_id(getattr(chain, "arrow_style", "architectural_tick"))
+        self.line_style_combo.set_active_id(getattr(chain, "line_style", "solid"))
+        self.summary_check.set_active(getattr(chain, "summary_dimension", True))
+        self.summary_offset_spin.set_value(getattr(chain, "summary_offset", 16.0))
+
+        color = getattr(chain, "color", (0.0, 0.0, 0.0))
+        from gi.repository import Gdk
+        rgba = Gdk.RGBA()
+        rgba.red, rgba.green, rgba.blue, rgba.alpha = color[0], color[1], color[2], 1.0
+        self.color_button.set_rgba(rgba)
+
+        self._block_updates = False
+
+
+class LeaderCalloutPropertiesWidget(Gtk.Box):
+    def __init__(self, canvas=None):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.canvas = canvas
+        self.current_leader = None
+        self._block_updates = False
+
+        frame = Gtk.Frame(label="Leader Callout Properties")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        frame.set_child(box)
+        self.append(frame)
+
+        # Note Text
+        lbl = Gtk.Label(label="Note Text:")
+        lbl.set_halign(Gtk.Align.START)
+        box.append(lbl)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_min_content_height(80)
+        self.text_view = Gtk.TextView()
+        self.text_view.set_wrap_mode(Gtk.WrapMode.WORD)
+        self.text_buffer = self.text_view.get_buffer()
+        self.text_buffer.connect("changed", self.on_text_changed)
+        scrolled.set_child(self.text_view)
+        box.append(scrolled)
+
+        # Text Size
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Text Size:"))
+        self.text_size_spin = Gtk.SpinButton.new_with_range(6, 72, 1)
+        self.text_size_spin.connect("value-changed", self.on_text_size_changed)
+        row.append(self.text_size_spin)
+        box.append(row)
+
+        # Arrow Type
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Arrow Type:"))
+        self.arrow_type_combo = Gtk.ComboBoxText()
+        self.arrow_type_combo.append("arrow", "Filled Arrow")
+        self.arrow_type_combo.append("dot", "Dot")
+        self.arrow_type_combo.append("slash", "45° Slash")
+        self.arrow_type_combo.append("open_arrow", "Open Arrow")
+        self.arrow_type_combo.connect("changed", self.on_arrow_type_changed)
+        row.append(self.arrow_type_combo)
+        box.append(row)
+
+        # Border Box
+        self.border_box_check = Gtk.CheckButton(label="Enclose in Border Box")
+        self.border_box_check.connect("toggled", self.on_border_box_toggled)
+        box.append(self.border_box_check)
+
+        # Line Style
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Line Style:"))
+        self.line_style_combo = Gtk.ComboBoxText()
+        self.line_style_combo.append("solid", "Solid")
+        self.line_style_combo.append("dashed", "Dashed")
+        self.line_style_combo.connect("changed", self.on_line_style_changed)
+        row.append(self.line_style_combo)
+        box.append(row)
+
+        # Color
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Color:"))
+        self.color_button = Gtk.ColorButton()
+        self.color_button.connect("color-set", self.on_color_changed)
+        row.append(self.color_button)
+        box.append(row)
+
+    def on_text_changed(self, buffer):
+        if self._block_updates or not self.current_leader:
+            return
+        start = buffer.get_start_iter()
+        end = buffer.get_end_iter()
+        self.current_leader.text = buffer.get_text(start, end, False)
+        self.emit_property_changed()
+
+    def on_text_size_changed(self, spin):
+        if self._block_updates or not self.current_leader:
+            return
+        self.current_leader.text_size = spin.get_value()
+        self.emit_property_changed()
+
+    def on_arrow_type_changed(self, combo):
+        if self._block_updates or not self.current_leader:
+            return
+        self.current_leader.arrow_type = combo.get_active_id() or "arrow"
+        self.emit_property_changed()
+
+    def on_border_box_toggled(self, check):
+        if self._block_updates or not self.current_leader:
+            return
+        self.current_leader.box_border = check.get_active()
+        self.emit_property_changed()
+
+    def on_line_style_changed(self, combo):
+        if self._block_updates or not self.current_leader:
+            return
+        self.current_leader.line_style = combo.get_active_id() or "solid"
+        self.emit_property_changed()
+
+    def on_color_changed(self, color_button):
+        if self._block_updates or not self.current_leader:
+            return
+        rgba = color_button.get_rgba()
+        self.current_leader.color = (rgba.red, rgba.green, rgba.blue)
+        self.emit_property_changed()
+
+    def emit_property_changed(self):
+        if hasattr(self, "canvas") and self.canvas:
+            self.canvas.queue_draw()
+
+    def set_leader(self, leader):
+        self._block_updates = True
+        self.current_leader = leader
+        if not leader:
+            self._block_updates = False
+            return
+
+        self.text_buffer.set_text(getattr(leader, "text", ""))
+        self.text_size_spin.set_value(getattr(leader, "text_size", 12.0))
+        self.arrow_type_combo.set_active_id(getattr(leader, "arrow_type", "arrow"))
+        self.border_box_check.set_active(getattr(leader, "box_border", False))
+        self.line_style_combo.set_active_id(getattr(leader, "line_style", "solid"))
+
+        color = getattr(leader, "color", (0.0, 0.0, 0.0))
+        from gi.repository import Gdk
+        rgba = Gdk.RGBA()
+        rgba.red, rgba.green, rgba.blue, rgba.alpha = color[0], color[1], color[2], 1.0
+        self.color_button.set_rgba(rgba)
+
+        self._block_updates = False
+
+
 class WindowPropertiesWidget(Gtk.Box):
     def __init__(self):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -2888,6 +3196,20 @@ class PropertiesDock(Gtk.Box):
         self.tab_bar.append(dimension_btn)
         self.tabs["dimension"] = dimension_btn
 
+        self.dimension_chain_page = DimensionChainPropertiesWidget()
+        self.dimension_chain_page.canvas = canvas
+        self.stack.add_titled(self.dimension_chain_page, "dimension_chain", "Dimension Chain Properties")
+        dim_chain_btn = self._make_tab_button("dimension_chain", icon_dir, "add_dimension_chain")
+        self.tab_bar.append(dim_chain_btn)
+        self.tabs["dimension_chain"] = dim_chain_btn
+
+        self.leader_page = LeaderCalloutPropertiesWidget()
+        self.leader_page.canvas = canvas
+        self.stack.add_titled(self.leader_page, "leader", "Leader Callout Properties")
+        leader_btn = self._make_tab_button("leader", icon_dir, "add_leader")
+        self.tab_bar.append(leader_btn)
+        self.tabs["leader"] = leader_btn
+
         self.window_page = WindowPropertiesWidget()
         self.window_page.canvas = canvas
         self.stack.add_titled(self.window_page, "window", "Window Properties")
@@ -2961,6 +3283,8 @@ class PropertiesDock(Gtk.Box):
         wall_items = []
         text_items = []
         dimension_items = []
+        dimension_chain_items = []
+        leader_items = []
         window_items = []
         door_items = []
         circle_items = []
@@ -2980,6 +3304,10 @@ class PropertiesDock(Gtk.Box):
                 text_items.append(item)
             elif item_type == "dimension":
                 dimension_items.append(item)
+            elif item_type == "dimension_chain":
+                dimension_chain_items.append(item)
+            elif item_type == "leader_callout":
+                leader_items.append(item)
             elif item_type == "door":
                 door_items.append(item)
             elif item_type == "window":
@@ -3011,6 +3339,8 @@ class PropertiesDock(Gtk.Box):
         wants_wall = len(wall_items) > 0
         wants_text = len(text_items) > 0
         wants_dimension = len(dimension_items) > 0
+        wants_dimension_chain = len(dimension_chain_items) > 0
+        wants_leader = len(leader_items) > 0
         wants_window = len(window_items) > 0
         wants_door = len(door_items) > 0
         wants_circle = len(circle_items) > 0
@@ -3025,6 +3355,8 @@ class PropertiesDock(Gtk.Box):
         self.tabs["wall"].set_sensitive(wants_wall)
         self.tabs["text"].set_sensitive(wants_text)
         self.tabs["dimension"].set_sensitive(wants_dimension)
+        self.tabs["dimension_chain"].set_sensitive(wants_dimension_chain)
+        self.tabs["leader"].set_sensitive(wants_leader)
         self.tabs["window"].set_sensitive(wants_window)
         self.tabs["door"].set_sensitive(wants_door)
         self.tabs["circle"].set_sensitive(wants_circle)
@@ -3046,6 +3378,14 @@ class PropertiesDock(Gtk.Box):
         if wants_dimension:
             selected_dimensions = [item["object"] for item in dimension_items]
             self.dimension_page.set_dimension(selected_dimensions[0])
+
+        if wants_dimension_chain:
+            selected_chains = [item["object"] for item in dimension_chain_items]
+            self.dimension_chain_page.set_chain(selected_chains[0])
+
+        if wants_leader:
+            selected_leaders = [item["object"] for item in leader_items]
+            self.leader_page.set_leader(selected_leaders[0])
 
         if wants_window:
             self.window_page.set_window(window_items[0]["object"])
@@ -3092,6 +3432,7 @@ class PropertiesDock(Gtk.Box):
             return
 
         has_selection = (wants_wall or wants_text or wants_dimension or 
+                        wants_dimension_chain or wants_leader or
                         wants_window or wants_door or wants_circle or 
                         wants_arc or wants_polyline or wants_roof or wants_stair or wants_room)
 
@@ -3104,6 +3445,8 @@ class PropertiesDock(Gtk.Box):
             if current_tab == "wall" and wants_wall: keep_current = True
             elif current_tab == "text" and wants_text: keep_current = True
             elif current_tab == "dimension" and wants_dimension: keep_current = True
+            elif current_tab == "dimension_chain" and wants_dimension_chain: keep_current = True
+            elif current_tab == "leader" and wants_leader: keep_current = True
             elif current_tab == "window" and wants_window: keep_current = True
             elif current_tab == "door" and wants_door: keep_current = True
             elif current_tab == "circle" and wants_circle: keep_current = True
@@ -3117,6 +3460,8 @@ class PropertiesDock(Gtk.Box):
                 # Switch to first available type
                 if wants_wall: self._set_active_tab("wall"); self.stack.set_visible_child_name("wall")
                 elif wants_text: self._set_active_tab("text"); self.stack.set_visible_child_name("text")
+                elif wants_dimension_chain: self._set_active_tab("dimension_chain"); self.stack.set_visible_child_name("dimension_chain")
+                elif wants_leader: self._set_active_tab("leader"); self.stack.set_visible_child_name("leader")
                 elif wants_dimension: self._set_active_tab("dimension"); self.stack.set_visible_child_name("dimension")
                 elif wants_window: self._set_active_tab("window"); self.stack.set_visible_child_name("window")
                 elif wants_door: self._set_active_tab("door"); self.stack.set_visible_child_name("door")

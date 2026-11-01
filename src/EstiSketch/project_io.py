@@ -1,6 +1,6 @@
 import base64
 import xml.etree.ElementTree as ET
-from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair, BackgroundImage
+from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair, BackgroundImage, DimensionChain, LeaderCallout
 from .roof_components import Roof, RoofEdge, RoofLine
 
 
@@ -227,6 +227,56 @@ def save_project(canvas, window_width, window_height, filepath):
         d_elem.set("color_r", str(color[0]))
         d_elem.set("color_g", str(color[1]))
         d_elem.set("color_b", str(color[2]))
+
+    # Save Dimension Chains
+    dim_chains_elem = ET.SubElement(root, "DimensionChains")
+    for chain in getattr(canvas, 'dimension_chains', []):
+        c_elem = ET.SubElement(dim_chains_elem, "DimensionChain")
+        c_elem.set("identifier", chain.identifier)
+        c_elem.set("offset", str(chain.offset))
+        c_elem.set("summary_dimension", str(chain.summary_dimension))
+        c_elem.set("summary_offset", str(chain.summary_offset))
+        c_elem.set("layer_id", getattr(chain, 'layer_id', ''))
+        c_elem.set("visible", str(chain.visible))
+        c_elem.set("locked", str(chain.locked))
+        c_elem.set("text_size", str(chain.text_size))
+        c_elem.set("show_arrows", str(chain.show_arrows))
+        c_elem.set("arrow_style", chain.arrow_style)
+        c_elem.set("line_style", chain.line_style)
+        color = getattr(chain, 'color', (0.0, 0.0, 0.0))
+        c_elem.set("color_r", str(color[0]))
+        c_elem.set("color_g", str(color[1]))
+        c_elem.set("color_b", str(color[2]))
+        c_elem.set("witness_gap", str(chain.witness_gap))
+        c_elem.set("witness_overhang", str(chain.witness_overhang))
+        for pt in chain.points:
+            p_elem = ET.SubElement(c_elem, "Point")
+            p_elem.set("x", str(pt[0]))
+            p_elem.set("y", str(pt[1]))
+
+    # Save Leader Callouts
+    leaders_elem = ET.SubElement(root, "LeaderCallouts")
+    for callout in getattr(canvas, 'leader_callouts', []):
+        l_elem = ET.SubElement(leaders_elem, "LeaderCallout")
+        l_elem.set("identifier", callout.identifier)
+        l_elem.set("tip_x", str(callout.tip[0]))
+        l_elem.set("tip_y", str(callout.tip[1]))
+        l_elem.set("elbow_x", str(callout.elbow[0]))
+        l_elem.set("elbow_y", str(callout.elbow[1]))
+        l_elem.set("shoulder_x", str(callout.shoulder[0]))
+        l_elem.set("shoulder_y", str(callout.shoulder[1]))
+        l_elem.set("text", callout.text)
+        l_elem.set("layer_id", getattr(callout, 'layer_id', ''))
+        l_elem.set("visible", str(callout.visible))
+        l_elem.set("locked", str(callout.locked))
+        l_elem.set("text_size", str(callout.text_size))
+        color = getattr(callout, 'color', (0.0, 0.0, 0.0))
+        l_elem.set("color_r", str(color[0]))
+        l_elem.set("color_g", str(color[1]))
+        l_elem.set("color_b", str(color[2]))
+        l_elem.set("box_border", str(callout.box_border))
+        l_elem.set("arrow_type", callout.arrow_type)
+        l_elem.set("line_style", callout.line_style)
 
 
     # Save Polylines
@@ -547,6 +597,10 @@ def open_project(canvas, filepath):
     canvas.windows.clear()
     canvas.texts.clear()
     canvas.dimensions.clear()
+    if hasattr(canvas, 'dimension_chains'):
+        canvas.dimension_chains.clear()
+    if hasattr(canvas, 'leader_callouts'):
+        canvas.leader_callouts.clear()
     if hasattr(canvas, 'layers'):
         canvas.layers.clear()
     if hasattr(canvas, 'levels'):
@@ -767,6 +821,66 @@ def open_project(canvas, filepath):
             dimension_obj.layer_id = _get_attr_text(d_elem, "layer_id", "")
 
             canvas.dimensions.append(dimension_obj)
+
+    # --- Restore Dimension Chains ---
+    if hasattr(canvas, 'dimension_chains'):
+        dim_chains_elem = root.find("DimensionChains")
+        if dim_chains_elem is not None:
+            for c_elem in dim_chains_elem.findall("DimensionChain"):
+                points = []
+                for p_elem in c_elem.findall("Point"):
+                    px = _get_attr_float(p_elem, "x", 0.0)
+                    py = _get_attr_float(p_elem, "y", 0.0)
+                    points.append((px, py))
+                chain_obj = DimensionChain(
+                    points=points,
+                    offset=_get_attr_float(c_elem, "offset", 18.0),
+                    summary_dimension=_get_attr_text(c_elem, "summary_dimension", "True") == "True",
+                    summary_offset=_get_attr_float(c_elem, "summary_offset", 16.0),
+                    identifier=_get_attr_text(c_elem, "identifier", ""),
+                    layer_id=_get_attr_text(c_elem, "layer_id", ""),
+                    visible=_get_attr_text(c_elem, "visible", "True") == "True",
+                    locked=_get_attr_text(c_elem, "locked", "False") == "True",
+                    text_size=_get_attr_float(c_elem, "text_size", 12.0),
+                    show_arrows=_get_attr_text(c_elem, "show_arrows", "True") == "True",
+                    arrow_style=_get_attr_text(c_elem, "arrow_style", "architectural_tick"),
+                    line_style=_get_attr_text(c_elem, "line_style", "solid"),
+                    witness_gap=_get_attr_float(c_elem, "witness_gap", 4.0),
+                    witness_overhang=_get_attr_float(c_elem, "witness_overhang", 6.0),
+                )
+                cr_ = _get_attr_float(c_elem, "color_r", 0.0)
+                cg_ = _get_attr_float(c_elem, "color_g", 0.0)
+                cb_ = _get_attr_float(c_elem, "color_b", 0.0)
+                chain_obj.color = (cr_, cg_, cb_)
+                canvas.dimension_chains.append(chain_obj)
+
+    # --- Restore Leader Callouts ---
+    if hasattr(canvas, 'leader_callouts'):
+        leaders_elem = root.find("LeaderCallouts")
+        if leaders_elem is not None:
+            for l_elem in leaders_elem.findall("LeaderCallout"):
+                tip = (_get_attr_float(l_elem, "tip_x", 0.0), _get_attr_float(l_elem, "tip_y", 0.0))
+                elbow = (_get_attr_float(l_elem, "elbow_x", 0.0), _get_attr_float(l_elem, "elbow_y", 0.0))
+                shoulder = (_get_attr_float(l_elem, "shoulder_x", 0.0), _get_attr_float(l_elem, "shoulder_y", 0.0))
+                callout_obj = LeaderCallout(
+                    tip=tip,
+                    elbow=elbow,
+                    shoulder=shoulder,
+                    text=_get_attr_text(l_elem, "text", "Note"),
+                    identifier=_get_attr_text(l_elem, "identifier", ""),
+                    layer_id=_get_attr_text(l_elem, "layer_id", ""),
+                    visible=_get_attr_text(l_elem, "visible", "True") == "True",
+                    locked=_get_attr_text(l_elem, "locked", "False") == "True",
+                    text_size=_get_attr_float(l_elem, "text_size", 12.0),
+                    box_border=_get_attr_text(l_elem, "box_border", "False") == "True",
+                    arrow_type=_get_attr_text(l_elem, "arrow_type", "arrow"),
+                    line_style=_get_attr_text(l_elem, "line_style", "solid"),
+                )
+                cr_ = _get_attr_float(l_elem, "color_r", 0.0)
+                cg_ = _get_attr_float(l_elem, "color_g", 0.0)
+                cb_ = _get_attr_float(l_elem, "color_b", 0.0)
+                callout_obj.color = (cr_, cg_, cb_)
+                canvas.leader_callouts.append(callout_obj)
 
     # --- Restore Polylines ---
     if hasattr(canvas, 'polyline_sets'):
