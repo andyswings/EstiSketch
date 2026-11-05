@@ -90,7 +90,8 @@ DEFAULT_SETTINGS = {
     "ROOF_WASTE_PCT": 10.0,
     "ROOF_SHEATHING_THICKNESS": '5/8"',
     "ROOF_SHEATHING_TYPE": "OSB",
-    "LAYER_FOCUS_MODE": False
+    "LAYER_FOCUS_MODE": False,
+    "DEBUG": False
 }
 
 

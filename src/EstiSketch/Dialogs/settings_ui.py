@@ -99,6 +99,7 @@ def create_settings_dialog(parent, config_constants, canvas):
         ("Enable Undo/Redo Limit", "ENABLE_UNDO_REDO_LIMIT"),
         ("Include Cost Estimate in Export", "INCLUDE_COST_ESTIMATE_IN_EXPORT"),
         ("Layer Focus Mode", "LAYER_FOCUS_MODE"),
+        ("Debug", "DEBUG")
     ]
 
     switches = {}
