@@ -1587,6 +1587,10 @@ class CanvasDrawMixin:
                 cr.stroke()
             cr.restore()
 
+            hover = getattr(self, 'dimension_chain_hover', None)
+            if len(pts) == 1 and hover and math.hypot(hover[0] - pts[0][0], hover[1] - pts[0][1]) > 0.5:
+                # Live length of the baseline segment
+                self._draw_chain_live_label(cr, pts[0], hover, pixels_per_inch)
             if len(pts) == 1 and mouse_pos:
                 # 1st point clicked: draw dashed line to cursor
                 cr.save()
@@ -1605,14 +1609,41 @@ class CanvasDrawMixin:
                     offset = self._calculate_dimension_offset(pts[0], pts[1], mouse_pos)
                 if offset is None or abs(offset) < 1.0:
                     offset = 18.0
+                preview_pts = list(pts)
+                if hover and offset is not None and self.dimension_chain_offset is None \
+                        and math.hypot(hover[0] - pts[-1][0], hover[1] - pts[-1][1]) > 0.5:
+                    preview_pts.append(hover)
                 preview_chain = self.DimensionChain(
-                    points=pts,
+                    points=preview_pts,
                     offset=offset,
                     summary_dimension=True,
                     summary_offset=16.0,
                     text_size=12.0
                 )
                 self._draw_single_dimension_chain(cr, preview_chain, pixels_per_inch, is_preview=True)
+
+    def _draw_chain_live_label(self, cr, a, b, pixels_per_inch):
+        """Draw a live length label at the midpoint of a→b while placing a chain."""
+        length = math.hypot(b[0] - a[0], b[1] - a[1])
+        ang = math.atan2(b[1] - a[1], b[0] - a[0])
+        deg = math.degrees(ang) % 360
+        if 90 < deg < 270:
+            ang += math.pi
+        text = self.converter.format_measurement(length, use_fraction=False)
+        cr.save()
+        cr.translate((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+        cr.rotate(ang)
+        cr.select_font_face("Sans", 0, 0)
+        cr.set_font_size(12.0 / (self.zoom * pixels_per_inch))
+        ext = cr.text_extents(text)
+        pad = 2.0 / (self.zoom * pixels_per_inch)
+        cr.set_source_rgba(1.0, 1.0, 1.0, 0.85)
+        cr.rectangle(-ext.width / 2.0 - pad, -ext.height - pad * 3, ext.width + 2 * pad, ext.height + 2 * pad)
+        cr.fill()
+        cr.set_source_rgb(0.1, 0.35, 0.8)
+        cr.move_to(-ext.width / 2.0, -pad * 2)
+        cr.show_text(text)
+        cr.restore()
 
     def _draw_single_dimension_chain(self, cr, chain, pixels_per_inch, is_preview=False):
         """Draw a single continuous dimension chain with witness lines, ticks/arrows, and summary dimension."""

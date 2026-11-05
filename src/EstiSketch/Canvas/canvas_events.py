@@ -408,6 +408,7 @@ class CanvasEventsMixin:
                 self.queue_draw()
 
         if self.tool_mode == "add_dimension_chain" and getattr(self, "drawing_dimension_chain", False):
+            self.dimension_chain_hover = self._chain_hover_point(canvas_x, canvas_y)
             self.queue_draw()
 
         if self.tool_mode == "add_leader" and getattr(self, "drawing_leader", False):
@@ -504,7 +505,8 @@ class CanvasEventsMixin:
              )
              
              self.circle_radius_preview = math.hypot(sx - self.circle_center[0], sy - self.circle_center[1])
-             print(f"DEBUG: Circle preview r={self.circle_radius_preview}")
+             if self.config.DEBUG:
+                 print(f"DEBUG: Circle preview r={self.circle_radius_preview}")
              self.queue_draw()
              
         elif self.tool_mode == "add_arc" and self.drawing_arc:
@@ -516,13 +518,15 @@ class CanvasEventsMixin:
                     self.walls, self.rooms, zoom=self.zoom
                  )
                  self.arc_preview_point = (sx, sy)
-                 print(f"DEBUG: Arc preview pt={self.arc_preview_point}")
+                 if self.config.DEBUG:
+                     print(f"DEBUG: Arc preview pt={self.arc_preview_point}")
                  self.queue_draw()
              elif self.arc_start:
                  # We are waiting for 2nd click (End point).
                  # Just queue draw to update the dashed line to _last_mouse_pos
                  # _last_mouse_pos is updated at start of on_motion
-                 print("DEBUG: Arc preview dragging end point")
+                 if self.config.DEBUG:
+                     print("DEBUG: Arc preview dragging end point")
                  self.queue_draw()
 
         elif self.tool_mode == "add_stair":

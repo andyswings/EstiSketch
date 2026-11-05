@@ -588,12 +588,7 @@ class EditEventsMixin:
                 chain = self.editing_dimension_chain
                 handle_type, handle_idx = self.editing_dimension_chain_handle
 
-                if handle_type == "offset":
-                    if len(chain.points) >= 2:
-                        chain.offset = self._calculate_dimension_offset(chain.points[0], chain.points[1], (new_x, new_y))
-                elif handle_type == "point":
-                    if 0 <= handle_idx < len(chain.points):
-                        chain.points[handle_idx] = (new_x, new_y)
+                self._drag_chain_handle(chain, handle_type, handle_idx, new_x, new_y)
 
                 self.queue_draw()
                 return

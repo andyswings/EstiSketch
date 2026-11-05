@@ -402,51 +402,10 @@ class CanvasToolsMixin:
             print("No wall found near double-click for auto-dimensioning")
             return
 
-        # Calculate wall geometry for edge alignment
-        start = selected_wall.start
-        end = selected_wall.end
-        dx = end[0] - start[0]
-        dy = end[1] - start[1]
-        length = math.hypot(dx, dy)
-
-        if length == 0:
+        edge = self._wall_edge_dimension_points(selected_wall, canvas_x, canvas_y)
+        if edge is None:
             return
-
-        # Unit vector along wall
-        ux = dx / length
-        uy = dy / length
-
-        # Perpendicular vector (rotate 90 degrees counter-clockwise)
-        # Using consistent normal definition
-        px = -uy
-        py = ux
-
-        # Vector from start to click point
-        mx = canvas_x - start[0]
-        my = canvas_y - start[1]
-
-        # Cross product to determine side (signed distance)
-        # vals > 0 means "left" side (positive normal), < 0 means "right" side
-        cross = ux * my - uy * mx
-        direction = 1.0 if cross >= 0 else -1.0
-
-        # Offset to wall edge
-        # Wall width is in inches
-        half_width = selected_wall.width / 2.0
-        
-        # Calculate new start/end points at the wall edge
-        edge_offset_x = px * half_width * direction
-        edge_offset_y = py * half_width * direction
-
-        edge_offset_vector = (edge_offset_x, edge_offset_y)
-        edge_start_simple = (start[0] + edge_offset_x, start[1] + edge_offset_y)
-        edge_end_simple = (end[0] + edge_offset_x, end[1] + edge_offset_y)
-
-        # Calculate true corner points (handling miter joins)
-        edge_start = self._get_corner_point_for_dimension(
-            selected_wall, start, edge_start_simple, edge_offset_vector)
-        edge_end = self._get_corner_point_for_dimension(
-            selected_wall, end, edge_end_simple, edge_offset_vector)
+        edge_start, edge_end, direction = edge
 
         # Calculate automatic offset for dimension line
         # Use 12 inches as default offset from the edge
@@ -470,6 +429,236 @@ class CanvasToolsMixin:
         self.queue_draw()
 
 
+
+    def _wall_edge_dimension_points(self, wall, canvas_x: float, canvas_y: float):
+        """Return (edge_start, edge_end, direction) for the wall face nearest the point.
+
+        Corner points account for miter joins. Returns None for zero-length walls.
+        """
+        start = wall.start
+        end = wall.end
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        length = math.hypot(dx, dy)
+        if length == 0:
+            return None
+
+        ux = dx / length
+        uy = dy / length
+        px = -uy
+        py = ux
+
+        # Cross product determines which side of the wall the point is on
+        cross = ux * (canvas_y - start[1]) - uy * (canvas_x - start[0])
+        direction = 1.0 if cross >= 0 else -1.0
+
+        half_width = wall.width / 2.0
+        edge_offset_vector = (px * half_width * direction, py * half_width * direction)
+        edge_start_simple = (start[0] + edge_offset_vector[0], start[1] + edge_offset_vector[1])
+        edge_end_simple = (end[0] + edge_offset_vector[0], end[1] + edge_offset_vector[1])
+
+        edge_start = self._get_corner_point_for_dimension(
+            wall, start, edge_start_simple, edge_offset_vector)
+        edge_end = self._get_corner_point_for_dimension(
+            wall, end, edge_end_simple, edge_offset_vector)
+        return edge_start, edge_end, direction
+
+    def _auto_dimension_chain_at(self, canvas_x: float, canvas_y: float, pixels_per_inch: float) -> bool:
+        """Create a two-point dimension chain for the wall or room edge under the point.
+
+        Returns True if a chain was created.
+        """
+        tolerance = 10 / (self.zoom * pixels_per_inch)
+        pts = None
+        offset = 12.0
+
+        best = float('inf')
+        selected_wall = None
+        for wall_set in self.wall_sets:
+            for wall in wall_set:
+                d = self.distance_point_to_segment((canvas_x, canvas_y), wall.start, wall.end)
+                if d < tolerance and d < best:
+                    best, selected_wall = d, wall
+        if selected_wall is not None:
+            edge = self._wall_edge_dimension_points(selected_wall, canvas_x, canvas_y)
+            if edge is not None:
+                pts = [edge[0], edge[1]]
+                offset = 12.0 * edge[2]
+
+        if pts is None:
+            best = float('inf')
+            for room in self.rooms:
+                rpts = getattr(room, "points", [])
+                n = len(rpts)
+                for i in range(n):
+                    a, b = rpts[i], rpts[(i + 1) % n]
+                    d = self.distance_point_to_segment((canvas_x, canvas_y), a, b)
+                    if d < tolerance and d < best:
+                        best = d
+                        pts = [tuple(a), tuple(b)]
+                        offset = self._calculate_dimension_offset(a, b, (canvas_x, canvas_y))
+                        offset = 12.0 if offset >= 0 else -12.0
+        if pts is None:
+            return False
+
+        chain_id = self.generate_identifier("dim_chain", self.existing_ids)
+        new_chain = self.DimensionChain(
+            points=pts, offset=offset, identifier=chain_id,
+            layer_id=self.active_layer_id, summary_dimension=False,
+            arrow_style="architectural_tick", line_style="solid", text_size=12.0)
+        self.dimension_chains.append(new_chain)
+        self.existing_ids.append(chain_id)
+        self.selected_items = [{"type": "dimension_chain", "object": new_chain}]
+        self.save_state()
+        self.emit('content-changed')
+        self.emit('selection-changed', self.selected_items)
+        return True
+
+    def _drag_chain_handle(self, chain, handle_type: str, handle_idx: int,
+                           new_x: float, new_y: float) -> None:
+        """Move a dimension-chain handle to (new_x, new_y), with snapping.
+
+        - "offset": sets the perpendicular offset of the dimension line (unsnapped).
+        - "point": snaps to nearby features/other chain points. Intermediate points
+          (index >= 2) then slide only along the baseline; the first two points
+          move freely but a drag that would collapse the baseline is ignored.
+        """
+        pts = chain.points
+        if handle_type == "offset":
+            if len(pts) >= 2:
+                chain.offset = self._calculate_dimension_offset(pts[0], pts[1], (new_x, new_y))
+            return
+        if handle_type != "point" or not (0 <= handle_idx < len(pts)):
+            return
+
+        old_pt = pts[handle_idx]
+        others = [p for i, p in enumerate(pts) if i != handle_idx]
+        candidates = self._get_candidate_points() + others
+        (sx, sy), _ = self.snap_manager.snap_point(
+            new_x, new_y, old_pt[0], old_pt[1],
+            self.walls, self.rooms,
+            current_wall=None, last_wall=None,
+            in_progress_points=candidates,
+            canvas_width=self.get_allocation().width or self.config.WINDOW_WIDTH,
+            zoom=self.zoom)
+
+        seg = self._chain_segments(chain) if handle_idx >= 2 else None
+        if seg is not None:
+            (ux, uy), _ = seg
+            d = (sx - old_pt[0]) * ux + (sy - old_pt[1]) * uy
+            pts[handle_idx] = (old_pt[0] + d * ux, old_pt[1] + d * uy)
+            return
+
+        # Baseline points: refuse to collapse the baseline (would lose its direction)
+        other_base = pts[1 - handle_idx] if handle_idx in (0, 1) and len(pts) >= 2 else None
+        if other_base is not None and math.hypot(sx - other_base[0], sy - other_base[1]) < 0.5:
+            return
+        pts[handle_idx] = (sx, sy)
+
+    def _chain_hover_point(self, canvas_x: float, canvas_y: float):
+        """Return the point the next chain click would add, or None.
+
+        Mirrors the click logic: a snapped cursor (or one close to the baseline)
+        adds a point; an unsnapped cursor away from the baseline sets the offset.
+        """
+        pts = getattr(self, "dimension_chain_points", [])
+        if not pts:
+            return None
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        last = pts[-1]
+        candidates = self._get_candidate_points() + [last]
+        (sx, sy), snap_type = self.snap_manager.snap_point(
+            canvas_x, canvas_y, last[0], last[1],
+            self.walls, self.rooms,
+            current_wall=None, last_wall=None,
+            in_progress_points=candidates,
+            canvas_width=self.get_allocation().width or self.config.WINDOW_WIDTH,
+            zoom=self.zoom)
+        ax, ay, _ = self._apply_alignment_snapping(sx, sy)
+        if len(pts) == 1:
+            return (ax, ay)
+        p0, p1 = pts[0], pts[1]
+        blen = math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+        if blen < 1e-4:
+            return None
+        ux, uy = (p1[0] - p0[0]) / blen, (p1[1] - p0[1]) / blen
+        d_perp = (canvas_x - p0[0]) * -uy + (canvas_y - p0[1]) * ux
+        snapped = snap_type in self.CHAIN_FEATURE_SNAPS
+        if abs(d_perp) >= 6.0 and not snapped:
+            return None
+        return (ax, ay)
+
+    def _chain_segments(self, chain):
+        """Return (u, sorted_points) where sorted_points = [(t, index, pt)] along the baseline."""
+        pts = chain.points
+        if len(pts) < 2:
+            return None
+        p0, p1 = pts[0], pts[1]
+        blen = math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+        if blen < 1e-4:
+            return None
+        ux, uy = (p1[0] - p0[0]) / blen, (p1[1] - p0[1]) / blen
+        items = [((p[0] - p0[0]) * ux + (p[1] - p0[1]) * uy, i, p) for i, p in enumerate(pts)]
+        items.sort(key=lambda it: it[0])
+        return (ux, uy), items
+
+    def _try_edit_chain_segment(self, x: float, y: float) -> bool:
+        """On double-click of a chain's dimension line, prompt for that segment's length.
+
+        Points beyond the edited segment slide along the baseline. Returns True if
+        a segment was hit.
+        """
+        from ..Dialogs.length_input_dialog import LengthInputDialog
+        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+        for chain in getattr(self, "dimension_chains", []):
+            if self.is_object_on_locked_layer(chain) or not self.is_object_on_visible_layer(chain):
+                continue
+            seg = self._chain_segments(chain)
+            if seg is None:
+                continue
+            (ux, uy), items = seg
+            px, py = -uy, ux
+            p0 = chain.points[0]
+            for k in range(len(items) - 1):
+                ta, tb = items[k][0], items[k + 1][0]
+                if tb - ta < 0.05:
+                    continue
+                a = self.model_to_device(p0[0] + ta * ux + chain.offset * px,
+                                         p0[1] + ta * uy + chain.offset * py, pixels_per_inch)
+                b = self.model_to_device(p0[0] + tb * ux + chain.offset * px,
+                                         p0[1] + tb * uy + chain.offset * py, pixels_per_inch)
+                if self.distance_point_to_segment((x, y), a, b) >= 12:
+                    continue
+                dialog = LengthInputDialog(self.get_root(), title="Edit Segment Length")
+                dialog.entry.set_text(self.converter.format_measurement(tb - ta, use_fraction=False))
+
+                def on_response(d, response, chain=chain, k=k, ux=ux, uy=uy, cur=tb - ta):
+                    if response == Gtk.ResponseType.OK:
+                        try:
+                            new_len = self.converter.parse_measurement(d.get_length())
+                        except ValueError:
+                            new_len = None
+                        if new_len and new_len > 0.05:
+                            self._set_chain_segment_length(chain, k, new_len)
+                    d.destroy()
+
+                dialog.connect("response", on_response)
+                dialog.present()
+                return True
+        return False
+
+    def _set_chain_segment_length(self, chain, seg_index: int, new_len: float) -> None:
+        """Set the length of the seg_index-th segment, sliding all later points along the baseline."""
+        seg = self._chain_segments(chain)
+        if seg is None:
+            return
+        (ux, uy), items = seg
+        delta = new_len - (items[seg_index + 1][0] - items[seg_index][0])
+        for _, idx, pt in items[seg_index + 1:]:
+            chain.points[idx] = (pt[0] + delta * ux, pt[1] + delta * uy)
+        self.save_state()
+        self.emit('content-changed')
+        self.queue_draw()
 
     def _calculate_dimension_offset(
             self,
@@ -709,6 +898,12 @@ class CanvasToolsMixin:
             self.emit('content-changed')
         self.queue_draw()
 
+    # Snap types that lock onto a real feature. Generic snaps (grid, angle, axis,
+    # alignment...) almost always fire, so they must not turn an offset click
+    # into an added chain point.
+    CHAIN_FEATURE_SNAPS = frozenset(
+        {"endpoint", "midpoint", "wall_centerline", "face_flush", "wall_edge"})
+
     def _handle_dimension_chain_click(self, n_press: int, x: float, y: float) -> None:
         """Handle multi-click continuous dimension chain creation."""
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
@@ -732,6 +927,15 @@ class CanvasToolsMixin:
 
         # If double-click: finalize immediately (do not append duplicate point!)
         if n_press == 2:
+            if len(getattr(self, "dimension_chain_points", [])) <= 1:
+                # Double-click with no real chain in progress: dimension the object under cursor
+                self.drawing_dimension_chain = False
+                self.dimension_chain_points = []
+                self.dimension_chain_offset = None
+                self._auto_dimension_chain_at(canvas_x, canvas_y, pixels_per_inch)
+                self.update_hint(TOOL_HINTS["add_dimension_chain"])
+                self.queue_draw()
+                return
             if getattr(self, "drawing_dimension_chain", False) and len(getattr(self, "dimension_chain_points", [])) >= 2:
                 if self.dimension_chain_offset is None:
                     p0 = self.dimension_chain_points[0]
@@ -777,9 +981,11 @@ class CanvasToolsMixin:
         # Calculate perpendicular distance of click to baseline
         d_perp = (canvas_x - p0[0]) * px + (canvas_y - p0[1]) * py
 
-        # If user clicked away from the baseline (d_perp >= 6.0),
-        # they are setting the offset and dropping the chain!
-        is_offset_click = (abs(d_perp) >= 6.0)
+        # A click that snapped to a feature adds a point to the chain (its
+        # projection onto the baseline is what gets measured). Only an
+        # unsnapped click away from the baseline sets the offset and finishes.
+        snapped = getattr(self, "snap_type", "none") in self.CHAIN_FEATURE_SNAPS
+        is_offset_click = (abs(d_perp) >= 6.0) and not snapped
 
         if is_offset_click:
             self.dimension_chain_offset = d_perp
@@ -822,6 +1028,7 @@ class CanvasToolsMixin:
         self.drawing_dimension_chain = False
         self.dimension_chain_points = []
         self.dimension_chain_offset = None
+        self.dimension_chain_hover = None
         self.update_hint(TOOL_HINTS["add_dimension_chain"])
         self.queue_draw()
 

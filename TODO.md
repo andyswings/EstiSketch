@@ -144,14 +144,14 @@
 - [ ] Themes
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Continuous Dimension Chains clicking to set intermediate dimensions creates a new dimension chain instead of creating a point within the current chain.
-- [ ] Dimension chains missing double click to create dimension of wall, room or other object.
 
 ## 💡 Takeoffs
 - [ ] Material Estimator
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Dimension chain tool: live measurement preview while placing points, double-click a segment (select tool) to type an exact length (later points slide along the baseline), dragging chain points now snaps to features (intermediate points are constrained to the baseline), and a 70+ case test suite in tests/test_dimension_chain_tool.py (2026-11-04)
+- [x] Fixed dimension chains: feature-snapped clicks (endpoint, midpoint, wall centerline/edge, face flush) now add points to the current chain (generic grid/angle/axis snaps and unsnapped clicks off the baseline set the offset), and double-click on a wall or room edge creates a chain for it (2026-11-04)
 - [x] Continuous Dimension Chains partially implemented (Continuous aligned dimension strings with summary dimension) & Leader Callout Arrows (2026-11-01)
 - [x] Blueprint tracing, calibration wizard & straightening transform (SH3D parity Phase 2): File > Import Blueprint… adds a PNG/JPG underlay, two-click calibration with real-distance entry (ft/in, mm, cm, m), interactive 3D perspective homography and paper curvature / edge-bow straightening tool with corner & edge handles, per-blueprint visibility/lock/opacity/rotation/move/remove controls in the Layers panel, undo/redo, and images embedded in saved projects (2026-10-31)
 - [x] Edge-to-Edge Wall Snapping (SH3D parity Phase 1): face-flush/abutting snaps for walls of different thickness with cyan/orange guides, snapping now considers committed walls, and mixed-thickness corner joins are filled (2026-10-13)

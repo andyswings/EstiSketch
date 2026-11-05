@@ -103,7 +103,10 @@ class CanvasSelectionMixin:
                 return
 
         click_pt = (x, y)
-        print(f"DEBUG: Click at {click_pt}")
+        if self.config.DEBUG:
+            print(f"DEBUG: Click at {click_pt}")
+        if n_press == 2 and self._try_edit_chain_segment(x, y):
+            return
         fixed_threshold = 10      # device pixels for walls
         vertex_threshold = 15     # device pixels for vertices
         best_dist = float('inf')
