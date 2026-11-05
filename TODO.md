@@ -145,6 +145,7 @@
 
 ## 🐛 Known Bugs / FIXMEs
 - [ ] Continuous Dimension Chains clicking to set intermediate dimensions creates a new dimension chain instead of creating a point within the current chain.
+- [ ] Dimension chains missing double click to create dimension of wall, room or other object.
 
 ## 💡 Takeoffs
 - [ ] Material Estimator

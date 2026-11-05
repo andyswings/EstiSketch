@@ -199,276 +199,92 @@ class EstimatorApp(Gtk.Application):
                 self.properties_dock.refresh_tabs(selected)))
 
         # Define toggle callbacks.
-        def on_pointer_toggled(toggle_button):
+
+        TOGGLE_BTNS = ["pointer", "draw_walls", "draw_rooms", "add_doors", "add_windows", 
+        "add_polyline", "add_dimension", "add_text", "add_stair", "panning", "add_dimension_chain", 
+        "add_leader", "design_roof", "add_roof_line", "add_arc", "add_circle"]
+
+
+        def on_btn_toggled(btn_to_toggle: str, toggle_button: Gtk.Button, toggle_btn_list: list):
+            """
+            Handle toolbar button toggling.
+
+            This method is called when a toolbar button is clicked, selecting the clicked button 
+            and deselecting all the others. Sets tool mode which tells the canvas which tool to draw or select with.
+
+            Args:
+                btn_to_toggle (str): name of button we want to select.
+                toggle_button (Gtk.button): Gtk button
+                toggle_btn_list (list): List of all the names of the toggle buttons available.
+            
+            Returns:
+                None
+            """
             if toggle_button.get_active():
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                self.canvas.set_tool_mode("pointer")
-                print("Pointer mode activated")
+                for btn in toggle_btn_list:
+                    if btn == btn_to_toggle:
+                        self.tool_buttons[btn].set_active(True)
+                        self.canvas.set_tool_mode(btn)
+                    else:
+                        self.tool_buttons[btn].set_active(False)
+                    if btn == "panning":
+                        cursor = Gdk.Cursor.new_from_name("grab", None)
+                        self.canvas.set_cursor(cursor)
+                    else:
+                        self.canvas.set_cursor(None)
+                    if self.config.DEBUG:
+                        print(f"{btn} mode activated")
             else:
                 self.canvas.set_tool_mode(None)
+        
+
+        def on_pointer_toggled(toggle_button):
+            on_btn_toggled("pointer", toggle_button, TOGGLE_BTNS)
 
         def on_panning_toggled(toggle_button):
-            if toggle_button.get_active():
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                self.canvas.set_tool_mode("panning")
-                cursor = Gdk.Cursor.new_from_name("grab", None)
-                self.canvas.set_cursor(cursor)
-                print("Panning mode activated")
-            else:
-                self.canvas.set_cursor(None)
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("panning", toggle_button, TOGGLE_BTNS)
 
         def on_draw_walls_toggled(toggle_button):
-            if toggle_button.get_active():
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                self.canvas.set_tool_mode("draw_walls")
-                print("Draw walls mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("draw_walls", toggle_button, TOGGLE_BTNS)
 
         def on_add_windows_toggled(toggle_button):
-            if toggle_button.get_active():
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                self.canvas.set_tool_mode("add_windows")
-                print("Add windows mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_windows", toggle_button, TOGGLE_BTNS)
 
         def on_draw_rooms_toggled(toggle_button):
-            if toggle_button.get_active():
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                self.canvas.set_tool_mode("draw_rooms")
-                print("Draw rooms mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("draw_rooms", toggle_button, TOGGLE_BTNS)
 
         def on_add_doors_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools.
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                # Activate add_doors mode.
-                self.canvas.set_tool_mode("add_doors")
-                print("Add doors mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_doors", toggle_button, TOGGLE_BTNS)
 
         def on_add_polyline_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools.
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                # Activate add_polyline mode.
-                self.canvas.set_tool_mode("add_polyline")
-                print("Add polyline mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_polyline", toggle_button, TOGGLE_BTNS)
 
         def on_add_dimension_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools.
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                # Activate add_dimension mode.
-                self.canvas.set_tool_mode("add_dimension")
-                print("Add dimension mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_dimension", toggle_button, TOGGLE_BTNS)
 
         def on_add_text_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools.
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                # Activate add_text mode.
-                self.canvas.set_tool_mode("add_text")
-                print("Add text mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_text", toggle_button, TOGGLE_BTNS)
 
         def on_add_circle_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                # Activate add_circle mode
-                self.canvas.set_tool_mode("add_circle")
-                print("Add circle mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_circle", toggle_button, TOGGLE_BTNS)
 
         def on_add_arc_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                # Activate add_arc mode
-                self.canvas.set_tool_mode("add_arc")
-                print("Add arc mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_arc", toggle_button, TOGGLE_BTNS)
 
         def on_design_roof_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                # Activate design_roof mode
-                self.canvas.set_tool_mode("design_roof")
-                print("Design roof mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("design_roof", toggle_button, TOGGLE_BTNS)
 
         def on_add_stair_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                # Activate add_stair mode
-                self.canvas.set_tool_mode("add_stair")
-                print("Add stair mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_stair", toggle_button, TOGGLE_BTNS)
 
         def on_add_roof_line_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["design_roof"].set_active(False)
-                # Activate add_roof_line mode
-                self.canvas.set_tool_mode("add_roof_line")
-                print("Draw roof line mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_roof_line", toggle_button, TOGGLE_BTNS)
 
         def on_add_dimension_chain_toggled(toggle_button):
-            if toggle_button.get_active():
-                self.canvas.set_tool_mode("add_dimension_chain")
-                print("Add dimension chain mode activated")
-            else:
-                if self.canvas.tool_mode == "add_dimension_chain":
-                    self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_dimension_chain", toggle_button, TOGGLE_BTNS)
 
         def on_add_leader_toggled(toggle_button):
-            if toggle_button.get_active():
-                self.canvas.set_tool_mode("add_leader")
-                print("Add leader callout mode activated")
-            else:
-                if self.canvas.tool_mode == "add_leader":
-                    self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_leader", toggle_button, TOGGLE_BTNS)
 
         callbacks = {
             "pointer": on_pointer_toggled,
@@ -839,7 +655,7 @@ class EstimatorApp(Gtk.Application):
                 self.on_new(None, None)
                 return True
             elif keyname == "j":
-                self.canvas.join_selected_walls()
+                self.canvas.join_selected_walls(None)
                 return True
             elif keyname == "s":
                  self.show_save_dialog()
