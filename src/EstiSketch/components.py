@@ -113,6 +113,20 @@ class Polyline:
 
 
 @dataclass
+class Hole:
+    """A floor opening in a Room, derived from the object that created it.
+
+    ``source_id`` links back to that object (e.g. ``"stair:<identifier>"``);
+    ``points`` are regenerated from it and are not the source of truth.
+    ``ceiling_only`` holes (lower-level ceiling under a stair) don't open the
+    floor and only affect ceiling takeoff.
+    """
+    source_id: str = ""
+    points: List[Tuple[float, float]] = field(default_factory=list)
+    ceiling_only: bool = False
+
+
+@dataclass
 class Room:
     def __init__(self,
                  points: List[Tuple[float,
@@ -133,6 +147,8 @@ class Room:
         self.wall_finish = "default"
         self.room_type = "undefined"
         self.name = ""
+        # Derived floor openings (see Hole); regenerated from their sources
+        self.holes: List[Hole] = []
 
         # Foundation slab properties
         self.is_slab = False  # True if this room represents a foundation slab
@@ -282,6 +298,9 @@ class Stair:
     tread_depth: float = 11.0  # inches
     total_run: float = 143.0  # inches (calculated: (num_steps-1) * tread_depth)
     nosing: float = 1.0  # inches
+
+    # Extra clearance (inches) added around the floor opening this stair cuts
+    opening_clearance: float = 0.0
     
     # Railings
     has_left_rail: bool = True

@@ -1,6 +1,7 @@
 import base64
 import xml.etree.ElementTree as ET
 from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair, BackgroundImage, DimensionChain, LeaderCallout
+from .geometry.room_holes import sync_stair_holes
 from .roof_components import Roof, RoofEdge, RoofLine
 
 
@@ -35,6 +36,8 @@ def save_project(canvas, window_width, window_height, filepath):
     # Save active level ID
     active_level_id = getattr(canvas, 'active_level_id', '')
     root.set("active_level_id", active_level_id)
+    root.set("cut_lower_ceiling_under_stairs",
+             str(bool(getattr(canvas, 'cut_lower_ceiling_under_stairs', False))))
 
     # Save layers
     layers_elem = ET.SubElement(root, "Layers")
@@ -132,6 +135,14 @@ def save_project(canvas, window_width, window_height, filepath):
         ET.SubElement(room_elem, "SlabThickness").text = str(getattr(room, 'slab_thickness', 4.0))
         ET.SubElement(room_elem, "SlabReinforcement").text = getattr(room, 'slab_reinforcement', 'wire_mesh')
         ET.SubElement(room_elem, "SlabEdgeType").text = getattr(room, 'slab_edge_type', 'thickened')
+
+        # Save holes: only the link to the source object. Points are derived
+        # and recomputed on load.
+        holes_elem = ET.SubElement(room_elem, "Holes")
+        for hole in getattr(room, 'holes', []):
+            h_elem = ET.SubElement(holes_elem, "Hole")
+            h_elem.set("source_id", hole.source_id)
+            h_elem.set("ceiling_only", str(hole.ceiling_only))
 
     # Save doors. In addition to their properties and attachment ratio, also
     # save a wall reference.
@@ -482,6 +493,7 @@ def save_project(canvas, window_width, window_height, filepath):
         s_elem.set("landing_depth", str(getattr(stair, 'landing_depth', 36.0)))
         s_elem.set("steps_before_landing", str(getattr(stair, 'steps_before_landing', 0)))
         s_elem.set("winder_count", str(getattr(stair, 'winder_count', 0)))
+        s_elem.set("opening_clearance", str(getattr(stair, 'opening_clearance', 0.0)))
 
     # Save Blueprint underlays (image bytes are embedded so the project is
     # self-contained and portable between machines).
@@ -1140,6 +1152,7 @@ def open_project(canvas, filepath):
             stair.landing_depth = _get_attr_float(s_elem, "landing_depth", 36.0)
             stair.steps_before_landing = _get_attr_int(s_elem, "steps_before_landing", 0)
             stair.winder_count = _get_attr_int(s_elem, "winder_count", 0)
+            stair.opening_clearance = _get_attr_float(s_elem, "opening_clearance", 0.0)
 
             canvas.stairs.append(stair)
 
@@ -1175,6 +1188,15 @@ def open_project(canvas, filepath):
                 if hasattr(canvas, 'get_blueprint_surface'):
                     canvas.get_blueprint_surface(bp)  # decodes & sets pixel size
                 canvas.blueprints.append(bp)
+
+    # --- Restore Holes (derived) ---
+    # Saved <Holes> only record the source link; geometry is recomputed from
+    # the sources, so holes whose source no longer exists simply vanish.
+    canvas.cut_lower_ceiling_under_stairs = (
+        root.get("cut_lower_ceiling_under_stairs", "False") == "True")
+    for room in canvas.rooms:
+        room.holes = []
+    sync_stair_holes(canvas)
 
     # Return the saved window size.
     return window_width, window_height

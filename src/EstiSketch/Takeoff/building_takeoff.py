@@ -1289,3 +1289,73 @@ def export_supplier_quote_pdf(items: List[Dict], config, project_name: str = "Es
         # Fallback text file export if ReportLab is missing
         txt_path = output_path.replace(".pdf", ".txt")
         export_supplier_quote_txt(items, config, project_name, txt_path)
+
+
+def extract_room_areas(canvas) -> List[Dict]:
+    """Per-room floor/ceiling areas and slab volume, net of floor openings.
+
+    Holes (e.g. stairwell openings) are deducted from floor area, slab
+    concrete volume and ceiling area. Perimeter wall finish and baseboard are
+    deliberately not deducted. Lower-level ceilings are only cut under stairs
+    when ``canvas.cut_lower_ceiling_under_stairs`` is set.
+    """
+    from ..geometry.room_holes import (
+        sync_stair_holes, room_gross_area_sqft, room_floor_area_sqft,
+        room_ceiling_area_sqft, room_slab_volume_cuft)
+
+    sync_stair_holes(canvas)
+    results = []
+    for room in getattr(canvas, "rooms", []):
+        if len(room.points) < 3:
+            continue
+        gross = room_gross_area_sqft(room)
+        floor = room_floor_area_sqft(room)
+        results.append({
+            "id": getattr(room, "identifier", ""),
+            "name": getattr(room, "name", ""),
+            "gross_area_sqft": gross,
+            "floor_area_sqft": floor,
+            "ceiling_area_sqft": room_ceiling_area_sqft(room),
+            "flooring_area_sqft": floor,
+            "opening_area_sqft": gross - floor,
+            "slab_volume_cuft": room_slab_volume_cuft(room),
+        })
+    return results
+
+
+def generate_room_area_report(canvas) -> str:
+    """Formatted floor / ceiling / slab report, net of floor openings."""
+    rooms = extract_room_areas(canvas)
+    lines = ["=" * 90,
+             "ESTISKETCH ROOM AREA & FLOOR OPENING TAKEOFF REPORT",
+             "=" * 90]
+    if not rooms:
+        lines.append("No rooms found.")
+        return "\n".join(lines)
+    lines.append(f"{'Room':<16} {'Gross':>9} {'Openings':>9} {'Floor':>9} {'Ceiling':>9} {'Slab':>10}")
+    lines.append(f"{'':<16} {'sq ft':>9} {'sq ft':>9} {'sq ft':>9} {'sq ft':>9} {'cu ft':>10}")
+    lines.append("-" * 90)
+    tot = dict(gross=0.0, opening=0.0, floor=0.0, ceiling=0.0, slab=0.0)
+    for r in rooms:
+        label = (r["name"] or r["id"] or "Room")[:15]
+        slab = r["slab_volume_cuft"]
+        lines.append(
+            f"{label:<16} {r['gross_area_sqft']:>9.1f} {r['opening_area_sqft']:>9.1f} "
+            f"{r['floor_area_sqft']:>9.1f} {r['ceiling_area_sqft']:>9.1f} "
+            f"{('%.1f' % slab) if slab is not None else '-':>10}")
+        tot["gross"] += r["gross_area_sqft"]
+        tot["opening"] += r["opening_area_sqft"]
+        tot["floor"] += r["floor_area_sqft"]
+        tot["ceiling"] += r["ceiling_area_sqft"]
+        tot["slab"] += slab or 0.0
+    lines.append("-" * 90)
+    lines.append(f"{'TOTAL':<16} {tot['gross']:>9.1f} {tot['opening']:>9.1f} "
+                 f"{tot['floor']:>9.1f} {tot['ceiling']:>9.1f} {tot['slab']:>10.1f}")
+    lines.append("")
+    lines.append("Floor openings (stairwells) are deducted from floor, flooring, ceiling and slab")
+    lines.append("quantities; overlapping openings are counted once. Perimeter wall finish and")
+    lines.append("baseboard are not deducted.")
+    if getattr(canvas, "cut_lower_ceiling_under_stairs", False):
+        lines.append("Lower-level ceilings are also cut under stairs (project setting).")
+    lines.append("=" * 90)
+    return "\n".join(lines)

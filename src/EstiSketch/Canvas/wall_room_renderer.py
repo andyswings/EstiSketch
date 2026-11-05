@@ -1,3 +1,4 @@
+import cairo
 from ..geometry.wall_joins import wall_join_polygon
 
 
@@ -498,7 +499,39 @@ def draw_sloped_wall_indicators(self, cr):
         cr.restore()
 
 
+def _poly_path(cr, pts):
+    cr.move_to(pts[0][0], pts[0][1])
+    for pt in pts[1:]:
+        cr.line_to(pt[0], pt[1])
+    cr.close_path()
+
+
+def _room_floor_holes(room):
+    return [h.points for h in getattr(room, 'holes', [])
+            if not h.ceiling_only and len(h.points) >= 3]
+
+
+def _clip_outside_holes(cr, room, skip=None):
+    """Clip to the area outside every floor hole (optionally except ``skip``).
+
+    Each hole is subtracted with its own even-odd (big rectangle + hole) clip,
+    so overlapping holes combine as a union instead of re-filling their overlap.
+    """
+    big = 1.0e6  # stay inside cairo fixed-point range (~8.3e6)
+    for pts in _room_floor_holes(room):
+        if pts is skip:
+            continue
+        cr.new_path()
+        cr.rectangle(-big, -big, 2 * big, 2 * big)
+        _poly_path(cr, pts)
+        cr.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
+        cr.clip()
+    cr.new_path()
+
+
 def draw_rooms(self, cr, zoom_transform):
+    from ..geometry.room_holes import sync_stair_holes
+    sync_stair_holes(self)  # keep stair-derived holes current
     cr.set_line_width(1.0 / zoom_transform)
 
     def is_visible(obj):
@@ -519,10 +552,10 @@ def draw_rooms(self, cr, zoom_transform):
 
         if room.points:
             cr.save()
-            cr.move_to(room.points[0][0], room.points[0][1])
-            for pt in room.points[1:]:
-                cr.line_to(pt[0], pt[1])
-            cr.close_path()
+            # Fill only outside every floor hole (union of overlapping holes)
+            cr.save()
+            _clip_outside_holes(cr, room)
+            _poly_path(cr, room.points)
 
             # Check if this is a slab - use different fill style
             if getattr(room, 'is_slab', False):
@@ -531,19 +564,26 @@ def draw_rooms(self, cr, zoom_transform):
             else:
                 # Light blue fill for regular rooms
                 cr.set_source_rgba(0.9, 0.9, 1, opacity)
-            cr.fill_preserve()
+            cr.fill()
+            cr.restore()
 
+            # Outline: room boundary, then each hole outline outside the others
             cr.set_source_rgba(0, 0, 0, opacity)
+            _poly_path(cr, room.points)
             cr.stroke()
+            for hole_pts in _room_floor_holes(room):
+                cr.save()
+                _clip_outside_holes(cr, room, skip=hole_pts)
+                _poly_path(cr, hole_pts)
+                cr.stroke()
+                cr.restore()
             
             # Draw hatching pattern for slabs
             if getattr(room, 'is_slab', False) and room.points:
                 cr.save()
                 # Create clipping path from room polygon
-                cr.move_to(room.points[0][0], room.points[0][1])
-                for pt in room.points[1:]:
-                    cr.line_to(pt[0], pt[1])
-                cr.close_path()
+                _clip_outside_holes(cr, room)
+                _poly_path(cr, room.points)
                 cr.clip()
                 
                 # Calculate bounding box

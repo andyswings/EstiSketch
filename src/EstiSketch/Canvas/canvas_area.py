@@ -83,6 +83,8 @@ class CanvasArea(Gtk.DrawingArea,
         self.levels = [Level(id="level-1", name="Level 1", elevation=0.0)]
         self.active_level_id = "level-1"
         self.show_all_levels = False
+        # Takeoff setting: also cut the lower level's ceiling under stairs
+        self.cut_lower_ceiling_under_stairs = False
 
         self.layers = [Layer(
             id=default_layer_id,

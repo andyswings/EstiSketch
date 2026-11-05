@@ -157,10 +157,15 @@ Support multi-point room polygons with interior hole cutouts (stairwells, double
 - [`src/EstiSketch/project_io.py`](file:///home/andrew/Documents/Python_Projects/EstiSketch/src/EstiSketch/project_io.py)
 
 #### 4.3 Implementation Details
-1. **Room Holes**:
-   - Add `holes: List[List[Tuple[float, float]]]` to [`Room`](file:///home/andrew/Documents/Python_Projects/EstiSketch/src/EstiSketch/components.py).
-   - Render using `cairo.FILL_RULE_EVEN_ODD` across outer boundary and hole paths.
-   - Deduct hole area from room square footage, floor slab takeoff, and ceiling finishes.
+1. **Room Holes (Stair-Derived) - Implemented**:
+   - `Hole(source_id, points, ceiling_only)` in `Room.holes` ([`components.py`](file:///home/andrew/Documents/Python_Projects/EstiSketch/src/EstiSketch/components.py)). Holes are *derived*: geometry lives in [`geometry/room_holes.py`](file:///home/andrew/Documents/Python_Projects/EstiSketch/src/EstiSketch/geometry/room_holes.py) and `sync_stair_holes(canvas)` regenerates them (called before draw, takeoff and after load), so they follow moves/edits/deletes/level changes of the stair.
+   - Source: stairs only. The hole goes on rooms on the stair's `end_level_id`, clipped to each overlapped room (one hole per room per footprint part). Footprint = non-overlapping convex parts (straight, L incl. winders, U, spiral disc) plus `Stair.opening_clearance` (default 0").
+   - Project setting `canvas.cut_lower_ceiling_under_stairs` (default off): also adds `ceiling_only` holes on `start_level_id` rooms (ceiling takeoff only, floor untouched).
+   - Rendered with `cairo.FILL_RULE_EVEN_ODD`; no extra indicator.
+   - Takeoff: `extract_room_areas()` deducts holes from floor, flooring, ceiling and slab volume; perimeter wall finish/baseboard are not deducted.
+   - Persistence: only `source_id`/`ceiling_only` saved per room (`<Holes>`); points recomputed on load. Old files load with no holes.
+   - Tests: `tests/test_room_holes.py`.
+   - Future sources (manual floor openings, elevators, shafts) tracked in TODO.md.
 2. **Floor & Ceiling Texture Patterns**:
    - Procedural Cairo pattern fills: wood plank (offset parallel lines), tile grid (custom pitch 12", 18", 24"), herringbone, and concrete stipple.
    - Support pattern rotation angle and pattern scaling factor.
