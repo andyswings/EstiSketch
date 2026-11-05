@@ -4,7 +4,8 @@
 - [ ] Walls can currently snap to edges of other walls, but rooms do not. We need to fix this.
 - [ ] Snapping guides / indicators should appear when in wall or room drawing mode even when not actively drawing, so that the user can see exactly where the wall or room point will be drawn upon clicking.
 - [ ] Architectural Fixtures & Cabinetry 2D Symbols (Kitchen base/wall cabinets, bathroom fixtures, major appliances).
-- [ ] Room Cutouts / Interior Holes (Support for stairwell openings, lightwells, and courtyards within room polygons).
+- [ ] Room Cutouts / Interior Holes (Support for stairwell openings, lightwells, and courtyards within room polygons). Phase 4 covers stair-generated holes only (derived via `Hole.source_id`).
+- [ ] Follow-up to Room Cutouts: add other hole sources beyond stairs (manual "Floor Opening" tool for atriums/lightwells/courtyards, elevators, shafts, double-height spaces). `Hole.source_id` is generic so these plug in later.
 - [ ] Scaled Vector Export & Architectural PDF Plotting (Cairo vector SVG export and scaled PDF sheets with title blocks).
 - [ ] Add all build files for building windows and linux packages to the .gitignore file and remove them from the online repo.
 
