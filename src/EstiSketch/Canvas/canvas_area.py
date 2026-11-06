@@ -74,14 +74,21 @@ class CanvasArea(Gtk.DrawingArea,
         self.offset_x = self.ruler_offset
         self.offset_y = self.ruler_offset
 
+        # ID stack
+        self.existing_ids = []
+
         # Layers system - max 24 layers
         self.MAX_LAYERS = 24
-        # Create default layer using generate_identifier
-        default_layer_id = self.generate_identifier("layer", [])
+        default_level_id = self.generate_identifier("level", self.existing_ids)
+        self.existing_ids.append(default_level_id)
+        default_layer_id = self.generate_identifier("layer", self.existing_ids)
+        self.existing_ids.append(default_layer_id)
 
         # Level system
-        self.levels = [Level(id="level-1", name="Level 1", elevation=0.0)]
-        self.active_level_id = "level-1"
+        self.levels = [
+            Level(id=default_level_id, name="Level 1", elevation=0.0)
+        ]
+        self.active_level_id = default_level_id
         self.show_all_levels = False
         # Takeoff setting: also cut the lower level's ceiling under stairs
         self.cut_lower_ceiling_under_stairs = False
@@ -92,7 +99,7 @@ class CanvasArea(Gtk.DrawingArea,
             visible=True,
             locked=False,
             opacity=1.0,
-            level_id="level-1"  # Default layer assigned to default level
+            level_id=default_level_id  # Default layer assigned to default level
         )]
         self.active_layer_id = default_layer_id
 
@@ -164,9 +171,6 @@ class CanvasArea(Gtk.DrawingArea,
         # an existing wall; None when no face snap is active.
         self.edit_face_guide = None
         self.tool_mode = None  # "draw_walls" or "draw_rooms"
-
-        # ID stack
-        self.existing_ids = []
 
         # Undo/Redo stacks
         self.undo_stack = []
@@ -343,8 +347,11 @@ class CanvasArea(Gtk.DrawingArea,
             print(f"Cannot add more than {self.MAX_LAYERS} layers")
             return None
 
-        existing_ids = [layer.id for layer in self.layers]
+        existing_ids = list(self.existing_ids) + [
+            layer.id for layer in self.layers
+        ]
         new_layer_id = self.generate_identifier("layer", existing_ids)
+        self.existing_ids.append(new_layer_id)
         layer_num = len(self.layers)
         layer_name = name if name else f"Layer {layer_num}"
 
@@ -562,8 +569,11 @@ class CanvasArea(Gtk.DrawingArea,
 
     def add_level(self, name: str) -> str:
         """Add a new level and return its ID."""
-        existing_ids = [l.id for l in self.levels]
+        existing_ids = list(self.existing_ids) + [
+            level.id for level in self.levels
+        ]
         new_id = self.generate_identifier("level", existing_ids)
+        self.existing_ids.append(new_id)
 
         # Calculate default elevation
         elevation = 0.0
@@ -971,8 +981,6 @@ class CanvasArea(Gtk.DrawingArea,
             return
 
         import copy as copy_module
-        import string
-        import random
 
         # Offset for pasted items (12 inches down and right)
         offset = (12, 12)
@@ -986,6 +994,10 @@ class CanvasArea(Gtk.DrawingArea,
 
             if item_type == "wall":
                 wall = item["object"]
+                wall_id = self.generate_identifier(
+                    "wall", self.existing_ids
+                )
+                self.existing_ids.append(wall_id)
                 # Create new wall with offset
                 new_wall = self.Wall(
                     start=(
@@ -997,9 +1009,7 @@ class CanvasArea(Gtk.DrawingArea,
                     width=wall.width,
                     height=wall.height,
                     exterior_wall=wall.exterior_wall,
-                    identifier=self.generate_identifier(
-                        "wall",
-                        self.existing_ids))
+                    identifier=wall_id)
                 # Copy all other properties
                 new_wall.footer = wall.footer
                 new_wall.footer_left_offset = wall.footer_left_offset
@@ -1024,6 +1034,7 @@ class CanvasArea(Gtk.DrawingArea,
                 new_door = copy_module.deepcopy(door)
                 new_door.identifier = self.generate_identifier(
                     "door", self.existing_ids)
+                self.existing_ids.append(new_door.identifier)
 
                 # Paste on same wall with offset ratio
                 new_ratio = ratio + 0.1  # 10% offset along the wall
@@ -1044,6 +1055,7 @@ class CanvasArea(Gtk.DrawingArea,
                 new_window = copy_module.deepcopy(window)
                 new_window.identifier = self.generate_identifier(
                     "window", self.existing_ids)
+                self.existing_ids.append(new_window.identifier)
 
                 # Paste on same wall with offset ratio
                 new_ratio = ratio + 0.1  # 10% offset along the wall
@@ -1065,6 +1077,7 @@ class CanvasArea(Gtk.DrawingArea,
                 new_text.y = text.y + offset[1]
                 new_text.identifier = self.generate_identifier(
                     "text", self.existing_ids)
+                self.existing_ids.append(new_text.identifier)
 
                 self.texts.append(new_text)
                 self.selected_items.append(
@@ -1072,6 +1085,10 @@ class CanvasArea(Gtk.DrawingArea,
 
             elif item_type == "dimension":
                 dim = item["object"]
+                dim_id = self.generate_identifier(
+                    "dimension", self.existing_ids
+                )
+                self.existing_ids.append(dim_id)
                 # Create new dimension with offset
                 new_dim = self.Dimension(
                     start=(
@@ -1081,9 +1098,7 @@ class CanvasArea(Gtk.DrawingArea,
                         dim.end[0] + offset[0],
                         dim.end[1] + offset[1]),
                     offset=dim.offset,
-                    identifier=self.generate_identifier(
-                        "dimension",
-                        self.existing_ids),
+                    identifier=dim_id,
                     text_size=dim.text_size,
                     show_arrows=dim.show_arrows,
                     line_style=dim.line_style,
@@ -1095,11 +1110,14 @@ class CanvasArea(Gtk.DrawingArea,
 
             elif item_type == "dimension_chain":
                 chain = item["object"]
-                new_points = [(p[0] + offset[0], p[1] + offset[1]) for p in chain.points]
+                new_points = [
+                    (p[0] + offset[0], p[1] + offset[1]) for p in chain.points
+                ]
                 new_chain = copy_module.deepcopy(chain)
                 new_chain.points = new_points
                 new_chain.identifier = self.generate_identifier(
                     "dim_chain", self.existing_ids)
+                self.existing_ids.append(new_chain.identifier)
                 self.dimension_chains.append(new_chain)
                 self.selected_items.append(
                     {"type": "dimension_chain", "object": new_chain})
@@ -1107,11 +1125,18 @@ class CanvasArea(Gtk.DrawingArea,
             elif item_type == "leader_callout":
                 lead = item["object"]
                 new_lead = copy_module.deepcopy(lead)
-                new_lead.tip = (lead.tip[0] + offset[0], lead.tip[1] + offset[1])
-                new_lead.elbow = (lead.elbow[0] + offset[0], lead.elbow[1] + offset[1])
-                new_lead.shoulder = (lead.shoulder[0] + offset[0], lead.shoulder[1] + offset[1])
+                new_lead.tip = (
+                    lead.tip[0] + offset[0], lead.tip[1] + offset[1]
+                )
+                new_lead.elbow = (
+                    lead.elbow[0] + offset[0], lead.elbow[1] + offset[1]
+                )
+                new_lead.shoulder = (
+                    lead.shoulder[0] + offset[0], lead.shoulder[1] + offset[1]
+                )
                 new_lead.identifier = self.generate_identifier(
                     "leader", self.existing_ids)
+                self.existing_ids.append(new_lead.identifier)
                 self.leader_callouts.append(new_lead)
                 self.selected_items.append(
                     {"type": "leader_callout", "object": new_lead})
@@ -1128,11 +1153,55 @@ class CanvasArea(Gtk.DrawingArea,
                     poly.end[1] + offset[1])
                 new_poly.identifier = self.generate_identifier(
                     "polyline", self.existing_ids)
+                self.existing_ids.append(new_poly.identifier)
 
                 # Add as a new polyline set
                 self.polyline_sets.append([new_poly])
                 self.selected_items.append(
-                    {"type": "polyline", "object": new_poly, "identifier": new_poly.identifier})
+                    {
+                        "type": "polyline",
+                        "object": new_poly,
+                        "identifier": new_poly.identifier,
+                    })
+
+            elif item_type == "circle":
+                circle = item["object"]
+                new_circle = copy_module.deepcopy(circle)
+                new_circle.center = (
+                    circle.center[0] + offset[0],
+                    circle.center[1] + offset[1])
+                new_circle.identifier = self.generate_identifier(
+                    "circle", self.existing_ids)
+                self.existing_ids.append(new_circle.identifier)
+                self.circles.append(new_circle)
+                self.selected_items.append(
+                    {"type": "circle", "object": new_circle})
+
+            elif item_type == "arc":
+                arc = item["object"]
+                new_arc = copy_module.deepcopy(arc)
+                new_arc.center = (
+                    arc.center[0] + offset[0],
+                    arc.center[1] + offset[1])
+                new_arc.identifier = self.generate_identifier(
+                    "arc", self.existing_ids)
+                self.existing_ids.append(new_arc.identifier)
+                self.arcs.append(new_arc)
+                self.selected_items.append(
+                    {"type": "arc", "object": new_arc})
+
+            elif item_type == "stair":
+                stair = item["object"]
+                new_stair = copy_module.deepcopy(stair)
+                new_stair.start_point = (
+                    stair.start_point[0] + offset[0],
+                    stair.start_point[1] + offset[1])
+                new_stair.identifier = self.generate_identifier(
+                    "stair", self.existing_ids)
+                self.existing_ids.append(new_stair.identifier)
+                self.stairs.append(new_stair)
+                self.selected_items.append(
+                    {"type": "stair", "object": new_stair})
 
             elif item_type == "vertex":
                 # Room vertices - we'll handle this by pasting the whole room
@@ -1146,21 +1215,30 @@ class CanvasArea(Gtk.DrawingArea,
                 room, idx = item["object"]
                 # Use object id to track unique rooms
                 rooms_to_paste.add(id(room))
+            elif item["type"] == "room":
+                room = item["object"]
+                rooms_to_paste.add(id(room))
 
         # Paste unique rooms
         for item in self.clipboard:
-            if item["type"] == "vertex":
-                room, idx = item["object"]
+            if item["type"] in ("vertex", "room"):
+                room = (
+                    item["object"][0]
+                    if item["type"] == "vertex"
+                    else item["object"]
+                )
                 if id(room) in rooms_to_paste:
+                    room_id = self.generate_identifier(
+                        "room", self.existing_ids
+                    )
+                    self.existing_ids.append(room_id)
                     # Create new room with offset
                     new_points = [(pt[0] + offset[0], pt[1] + offset[1])
                                   for pt in room.points]
                     new_room = self.Room(
                         points=new_points,
                         height=room.height,
-                        identifier=self.generate_identifier(
-                            "room",
-                            self.existing_ids),
+                        identifier=room_id,
                         layer_id=self.active_layer_id)
                     new_room.floor_type = room.floor_type
                     new_room.wall_finish = room.wall_finish

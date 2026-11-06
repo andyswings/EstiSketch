@@ -52,9 +52,12 @@ class CanvasRoomMixin:
             if self.current_room_points and len(self.current_room_points) >= 3:
                 # Room stores only unique vertices - rendering uses
                 # close_path() to close polygon
+                room_id = self.generate_identifier("room", self.existing_ids)
                 new_room = self.Room(
                     self.current_room_points,
+                    identifier=room_id,
                     layer_id=self.active_layer_id)
+                self.existing_ids.append(room_id)
                 self.rooms.append(new_room)
                 self.current_room_points = []
                 self.current_room_preview = None
@@ -67,8 +70,14 @@ class CanvasRoomMixin:
                 if self._is_closed_polygon(wall_set):
                     poly = self._get_wall_set_polygon(wall_set)
                     if self._point_in_polygon((snapped_x, snapped_y), poly):
+                        room_id = self.generate_identifier(
+                            "room", self.existing_ids
+                        )
                         new_room = self.Room(
-                            poly, layer_id=self.active_layer_id)
+                            poly,
+                            identifier=room_id,
+                            layer_id=self.active_layer_id)
+                        self.existing_ids.append(room_id)
                         self.rooms.append(new_room)
                         # Reset room drawing state after creating room from
                         # closed loop
@@ -88,9 +97,12 @@ class CanvasRoomMixin:
         if self.current_room_points and len(self.current_room_points) >= 3:
             # Room stores only unique vertices - rendering uses close_path() to
             # close polygon
+            room_id = self.generate_identifier("room", self.existing_ids)
             new_room = self.Room(
                 self.current_room_points,
+                identifier=room_id,
                 layer_id=self.active_layer_id)
+            self.existing_ids.append(room_id)
             self.rooms.append(new_room)
             print(f"Finalized room with points: {self.current_room_points}")
         # Clear the temporary room points and preview

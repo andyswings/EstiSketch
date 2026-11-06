@@ -135,8 +135,13 @@ class RoofLinePropertiesWidget(Gtk.Box):
                             sl.pitch_rise = val
                             sl.is_auto_generated = False
                     # Sync to roof edge if applicable
+                    selected_wall_id = getattr(selected, "wall_identifier", "")
                     for edge in getattr(roof, 'edges', []):
-                        if f"auto_{edge.edge_type}_{edge.wall_identifier}" == line_id or line_id.endswith(edge.wall_identifier):
+                        if (
+                            (selected_wall_id and selected_wall_id == edge.wall_identifier)
+                            or f"auto_{edge.edge_type}_{edge.wall_identifier}" == line_id
+                            or (edge.wall_identifier and line_id.endswith(edge.wall_identifier))
+                        ):
                             edge.pitch_rise = val
 
             if roof.roof_type == "gable" and hasattr(self.canvas, "recalculate_roof"):

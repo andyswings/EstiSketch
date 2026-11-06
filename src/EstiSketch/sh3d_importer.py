@@ -6,6 +6,7 @@ import math
 
 from .components import Wall, Room, Door, Window
 from .Canvas.canvas_area import CanvasArea
+from .Canvas.utils import generate_identifier
 
 
 def import_sh3d(sh3d_file_path: str, canvas_area: CanvasArea) -> dict:
@@ -55,6 +56,8 @@ def import_sh3d(sh3d_file_path: str, canvas_area: CanvasArea) -> dict:
                     wall_elem_height_end = wall_elem_height
                 thickness = float(wall_elem.get('thickness', 0)) * cm_to_in
                 identifier = wall_elem.get('id', '')
+                if not identifier or identifier in identifiers:
+                    identifier = generate_identifier("wall", identifiers)
 
                 # Parse curved wall (arcExtent in radians)
                 is_curved = False
@@ -120,7 +123,13 @@ def import_sh3d(sh3d_file_path: str, canvas_area: CanvasArea) -> dict:
                 except ValueError as e:
                     print(f"Error parsing room point: {e}")
             if points:
-                room = Room(points=points, height=wall_height)
+                room_id = room_elem.get('id', '')
+                if not room_id or room_id in identifiers:
+                    room_id = generate_identifier("room", identifiers)
+                room = Room(
+                    points=points, height=wall_height, identifier=room_id
+                )
+                identifiers.append(room.identifier)
                 rooms.append(room)
 
         # Group walls into connected sets (chains) so Cairo renders miter joints
@@ -260,6 +269,9 @@ def import_sh3d(sh3d_file_path: str, canvas_area: CanvasArea) -> dict:
                 element_type = "door"
             else:
                 continue
+
+            if not identifier or identifier in identifiers:
+                identifier = generate_identifier(element_type, identifiers)
 
             center = (x, y)
             best_dist = float('inf')

@@ -175,9 +175,14 @@ class CanvasBlueprintMixin:
         """Load an image file as a new blueprint underlay."""
         with open(path, "rb") as fh:
             data = fh.read()
+        existing_ids = list(getattr(self, "existing_ids", [])) + [
+            b.identifier for b in self.blueprints
+        ]
+        bp_id = self.generate_identifier("blueprint", existing_ids)
+        if hasattr(self, "existing_ids"):
+            self.existing_ids.append(bp_id)
         bp = BackgroundImage(
-            identifier=self.generate_identifier(
-                "blueprint", [b.identifier for b in self.blueprints]),
+            identifier=bp_id,
             image_path=path,
             name=os.path.basename(path),
             image_data=data,

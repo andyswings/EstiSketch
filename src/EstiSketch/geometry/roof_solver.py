@@ -612,19 +612,19 @@ def solve_roof_geometry(
 
     # Step 5: Convert solved edges to 2D RoofLine objects for canvas rendering
     solved_lines = []
-    for idx, e in enumerate(solved_edges):
+    for e in solved_edges:
         if e.start_vertex and e.end_vertex:
             s_2d = e.start_vertex.to_tuple_2d()
             e_2d = e.end_vertex.to_tuple_2d()
             if pt_distance_2d(s_2d, e_2d) > 0.5:
                 solved_lines.append(RoofLine(
-                    identifier=f"sl_{e.edge_type}_{idx+1}",
                     start=s_2d,
                     end=e_2d,
                     line_type=e.edge_type,
                     pitch_rise=roof.pitch_rise if roof else default_pitch,
                     overhang=roof.overhang if roof else default_overhang,
-                    is_auto_generated=True
+                    is_auto_generated=True,
+                    wall_identifier=getattr(e, "wall_identifier", "") or "",
                 ))
 
     # Populate Roof object if supplied

@@ -829,6 +829,7 @@ class CanvasRoofEventsMixin:
         
         # Generate identifier
         roof_id = self.generate_identifier("roof", self.existing_ids)
+        self.existing_ids.append(roof_id)
         
         # Create Roof object
         roof = Roof(
@@ -850,36 +851,27 @@ class CanvasRoofEventsMixin:
         
         # Populate initial manual_lines with auto-generated lines
         auto_lines = []
-        for idx, (s, e) in enumerate(ridge_lines):
-            auto_lines.append(RoofLine(
-                identifier=f"auto_ridge_{idx}" if idx > 0 else "auto_ridge",
-                start=s, end=e, line_type="ridge",
-                pitch_rise=pitch_rise, overhang=overhang, is_auto_generated=True
-            ))
-        for idx, (s, e) in enumerate(hip_lines):
-            auto_lines.append(RoofLine(
-                identifier=f"auto_hip_{idx}",
-                start=s, end=e, line_type="hip",
-                pitch_rise=pitch_rise, overhang=overhang, is_auto_generated=True
-            ))
-        for idx, (s, e) in enumerate(valley_lines):
-            auto_lines.append(RoofLine(
-                identifier=f"auto_valley_{idx}",
-                start=s, end=e, line_type="valley",
-                pitch_rise=pitch_rise, overhang=overhang, is_auto_generated=True
-            ))
-        for idx, (s, e) in enumerate(rake_lines):
-            auto_lines.append(RoofLine(
-                identifier=f"auto_rake_{idx}",
-                start=s, end=e, line_type="rake",
-                pitch_rise=pitch_rise, overhang=overhang, is_auto_generated=True
-            ))
-        for idx, (s, e) in enumerate(eave_lines):
-            auto_lines.append(RoofLine(
-                identifier=f"auto_eave_{idx}",
-                start=s, end=e, line_type="eave",
-                pitch_rise=pitch_rise, overhang=overhang, is_auto_generated=True
-            ))
+        for ltype, seg_list in (
+            ("ridge", ridge_lines),
+            ("hip", hip_lines),
+            ("valley", valley_lines),
+            ("rake", rake_lines),
+            ("eave", eave_lines),
+        ):
+            for s, e in seg_list:
+                line_id = self.generate_identifier(
+                    "roof_line", self.existing_ids
+                )
+                self.existing_ids.append(line_id)
+                auto_lines.append(RoofLine(
+                    identifier=line_id,
+                    start=s,
+                    end=e,
+                    line_type=ltype,
+                    pitch_rise=pitch_rise,
+                    overhang=overhang,
+                    is_auto_generated=True,
+                ))
         roof.manual_lines = auto_lines
 
         # Add to canvas
@@ -954,36 +946,27 @@ class CanvasRoofEventsMixin:
         has_custom_lines = any(not getattr(l, 'is_auto_generated', False) for l in roof.manual_lines)
         if not has_custom_lines:
             auto_lines = []
-            for idx, (s, e) in enumerate(roof.ridge_lines):
-                auto_lines.append(RoofLine(
-                    identifier=f"auto_ridge_{idx}" if idx > 0 else "auto_ridge",
-                    start=s, end=e, line_type="ridge",
-                    pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
-                ))
-            for idx, (s, e) in enumerate(roof.hip_lines):
-                auto_lines.append(RoofLine(
-                    identifier=f"auto_hip_{idx}",
-                    start=s, end=e, line_type="hip",
-                    pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
-                ))
-            for idx, (s, e) in enumerate(roof.valley_lines):
-                auto_lines.append(RoofLine(
-                    identifier=f"auto_valley_{idx}",
-                    start=s, end=e, line_type="valley",
-                    pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
-                ))
-            for idx, (s, e) in enumerate(roof.rake_lines):
-                auto_lines.append(RoofLine(
-                    identifier=f"auto_rake_{idx}",
-                    start=s, end=e, line_type="rake",
-                    pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
-                ))
-            for idx, (s, e) in enumerate(roof.eave_lines):
-                auto_lines.append(RoofLine(
-                    identifier=f"auto_eave_{idx}",
-                    start=s, end=e, line_type="eave",
-                    pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
-                ))
+            for ltype, seg_list in (
+                ("ridge", roof.ridge_lines),
+                ("hip", roof.hip_lines),
+                ("valley", roof.valley_lines),
+                ("rake", roof.rake_lines),
+                ("eave", roof.eave_lines),
+            ):
+                for s, e in seg_list:
+                    line_id = self.generate_identifier(
+                        "roof_line", self.existing_ids
+                    )
+                    self.existing_ids.append(line_id)
+                    auto_lines.append(RoofLine(
+                        identifier=line_id,
+                        start=s,
+                        end=e,
+                        line_type=ltype,
+                        pitch_rise=roof.pitch_rise,
+                        overhang=roof.overhang,
+                        is_auto_generated=True,
+                    ))
             roof.manual_lines = auto_lines
         else:
             # Overhang tracking for customized ridge lines
@@ -1144,7 +1127,12 @@ class CanvasRoofEventsMixin:
             if self.roofs:
                 roof = self.roofs[0]
             else:
-                roof_id = self.generate_identifier("roof", getattr(self, 'existing_ids', set()))
+                existing_ids = getattr(self, 'existing_ids', [])
+                roof_id = self.generate_identifier("roof", existing_ids)
+                if isinstance(existing_ids, list):
+                    existing_ids.append(roof_id)
+                elif isinstance(existing_ids, set):
+                    existing_ids.add(roof_id)
                 roof = Roof(identifier=roof_id)
                 self.roofs.append(roof)
 
@@ -1195,15 +1183,28 @@ class CanvasRoofEventsMixin:
             dx = end_pt[0] - start_pt[0]
             dy = end_pt[1] - start_pt[1]
             if math.hypot(dx, dy) > 1.0:
+                existing_ids = getattr(self, 'existing_ids', [])
                 if not hasattr(self, 'roofs') or not self.roofs:
-                    roof_id = self.generate_identifier("roof", getattr(self, 'existing_ids', set()))
+                    roof_id = self.generate_identifier("roof", existing_ids)
+                    if isinstance(existing_ids, list):
+                        existing_ids.append(roof_id)
+                    elif isinstance(existing_ids, set):
+                        existing_ids.add(roof_id)
                     active_roof = Roof(identifier=roof_id)
                     self.roofs.append(active_roof)
                 else:
                     active_roof = self.roofs[0]
 
-                line_id = f"RL-{len(active_roof.manual_lines) + 1}"
-                default_type = getattr(active_roof, 'last_line_type', getattr(self, 'active_roof_line_type', 'ridge'))
+                line_id = self.generate_identifier("roof_line", existing_ids)
+                if isinstance(existing_ids, list):
+                    existing_ids.append(line_id)
+                elif isinstance(existing_ids, set):
+                    existing_ids.add(line_id)
+                default_type = getattr(
+                    active_roof,
+                    'last_line_type',
+                    getattr(self, 'active_roof_line_type', 'ridge'),
+                )
                 new_line = RoofLine(
                     identifier=line_id,
                     start=start_pt,

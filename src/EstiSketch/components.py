@@ -2,27 +2,55 @@ import math
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
+from .Canvas.utils import generate_identifier
+
 
 @dataclass
 class Level:
     """Represents a vertical building level (story)."""
-    id: str  # Unique identifier
+    id: str = ""  # Unique identifier
     name: str = "Level 1"
     elevation: float = 0.0
     height: float = 96.0  # Default 8ft
     floor_thickness: float = 10.0  # Thickness of floor structure
 
+    def __post_init__(self) -> None:
+        if not self.id:
+            self.id = generate_identifier("level")
+
+    @property
+    def identifier(self) -> str:
+        """Alias for id so all objects expose .identifier consistently."""
+        return self.id
+
+    @identifier.setter
+    def identifier(self, value: str) -> None:
+        self.id = value
+
 
 @dataclass
 class Layer:
     """Represents a layer that objects can be assigned to."""
-    id: str  # Unique identifier (e.g., "layer-abc123...")
+    id: str = ""  # Unique identifier (e.g., "layer-abc123...")
     name: str = "Layer 0"  # Display name
     visible: bool = True  # Whether objects on this layer are drawn
     locked: bool = False  # Whether objects on this layer can be selected/edited
     opacity: float = 1.0  # Layer opacity (0.0 to 1.0)
     # ID of the level this layer belongs to. Empty = Global.
     level_id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            self.id = generate_identifier("layer")
+
+    @property
+    def identifier(self) -> str:
+        """Alias for id so all objects expose .identifier consistently."""
+        return self.id
+
+    @identifier.setter
+    def identifier(self, value: str) -> None:
+        self.id = value
 
 
 @dataclass(eq=False)
@@ -42,7 +70,9 @@ class Wall:
             visible=True,
             locked=False,
             height_at_end=None):
-        self.identifier = identifier  # unique string identifier
+        self.identifier = (
+            identifier if identifier else generate_identifier("wall")
+        )  # unique string identifier
         self.layer_id = layer_id  # layer this wall belongs to
         self.visible = visible
         self.locked = locked
@@ -50,7 +80,9 @@ class Wall:
         self.end = end      # tuple of (x, y)
         self.width = width  # integer (inches)
         self.height = height  # integer (inches) - start height
-        self.height_at_end = height_at_end if height_at_end is not None else height  # integer (inches) - end height
+        self.height_at_end = (
+            height_at_end if height_at_end is not None else height
+        )  # integer (inches) - end height
         self.exterior_wall = exterior_wall  # boolean
 
         # Curved wall properties
@@ -98,11 +130,20 @@ class Wall:
         return (self.height + self.height_at_end) / 2.0
 
 
-
 @dataclass
 class Polyline:
-    def __init__(self, start, end, identifier="", layer_id: str = "", color: tuple = (0.0, 0.0, 0.0), visible=True, locked=False):
-        self.identifier = identifier  # unique string identifier
+    def __init__(
+            self,
+            start,
+            end,
+            identifier="",
+            layer_id: str = "",
+            color: tuple = (0.0, 0.0, 0.0),
+            visible=True,
+            locked=False):
+        self.identifier = (
+            identifier if identifier else generate_identifier("polyline")
+        )  # unique string identifier
         self.layer_id = layer_id  # layer this polyline belongs to
         self.visible = visible
         self.locked = locked
@@ -124,6 +165,11 @@ class Hole:
     source_id: str = ""
     points: List[Tuple[float, float]] = field(default_factory=list)
     ceiling_only: bool = False
+    identifier: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.identifier:
+            self.identifier = generate_identifier("hole")
 
 
 @dataclass
@@ -136,7 +182,9 @@ class Room:
                  layer_id: str = "",
                  visible=True,
                  locked=False):
-        self.identifier = identifier  # unique string identifier
+        self.identifier = (
+            identifier if identifier else generate_identifier("room")
+        )  # unique string identifier
         self.layer_id = layer_id  # layer this room belongs to
         self.visible = visible
         self.locked = locked
@@ -170,7 +218,9 @@ class Door:
             layer_id: str = "",
             visible=True,
             locked=False):
-        self.identifier = identifier  # unique string identifier
+        self.identifier = (
+            identifier if identifier else generate_identifier("door")
+        )  # unique string identifier
         self.layer_id = layer_id  # layer this door belongs to
         self.visible = visible
         self.locked = locked
@@ -195,7 +245,9 @@ class Window:
             layer_id: str = "",
             visible=True,
             locked=False):
-        self.identifier = identifier  # unique string identifier
+        self.identifier = (
+            identifier if identifier else generate_identifier("window")
+        )  # unique string identifier
         self.layer_id = layer_id  # layer this window belongs to
         self.visible = visible
         self.locked = locked
@@ -225,6 +277,10 @@ class Text:
     rotation: float = 0.0  # Rotation angle in degrees
     color: tuple = (0.0, 0.0, 0.0)  # RGB color
 
+    def __post_init__(self) -> None:
+        if not self.identifier:
+            self.identifier = generate_identifier("text")
+
 
 @dataclass(eq=False)
 class Dimension:
@@ -240,6 +296,10 @@ class Dimension:
     line_style: str = "solid"  # "solid" or "dashed"
     color: tuple = (0.0, 0.0, 0.0)  # RGB color
 
+    def __post_init__(self) -> None:
+        if not self.identifier:
+            self.identifier = generate_identifier("dimension")
+
 
 @dataclass(eq=False)
 class Circle:
@@ -251,6 +311,10 @@ class Circle:
     locked: bool = False
     line_style: str = "solid"
     color: tuple = (0.0, 0.0, 0.0)
+
+    def __post_init__(self) -> None:
+        if not self.identifier:
+            self.identifier = generate_identifier("circle")
 
 
 @dataclass(eq=False)
@@ -266,34 +330,38 @@ class Arc:
     line_style: str = "solid"
     color: tuple = (0.0, 0.0, 0.0)
 
+    def __post_init__(self) -> None:
+        if not self.identifier:
+            self.identifier = generate_identifier("arc")
+
 
 @dataclass(eq=False)
 class Stair:
     """Represents a staircase spanning between levels or within a level."""
-    
+
     # Standard object properties
     identifier: str = ""
     layer_id: str = ""
     visible: bool = True
     locked: bool = False
-    
+
     # Placement
-    start_point: Tuple[float, float] = (0.0, 0.0) # (x, y) where stairs begin (bottom)
+    start_point: Tuple[float, float] = (0.0, 0.0)  # (x, y) where stairs begin (bottom)
     direction_angle: float = 0.0  # radians, direction of ascent
-    
+
     # Level spanning
     start_level_id: str = ""  # Level where stairs start (bottom)
     end_level_id: str = ""    # Level where stairs end (top)
-    
+
     # Type
     stair_type: str = "straight"  # "straight", "L-shaped", "U-shaped", "spiral"
     width: float = 36.0  # inches
-    
+
     # Vertical dimensions
     total_rise: float = 106.0  # inches (default for 8ft wall + 10in floor)
     riser_height: float = 7.57  # inches per step
     num_steps: int = 14
-    
+
     # Horizontal dimensions
     tread_depth: float = 11.0  # inches
     total_run: float = 143.0  # inches (calculated: (num_steps-1) * tread_depth)
@@ -301,25 +369,29 @@ class Stair:
 
     # Extra clearance (inches) added around the floor opening this stair cuts
     opening_clearance: float = 0.0
-    
+
     # Railings
     has_left_rail: bool = True
     has_right_rail: bool = True
     rail_height: float = 36.0  # inches
-    
+
     # Visual
     show_up_arrow: bool = True
     show_step_count: bool = True
-    
+
     # L-Shaped / U-Shaped Specifics (for future use)
     landing_depth: float = 36.0
     turn_direction: str = "left"  # "left", "right"
     steps_before_landing: int = 0  # 0 = auto-calculate (half)
     winder_count: int = 0  # L-shaped: 0 = flat landing, 2-5 = pie-shaped winder treads
-    
+
     # Spiral Specifics (for future use)
     inner_radius: float = 6.0
     rotation_degrees: float = 270.0
+
+    def __post_init__(self) -> None:
+        if not self.identifier:
+            self.identifier = generate_identifier("stair")
 
 
 @dataclass(eq=False)
@@ -346,6 +418,10 @@ class BackgroundImage:
     image_data: bytes = b""  # Encoded image file contents (PNG/JPG/...)
     pixel_width: int = 0
     pixel_height: int = 0
+
+    def __post_init__(self) -> None:
+        if not self.identifier:
+            self.identifier = generate_identifier("blueprint")
 
 
 @dataclass(eq=False)
@@ -385,6 +461,10 @@ class DimensionChain:
     witness_gap: float = 4.0
     witness_overhang: float = 6.0
 
+    def __post_init__(self) -> None:
+        if not self.identifier:
+            self.identifier = generate_identifier("dim_chain")
+
     @property
     def total_length(self) -> float:
         """Returns the total measured baseline length of the chain."""
@@ -398,7 +478,9 @@ class DimensionChain:
         if length == 0:
             return 0.0
         ux, uy = dx / length, dy / length
-        projections = [(p[0] - p0[0]) * ux + (p[1] - p0[1]) * uy for p in self.points]
+        projections = [
+            (p[0] - p0[0]) * ux + (p[1] - p0[1]) * uy for p in self.points
+        ]
         return max(projections) - min(projections)
 
     def get_sorted_points(self) -> List[Tuple[float, float]]:
@@ -457,4 +539,9 @@ class LeaderCallout:
     box_border: bool = False
     arrow_type: str = "arrow"
     line_style: str = "solid"
+
+    def __post_init__(self) -> None:
+        if not self.identifier:
+            self.identifier = generate_identifier("leader")
+
 

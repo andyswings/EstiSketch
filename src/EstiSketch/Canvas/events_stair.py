@@ -104,6 +104,7 @@ class CanvasStairEventsMixin:
         stair_id = self.generate_identifier("stair", self.existing_ids)
         self.temp_object.identifier = stair_id
         self.temp_object.layer_id = self.active_layer_id
+        self.existing_ids.append(stair_id)
         
         # Add to canvas
         self.stairs.append(self.temp_object)

@@ -1,5 +1,6 @@
 import base64
 import xml.etree.ElementTree as ET
+from .Canvas.utils import generate_identifier
 from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair, BackgroundImage, DimensionChain, LeaderCallout
 from .geometry.room_holes import sync_stair_holes
 from .roof_components import Roof, RoofEdge, RoofLine
@@ -65,6 +66,10 @@ def save_project(canvas, window_width, window_height, filepath):
         for wall_index, wall in enumerate(wall_set):
             wall_mapping[id(wall)] = (set_index, wall_index)
             wall_elem = ET.SubElement(ws_elem, "Wall")
+            wall_elem.set("identifier", getattr(wall, "identifier", ""))
+            ET.SubElement(wall_elem, "Identifier").text = getattr(
+                wall, "identifier", ""
+            )
             # Save coordinates and dimensions.
             ET.SubElement(
                 wall_elem, "Start", x=str(
@@ -115,6 +120,10 @@ def save_project(canvas, window_width, window_height, filepath):
     rooms_elem = ET.SubElement(root, "Rooms")
     for room in canvas.rooms:
         room_elem = ET.SubElement(rooms_elem, "Room")
+        room_elem.set("identifier", getattr(room, "identifier", ""))
+        ET.SubElement(room_elem, "Identifier").text = getattr(
+            room, "identifier", ""
+        )
         points_elem = ET.SubElement(room_elem, "Points")
         for pt in room.points:
             ET.SubElement(points_elem, "Point", x=str(pt[0]), y=str(pt[1]))
@@ -149,6 +158,10 @@ def save_project(canvas, window_width, window_height, filepath):
     doors_elem = ET.SubElement(root, "Doors")
     for attached_wall, door, ratio in canvas.doors:
         door_elem = ET.SubElement(doors_elem, "Door")
+        door_elem.set("identifier", getattr(door, "identifier", ""))
+        ET.SubElement(door_elem, "Identifier").text = getattr(
+            door, "identifier", ""
+        )
         ET.SubElement(door_elem, "DoorType").text = door.door_type
         ET.SubElement(door_elem, "Width").text = str(door.width)
         ET.SubElement(door_elem, "Height").text = str(door.height)
@@ -179,6 +192,10 @@ def save_project(canvas, window_width, window_height, filepath):
     windows_elem = ET.SubElement(root, "Windows")
     for attached_wall, window_obj, ratio in canvas.windows:
         win_elem = ET.SubElement(windows_elem, "Window")
+        win_elem.set("identifier", getattr(window_obj, "identifier", ""))
+        ET.SubElement(win_elem, "Identifier").text = getattr(
+            window_obj, "identifier", ""
+        )
         ET.SubElement(win_elem, "Width").text = str(window_obj.width)
         ET.SubElement(win_elem, "Height").text = str(window_obj.height)
         ET.SubElement(win_elem, "WindowType").text = window_obj.window_type
@@ -381,6 +398,8 @@ def save_project(canvas, window_width, window_height, filepath):
             if ml.overhang is not None:
                 l_elem.set("overhang", str(ml.overhang))
             l_elem.set("is_auto", str(ml.is_auto_generated))
+            if getattr(ml, "wall_identifier", ""):
+                l_elem.set("wall_identifier", ml.wall_identifier)
 
         # Save solved topology lines
         solved_elem = ET.SubElement(r_elem, "SolvedLines")
@@ -397,6 +416,8 @@ def save_project(canvas, window_width, window_height, filepath):
             if sl.overhang is not None:
                 l_elem.set("overhang", str(sl.overhang))
             l_elem.set("is_auto", str(sl.is_auto_generated))
+            if getattr(sl, "wall_identifier", ""):
+                l_elem.set("wall_identifier", sl.wall_identifier)
 
         # Save calculated geometry
         ridge_elem = ET.SubElement(r_elem, "RidgeLines")
@@ -633,7 +654,9 @@ def open_project(canvas, filepath):
 
     # Default level if none found
     if hasattr(canvas, 'levels') and not canvas.levels:
-        canvas.levels.append(Level(id="level-1", name="Level 1"))
+        canvas.levels.append(
+            Level(id=generate_identifier("level"), name="Level 1")
+        )
 
     # Restore active level ID
     active_level_id = _get_attr_text(root, "active_level_id", "")
@@ -689,9 +712,21 @@ def open_project(canvas, filepath):
                 height = _get_elem_float(wall_elem, "Height", 96.0)
                 height_at_end = _get_elem_float(wall_elem, "HeightAtEnd", height)
                 exterior_wall = _get_elem_bool(wall_elem, "ExteriorWall", False)
+                wall_id = (
+                    _get_attr_text(wall_elem, "identifier", "")
+                    or _get_elem_text(wall_elem, "Identifier", "")
+                )
 
                 # Create a new Wall instance.
-                wall = Wall(start, end, width, height, exterior_wall, height_at_end=height_at_end)
+                wall = Wall(
+                    start,
+                    end,
+                    width,
+                    height,
+                    exterior_wall,
+                    identifier=wall_id,
+                    height_at_end=height_at_end,
+                )
                 wall.layer_id = _get_elem_text(wall_elem, "LayerId", "")
                 wall.material = _get_elem_text(wall_elem, "Material", "2x4 Wood Stud")
                 wall.interior_finish = _get_elem_text(wall_elem, "InteriorFinish", "1/2\" Drywall")
@@ -722,7 +757,11 @@ def open_project(canvas, filepath):
                     y = _get_attr_float(pt_elem, "y", 0.0)
                     points.append((x, y))
             height = _get_elem_float(room_elem, "Height", 96.0)
-            room = Room(points, height)
+            room_id = (
+                _get_attr_text(room_elem, "identifier", "")
+                or _get_elem_text(room_elem, "Identifier", "")
+            )
+            room = Room(points, height, identifier=room_id)
             room.floor_type = _get_elem_text(room_elem, "FloorType", "Hardwood")
             room.wall_finish = _get_elem_text(room_elem, "WallFinish", "Paint")
             room.room_type = _get_elem_text(room_elem, "RoomType", "Living Room")
@@ -747,8 +786,19 @@ def open_project(canvas, filepath):
             swing = _get_elem_text(door_elem, "Swing", "left")
             orientation = _get_elem_text(door_elem, "Orientation", "inswing")
             ratio = _get_elem_float(door_elem, "AttachedToWallRatio", 0.5)
+            door_id = (
+                _get_attr_text(door_elem, "identifier", "")
+                or _get_elem_text(door_elem, "Identifier", "")
+            )
 
-            door = Door(door_type, width, height, swing, orientation)
+            door = Door(
+                door_type,
+                width,
+                height,
+                swing,
+                orientation,
+                identifier=door_id,
+            )
             door.layer_id = _get_elem_text(door_elem, "LayerId", "")
             attached_wall = None
             wall_ref_elem = door_elem.find("WallReference")
@@ -770,8 +820,14 @@ def open_project(canvas, filepath):
             win_height = _get_elem_float(win_elem, "Height", 48.0)
             window_type = _get_elem_text(win_elem, "WindowType", "sliding")
             ratio = _get_elem_float(win_elem, "AttachedToWallRatio", 0.5)
+            win_id = (
+                _get_attr_text(win_elem, "identifier", "")
+                or _get_elem_text(win_elem, "Identifier", "")
+            )
 
-            window_obj = Window(win_width, win_height, window_type)
+            window_obj = Window(
+                win_width, win_height, window_type, identifier=win_id
+            )
             window_obj.layer_id = _get_elem_text(win_elem, "LayerId", "")
             attached_wall = None
             wall_ref_elem = win_elem.find("WallReference")
@@ -1008,7 +1064,8 @@ def open_project(canvas, filepath):
                         end=(_get_attr_float(l_elem, "x2", 0.0), _get_attr_float(l_elem, "y2", 0.0)),
                         pitch_rise=p_rise,
                         overhang=oh,
-                        is_auto_generated=_get_attr_text(l_elem, "is_auto", "False") == "True"
+                        is_auto_generated=_get_attr_text(l_elem, "is_auto", "False") == "True",
+                        wall_identifier=_get_attr_text(l_elem, "wall_identifier", ""),
                     ))
 
             # Load solved topology lines
@@ -1025,7 +1082,8 @@ def open_project(canvas, filepath):
                         end=(_get_attr_float(l_elem, "x2", 0.0), _get_attr_float(l_elem, "y2", 0.0)),
                         pitch_rise=p_rise,
                         overhang=oh,
-                        is_auto_generated=_get_attr_text(l_elem, "is_auto", "False") == "True"
+                        is_auto_generated=_get_attr_text(l_elem, "is_auto", "False") == "True",
+                        wall_identifier=_get_attr_text(l_elem, "wall_identifier", ""),
                     ))
 
             # Load geometry
@@ -1197,6 +1255,58 @@ def open_project(canvas, filepath):
     for room in canvas.rooms:
         room.holes = []
     sync_stair_holes(canvas)
+
+    # Rebuild canvas.existing_ids from all loaded objects
+    loaded_ids = []
+    for level_obj in getattr(canvas, "levels", []):
+        if getattr(level_obj, "id", ""):
+            loaded_ids.append(level_obj.id)
+    for layer_obj in getattr(canvas, "layers", []):
+        if getattr(layer_obj, "id", ""):
+            loaded_ids.append(layer_obj.id)
+    for wall_set in getattr(canvas, "wall_sets", []):
+        for wall_obj in wall_set:
+            if getattr(wall_obj, "identifier", ""):
+                loaded_ids.append(wall_obj.identifier)
+    for room_obj in getattr(canvas, "rooms", []):
+        if getattr(room_obj, "identifier", ""):
+            loaded_ids.append(room_obj.identifier)
+        for hole_obj in getattr(room_obj, "holes", []):
+            if getattr(hole_obj, "identifier", ""):
+                loaded_ids.append(hole_obj.identifier)
+    for _, door_obj, _ in getattr(canvas, "doors", []):
+        if getattr(door_obj, "identifier", ""):
+            loaded_ids.append(door_obj.identifier)
+    for _, win_obj, _ in getattr(canvas, "windows", []):
+        if getattr(win_obj, "identifier", ""):
+            loaded_ids.append(win_obj.identifier)
+    for list_name in (
+        "texts",
+        "dimensions",
+        "dimension_chains",
+        "leader_callouts",
+        "circles",
+        "arcs",
+        "stairs",
+        "blueprints",
+    ):
+        for obj in getattr(canvas, list_name, []):
+            if getattr(obj, "identifier", ""):
+                loaded_ids.append(obj.identifier)
+    for poly_set in getattr(canvas, "polyline_sets", []):
+        for pl_obj in poly_set:
+            if getattr(pl_obj, "identifier", ""):
+                loaded_ids.append(pl_obj.identifier)
+    for roof_obj in getattr(canvas, "roofs", []):
+        if getattr(roof_obj, "identifier", ""):
+            loaded_ids.append(roof_obj.identifier)
+        for rl_obj in getattr(roof_obj, "manual_lines", []):
+            if getattr(rl_obj, "identifier", ""):
+                loaded_ids.append(rl_obj.identifier)
+        for rl_obj in getattr(roof_obj, "solved_lines", []):
+            if getattr(rl_obj, "identifier", ""):
+                loaded_ids.append(rl_obj.identifier)
+    canvas.existing_ids = loaded_ids
 
     # Return the saved window size.
     return window_width, window_height

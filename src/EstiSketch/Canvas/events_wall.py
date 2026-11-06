@@ -123,6 +123,10 @@ class CanvasWallMixin:
                         for w in self.walls
                     )
                     if not duplicate:
+                        if self.current_wall.identifier not in self.existing_ids:
+                            self.existing_ids.append(
+                                self.current_wall.identifier
+                            )
                         self.walls.append(self.current_wall)
 
                 else:
