@@ -2661,6 +2661,22 @@ class CanvasSelectionMixin:
                 "clicked", lambda btn: self.split_wall(parent_popover))
             box.append(split_button)
 
+        # Snap Length to Nearest Foot button (when any selected wall is not already a whole foot)
+        if len(selected_walls) > 0 and hasattr(self, "snap_selected_walls_to_nearest_foot"):
+            any_non_whole_foot = False
+            for w_item in selected_walls:
+                w_obj = w_item["object"]
+                w_len = math.hypot(w_obj.end[0] - w_obj.start[0], w_obj.end[1] - w_obj.start[1])
+                nearest_ft = max(12.0, round(w_len / 12.0) * 12.0)
+                if abs(w_len - nearest_ft) > 1e-4:
+                    any_non_whole_foot = True
+                    break
+            if any_non_whole_foot:
+                snap_ft_button = Gtk.Button(label="Snap Length to Nearest Foot")
+                snap_ft_button.connect(
+                    "clicked", lambda btn: self.snap_selected_walls_to_nearest_foot(parent_popover))
+                box.append(snap_ft_button)
+
         # Roof marking options (only when design_roof tool is active AND walls are selected)
         if len(selected_walls) > 0 and self.tool_mode == "design_roof":
             roof_separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)

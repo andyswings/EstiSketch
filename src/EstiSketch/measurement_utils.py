@@ -41,13 +41,20 @@ class MeasurementConverter:
             if rounded_frac >= 1.0:
                 whole_inches += 1
                 rounded_frac = 0.0
+            if whole_inches >= 12:
+                feet += whole_inches // 12
+                whole_inches %= 12
             frac_str = ""
             if rounded_frac > 0:
                 num = int(round(rounded_frac * frac_den))
                 frac_str = f" {num}/{frac_den}"
             return f"{feet}' {whole_inches}{frac_str}\""
         else:
-            return f"{feet}' {round(remaining_inches, 2)}\""
+            rounded_inches = round(remaining_inches, 2)
+            if rounded_inches >= 12.0:
+                feet += 1
+                rounded_inches = 0.0
+            return f"{feet}' {rounded_inches}\""
 
 
 _METRIC_UNITS = {"mm": 1 / 25.4, "cm": 1 / 2.54, "m": 100 / 2.54}

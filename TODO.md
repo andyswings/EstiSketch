@@ -149,7 +149,6 @@
 ## 🐛 Known Bugs / FIXMEs
 - [ ] Doors and windows are not able to be placed in the center of a wall after a wall is split because a window or door cannot span multiple walls.
 - [ ] If a roof is created after a wall is already split, it messes up the entire roof calculation and ridge and hip lines go every which way.
-- [ ] It is really hard to draw precise length walls. We need to make walls draw in increments of 0.25" or something like that. Also we need some method to prompt or maybe even automatically fix a wall that is drawn (at 39' 11.95" for example) to the nearest foot if it is really close.
 - [ ] Asymetrical pitch settings do not seem to affect where the ridge is drawn like it should. Only the labels change.
 - [ ] Unable to select and move a room once created.
 - [ ] Trying to move multiple objects at the same time does not always work properly.
@@ -159,6 +158,7 @@
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] It is really hard to draw precise length walls. We need to make walls draw in increments of 0.25" or something like that. Also we need some method to prompt or maybe even automatically fix a wall that is drawn (at 39' 11.95" for example) to the nearest foot if it is really close. (2026-11-07)
 - [x] Only layers assigned to the selected level should be shown / selectable. All other levels should be hidden / unselected / unselectable except when the layer is assigned to Global all layers. (2026-11-07)
 - [x] Unable to copy and paste multiple windows at once... This should be possible not only with windows, but also with any type of object. (2026-11-07)
 - [x] Unable to set custom heights for walls, either with rectangular walls or with sloped walls. (2026-11-07)

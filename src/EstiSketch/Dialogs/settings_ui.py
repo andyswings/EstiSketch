@@ -45,6 +45,8 @@ def create_settings_dialog(parent, config_constants, canvas):
         ("Default Window Height (inches)", "DEFAULT_WINDOW_HEIGHT"),
         ("Grid Spacing (pixels)", "GRID_SPACING"),
         ("Wall Join Tolerance", "WALL_JOIN_TOLERANCE"),
+        ("Wall Length Snap Increment (inches)", "WALL_LENGTH_SNAP_INCREMENT"),
+        ("Near-Foot Snap Tolerance (inches)", "WALL_NEAR_FOOT_TOLERANCE"),
         ("Snap to Angle Increment", "SNAP_TO_ANGLE_INCREMENT"),
         ("Undo/Redo Limit", "UNDO_REDO_LIMIT"),
         ("Labor Cost per Hour ($)", "LABOR_COST_PER_HOUR"),
@@ -68,6 +70,7 @@ def create_settings_dialog(parent, config_constants, canvas):
     # Group 2: Dropdown Menus
     dropdowns = [
         ("Units", "UNITS", ["feet_inches", "metric"]),
+        ("Near-Foot Length Fix", "WALL_NEAR_FOOT_BEHAVIOR", ["auto", "prompt", "off"]),
         ("Wall Display Pattern", "WALL_DISPLAY_PATTERN", ["solid", "patterned", "filled_rectangle"]),
         ("Construction Type", "CONSTRUCTION_TYPE", ["stick", "metal", "cinder", "pole"]),
         ("Default Door Type", "DEFAULT_DOOR_TYPE", ["single", "double", "sliding", "pocket", "bi-fold", "double bi-fold", "frame", "garage"]),

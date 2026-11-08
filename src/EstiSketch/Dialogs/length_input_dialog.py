@@ -38,3 +38,38 @@ class LengthInputDialog(Gtk.Dialog):
 
 def create_length_input_dialog(parent):
     return LengthInputDialog(parent)
+
+
+class NearFootConfirmDialog(Gtk.Dialog):
+    """Confirmation dialog asking whether to snap a near-whole-foot wall length to the nearest foot."""
+
+    def __init__(self, parent=None, drawn_str: str = "", target_str: str = ""):
+        super().__init__(title="Snap Wall to Nearest Foot?", transient_for=parent)
+        self.set_modal(True)
+        self.set_default_size(360, 120)
+
+        content_area = self.get_content_area()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_margin_top(20)
+        box.set_margin_bottom(20)
+        box.set_margin_start(20)
+        box.set_margin_end(20)
+        content_area.append(box)
+
+        msg = (
+            f"Wall length is {drawn_str}, which is very close to {target_str}.\n\n"
+            f"Would you like to snap it to {target_str}?"
+        )
+        label = Gtk.Label(label=msg)
+        label.set_wrap(True)
+        box.append(label)
+
+        self.add_button(f"Keep {drawn_str}", Gtk.ResponseType.CANCEL)
+        ok_btn = self.add_button(f"Snap to {target_str}", Gtk.ResponseType.OK)
+        if ok_btn is not None:
+            ok_btn.add_css_class("suggested-action")
+        self.set_default_response(Gtk.ResponseType.OK)
+
+
+def create_near_foot_confirm_dialog(parent, drawn_str: str, target_str: str):
+    return NearFootConfirmDialog(parent, drawn_str=drawn_str, target_str=target_str)

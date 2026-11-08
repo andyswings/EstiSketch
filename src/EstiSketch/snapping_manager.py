@@ -113,6 +113,32 @@ class SnappingManager:
         # print(f"Collected points: {points}")
         return points
 
+    def collect_alignment_points(
+            self,
+            walls,
+            rooms,
+            in_progress_points=None,
+            polylines=None,
+            exclude_point=None):
+        """Collect centerline vertices for H/V alignment (excluding wall edge thickness offsets)."""
+        points = []
+        for wall in walls:
+            points.extend([wall.start, wall.end])
+        for room in rooms:
+            points.extend(room.points)
+        if in_progress_points:
+            points.extend(in_progress_points)
+        if polylines:
+            for poly in polylines:
+                points.extend([poly.start, poly.end])
+        if exclude_point is not None:
+            ex, ey = exclude_point
+            points = [
+                (px, py) for (px, py) in points
+                if math.hypot(px - ex, py - ey) > 1e-4
+            ]
+        return points
+
     def snap_to_points(self, x, y, points, walls):
         best_candidate = (x, y)
         best_dist_sq = self.snap_threshold ** 2
@@ -482,10 +508,17 @@ class SnappingManager:
         return (x, y), "none"
 
     def snap_to_distance(self, x, y, base_x, base_y,
-                         distance_increment=1 / 12):
+                         distance_increment=None):
+        if distance_increment is None:
+            distance_increment = (
+                float(getattr(self.config, "WALL_LENGTH_SNAP_INCREMENT", 0.25) or 0.25)
+                if self.config else 0.25
+            )
         dx = x - base_x
         dy = y - base_y
         current_dist = math.sqrt(dx ** 2 + dy ** 2)
+        if distance_increment <= 0:
+            return (x, y), "none"
         target_dist = round(
             current_dist / distance_increment) * distance_increment
         if abs(current_dist - target_dist) < self.snap_threshold:
@@ -500,6 +533,76 @@ class SnappingManager:
             # print(f"Snapped to distance {target_dist}: {snapped}")
             return snapped, "distance"
         return (x, y), "none"
+
+    def quantize_wall_length(
+            self,
+            base_x: float,
+            base_y: float,
+            target_x: float,
+            target_y: float,
+            apply_near_foot_auto: bool = True):
+        """Quantize the distance from (base_x, base_y) to (target_x, target_y) along its angle.
+
+        Applies ``WALL_LENGTH_SNAP_INCREMENT`` (default 0.25") when snapping is enabled,
+        and checks ``WALL_NEAR_FOOT_TOLERANCE`` (default 0.5") for proximity to a whole foot.
+        When ``WALL_NEAR_FOOT_BEHAVIOR == "auto"`` and ``apply_near_foot_auto`` is True,
+        lengths within the tolerance of a whole foot (>= 12") automatically snap to that foot.
+
+        Returns:
+            tuple: ((qx, qy), final_length, near_foot_info)
+            where ``near_foot_info`` is ``None`` or a dict
+            ``{"nearest_foot": float, "raw_length": float, "snapped_length": float, "auto_applied": bool}``.
+        """
+        dx = target_x - base_x
+        dy = target_y - base_y
+        raw_len = math.hypot(dx, dy)
+        if raw_len <= 1e-6:
+            return (target_x, target_y), 0.0, None
+
+        angle = math.atan2(dy, dx)
+        inc = float(getattr(self.config, "WALL_LENGTH_SNAP_INCREMENT", 0.25) or 0.0) if self.config else 0.25
+        if self.snap_enabled and inc > 0:
+            snapped_len = round(raw_len / inc) * inc
+            if snapped_len <= 0 and raw_len > 0:
+                snapped_len = inc
+        else:
+            snapped_len = raw_len
+
+        tol = float(getattr(self.config, "WALL_NEAR_FOOT_TOLERANCE", 0.5) or 0.0) if self.config else 0.5
+        behavior = getattr(self.config, "WALL_NEAR_FOOT_BEHAVIOR", "auto") if self.config else "auto"
+
+        nearest_foot = round(raw_len / 12.0) * 12.0
+        is_near_foot = (
+            nearest_foot >= 12.0
+            and tol > 0
+            and (abs(raw_len - nearest_foot) <= tol or abs(snapped_len - nearest_foot) <= tol)
+        )
+
+        near_foot_info = None
+        if is_near_foot and behavior in ("auto", "prompt"):
+            if behavior == "auto" and apply_near_foot_auto:
+                final_len = nearest_foot
+                near_foot_info = {
+                    "nearest_foot": nearest_foot,
+                    "raw_length": raw_len,
+                    "snapped_length": snapped_len,
+                    "auto_applied": abs(snapped_len - nearest_foot) > 1e-4 or abs(raw_len - nearest_foot) > 1e-4,
+                }
+            else:
+                final_len = snapped_len
+                if abs(final_len - nearest_foot) > 1e-4:
+                    near_foot_info = {
+                        "nearest_foot": nearest_foot,
+                        "raw_length": raw_len,
+                        "snapped_length": snapped_len,
+                        "auto_applied": False,
+                    }
+        else:
+            final_len = snapped_len
+
+        qx = base_x + final_len * math.cos(angle)
+        qy = base_y + final_len * math.sin(angle)
+        return (qx, qy), final_len, near_foot_info
 
     def snap_to_tangent(self, x, y, curve_center, radius):
         if not (self.config and self.config.ALLOW_CURVED_WALLS):
@@ -544,6 +647,9 @@ class SnappingManager:
         # print(f"Snapping point ({x}, {y}) from base ({base_x}, {base_y}), zoom: {zoom}, canvas_width: {canvas_width}")
         points = self.collect_points_of_interest(
             walls, rooms, current_wall, in_progress_points, polylines)
+        alignment_points = self.collect_alignment_points(
+            walls, rooms, in_progress_points, polylines,
+            exclude_point=(base_x, base_y) if current_wall is not None else None)
         candidates = [
             self.snap_to_points(x, y, points, walls),  # Endpoint/midpoint
             self.snap_to_wall_centerline(x, y, walls),  # Snap to wall centerline
@@ -551,8 +657,8 @@ class SnappingManager:
                                      direction=wall_direction)
              if new_wall_width else self.snap_to_wall_edge(x, y, walls)),
             self.snap_to_wall_edge(x, y, walls),  # Wall outer/inner face edge
-            # Multi-direction alignment with any point
-            self.snap_to_alignment(x, y, points),
+            # Multi-direction alignment with any centerline point
+            self.snap_to_alignment(x, y, alignment_points),
             self.snap_to_angle(x, y, base_x, base_y),    # Angle
             self.snap_to_axis(x, y, base_x, base_y),
             self.snap_to_perpendicular(x, y, base_x, base_y, last_wall),

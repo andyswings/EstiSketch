@@ -415,27 +415,10 @@ class CanvasEventsMixin:
             self.queue_draw()
 
         if self.tool_mode == "draw_walls" and self.drawing_wall and self.current_wall:
-            last_wall = self.walls[-1] if self.walls else None
-            canvas_width = self.get_allocation().width or self.config.WINDOW_WIDTH
-            candidate_points = self._get_candidate_points()
-
-            polylines = [
-                pl for poly_set in self.polyline_sets for pl in poly_set]
-            (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
-                canvas_x, canvas_y,
-                self.current_wall.start[0], self.current_wall.start[1],
-                self._get_snap_walls(), self.rooms,
-                current_wall=self.current_wall, last_wall=last_wall,
-                in_progress_points=candidate_points,
-                canvas_width=canvas_width, zoom=self.zoom,
-                polylines=polylines,
-                new_wall_width=self.config.DEFAULT_WALL_WIDTH
+            (snapped_x, snapped_y), self.snap_type, candidate, _ = (
+                self._compute_wall_draw_snap(canvas_x, canvas_y, apply_near_foot_auto=True)
             )
             self.raw_current_end = raw_point
-            aligned_x, aligned_y, candidate = self._apply_alignment_snapping(
-                canvas_x, canvas_y)
-            if self.snap_type != "face_flush":
-                snapped_x, snapped_y = aligned_x, aligned_y
             self.alignment_candidate = candidate
 
             # Check if we're in curve mode - update curve preview point

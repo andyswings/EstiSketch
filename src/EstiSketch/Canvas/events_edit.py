@@ -283,14 +283,43 @@ class EditEventsMixin:
                             snap_type = ang_type
                             break
 
-                # Horizontal / vertical alignment snapping to other vertices
+                # Horizontal / vertical alignment snapping to other vertices (excluding self anchor)
                 aligned_x, aligned_y, candidate = self._apply_alignment_snapping(
-                    new_x, new_y, exclude_points=[origin])
+                    new_x, new_y, exclude_points=[origin, anchor])
                 self.alignment_candidate = candidate
 
-                if snap_type in ("none", "grid", "angle") and candidate is not None:
-                    snapped_pt = (aligned_x, aligned_y)
-                    snap_type = "alignment"
+                aligned_applied = False
+                if snap_type in ("none", "grid", "angle", "axis") and candidate is not None:
+                    if snap_type in ("angle", "axis"):
+                        dx = snapped_pt[0] - anchor[0]
+                        dy = snapped_pt[1] - anchor[1]
+                        if abs(dy) < 1e-6:
+                            if aligned_x != new_x:
+                                snapped_pt = (aligned_x, anchor[1])
+                                snap_type = "alignment"
+                                aligned_applied = True
+                        elif abs(dx) < 1e-6:
+                            if aligned_y != new_y:
+                                snapped_pt = (anchor[0], aligned_y)
+                                snap_type = "alignment"
+                                aligned_applied = True
+                        else:
+                            snapped_pt = (aligned_x, aligned_y)
+                            snap_type = "alignment"
+                            aligned_applied = True
+                    else:
+                        snapped_pt = (aligned_x, aligned_y)
+                        snap_type = "alignment"
+                        aligned_applied = True
+                if not aligned_applied:
+                    self.alignment_candidate = None
+                    if len(connected) <= 1 and snap_type in (
+                        "none", "grid", "angle", "axis", "perpendicular", "distance"
+                    ):
+                        snapped_pt, _, _ = self.snap_manager.quantize_wall_length(
+                            anchor[0], anchor[1], snapped_pt[0], snapped_pt[1],
+                            apply_near_foot_auto=True
+                        )
 
                 best_snap = snapped_pt
                 self.snap_type = snap_type

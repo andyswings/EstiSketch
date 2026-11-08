@@ -4,10 +4,168 @@ from typing import List
 from ..components import Wall
 from ..Resources.tool_hints import TOOL_HINTS
 
-from ..Dialogs.length_input_dialog import create_length_input_dialog
+from ..Dialogs.length_input_dialog import (
+    create_length_input_dialog,
+    create_near_foot_confirm_dialog,
+)
 
 
 class CanvasWallMixin:
+    def _compute_wall_draw_snap(self, canvas_x: float, canvas_y: float, apply_near_foot_auto: bool = True):
+        """Compute the snapped endpoint, snap_type, alignment_candidate, and near_foot_info for wall drawing."""
+        last_wall = self.walls[-1] if self.walls else None
+        alloc = self.get_allocation() if hasattr(self, "get_allocation") else None
+        canvas_width = (alloc.width if alloc and alloc.width else 0) or getattr(self.config, "WINDOW_WIDTH", 1024)
+        base_x, base_y = (
+            (canvas_x, canvas_y) if not self.drawing_wall else self.current_wall.start
+        )
+        candidate_points = self._get_candidate_points()
+        polylines = [
+            pl for poly_set in getattr(self, "polyline_sets", []) for pl in poly_set
+        ]
+
+        (snapped_x, snapped_y), snap_type = self.snap_manager.snap_point(
+            canvas_x, canvas_y, base_x, base_y, self._get_snap_walls(), self.rooms,
+            current_wall=self.current_wall, last_wall=last_wall,
+            in_progress_points=candidate_points, canvas_width=canvas_width,
+            zoom=self.zoom, polylines=polylines,
+            new_wall_width=self.config.DEFAULT_WALL_WIDTH
+        )
+
+        # First click (no active wall segment yet) or curve bulge point:
+        if not self.drawing_wall or not self.current_wall or getattr(self, "wall_curve_mode", False):
+            candidate = None
+            if self.snap_manager.snap_enabled and snap_type not in (
+                "endpoint", "midpoint", "wall_centerline", "face_flush", "wall_edge"
+            ):
+                aligned_x, aligned_y, candidate = self._apply_alignment_snapping(
+                    snapped_x, snapped_y
+                )
+                if candidate is not None:
+                    snapped_x, snapped_y = aligned_x, aligned_y
+                    if snap_type in ("none", "grid", "distance"):
+                        snap_type = "alignment"
+            return (snapped_x, snapped_y), snap_type, candidate, None
+
+        # Active wall segment from (base_x, base_y) -> (canvas_x, canvas_y):
+        # 1. Hard geometric feature snaps define the exact point.
+        if snap_type in ("endpoint", "midpoint", "wall_centerline", "wall_edge"):
+            return (snapped_x, snapped_y), snap_type, None, None
+
+        # 2. Face-flush snap fixes perpendicular offset; quantize distance along the wall.
+        if snap_type == "face_flush":
+            (qx, qy), _, near_foot_info = self.snap_manager.quantize_wall_length(
+                base_x, base_y, snapped_x, snapped_y, apply_near_foot_auto=apply_near_foot_auto
+            )
+            return (qx, qy), snap_type, None, near_foot_info
+
+        # 3. Check horizontal/vertical alignment with current wall start and parallel alignment with other endpoints.
+        if not self.snap_manager.snap_enabled:
+            return (canvas_x, canvas_y), "none", None, None
+
+        align_tol = max(
+            10.0 / (self.zoom or 1.0),
+            float(getattr(self.snap_manager, "snap_threshold", 4.0) or 4.0),
+        )
+
+        other_pts = [
+            pt for pt in candidate_points
+            if math.hypot(pt[0] - base_x, pt[1] - base_y) > 1e-4
+        ]
+        for room in self.rooms:
+            for pt in room.points:
+                if math.hypot(pt[0] - base_x, pt[1] - base_y) > 1e-4:
+                    other_pts.append(pt)
+        for pl in polylines:
+            for pt in (pl.start, pl.end):
+                if math.hypot(pt[0] - base_x, pt[1] - base_y) > 1e-4:
+                    other_pts.append(pt)
+
+        cand_x_pt = None
+        min_dx = align_tol
+        for pt in other_pts:
+            if abs(pt[0] - base_x) <= 1e-4:
+                continue
+            d = abs(pt[0] - canvas_x)
+            if d < min_dx:
+                min_dx = d
+                cand_x_pt = pt
+
+        cand_y_pt = None
+        min_dy = align_tol
+        for pt in other_pts:
+            if abs(pt[1] - base_y) <= 1e-4:
+                continue
+            d = abs(pt[1] - canvas_y)
+            if d < min_dy:
+                min_dy = d
+                cand_y_pt = pt
+
+        is_horiz = (
+            abs(canvas_y - base_y) <= align_tol
+            or (snap_type in ("angle", "axis", "perpendicular") and abs(snapped_y - base_y) < 1e-5)
+        )
+        is_vert = (
+            abs(canvas_x - base_x) <= align_tol
+            or (snap_type in ("angle", "axis", "perpendicular") and abs(snapped_x - base_x) < 1e-5)
+        )
+
+        # If both horizontal and vertical within tolerance (very close to start), pick dominant axis
+        if is_horiz and is_vert:
+            if abs(canvas_x - base_x) >= abs(canvas_y - base_y):
+                is_vert = False
+            else:
+                is_horiz = False
+
+        if is_horiz:
+            if cand_x_pt is not None:
+                return (cand_x_pt[0], base_y), "alignment", cand_x_pt, None
+            (qx, qy), _, near_foot_info = self.snap_manager.quantize_wall_length(
+                base_x, base_y, canvas_x, base_y, apply_near_foot_auto=apply_near_foot_auto
+            )
+            out_type = snap_type if snap_type in ("axis", "perpendicular", "angle") else "axis"
+            return (qx, qy), out_type, None, near_foot_info
+
+        if is_vert:
+            if cand_y_pt is not None:
+                return (base_x, cand_y_pt[1]), "alignment", cand_y_pt, None
+            (qx, qy), _, near_foot_info = self.snap_manager.quantize_wall_length(
+                base_x, base_y, base_x, canvas_y, apply_near_foot_auto=apply_near_foot_auto
+            )
+            out_type = snap_type if snap_type in ("axis", "perpendicular", "angle") else "axis"
+            return (qx, qy), out_type, None, near_foot_info
+
+        # Non-orthogonal (angled) wall: check parallel endpoint alignment first
+        if cand_x_pt is not None or cand_y_pt is not None:
+            if snap_type in ("angle", "perpendicular"):
+                dx = snapped_x - base_x
+                dy = snapped_y - base_y
+                dlen = math.hypot(dx, dy)
+                if dlen > 1e-6:
+                    ux, uy = dx / dlen, dy / dlen
+                    if cand_x_pt is not None and abs(ux) > 0.2:
+                        L = (cand_x_pt[0] - base_x) / ux
+                        if L > 0:
+                            ix, iy = cand_x_pt[0], base_y + L * uy
+                            if abs(iy - canvas_y) <= align_tol:
+                                return (ix, iy), "alignment", cand_x_pt, None
+                    if cand_y_pt is not None and abs(uy) > 0.2:
+                        L = (cand_y_pt[1] - base_y) / uy
+                        if L > 0:
+                            ix, iy = base_x + L * ux, cand_y_pt[1]
+                            if abs(ix - canvas_x) <= align_tol:
+                                return (ix, iy), "alignment", cand_y_pt, None
+            ax = cand_x_pt[0] if cand_x_pt is not None else canvas_x
+            ay = cand_y_pt[1] if cand_y_pt is not None else canvas_y
+            ref_pt = cand_x_pt if cand_x_pt is not None else cand_y_pt
+            return (ax, ay), "alignment", ref_pt, None
+
+        # 4. Quantize wall length (0.25" increments + near-foot auto-snap/prompt detection)
+        (qx, qy), _, near_foot_info = self.snap_manager.quantize_wall_length(
+            base_x, base_y, snapped_x, snapped_y, apply_near_foot_auto=apply_near_foot_auto
+        )
+        return (qx, qy), snap_type, None, near_foot_info
+
     def _handle_wall_click(self, n_press: int, x: float, y: float) -> None:
         """
         Handle click events for drawing walls on the canvas.
@@ -30,24 +188,12 @@ class CanvasWallMixin:
         canvas_x, canvas_y = self.device_to_model(x, y, pixels_per_inch)
         raw_point = (canvas_x, canvas_y)
 
-        last_wall = self.walls[-1] if self.walls else None
-        canvas_width = self.get_allocation().width or self.config.WINDOW_WIDTH
-        base_x, base_y = (
-            canvas_x, canvas_y) if not self.drawing_wall else self.current_wall.start
-        candidate_points = self._get_candidate_points()
-
-        (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
-            canvas_x, canvas_y, base_x, base_y, self._get_snap_walls(), self.rooms,
-            current_wall=self.current_wall, last_wall=last_wall,
-            in_progress_points=candidate_points, canvas_width=canvas_width,
-            zoom=self.zoom, new_wall_width=self.config.DEFAULT_WALL_WIDTH
+        (snapped_x, snapped_y), self.snap_type, candidate, near_foot_info = (
+            self._compute_wall_draw_snap(canvas_x, canvas_y, apply_near_foot_auto=True)
         )
         self.raw_current_end = raw_point
-        aligned_x, aligned_y, candidate = self._apply_alignment_snapping(
-            canvas_x, canvas_y)
-        if self.snap_type != "face_flush":
-            snapped_x, snapped_y = aligned_x, aligned_y
         self.alignment_candidate = candidate
+        auto_snapped_msg = None
 
         if n_press == 1:
             self.auto_dimension_mode = False
@@ -110,6 +256,13 @@ class CanvasWallMixin:
                 self.last_wall_angle = math.atan2(dy, dx)
 
                 self.current_wall.start = (snapped_x, snapped_y)
+                if near_foot_info is not None:
+                    target_ft = near_foot_info["nearest_foot"]
+                    if near_foot_info.get("auto_applied"):
+                        target_str = self.converter.format_measurement(target_ft, use_fraction=False)
+                        auto_snapped_msg = f"Auto-snapped wall length to {target_str} — {TOOL_HINTS['draw_walls_active']}"
+                    elif getattr(self.config, "WALL_NEAR_FOOT_BEHAVIOR", "auto") == "prompt":
+                        self._prompt_near_foot_wall_fix(wall_instance, target_ft)
                 self.queue_draw()
 
         elif n_press == 2:
@@ -128,6 +281,9 @@ class CanvasWallMixin:
                                 self.current_wall.identifier
                             )
                         self.walls.append(self.current_wall)
+                        if near_foot_info is not None and not near_foot_info.get("auto_applied"):
+                            if getattr(self.config, "WALL_NEAR_FOOT_BEHAVIOR", "auto") == "prompt":
+                                self._prompt_near_foot_wall_fix(self.current_wall, near_foot_info["nearest_foot"])
 
                 else:
                     self.wall_sets.append(self.walls.copy())
@@ -135,8 +291,6 @@ class CanvasWallMixin:
                     self.current_wall = None
                     self.drawing_wall = False
                     self.snap_type = "none"
-                    self.alignment_candidate = None
-                    self.raw_current_end = None
                     self.alignment_candidate = None
                     self.raw_current_end = None
                     self.save_state()  # Save after cleanup to avoid state duplication
@@ -182,12 +336,104 @@ class CanvasWallMixin:
                     self.snap_type = "none"
         
         # Update hints based on state
-        if self.drawing_wall:
+        if auto_snapped_msg:
+             self.update_hint(auto_snapped_msg)
+        elif self.drawing_wall:
              self.update_hint(TOOL_HINTS["draw_walls_active"])
         elif self.tool_mode == "draw_walls":
              self.update_hint(TOOL_HINTS["draw_walls"])
 
         self.queue_draw()
+
+    def adjust_wall_to_length(self, wall: Wall, target_length: float) -> bool:
+        """Adjust ``wall.end`` along the wall's current direction so its length equals ``target_length``.
+
+        Also updates any connected wall endpoints (including ``self.current_wall.start`` if
+        currently drawing a wall chain) so connected walls stay joined.
+        """
+        if wall is None or target_length <= 0:
+            return False
+        sx, sy = wall.start
+        old_ex, old_ey = wall.end
+        dx = old_ex - sx
+        dy = old_ey - sy
+        cur_len = math.hypot(dx, dy)
+        if cur_len <= 1e-6:
+            return False
+        angle = math.atan2(dy, dx)
+        new_end = (
+            sx + target_length * math.cos(angle),
+            sy + target_length * math.sin(angle),
+        )
+        tol = getattr(self.config, "JOINT_SNAP_TOLERANCE", 0.25)
+
+        all_walls = [w for ws in self.wall_sets for w in ws] + list(self.walls)
+        for w in all_walls:
+            if w is wall:
+                continue
+            if self._points_close(w.start, (old_ex, old_ey), tol):
+                w.start = new_end
+            if self._points_close(w.end, (old_ex, old_ey), tol):
+                w.end = new_end
+
+        wall.end = new_end
+
+        if getattr(self, "drawing_wall", False) and getattr(self, "current_wall", None):
+            if self._points_close(self.current_wall.start, (old_ex, old_ey), tol):
+                if self._points_close(self.current_wall.end, self.current_wall.start, tol):
+                    self.current_wall.end = new_end
+                self.current_wall.start = new_end
+
+        self.emit("content-changed")
+        self.queue_draw()
+        return True
+
+    def _prompt_near_foot_wall_fix(self, wall: Wall, nearest_foot: float) -> None:
+        """Prompt the user to snap a wall whose length is very close to ``nearest_foot``."""
+        if wall is None:
+            return
+        cur_len = math.hypot(wall.end[0] - wall.start[0], wall.end[1] - wall.start[1])
+        if abs(cur_len - nearest_foot) <= 1e-4:
+            return
+        drawn_str = self.converter.format_measurement(cur_len, use_fraction=False)
+        target_str = self.converter.format_measurement(nearest_foot, use_fraction=False)
+        self.last_near_foot_prompt = (wall, nearest_foot)
+
+        root = self.get_root() if hasattr(self, "get_root") else None
+        dialog = create_near_foot_confirm_dialog(root, drawn_str=drawn_str, target_str=target_str)
+
+        def _on_response(dlg, response_id):
+            if response_id == Gtk.ResponseType.OK:
+                self.adjust_wall_to_length(wall, nearest_foot)
+                if not getattr(self, "drawing_wall", False):
+                    self.save_state()
+                self.update_hint(f"Snapped wall length to {target_str}")
+            dlg.destroy()
+
+        dialog.connect("response", _on_response)
+        dialog.present()
+
+    def snap_selected_walls_to_nearest_foot(self, popover=None) -> int:
+        """Snap all currently selected walls to their nearest whole-foot length (>= 1')."""
+        count = 0
+        for item in getattr(self, "selected_items", []):
+            if item.get("type") == "wall":
+                w = item.get("object")
+                if w is None or self.is_object_on_locked_layer(w):
+                    continue
+                cur_len = math.hypot(w.end[0] - w.start[0], w.end[1] - w.start[1])
+                nearest_foot = max(12.0, round(cur_len / 12.0) * 12.0)
+                if abs(cur_len - nearest_foot) > 1e-4:
+                    if self.adjust_wall_to_length(w, nearest_foot):
+                        count += 1
+        if count > 0:
+            self.save_state()
+        if popover is not None:
+            try:
+                popover.popdown()
+            except Exception:
+                pass
+        return count
 
     def toggle_wall_curve_mode(self):
         """Toggle curved wall mode on/off. Call after placing second wall point."""

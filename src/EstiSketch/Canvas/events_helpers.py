@@ -123,16 +123,20 @@ class EventsHelpersMixin:
         """
         Collect all candidate points for snapping and alignment.
 
-        This method gathers all wall endpoints from all wall sets on the canvas.
+        This method gathers all wall endpoints from all wall sets and in-progress walls on the canvas.
         The returned list is used for snapping logic and alignment assistance when drawing
         or editing walls, rooms, or polylines.
 
         Returns:
             List[Tuple[float, float]]: A list of (x, y) tuples representing wall endpoints.
         """
-        return [
+        pts = [
             point for wall_set in self.wall_sets for wall in wall_set for point in (
                 wall.start, wall.end)]
+        for wall in getattr(self, "walls", []):
+            pts.append(wall.start)
+            pts.append(wall.end)
+        return pts
 
     def _get_snap_walls(self) -> list:
         """All walls (committed wall sets plus the in-progress chain) that the

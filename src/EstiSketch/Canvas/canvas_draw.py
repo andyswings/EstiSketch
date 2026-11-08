@@ -991,19 +991,24 @@ class CanvasDrawMixin:
         )
         if not is_active:
             return
-        raw_end: Any = self.raw_current_end
+        if getattr(self, "drawing_wall", False) and getattr(self, "current_wall", None):
+            end_pt: Any = self.current_wall.end
+        elif getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None):
+            end_pt = self.editing_wall.start if self.editing_handle == "start" else self.editing_wall.end
+        else:
+            end_pt = self.raw_current_end
         cand: Any = self.alignment_candidate
-        dx = raw_end[0] - cand[0]
-        dy = raw_end[1] - cand[1]
+        dx = end_pt[0] - cand[0]
+        dy = end_pt[1] - cand[1]
         if math.hypot(dx, dy) < 1:
             return
         cr.save()
         scale = self.zoom * pixels_per_inch
         cr.set_line_width(1.0 / scale)
-        dash = 2.0 / scale
+        dash = 4.0 / scale
         cr.set_dash([dash, dash])
-        cr.set_source_rgb(0.7, 0.7, 0.7)
-        cr.move_to(raw_end[0], raw_end[1])
+        cr.set_source_rgb(0.3, 0.6, 1.0)
+        cr.move_to(end_pt[0], end_pt[1])
         cr.line_to(cand[0], cand[1])
         cr.stroke()
         cr.restore()
