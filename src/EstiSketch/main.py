@@ -536,6 +536,10 @@ class EstimatorApp(Gtk.Application):
                     self.canvas.walls = []
                     self.canvas.current_wall = None
                     self.canvas.drawing_wall = False
+                    self.canvas.wall_curve_mode = False
+                    self.canvas.wall_curve_point = None
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS["draw_walls"])
                     self.canvas.save_state()
                     self.canvas.queue_draw()
                     return True
@@ -548,6 +552,8 @@ class EstimatorApp(Gtk.Application):
                     self.canvas.current_polyline_start = None
                     self.canvas.current_polyline_preview = None
                     self.canvas.polylines = []
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS["add_polyline"])
                     self.canvas.save_state()
                     self.canvas.queue_draw()
                     return True
@@ -555,6 +561,40 @@ class EstimatorApp(Gtk.Application):
                     self.canvas.save_state()
                     self.canvas.finalize_room()
                     self.canvas.save_state()
+                    self.canvas.queue_draw()
+                    return True
+                elif self.canvas.tool_mode == "add_stair" and getattr(self.canvas, "action_state", "idle") != "idle":
+                    self.canvas.temp_object = None
+                    self.canvas.temp_start_point = None
+                    self.canvas.action_state = "idle"
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS["add_stair"])
+                    self.canvas.queue_draw()
+                    return True
+                elif self.canvas.tool_mode == "add_dimension" and getattr(self.canvas, "drawing_dimension", False):
+                    self.canvas.drawing_dimension = False
+                    self.canvas.dimension_start = None
+                    self.canvas.dimension_end = None
+                    self.canvas.dimension_offset_preview = None
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS["add_dimension"])
+                    self.canvas.queue_draw()
+                    return True
+                elif self.canvas.tool_mode == "add_circle" and getattr(self.canvas, "drawing_circle", False):
+                    self.canvas.drawing_circle = False
+                    self.canvas.circle_center = None
+                    self.canvas.circle_radius_preview = None
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS["add_circle"])
+                    self.canvas.queue_draw()
+                    return True
+                elif self.canvas.tool_mode == "add_arc" and getattr(self.canvas, "drawing_arc", False):
+                    self.canvas.drawing_arc = False
+                    self.canvas.arc_start = None
+                    self.canvas.arc_end = None
+                    self.canvas.arc_preview_point = None
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS["add_arc"])
                     self.canvas.queue_draw()
                     return True
                 elif self.canvas.tool_mode == "add_roof_line" and getattr(self.canvas, 'drawing_roof_line', False):

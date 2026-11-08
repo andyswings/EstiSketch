@@ -381,9 +381,10 @@ class CanvasArea(Gtk.DrawingArea,
         for i, layer in enumerate(self.layers):
             if layer.id == layer_id:
                 self.layers.pop(i)
-                # If active layer was removed, switch to first layer
+                self.deselect_items_on_layer(layer_id)
+                # If active layer was removed, ensure a valid active layer for current level
                 if self.active_layer_id == layer_id:
-                    self.active_layer_id = self.layers[0].id
+                    self._ensure_valid_active_layer()
                 return True
         return False
 
@@ -398,6 +399,8 @@ class CanvasArea(Gtk.DrawingArea,
         """Set the active layer by ID. Returns True if successful."""
         layer = self.get_layer_by_id(layer_id)
         if layer:
+            if not self.show_all_levels and layer.level_id and layer.level_id != self.active_level_id:
+                return False
             self.active_layer_id = layer_id
             self.queue_draw()
             return True
@@ -619,6 +622,9 @@ class CanvasArea(Gtk.DrawingArea,
         # Ensure active layer is valid for this level
         self._ensure_valid_active_layer()
 
+        # Deselect any items that are no longer on a visible layer for this level
+        self.deselect_non_visible_items()
+
         self.queue_draw()
 
     def _initialize_levels_and_layers(self):
@@ -651,14 +657,10 @@ class CanvasArea(Gtk.DrawingArea,
                 return
 
         # If all else fails, create a default layer for this level
-        from ..components import Layer
-        # add_layer will need update or manual handling?
-        new_id = self.add_layer(f"Layer 1")
-        # Actually add_layer needs to know about current level.
-        # For now, let's fix add_layer separately or handle it here?
-        # Let's fix add_layer in the next chunk/step, but for now just fallback
-        # to 0
-        if self.layers:
+        new_id = self.add_layer(f"Layer {len(self.layers)}", level_id=self.active_level_id)
+        if new_id:
+            self.active_layer_id = new_id
+        elif self.layers:
             self.active_layer_id = self.layers[0].id
 
     def delete_selected(self):
@@ -854,10 +856,10 @@ class CanvasArea(Gtk.DrawingArea,
         # Select all doors
         for door_item in self.doors:
             # door_item is (wall, door, ratio)
-            # check the door object (index 1)
+            # check the door object (index 1) and parent wall (index 0)
             if not self.is_object_on_locked_layer(
                     door_item[1]) and self.is_object_on_visible_layer(
-                    door_item[1]):
+                    door_item[1]) and (door_item[0] is None or self.is_object_on_visible_layer(door_item[0])):
                 self.selected_items.append(
                     {"type": "door", "object": door_item})
 
@@ -865,7 +867,7 @@ class CanvasArea(Gtk.DrawingArea,
         for window_item in self.windows:
             if not self.is_object_on_locked_layer(
                     window_item[1]) and self.is_object_on_visible_layer(
-                    window_item[1]):
+                    window_item[1]) and (window_item[0] is None or self.is_object_on_visible_layer(window_item[0])):
                 self.selected_items.append(
                     {"type": "window", "object": window_item})
 
@@ -919,6 +921,11 @@ class CanvasArea(Gtk.DrawingArea,
             if not self.is_object_on_locked_layer(roof) and self.is_object_on_visible_layer(roof):
                 self.selected_items.append({"type": "roof", "object": roof})
 
+        # Select all stairs
+        for stair in getattr(self, 'stairs', []):
+            if not self.is_object_on_locked_layer(stair) and self.is_object_on_visible_layer(stair):
+                self.selected_items.append({"type": "stair", "object": stair})
+
         self.queue_draw()
         self.emit('selection-changed', self.selected_items)
         print(f"Selected {len(self.selected_items)} objects")
@@ -960,20 +967,91 @@ class CanvasArea(Gtk.DrawingArea,
             self.queue_draw()
             self.emit('selection-changed', self.selected_items)
 
+    def deselect_non_visible_items(self):
+        """Deselect any items in selected_items that are not on a currently visible/active-level layer."""
+        if not self.selected_items:
+            return
+
+        new_selection = []
+        changed = False
+
+        for item in self.selected_items:
+            obj = item["object"]
+            real_obj = obj
+            otype = item.get("type")
+
+            if otype in ("door", "window"):
+                if isinstance(obj, tuple) and len(obj) >= 2:
+                    real_obj = obj[1]
+            elif otype == "vertex":
+                if isinstance(obj, tuple) and len(obj) >= 1:
+                    real_obj = obj[0]
+            elif otype in ("wall_handle", "polyline_handle", "dimension_handle", "arc_handle", "roof_line_handle"):
+                if isinstance(obj, tuple) and len(obj) >= 1:
+                    real_obj = obj[0]
+            elif otype == "roof_line" and item.get("roof") is not None:
+                real_obj = item.get("roof")
+
+            if not self.is_object_on_visible_layer(real_obj) or self.is_object_on_locked_layer(real_obj):
+                changed = True
+            else:
+                new_selection.append(item)
+
+        if changed:
+            self.selected_items = new_selection
+            self.queue_draw()
+            self.emit('selection-changed', self.selected_items)
+
     def copy_selected(self):
         """Copy selected items to clipboard"""
         import copy as copy_module
         self.clipboard.clear()
+        memo = {}
 
         for item in self.selected_items:
-            # Store a deep copy of the item dictionary
-            self.clipboard.append(copy_module.deepcopy(item))
+            # Store a deep copy of the item dictionary using a shared memo so
+            # shared references (e.g. a wall with doors/windows or a room with vertices)
+            # remain consistent within the clipboard snapshot.
+            self.clipboard.append(copy_module.deepcopy(item, memo))
 
     def cut_selected(self):
         """Cut selected items (copy + delete)"""
         self.copy_selected()
         self.delete_selected()
         self.save_state()
+
+    def _resolve_live_wall(self, wall_ref):
+        """Find the live Wall instance in self.wall_sets matching wall_ref."""
+        if wall_ref is None:
+            return None
+        wid = getattr(wall_ref, "identifier", None)
+        for wall_set in self.wall_sets:
+            for w in wall_set:
+                if w is wall_ref or (wid and getattr(w, "identifier", None) == wid):
+                    return w
+        return wall_ref
+
+    def _next_opening_ratio(self, wall, base_ratio: float, is_window: bool = True) -> float:
+        """Compute a non-overlapping ratio along `wall` for a pasted door or window."""
+        existing_ratios = []
+        collection = self.windows if is_window else self.doors
+        wid = getattr(wall, "identifier", None)
+        for w, _, r in collection:
+            if w is wall or (wid and getattr(w, "identifier", None) == wid):
+                existing_ratios.append(r)
+
+        candidate = base_ratio + 0.1
+        step = 0.1
+        attempts = 0
+        while attempts < 9:
+            if 0.05 <= candidate <= 0.95 and all(abs(candidate - r) > 0.04 for r in existing_ratios):
+                return candidate
+            candidate += step
+            if candidate > 0.95:
+                candidate = max(0.05, base_ratio - step)
+                step += 0.1
+            attempts += 1
+        return max(0.05, min(0.95, base_ratio + 0.05))
 
     def paste(self):
         """Paste clipboard items with offset"""
@@ -988,12 +1066,12 @@ class CanvasArea(Gtk.DrawingArea,
         # Clear current selection
         self.selected_items.clear()
 
-        # Paste each item
+        # Pass 1: Paste walls first so doors/windows copied with their wall can attach to the new wall
+        pasted_wall_map = {}
         for item in self.clipboard:
-            item_type = item.get("type")
-
-            if item_type == "wall":
+            if item.get("type") == "wall":
                 wall = item["object"]
+                old_wid = getattr(wall, "identifier", None)
                 wall_id = self.generate_identifier(
                     "wall", self.existing_ids
                 )
@@ -1009,41 +1087,66 @@ class CanvasArea(Gtk.DrawingArea,
                     width=wall.width,
                     height=wall.height,
                     exterior_wall=wall.exterior_wall,
-                    identifier=wall_id)
+                    identifier=wall_id,
+                    layer_id=self.active_layer_id,
+                    height_at_end=getattr(wall, "height_at_end", wall.height))
                 # Copy all other properties
                 new_wall.footer = wall.footer
                 new_wall.footer_left_offset = wall.footer_left_offset
                 new_wall.footer_right_offset = wall.footer_right_offset
                 new_wall.footer_depth = wall.footer_depth
+                new_wall.symbolic = getattr(wall, "symbolic", False)
                 new_wall.material = wall.material
                 new_wall.interior_finish = wall.interior_finish
                 new_wall.exterior_finish = wall.exterior_finish
                 new_wall.stud_spacing = wall.stud_spacing
                 new_wall.insulation_type = wall.insulation_type
                 new_wall.fire_rating = wall.fire_rating
+                new_wall.is_curved = getattr(wall, "is_curved", False)
+                if new_wall.is_curved and getattr(wall, "arc_center", None):
+                    new_wall.arc_center = (
+                        wall.arc_center[0] + offset[0],
+                        wall.arc_center[1] + offset[1],
+                    )
+                    new_wall.arc_radius = getattr(wall, "arc_radius", None)
+
+                if old_wid:
+                    pasted_wall_map[old_wid] = new_wall
+                pasted_wall_map[id(wall)] = new_wall
 
                 # Add to a new wall set
                 self.wall_sets.append([new_wall])
                 self.selected_items.append(
                     {"type": "wall", "object": new_wall})
 
+        # Pass 2: Paste all other non-wall items
+        for item in self.clipboard:
+            item_type = item.get("type")
+
+            if item_type == "wall":
+                continue
+
             elif item_type == "door":
                 # Doors are (wall, door, ratio) tuples
                 old_wall, door, ratio = item["object"]
-                # Create new door object
                 new_door = copy_module.deepcopy(door)
                 new_door.identifier = self.generate_identifier(
                     "door", self.existing_ids)
+                new_door.layer_id = self.active_layer_id
                 self.existing_ids.append(new_door.identifier)
 
-                # Paste on same wall with offset ratio
-                new_ratio = ratio + 0.1  # 10% offset along the wall
-                if new_ratio > 1.0:
-                    # Try going backward or clamp to 0.9
-                    new_ratio = min(0.9, ratio - 0.1)
+                old_wid = getattr(old_wall, "identifier", None)
+                if old_wid and old_wid in pasted_wall_map:
+                    target_wall = pasted_wall_map[old_wid]
+                    new_ratio = ratio
+                elif id(old_wall) in pasted_wall_map:
+                    target_wall = pasted_wall_map[id(old_wall)]
+                    new_ratio = ratio
+                else:
+                    target_wall = self._resolve_live_wall(old_wall)
+                    new_ratio = self._next_opening_ratio(target_wall, ratio, is_window=False)
 
-                # Store door on same wall
-                new_door_tuple = (old_wall, new_door, new_ratio)
+                new_door_tuple = (target_wall, new_door, new_ratio)
                 self.doors.append(new_door_tuple)
                 self.selected_items.append(
                     {"type": "door", "object": new_door_tuple})
@@ -1051,20 +1154,24 @@ class CanvasArea(Gtk.DrawingArea,
             elif item_type == "window":
                 # Windows are (wall, window, ratio) tuples
                 old_wall, window, ratio = item["object"]
-                # Create new window object
                 new_window = copy_module.deepcopy(window)
                 new_window.identifier = self.generate_identifier(
                     "window", self.existing_ids)
+                new_window.layer_id = self.active_layer_id
                 self.existing_ids.append(new_window.identifier)
 
-                # Paste on same wall with offset ratio
-                new_ratio = ratio + 0.1  # 10% offset along the wall
-                if new_ratio > 1.0:
-                    # Try going backward or clamp to 0.9
-                    new_ratio = min(0.9, ratio - 0.1)
+                old_wid = getattr(old_wall, "identifier", None)
+                if old_wid and old_wid in pasted_wall_map:
+                    target_wall = pasted_wall_map[old_wid]
+                    new_ratio = ratio
+                elif id(old_wall) in pasted_wall_map:
+                    target_wall = pasted_wall_map[id(old_wall)]
+                    new_ratio = ratio
+                else:
+                    target_wall = self._resolve_live_wall(old_wall)
+                    new_ratio = self._next_opening_ratio(target_wall, ratio, is_window=True)
 
-                # Store window on same wall
-                new_window_tuple = (old_wall, new_window, new_ratio)
+                new_window_tuple = (target_wall, new_window, new_ratio)
                 self.windows.append(new_window_tuple)
                 self.selected_items.append(
                     {"type": "window", "object": new_window_tuple})
@@ -1198,10 +1305,36 @@ class CanvasArea(Gtk.DrawingArea,
                     stair.start_point[1] + offset[1])
                 new_stair.identifier = self.generate_identifier(
                     "stair", self.existing_ids)
+                new_stair.layer_id = self.active_layer_id
                 self.existing_ids.append(new_stair.identifier)
                 self.stairs.append(new_stair)
                 self.selected_items.append(
                     {"type": "stair", "object": new_stair})
+
+            elif item_type == "roof":
+                roof = item["object"]
+                new_roof = copy_module.deepcopy(roof)
+                new_roof.identifier = self.generate_identifier(
+                    "roof", self.existing_ids)
+                new_roof.layer_id = self.active_layer_id
+                self.existing_ids.append(new_roof.identifier)
+                new_roof.outline_points = [
+                    (pt[0] + offset[0], pt[1] + offset[1])
+                    for pt in getattr(roof, "outline_points", [])
+                ]
+                for attr in ("ridge_lines", "hip_lines", "valley_lines", "rake_lines", "eave_lines"):
+                    segs = getattr(roof, attr, [])
+                    setattr(new_roof, attr, [
+                        ((s[0] + offset[0], s[1] + offset[1]), (e[0] + offset[0], e[1] + offset[1]))
+                        for s, e in segs
+                    ])
+                for line_list_attr in ("manual_lines", "solved_lines"):
+                    for rl in getattr(new_roof, line_list_attr, []):
+                        rl.start = (rl.start[0] + offset[0], rl.start[1] + offset[1])
+                        rl.end = (rl.end[0] + offset[0], rl.end[1] + offset[1])
+                self.roofs.append(new_roof)
+                self.selected_items.append(
+                    {"type": "roof", "object": new_roof})
 
             elif item_type == "vertex":
                 # Room vertices - we'll handle this by pasting the whole room
@@ -1213,11 +1346,12 @@ class CanvasArea(Gtk.DrawingArea,
         for item in self.clipboard:
             if item["type"] == "vertex":
                 room, idx = item["object"]
-                # Use object id to track unique rooms
-                rooms_to_paste.add(id(room))
+                key = getattr(room, "identifier", None) or id(room)
+                rooms_to_paste.add(key)
             elif item["type"] == "room":
                 room = item["object"]
-                rooms_to_paste.add(id(room))
+                key = getattr(room, "identifier", None) or id(room)
+                rooms_to_paste.add(key)
 
         # Paste unique rooms
         for item in self.clipboard:
@@ -1227,7 +1361,8 @@ class CanvasArea(Gtk.DrawingArea,
                     if item["type"] == "vertex"
                     else item["object"]
                 )
-                if id(room) in rooms_to_paste:
+                key = getattr(room, "identifier", None) or id(room)
+                if key in rooms_to_paste:
                     room_id = self.generate_identifier(
                         "room", self.existing_ids
                     )
@@ -1244,6 +1379,10 @@ class CanvasArea(Gtk.DrawingArea,
                     new_room.wall_finish = room.wall_finish
                     new_room.room_type = room.room_type
                     new_room.name = room.name
+                    new_room.slab = getattr(room, "slab", False)
+                    new_room.slab_thickness = getattr(room, "slab_thickness", 4.0)
+                    new_room.slab_reinforcement = getattr(room, "slab_reinforcement", "none")
+                    new_room.slab_edge_type = getattr(room, "slab_edge_type", "monolithic")
 
                     self.rooms.append(new_room)
                     # Add all vertices to selection
@@ -1251,10 +1390,11 @@ class CanvasArea(Gtk.DrawingArea,
                         self.selected_items.append(
                             {"type": "vertex", "object": (new_room, i)})
 
-                    rooms_to_paste.remove(id(room))  # Don't paste again
+                    rooms_to_paste.remove(key)  # Don't paste again
 
         self.save_state()
         self.queue_draw()
+        self.emit('content-changed')
         self.emit('selection-changed', self.selected_items)
 
 

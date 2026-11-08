@@ -173,6 +173,8 @@ class LayersPanel(Gtk.Box):
 
     def on_show_all_toggled(self, btn):
         self.canvas.show_all_levels = btn.get_active()
+        self.canvas._ensure_valid_active_layer()
+        self.canvas.deselect_non_visible_items()
         self.canvas.queue_draw()
         self.refresh_layers()
 
@@ -1099,9 +1101,8 @@ class LayersPanel(Gtk.Box):
     def move_layer_to_level(self, layer, level_id, popover):
         """Move layer to a different level."""
         layer.level_id = level_id
-        # if the layer is no longer visible on current level, it will disappear from list
-        # ensure active layer isn't this one if it disappears?
-        # Actually canvas filters selection visibility, so it's fine.
+        self.canvas._ensure_valid_active_layer()
+        self.canvas.deselect_non_visible_items()
 
         self.refresh_layers()
         self.canvas.queue_draw()  # queue draw to update object visibility

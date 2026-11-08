@@ -1,7 +1,7 @@
 {
     "WINDOW_TITLE": "EstiSketch",
     "WINDOW_WIDTH": 1074,
-    "WINDOW_HEIGHT": 917,
+    "WINDOW_HEIGHT": 1146,
     "SAVE_LABEL": "Save",
     "OPEN_LABEL": "Open File",
     "EXPORT_LABEL": "Export as PDF",
@@ -60,7 +60,11 @@
     "DEFAULT_INTERIOR_WALL_MATERIAL": "Drywall",
     "DEFAULT_EXTERIOR_WALL_MATERIAL": "Brick",
     "DEFAULT_DOOR_TYPE": "single",
+    "DEFAULT_DOOR_WIDTH": 36.0,
+    "DEFAULT_DOOR_HEIGHT": 80.0,
     "DEFAULT_WINDOW_TYPE": "sliding",
+    "DEFAULT_WINDOW_WIDTH": 48.0,
+    "DEFAULT_WINDOW_HEIGHT": 36.0,
     "PIXELS_PER_INCH": 2.0,
     "RECENT_FILES": [
         "/home/andrew/SaveTest.xml"

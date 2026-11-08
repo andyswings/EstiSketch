@@ -7,6 +7,7 @@ including automatic calculation of dimensions based on levels.
 import math
 from typing import Tuple, Dict
 from ..components import Stair, Level
+from ..Resources.tool_hints import TOOL_HINTS
 
 
 class CanvasStairEventsMixin:
@@ -56,6 +57,7 @@ class CanvasStairEventsMixin:
         )
         
         self.action_state = "adding_stair_direction"
+        self.update_hint(TOOL_HINTS["add_stair_active"])
         self.queue_draw()
 
     def _handle_stair_motion(self, x, y):
@@ -116,6 +118,7 @@ class CanvasStairEventsMixin:
         self.temp_object = None
         self.temp_start_point = None
         self.action_state = "idle"
+        self.update_hint(TOOL_HINTS["add_stair"])
         
         # Save state
         self.save_state()

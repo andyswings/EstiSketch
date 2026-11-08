@@ -615,7 +615,7 @@ class CanvasSelectionMixin:
             if wall is None:
                 continue
             if self.is_object_on_locked_layer(
-                    door) or not self.is_object_on_visible_layer(door):
+                    door) or not self.is_object_on_visible_layer(door) or not self.is_object_on_visible_layer(wall):
                 continue
 
             # Calculate door position (arc-aware)
@@ -656,7 +656,7 @@ class CanvasSelectionMixin:
             if wall is None:
                 continue
             if self.is_object_on_locked_layer(
-                    window) or not self.is_object_on_visible_layer(window):
+                    window) or not self.is_object_on_visible_layer(window) or not self.is_object_on_visible_layer(wall):
                 continue
 
             # Calculate window position (arc-aware)
@@ -1197,6 +1197,8 @@ class CanvasSelectionMixin:
             event, "get_modifier_state") else event.state
         shift_pressed = bool(state & Gdk.ModifierType.SHIFT_MASK)
 
+        self._last_pressed_item = selected_item
+
         if selected_item:
             if shift_pressed:
                 # Check if item is already selected
@@ -1324,10 +1326,11 @@ class CanvasSelectionMixin:
                     None):
                 self.box_selecting = False
 
-            # Check for door/window dragging
-            if len(self.selected_items) > 0:
+            # Check for object dragging (only if the user actually pressed on an object,
+            # not when pressing in empty space to box-select or Shift+box-select)
+            if len(self.selected_items) > 0 and getattr(self, "_last_pressed_item", True) is not None:
                 # Handle single selection drag for doors/windows
-                item = self.selected_items[0]
+                item = self._last_pressed_item if isinstance(getattr(self, "_last_pressed_item", None), dict) and self._last_pressed_item in self.selected_items else self.selected_items[0]
                 if item["type"] in ["door", "window"]:
                     wall, obj, ratio = item["object"]
                     if wall is not None and not self.is_object_on_locked_layer(obj):  # Only drag if on a wall and not locked
@@ -1877,13 +1880,14 @@ class CanvasSelectionMixin:
             self.save_state()
             return
         if getattr(self, "dragging_door_window", None):
-            # Finalize door/window drag and clear selection
-            self.selected_items = []
+            # Finalize door/window drag while keeping selection intact
+            moved = abs(offset_x) > 1.0 or abs(offset_y) > 1.0
             self.dragging_door_window = None
             self.dragging_door_window_start_ratio = None
             self.drag_offset_x = 0
             self.drag_offset_y = 0
-            self.save_state()
+            if moved:
+                self.save_state()
             self.queue_draw()
             return
 
@@ -2924,8 +2928,15 @@ class CanvasSelectionMixin:
         # compare by identity first
         if a is b:
             return True
-        # if either is a tuple (room, idx) compare by exact tuple equality
         if isinstance(a, tuple) and isinstance(b, tuple):
+            # (wall, door/window, ratio) 3-tuples: compare opening object by identity or identifier
+            if len(a) == 3 and len(b) == 3:
+                if a[1] is b[1]:
+                    return True
+                ida = getattr(a[1], "identifier", None)
+                idb = getattr(b[1], "identifier", None)
+                if ida and idb:
+                    return ida == idb
             return a == b
         # fall back to identifier match if available
         ida = getattr(a, "identifier", None)

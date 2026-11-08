@@ -32,6 +32,23 @@ class CanvasToolMixin:
         self.leader_tip = None
         self.leader_elbow = None
 
+        # Reset stair tool state
+        self.temp_object = None
+        self.temp_start_point = None
+        self.action_state = "idle"
+
+        # Reset polyline, circle, and arc tool state
+        self.drawing_polyline = False
+        self.current_polyline_start = None
+        self.current_polyline_preview = None
+        self.drawing_circle = False
+        self.circle_center = None
+        self.circle_radius_preview = None
+        self.drawing_arc = False
+        self.arc_start = None
+        self.arc_end = None
+        self.arc_preview_point = None
+
         # Clear selection when activating creation tools
         creation_tools = (
             "add_dimension_chain", "add_dimension", "add_leader",

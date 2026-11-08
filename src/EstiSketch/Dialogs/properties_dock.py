@@ -597,7 +597,7 @@ class WallPropertiesWidget(Gtk.Box):
         # Height dropdown (Start Height / Uniform Height)
         self.available_heights = [8, 9, 10, 12, 14, 16]
         height_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self.height_label = Gtk.Label(label="Start Height:")
+        self.height_label = Gtk.Label(label="Height:")
         height_row.append(self.height_label)
         self.height_combo = Gtk.ComboBoxText()
         self.height_handler_id = self.height_combo.connect(
@@ -607,6 +607,19 @@ class WallPropertiesWidget(Gtk.Box):
         self.height_combo.set_active(0)  # default 8'
         height_row.append(self.height_combo)
         geo_box.append(height_row)
+
+        # Custom Height spin button (Visible when height_combo is "Custom")
+        self.custom_height_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.custom_height_row.append(Gtk.Label(label="Custom Height:"))
+        self.custom_height_spin = Gtk.SpinButton.new_with_range(1.0, 1200.0, 1.0)
+        self.custom_height_spin.set_digits(2)
+        self.custom_height_spin.set_value(96.0)
+        self.custom_height_handler_id = self.custom_height_spin.connect(
+            "value-changed", self.on_custom_height_changed)
+        self.custom_height_row.append(self.custom_height_spin)
+        self.custom_height_row.append(Gtk.Label(label="in"))
+        self.custom_height_row.set_visible(False)
+        geo_box.append(self.custom_height_row)
 
         # Variable Height Toggle
         self.sloped_check = Gtk.CheckButton(label="Variable Height (Sloped Wall)")
@@ -625,6 +638,19 @@ class WallPropertiesWidget(Gtk.Box):
         self.height_end_row.append(self.height_end_combo)
         self.height_end_row.set_visible(False)
         geo_box.append(self.height_end_row)
+
+        # Custom End Height spin button (Visible when sloped_check is active and height_end_combo is "Custom")
+        self.custom_height_end_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.custom_height_end_row.append(Gtk.Label(label="Custom End Height:"))
+        self.custom_height_end_spin = Gtk.SpinButton.new_with_range(1.0, 1200.0, 1.0)
+        self.custom_height_end_spin.set_digits(2)
+        self.custom_height_end_spin.set_value(96.0)
+        self.custom_height_end_handler_id = self.custom_height_end_spin.connect(
+            "value-changed", self.on_custom_height_end_changed)
+        self.custom_height_end_row.append(self.custom_height_end_spin)
+        self.custom_height_end_row.append(Gtk.Label(label="in"))
+        self.custom_height_end_row.set_visible(False)
+        geo_box.append(self.custom_height_end_row)
 
         # ─────────── Wall Type ───────────
         type_frame = Gtk.Frame(label="Wall Type")
@@ -819,7 +845,6 @@ class WallPropertiesWidget(Gtk.Box):
         curve_box.append(sagitta_row)
 
         # ───── wire signals ─────
-        self.height_combo.connect("changed", self.on_height_changed)
         self.exterior_switch.connect("state-set", self.on_exterior_toggled)
         self.footer_check.connect("toggled", self.on_footer_toggled)
         self.symbolic_check.connect("toggled", self.on_symbolic_toggled)
@@ -873,14 +898,24 @@ class WallPropertiesWidget(Gtk.Box):
             wall.width = value
         self.emit_property_changed()
 
+    def _recalculate_attached_roofs(self):
+        if hasattr(self, "canvas") and self.canvas and hasattr(self.canvas, "recalculate_roofs_for_wall"):
+            for wall in self.current_walls:
+                if getattr(wall, "identifier", None):
+                    self.canvas.recalculate_roofs_for_wall(wall.identifier)
+
     def on_sloped_toggled(self, check):
         if self._block_updates or not self.current_walls:
             return
         is_sloped = check.get_active()
+        self.height_label.set_label("Start Height:" if is_sloped else "Height:")
         self.height_end_row.set_visible(is_sloped)
+        end_txt = (self.height_end_combo.get_active_text() or "").strip().lower()
+        self.custom_height_end_row.set_visible(is_sloped and end_txt.startswith("custom"))
         for wall in self.current_walls:
             if not is_sloped:
                 wall.height_at_end = wall.height
+        self._recalculate_attached_roofs()
         self.emit_property_changed()
 
     def on_height_changed(self, combo):
@@ -891,14 +926,37 @@ class WallPropertiesWidget(Gtk.Box):
             txt = txt.split()[0]
         else:
             return
-        if txt.lower() != "custom":
-            height_feet = float(txt.split("'")[0])
-            # Wall.height is stored in inches, UI shows feet, so convert
-            height_inches = height_feet * 12.0
+        if txt.lower() == "custom":
+            self.custom_height_row.set_visible(True)
+            height_inches = float(self.custom_height_spin.get_value())
             for wall in self.current_walls:
                 wall.height = height_inches
                 if not self.sloped_check.get_active():
                     wall.height_at_end = height_inches
+        else:
+            self.custom_height_row.set_visible(False)
+            height_feet = float(txt.split("'")[0])
+            # Wall.height is stored in inches, UI shows feet, so convert
+            height_inches = height_feet * 12.0
+            self.custom_height_spin.handler_block(self.custom_height_handler_id)
+            self.custom_height_spin.set_value(height_inches)
+            self.custom_height_spin.handler_unblock(self.custom_height_handler_id)
+            for wall in self.current_walls:
+                wall.height = height_inches
+                if not self.sloped_check.get_active():
+                    wall.height_at_end = height_inches
+        self._recalculate_attached_roofs()
+        self.emit_property_changed()
+
+    def on_custom_height_changed(self, spin):
+        if self._block_updates or not self.current_walls:
+            return
+        height_inches = float(spin.get_value())
+        for wall in self.current_walls:
+            wall.height = height_inches
+            if not self.sloped_check.get_active():
+                wall.height_at_end = height_inches
+        self._recalculate_attached_roofs()
         self.emit_property_changed()
 
     def on_height_end_changed(self, combo):
@@ -909,11 +967,30 @@ class WallPropertiesWidget(Gtk.Box):
             txt = txt.split()[0]
         else:
             return
-        if txt.lower() != "custom":
-            height_feet = float(txt.split("'")[0])
-            height_inches = height_feet * 12.0
+        if txt.lower() == "custom":
+            self.custom_height_end_row.set_visible(self.sloped_check.get_active())
+            height_inches = float(self.custom_height_end_spin.get_value())
             for wall in self.current_walls:
                 wall.height_at_end = height_inches
+        else:
+            self.custom_height_end_row.set_visible(False)
+            height_feet = float(txt.split("'")[0])
+            height_inches = height_feet * 12.0
+            self.custom_height_end_spin.handler_block(self.custom_height_end_handler_id)
+            self.custom_height_end_spin.set_value(height_inches)
+            self.custom_height_end_spin.handler_unblock(self.custom_height_end_handler_id)
+            for wall in self.current_walls:
+                wall.height_at_end = height_inches
+        self._recalculate_attached_roofs()
+        self.emit_property_changed()
+
+    def on_custom_height_end_changed(self, spin):
+        if self._block_updates or not self.current_walls:
+            return
+        height_inches = float(spin.get_value())
+        for wall in self.current_walls:
+            wall.height_at_end = height_inches
+        self._recalculate_attached_roofs()
         self.emit_property_changed()
 
     def on_exterior_toggled(self, switch, gparam):
@@ -1343,31 +1420,42 @@ class WallPropertiesWidget(Gtk.Box):
         self.sloped_check.handler_block(self.sloped_handler_id)
         self.sloped_check.set_active(is_sloped)
         self.sloped_check.handler_unblock(self.sloped_handler_id)
+        self.height_label.set_label("Start Height:" if is_sloped else "Height:")
         self.height_end_row.set_visible(is_sloped)
 
         # Height / Start Height (wall.height is in inches, UI matches self.available_heights in feet)
-        height_feet = float(first_wall.height) / 12.0 if first_wall.height is not None else 8.0
-        height_index = 0
+        raw_height = float(first_wall.height) if first_wall.height is not None else 96.0
+        height_feet = raw_height / 12.0
+        height_index = len(self.available_heights)  # Default to "Custom" if not a preset
         for i, ft in enumerate(self.available_heights):
-            if abs(ft - height_feet) < 1e-6:
+            if abs(ft - height_feet) < 1e-4:
                 height_index = i
                 break
 
         self.height_combo.handler_block(self.height_handler_id)
         self.height_combo.set_active(height_index)
         self.height_combo.handler_unblock(self.height_handler_id)
+        self.custom_height_spin.handler_block(self.custom_height_handler_id)
+        self.custom_height_spin.set_value(raw_height)
+        self.custom_height_spin.handler_unblock(self.custom_height_handler_id)
+        self.custom_height_row.set_visible(height_index == len(self.available_heights))
 
         # End Height
-        height_end_feet = float(first_wall.height_at_end) / 12.0 if first_wall.height_at_end is not None else height_feet
-        height_end_index = 0
+        raw_height_end = float(first_wall.height_at_end) if first_wall.height_at_end is not None else raw_height
+        height_end_feet = raw_height_end / 12.0
+        height_end_index = len(self.available_heights)  # Default to "Custom" if not a preset
         for i, ft in enumerate(self.available_heights):
-            if abs(ft - height_end_feet) < 1e-6:
+            if abs(ft - height_end_feet) < 1e-4:
                 height_end_index = i
                 break
 
         self.height_end_combo.handler_block(self.height_end_handler_id)
         self.height_end_combo.set_active(height_end_index)
         self.height_end_combo.handler_unblock(self.height_end_handler_id)
+        self.custom_height_end_spin.handler_block(self.custom_height_end_handler_id)
+        self.custom_height_end_spin.set_value(raw_height_end)
+        self.custom_height_end_spin.handler_unblock(self.custom_height_end_handler_id)
+        self.custom_height_end_row.set_visible(is_sloped and height_end_index == len(self.available_heights))
 
         #
         # Exterior

@@ -34,6 +34,10 @@ class CanvasToolsMixin:
 
         for wall_set in self.wall_sets:
             for wall in wall_set:
+                if hasattr(self, "is_object_on_visible_layer") and not self.is_object_on_visible_layer(wall):
+                    continue
+                if hasattr(self, "is_object_on_locked_layer") and self.is_object_on_locked_layer(wall):
+                    continue
                 curved = bool(wall.is_curved and wall.arc_center and wall.arc_radius)
                 if curved:
                     dist = self.distance_point_to_arc(
@@ -92,10 +96,30 @@ class CanvasToolsMixin:
         """Return (width, height) of the door the tool would currently place."""
         door_type = getattr(self.config, "DEFAULT_DOOR_TYPE", "single")
         if door_type == "garage":
-            return 96.0, 80.0
-        if door_type in ("double", "sliding"):
-            return 72.0, 80.0
-        return 36.0, 80.0
+            type_w = 96.0
+        elif door_type in ("double", "sliding"):
+            type_w = 72.0
+        else:
+            type_w = 36.0
+        cfg_w = getattr(self.config, "DEFAULT_DOOR_WIDTH", None)
+        cfg_h = getattr(self.config, "DEFAULT_DOOR_HEIGHT", None)
+        if cfg_w is not None and float(cfg_w) > 0:
+            if door_type not in ("garage", "double", "sliding") or float(cfg_w) != 36.0:
+                width = float(cfg_w)
+            else:
+                width = type_w
+        else:
+            width = type_w
+        height = float(cfg_h) if (cfg_h is not None and float(cfg_h) > 0) else 80.0
+        return width, height
+
+    def _default_window_dims(self):
+        """Return (width, height) of the window the tool would currently place."""
+        cfg_w = getattr(self.config, "DEFAULT_WINDOW_WIDTH", None)
+        cfg_h = getattr(self.config, "DEFAULT_WINDOW_HEIGHT", None)
+        width = float(cfg_w) if (cfg_w is not None and float(cfg_w) > 0) else 48.0
+        height = float(cfg_h) if (cfg_h is not None and float(cfg_h) > 0) else 36.0
+        return width, height
 
     def _build_default_door(self, identifier=""):
         """Build the door the door tool would place (used for click and ghost)."""
@@ -108,8 +132,9 @@ class CanvasToolsMixin:
     def _build_default_window(self, identifier=""):
         """Build the window the window tool would place (used for click and ghost)."""
         window_type = getattr(self.config, "DEFAULT_WINDOW_TYPE", "sliding")
+        width, height = self._default_window_dims()
         return Window(
-            48.0, 36.0, window_type,
+            width, height, window_type,
             identifier=identifier, layer_id=self.active_layer_id)
 
     def _handle_door_click(self, n_press: int, x: float, y: float) -> None:
@@ -161,7 +186,7 @@ class CanvasToolsMixin:
         Returns:
             None
         """
-        hit = self._locate_on_wall(x, y, opening_width=48.0)
+        hit = self._locate_on_wall(x, y, opening_width=self._default_window_dims()[0])
         if hit is None:
             print("No wall was found near the click for window addition.")
             return
@@ -217,6 +242,7 @@ class CanvasToolsMixin:
                 self.drawing_polyline = True
                 self.current_polyline_start = snapped
                 self.polylines = []
+                self.update_hint(TOOL_HINTS["add_polyline_active"])
             else:
                 polyline_identifier = self.generate_identifier(
                     "polyline", self.existing_ids)
@@ -327,13 +353,14 @@ class CanvasToolsMixin:
             self.dimension_end = None
             self.dimension_offset_preview = None
             print(f"Dimension start set at {self.dimension_start}")
+            self.update_hint(TOOL_HINTS["add_dimension_active"])
             self.queue_draw()
         elif self.dimension_end is None:
             # Second click - set end point
             self.dimension_end = (canvas_x, canvas_y)
             print(f"Dimension end set at {self.dimension_end}")
             self.queue_draw()
-            self.update_hint(TOOL_HINTS["add_dimension_active"])
+            self.update_hint(TOOL_HINTS.get("add_dimension_offset", TOOL_HINTS["add_dimension_active"]))
         else:
             # Third click - finalize with offset
             offset = self._calculate_dimension_offset(
