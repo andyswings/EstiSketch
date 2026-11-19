@@ -1,4 +1,5 @@
 import base64
+import json
 import xml.etree.ElementTree as ET
 from .Canvas.utils import generate_identifier
 from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair, BackgroundImage, DimensionChain, LeaderCallout
@@ -535,6 +536,12 @@ def save_project(canvas, window_width, window_height, filepath):
         b_elem.set("level_id", bp.level_id)
         data_elem = ET.SubElement(b_elem, "ImageData")
         data_elem.text = base64.b64encode(bp.image_data).decode("ascii")
+
+    # Save TakeoffEngine project state (assumptions, overrides, custom items, reference)
+    takeoff_state = getattr(canvas, "takeoff_state", None)
+    if isinstance(takeoff_state, dict):
+        ts_elem = ET.SubElement(root, "TakeoffState")
+        ts_elem.text = json.dumps(takeoff_state, sort_keys=True)
 
     # Write out the XML to the given file (with declaration and proper
     # encoding).
@@ -1307,6 +1314,23 @@ def open_project(canvas, filepath):
             if getattr(rl_obj, "identifier", ""):
                 loaded_ids.append(rl_obj.identifier)
     canvas.existing_ids = loaded_ids
+
+    # Restore TakeoffEngine project state (backwards-compatible with older XML files)
+    default_ts = {
+        "assumptions": {},
+        "overrides": {},
+        "custom_items": [],
+        "reference": None,
+    }
+    ts_elem = root.find("TakeoffState")
+    if ts_elem is not None and ts_elem.text:
+        try:
+            loaded_ts = json.loads(ts_elem.text)
+            if isinstance(loaded_ts, dict):
+                default_ts.update(loaded_ts)
+        except (ValueError, TypeError):
+            pass
+    canvas.takeoff_state = default_ts
 
     # Return the saved window size.
     return window_width, window_height

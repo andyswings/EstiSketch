@@ -82,5 +82,6 @@
     "DEFAULT_LEVEL_HEIGHT": 96.0,
     "LAYER_FOCUS_MODE": true,
     "LAYERS_PROPERTIES_SPLIT": 429,
+    "TAKEOFF_CEILING_TYPE": "vaulted",
     "DEBUG": false
 }

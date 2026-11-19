@@ -11,6 +11,7 @@ from .Dialogs.properties_dock import PropertiesDock
 from .Dialogs import help_dialog
 from .Dialogs import estimate_cost
 from .Dialogs import estimate_materials
+from .Dialogs import takeoff_dialog
 from .Dialogs import manage_materials
 from .Dialogs import settings_ui
 from .Canvas import canvas_area
@@ -814,12 +815,12 @@ class EstimatorApp(Gtk.Application):
 
     def on_estimate_materials_clicked(self, button: Gtk.Button, *args) -> None:
         """
-        Open the material estimation dialog.
+        Open the material estimation dialog backed by TakeoffEngine.
 
-        Presents a dialog that calculates and displays estimated material
-        quantities based on the current canvas contents.
+        Presents an interactive window displaying computed quantities,
+        editable overrides, project assumptions, sanity checks, and exports.
         """
-        dialog = estimate_materials.create_estimate_materials_dialog(
+        dialog = takeoff_dialog.create_takeoff_dialog(
             self.window, self.canvas)
         dialog.present()
 

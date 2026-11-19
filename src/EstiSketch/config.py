@@ -99,6 +99,7 @@ DEFAULT_SETTINGS = {
     "ROOF_WASTE_PCT": 10.0,
     "ROOF_SHEATHING_THICKNESS": '5/8"',
     "ROOF_SHEATHING_TYPE": "OSB",
+    "TAKEOFF_CEILING_TYPE": "vaulted",
     "LAYER_FOCUS_MODE": False,
     "DEBUG": False
 }

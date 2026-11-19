@@ -1,6 +1,7 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
+- [ ] Double clicking inside of a closed loop of walls with the room tool creates a new room. But we need to fix it so that the room draws to the inside edge of the walls instead of the center.
 - [ ] Walls can currently snap to edges of other walls, but rooms do not. We need to fix this.
 - [ ] Snapping guides / indicators should appear when in wall or room drawing mode even when not actively drawing, so that the user can see exactly where the wall or room point will be drawn upon clicking.
 - [ ] Architectural Fixtures & Cabinetry 2D Symbols (Kitchen base/wall cabinets, bathroom fixtures, major appliances).
@@ -147,6 +148,8 @@
 - [ ] Themes
 
 ## 🐛 Known Bugs / FIXMEs
+- [ ] Unable to select objects under a roof.
+- [ ] When selecting "New" from the file menu, not all canvas data is deleted. This is a problem.
 - [ ] Doors and windows are not able to be placed in the center of a wall after a wall is split because a window or door cannot span multiple walls.
 - [ ] If a roof is created after a wall is already split, it messes up the entire roof calculation and ridge and hip lines go every which way.
 - [ ] Asymetrical pitch settings do not seem to affect where the ridge is drawn like it should. Only the labels change.

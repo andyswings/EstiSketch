@@ -3,6 +3,10 @@ __pycache__/
 estisketch/
 uv\ -\ python\ version\,\ envs
 testfile.py
+simple_house.pdf
+simple_house.xml
+simple_house_reference.json
+long_narrow.xml
 
 # Pixi environments and executable
 .pixi/*

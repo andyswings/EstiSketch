@@ -172,6 +172,14 @@ class CanvasArea(Gtk.DrawingArea,
         self.edit_face_guide = None
         self.tool_mode = None  # "draw_walls" or "draw_rooms"
 
+        # Project-level takeoff state (assumptions, overrides, custom items, reference)
+        self.takeoff_state = {
+            "assumptions": {},
+            "overrides": {},
+            "custom_items": [],
+            "reference": None,
+        }
+
         # Undo/Redo stacks
         self.undo_stack = []
         self.redo_stack = []
