@@ -697,6 +697,7 @@ class CanvasDrawMixin:
                             cr.stroke()
             cr.restore()
 
+        self.draw_group_overlays(cr, pixels_per_inch)
         self.draw_live_measurements(cr, pixels_per_inch)
         self.draw_alignment_guide(cr, pixels_per_inch)
         self.draw_snap_indicator(cr, pixels_per_inch)
@@ -746,6 +747,84 @@ class CanvasDrawMixin:
             cr.line_to(grid_max, y)
             y += major_spacing
         cr.stroke()
+
+    def draw_group_overlays(self, cr, pixels_per_inch):
+        """Draw dashed bounding boxes and rotation handles for selected ObjectGroups."""
+        if not hasattr(self, "get_selected_groups"):
+            return
+        selected_groups = self.get_selected_groups()
+        if not selected_groups:
+            return
+
+        T = self.zoom * pixels_per_inch
+        if T <= 0:
+            return
+
+        pad = 6.0 / T
+        dash = 6.0 / T
+        stem_len = 24.0 / T
+        handle_r = 6.0 / T
+
+        cr.save()
+        for group in selected_groups:
+            bounds = self.get_group_bounds(group)
+            if not bounds:
+                continue
+            min_x, min_y, max_x, max_y = bounds
+            rx = min_x - pad
+            ry = min_y - pad
+            rw = (max_x - min_x) + 2 * pad
+            rh = (max_y - min_y) + 2 * pad
+
+            # Dashed bounding box
+            cr.set_source_rgba(0.15, 0.45, 0.85, 0.85)
+            cr.set_line_width(1.5 / T)
+            cr.set_dash([dash, dash * 0.7])
+            cr.rectangle(rx, ry, rw, rh)
+            cr.stroke()
+
+            # Group name label
+            cr.set_dash([])
+            label = getattr(group, "custom_name", "") or getattr(group, "name", "") or "Group"
+            if group.locked:
+                label = f"🔒 {label}"
+            cr.select_font_face("Sans", 0, 0)
+            cr.set_font_size(11.0 / T)
+            cr.set_source_rgba(0.15, 0.45, 0.85, 0.95)
+            cr.move_to(rx, ry - 4.0 / T)
+            cr.show_text(label)
+
+            # Rotation handle (only when unlocked and a single group is selected)
+            if not group.locked and len(selected_groups) == 1:
+                cx = (min_x + max_x) / 2.0
+                top_y = min_y
+                hx = cx
+                hy = top_y - stem_len
+
+                # Stem line
+                cr.set_source_rgba(0.15, 0.45, 0.85, 0.85)
+                cr.set_line_width(1.5 / T)
+                cr.move_to(cx, ry)
+                cr.line_to(hx, hy)
+                cr.stroke()
+
+                # Circular rotation handle
+                cr.set_source_rgba(0.2, 0.75, 0.35, 1.0)
+                cr.arc(hx, hy, handle_r, 0, 2 * math.pi)
+                cr.fill()
+                cr.set_source_rgba(0.0, 0.0, 0.0, 0.9)
+                cr.set_line_width(1.2 / T)
+                cr.arc(hx, hy, handle_r, 0, 2 * math.pi)
+                cr.stroke()
+
+                # Live rotation angle readout if actively rotating this group
+                if getattr(self, "rotating_group", None) is group:
+                    deg = getattr(self, "_rotating_group_current_deg", 0.0)
+                    cr.set_source_rgba(0.1, 0.5, 0.2, 1.0)
+                    cr.set_font_size(12.0 / T)
+                    cr.move_to(hx + 10.0 / T, hy + 4.0 / T)
+                    cr.show_text(f"{deg:.1f}°")
+        cr.restore()
 
     def draw_live_measurements(self, cr, pixels_per_inch):
         walls_to_label = []

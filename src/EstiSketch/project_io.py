@@ -2,9 +2,33 @@ import base64
 import json
 import xml.etree.ElementTree as ET
 from .Canvas.utils import generate_identifier
-from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair, BackgroundImage, DimensionChain, LeaderCallout
+from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair, BackgroundImage, DimensionChain, LeaderCallout, ObjectGroup
 from .geometry.room_holes import sync_stair_holes
 from .roof_components import Roof, RoofEdge, RoofLine
+
+
+def _save_obj_meta(elem, obj):
+    """Save common object metadata (visible, locked, custom_name, comment)."""
+    if "visible" not in elem.attrib:
+        elem.set("visible", str(bool(getattr(obj, "visible", True))))
+    if "locked" not in elem.attrib:
+        elem.set("locked", str(bool(getattr(obj, "locked", False))))
+    custom_name = getattr(obj, "custom_name", "") or ""
+    if custom_name:
+        elem.set("custom_name", custom_name)
+    comment = getattr(obj, "comment", "") or ""
+    if comment:
+        elem.set("comment", comment)
+
+
+def _load_obj_meta(elem, obj):
+    """Restore common object metadata (visible, locked, custom_name, comment)."""
+    if "visible" in elem.attrib:
+        obj.visible = elem.get("visible", "True") == "True"
+    if "locked" in elem.attrib:
+        obj.locked = elem.get("locked", "False") == "True"
+    obj.custom_name = elem.get("custom_name", "") or ""
+    obj.comment = elem.get("comment", "") or ""
 
 
 def save_project(canvas, window_width, window_height, filepath):
@@ -68,6 +92,7 @@ def save_project(canvas, window_width, window_height, filepath):
             wall_mapping[id(wall)] = (set_index, wall_index)
             wall_elem = ET.SubElement(ws_elem, "Wall")
             wall_elem.set("identifier", getattr(wall, "identifier", ""))
+            _save_obj_meta(wall_elem, wall)
             ET.SubElement(wall_elem, "Identifier").text = getattr(
                 wall, "identifier", ""
             )
@@ -122,6 +147,7 @@ def save_project(canvas, window_width, window_height, filepath):
     for room in canvas.rooms:
         room_elem = ET.SubElement(rooms_elem, "Room")
         room_elem.set("identifier", getattr(room, "identifier", ""))
+        _save_obj_meta(room_elem, room)
         ET.SubElement(room_elem, "Identifier").text = getattr(
             room, "identifier", ""
         )
@@ -160,6 +186,7 @@ def save_project(canvas, window_width, window_height, filepath):
     for attached_wall, door, ratio in canvas.doors:
         door_elem = ET.SubElement(doors_elem, "Door")
         door_elem.set("identifier", getattr(door, "identifier", ""))
+        _save_obj_meta(door_elem, door)
         ET.SubElement(door_elem, "Identifier").text = getattr(
             door, "identifier", ""
         )
@@ -194,6 +221,7 @@ def save_project(canvas, window_width, window_height, filepath):
     for attached_wall, window_obj, ratio in canvas.windows:
         win_elem = ET.SubElement(windows_elem, "Window")
         win_elem.set("identifier", getattr(window_obj, "identifier", ""))
+        _save_obj_meta(win_elem, window_obj)
         ET.SubElement(win_elem, "Identifier").text = getattr(
             window_obj, "identifier", ""
         )
@@ -237,6 +265,8 @@ def save_project(canvas, window_width, window_height, filepath):
         t_elem.set("underline", str(text.underline))
         t_elem.set("identifier", text.identifier)
         t_elem.set("layer_id", getattr(text, 'layer_id', ''))
+        t_elem.set("rotation", str(getattr(text, 'rotation', 0.0)))
+        _save_obj_meta(t_elem, text)
 
     # Save dimensions
     dimensions_elem = ET.SubElement(root, "Dimensions")
@@ -256,6 +286,7 @@ def save_project(canvas, window_width, window_height, filepath):
         d_elem.set("color_r", str(color[0]))
         d_elem.set("color_g", str(color[1]))
         d_elem.set("color_b", str(color[2]))
+        _save_obj_meta(d_elem, dimension)
 
     # Save Dimension Chains
     dim_chains_elem = ET.SubElement(root, "DimensionChains")
@@ -278,6 +309,7 @@ def save_project(canvas, window_width, window_height, filepath):
         c_elem.set("color_b", str(color[2]))
         c_elem.set("witness_gap", str(chain.witness_gap))
         c_elem.set("witness_overhang", str(chain.witness_overhang))
+        _save_obj_meta(c_elem, chain)
         for pt in chain.points:
             p_elem = ET.SubElement(c_elem, "Point")
             p_elem.set("x", str(pt[0]))
@@ -306,6 +338,7 @@ def save_project(canvas, window_width, window_height, filepath):
         l_elem.set("box_border", str(callout.box_border))
         l_elem.set("arrow_type", callout.arrow_type)
         l_elem.set("line_style", callout.line_style)
+        _save_obj_meta(l_elem, callout)
 
 
     # Save Polylines
@@ -328,6 +361,7 @@ def save_project(canvas, window_width, window_height, filepath):
             pl_elem.set("color_r", str(color[0]))
             pl_elem.set("color_g", str(color[1]))
             pl_elem.set("color_b", str(color[2]))
+            _save_obj_meta(pl_elem, pl)
 
     # Save Circles
     circles_elem = ET.SubElement(root, "Circles")
@@ -343,6 +377,7 @@ def save_project(canvas, window_width, window_height, filepath):
         c_elem.set("color_r", str(color[0]))
         c_elem.set("color_g", str(color[1]))
         c_elem.set("color_b", str(color[2]))
+        _save_obj_meta(c_elem, circle)
 
     # Save Arcs
     arcs_elem = ET.SubElement(root, "Arcs")
@@ -360,6 +395,7 @@ def save_project(canvas, window_width, window_height, filepath):
         a_elem.set("color_r", str(color[0]))
         a_elem.set("color_g", str(color[1]))
         a_elem.set("color_b", str(color[2]))
+        _save_obj_meta(a_elem, arc)
 
     # Save Roofs
     roofs_elem = ET.SubElement(root, "Roofs")
@@ -372,6 +408,7 @@ def save_project(canvas, window_width, window_height, filepath):
         r_elem.set("pitch_run", str(roof.pitch_run))
         r_elem.set("overhang", str(roof.overhang))
         r_elem.set("material", roof.material)
+        _save_obj_meta(r_elem, roof)
         
         # Save edges with overrides
         edges_elem = ET.SubElement(r_elem, "Edges")
@@ -516,6 +553,19 @@ def save_project(canvas, window_width, window_height, filepath):
         s_elem.set("steps_before_landing", str(getattr(stair, 'steps_before_landing', 0)))
         s_elem.set("winder_count", str(getattr(stair, 'winder_count', 0)))
         s_elem.set("opening_clearance", str(getattr(stair, 'opening_clearance', 0.0)))
+        _save_obj_meta(s_elem, stair)
+
+    # Save ObjectGroups
+    groups_elem = ET.SubElement(root, "Groups")
+    for group in getattr(canvas, 'groups', []):
+        g_elem = ET.SubElement(groups_elem, "Group")
+        g_elem.set("identifier", group.identifier)
+        g_elem.set("name", getattr(group, 'name', ''))
+        g_elem.set("layer_id", getattr(group, 'layer_id', ''))
+        _save_obj_meta(g_elem, group)
+        for member_id in getattr(group, 'member_ids', []):
+            m_elem = ET.SubElement(g_elem, "Member")
+            m_elem.set("id", member_id)
 
     # Save Blueprint underlays (image bytes are embedded so the project is
     # self-contained and portable between machines).
@@ -748,6 +798,7 @@ def open_project(canvas, filepath):
                 wall.footer_right_offset = _get_elem_float(wall_elem, "FooterRightOffset", 6.0)
                 wall.footer_depth = _get_elem_float(wall_elem, "FooterDepth", 8.0)
                 wall.symbolic = _get_elem_bool(wall_elem, "Symbolic", False)
+                _load_obj_meta(wall_elem, wall)
 
                 wall_set.append(wall)
             canvas.wall_sets.append(wall_set)
@@ -780,6 +831,7 @@ def open_project(canvas, filepath):
             room.slab_thickness = _get_elem_float(room_elem, "SlabThickness", 4.0)
             room.slab_reinforcement = _get_elem_text(room_elem, "SlabReinforcement", "wire_mesh")
             room.slab_edge_type = _get_elem_text(room_elem, "SlabEdgeType", "thickened")
+            _load_obj_meta(room_elem, room)
 
             canvas.rooms.append(room)
 
@@ -807,6 +859,7 @@ def open_project(canvas, filepath):
                 identifier=door_id,
             )
             door.layer_id = _get_elem_text(door_elem, "LayerId", "")
+            _load_obj_meta(door_elem, door)
             attached_wall = None
             wall_ref_elem = door_elem.find("WallReference")
             if wall_ref_elem is not None:
@@ -836,6 +889,7 @@ def open_project(canvas, filepath):
                 win_width, win_height, window_type, identifier=win_id
             )
             window_obj.layer_id = _get_elem_text(win_elem, "LayerId", "")
+            _load_obj_meta(win_elem, window_obj)
             attached_wall = None
             wall_ref_elem = win_elem.find("WallReference")
             if wall_ref_elem is not None:
@@ -865,7 +919,9 @@ def open_project(canvas, filepath):
             text_obj.bold = _get_attr_text(t_elem, "bold", "False") == "True"
             text_obj.italic = _get_attr_text(t_elem, "italic", "False") == "True"
             text_obj.underline = _get_attr_text(t_elem, "underline", "False") == "True"
+            text_obj.rotation = _get_attr_float(t_elem, "rotation", 0.0)
             text_obj.layer_id = _get_attr_text(t_elem, "layer_id", "")
+            _load_obj_meta(t_elem, text_obj)
 
             canvas.texts.append(text_obj)
 
@@ -894,6 +950,7 @@ def open_project(canvas, filepath):
             color_b = _get_attr_float(d_elem, "color_b", 0.0)
             dimension_obj.color = (color_r, color_g, color_b)
             dimension_obj.layer_id = _get_attr_text(d_elem, "layer_id", "")
+            _load_obj_meta(d_elem, dimension_obj)
 
             canvas.dimensions.append(dimension_obj)
 
@@ -927,6 +984,7 @@ def open_project(canvas, filepath):
                 cg_ = _get_attr_float(c_elem, "color_g", 0.0)
                 cb_ = _get_attr_float(c_elem, "color_b", 0.0)
                 chain_obj.color = (cr_, cg_, cb_)
+                _load_obj_meta(c_elem, chain_obj)
                 canvas.dimension_chains.append(chain_obj)
 
     # --- Restore Leader Callouts ---
@@ -955,6 +1013,7 @@ def open_project(canvas, filepath):
                 cg_ = _get_attr_float(l_elem, "color_g", 0.0)
                 cb_ = _get_attr_float(l_elem, "color_b", 0.0)
                 callout_obj.color = (cr_, cg_, cb_)
+                _load_obj_meta(l_elem, callout_obj)
                 canvas.leader_callouts.append(callout_obj)
 
     # --- Restore Polylines ---
@@ -977,6 +1036,7 @@ def open_project(canvas, filepath):
                     color_g = _get_attr_float(pl_elem, "color_g", 0.0)
                     color_b = _get_attr_float(pl_elem, "color_b", 0.0)
                     pl.color = (color_r, color_g, color_b)
+                    _load_obj_meta(pl_elem, pl)
 
                     poly_set.append(pl)
                 canvas.polyline_sets.append(poly_set)
@@ -999,6 +1059,7 @@ def open_project(canvas, filepath):
                 color_g = _get_attr_float(c_elem, "color_g", 0.0)
                 color_b = _get_attr_float(c_elem, "color_b", 0.0)
                 c.color = (color_r, color_g, color_b)
+                _load_obj_meta(c_elem, c)
 
                 canvas.circles.append(c)
 
@@ -1022,6 +1083,7 @@ def open_project(canvas, filepath):
                 color_g = _get_attr_float(a_elem, "color_g", 0.0)
                 color_b = _get_attr_float(a_elem, "color_b", 0.0)
                 a.color = (color_r, color_g, color_b)
+                _load_obj_meta(a_elem, a)
 
                 canvas.arcs.append(a)
 
@@ -1174,6 +1236,7 @@ def open_project(canvas, filepath):
             if lines_for_planes:
                 roof.roof_planes = extract_3d_roof_planes(lines_for_planes, pitch_rise)
 
+            _load_obj_meta(r_elem, roof)
             canvas.roofs.append(roof)
 
     # --- Restore Stairs ---
@@ -1218,8 +1281,29 @@ def open_project(canvas, filepath):
             stair.steps_before_landing = _get_attr_int(s_elem, "steps_before_landing", 0)
             stair.winder_count = _get_attr_int(s_elem, "winder_count", 0)
             stair.opening_clearance = _get_attr_float(s_elem, "opening_clearance", 0.0)
+            _load_obj_meta(s_elem, stair)
 
             canvas.stairs.append(stair)
+
+    # --- Restore ObjectGroups ---
+    if hasattr(canvas, 'groups'):
+        canvas.groups.clear()
+        groups_elem = root.find("Groups")
+        if groups_elem is not None:
+            for g_elem in groups_elem.findall("Group"):
+                member_ids = [
+                    m_elem.get("id", "")
+                    for m_elem in g_elem.findall("Member")
+                    if m_elem.get("id", "")
+                ]
+                grp = ObjectGroup(
+                    identifier=_get_attr_text(g_elem, "identifier", ""),
+                    name=_get_attr_text(g_elem, "name", ""),
+                    layer_id=_get_attr_text(g_elem, "layer_id", ""),
+                    member_ids=member_ids,
+                )
+                _load_obj_meta(g_elem, grp)
+                canvas.groups.append(grp)
 
     # --- Restore Blueprints ---
     if hasattr(canvas, 'blueprints'):
@@ -1296,6 +1380,7 @@ def open_project(canvas, filepath):
         "arcs",
         "stairs",
         "blueprints",
+        "groups",
     ):
         for obj in getattr(canvas, list_name, []):
             if getattr(obj, "identifier", ""):

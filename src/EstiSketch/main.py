@@ -722,10 +722,18 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "a":
                 self.canvas.select_all()
                 return True
+            elif keyname == "g":
+                if hasattr(self.canvas, "group_selected"):
+                    self.canvas.group_selected()
+                return True
 
         if ctrl_pressed and shift_pressed:
             if keyname == "m":
                 self.on_estimate_materials_clicked(None)
+                return True
+            elif keyname == "g":
+                if hasattr(self.canvas, "ungroup_selected"):
+                    self.canvas.ungroup_selected()
                 return True
             elif keyname == "c":
                 self.on_estimate_cost_clicked(None)

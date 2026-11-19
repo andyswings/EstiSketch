@@ -69,6 +69,10 @@ class Roof:
     """
     identifier: str = ""
     layer_id: str = ""
+    visible: bool = True
+    locked: bool = False
+    custom_name: str = ""
+    comment: str = ""
     
     # Wall bindings
     edges: List[RoofEdge] = field(default_factory=list)

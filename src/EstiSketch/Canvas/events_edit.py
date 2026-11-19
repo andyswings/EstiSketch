@@ -227,6 +227,49 @@ class EditEventsMixin:
             self._blueprint_drag_update(offset_x, offset_y)
             return
 
+        # Handle interactive ObjectGroup rotation
+        if getattr(self, "rotating_group", None):
+            curr_dev_x = self.drag_start_x + offset_x
+            curr_dev_y = self.drag_start_y + offset_y
+            px_dev, py_dev = self._rotating_group_pivot_dev
+            curr_mouse_deg = math.degrees(math.atan2(curr_dev_y - py_dev, curr_dev_x - px_dev))
+            total_deg = curr_mouse_deg - self._rotating_group_start_mouse_deg
+            # Snap to 15-degree increments when Shift is held
+            try:
+                from gi.repository import Gdk
+                event = gesture.get_current_event()
+                state = event.get_modifier_state() if hasattr(event, "get_modifier_state") else event.state
+                if state & Gdk.ModifierType.SHIFT_MASK:
+                    total_deg = round(total_deg / 15.0) * 15.0
+            except Exception:
+                pass
+            delta_deg = total_deg - getattr(self, "_rotating_group_last_deg", 0.0)
+            if abs(delta_deg) > 1e-6:
+                self.rotate_group(
+                    self.rotating_group,
+                    delta_deg,
+                    pivot=self._rotating_group_pivot,
+                    save_undo=False,
+                )
+                self._rotating_group_last_deg = total_deg
+                self._rotating_group_current_deg = total_deg
+            self.queue_draw()
+            return
+
+        # Handle ObjectGroup unit dragging
+        if getattr(self, "dragging_group", None):
+            curr_dev_x = self.drag_start_x + offset_x
+            curr_dev_y = self.drag_start_y + offset_y
+            curr_model = self.device_to_model(curr_dev_x, curr_dev_y, pixels_per_inch)
+            last_model = getattr(self, "_group_drag_last_model", curr_model)
+            dx = curr_model[0] - last_model[0]
+            dy = curr_model[1] - last_model[1]
+            if abs(dx) > 1e-9 or abs(dy) > 1e-9:
+                self.translate_group(self.dragging_group, dx, dy, save_undo=False)
+                self._group_drag_last_model = curr_model
+            self.queue_draw()
+            return
+
         # Handle wall endpoint editing
         if getattr(
                 self,

@@ -10,7 +10,6 @@
 - [ ] Follow-up to Room Cutouts (stair-derived holes done, see Completed): add other hole sources beyond stairs (manual "Floor Opening" tool for atriums/lightwells/courtyards, elevators, shafts, double-height spaces). `Hole.source_id` is generic so these plug in later.
 - [ ] Scaled Vector Export & Architectural PDF Plotting (Cairo vector SVG export and scaled PDF sheets with title blocks).
 - [ ] Add all build files for building windows and linux packages to the .gitignore file and remove them from the online repo.
-- [ ] We need a list of all objects that are in our drawing. We should be able to select them, hide them, delete them, move them between layers and or levels. We should also be able to name them and or add comments to them. These comments could be used to describe the object or to provide additional information that we want to track. I think I had this in place at one point but I don't know what happened to it so there may be some remnants of the code in here somewhere but also we may have completely written over it.
 
 
 ## Ideas to think about
@@ -161,6 +160,8 @@
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Object grouping & unit manipulation (`ObjectGroup`, `CanvasGroupMixin`, `Ctrl+G` / `Ctrl+Shift+G`, canvas dashed bounding box + interactive rotation handle, unit move/rotate/lock/hide/delete/move-layer-or-level, right-click context menu, undo/redo, and XML project persistence) (2026-11-18)
+- [x] All Objects explorer & enhanced object management in the Layers & Objects sidebar (unified searchable/filterable list of all objects & groups across all layers/levels, per-object selection sync, hide, lock, delete, custom names, multi-line comments with `💬` indicator, move between layers/levels, and XML persistence for `custom_name`, `comment`, `visible`, `locked`) (2026-11-18)
 - [x] It is really hard to draw precise length walls. We need to make walls draw in increments of 0.25" or something like that. Also we need some method to prompt or maybe even automatically fix a wall that is drawn (at 39' 11.95" for example) to the nearest foot if it is really close. (2026-11-07)
 - [x] Only layers assigned to the selected level should be shown / selectable. All other levels should be hidden / unselected / unselectable except when the layer is assigned to Global all layers. (2026-11-07)
 - [x] Unable to copy and paste multiple windows at once... This should be possible not only with windows, but also with any type of object. (2026-11-07)

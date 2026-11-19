@@ -1200,7 +1200,26 @@ class CanvasSelectionMixin:
         self._last_pressed_item = selected_item
 
         if selected_item:
-            if shift_pressed:
+            # If the clicked object belongs to an ObjectGroup, select/toggle the entire group as a unit
+            clicked_group = None
+            if (
+                not str(selected_item.get("type", "")).endswith("_handle")
+                and hasattr(self, "get_group_for_selection_item")
+            ):
+                clicked_group = self.get_group_for_selection_item(selected_item)
+
+            if clicked_group is not None:
+                if shift_pressed:
+                    # Toggle the entire group
+                    members = self.get_group_members(clicked_group)
+                    any_selected = any(self._is_in_selected_items(m_obj) for _, m_obj in members)
+                    if any_selected:
+                        self.deselect_group(clicked_group, emit_signal=False)
+                    else:
+                        self.select_group(clicked_group, extend=True, emit_signal=False)
+                else:
+                    self.select_group(clicked_group, extend=False, emit_signal=False)
+            elif shift_pressed:
                 # Check if item is already selected
                 existing_idx = None
                 for i, existing in enumerate(self.selected_items):
@@ -1272,9 +1291,10 @@ class CanvasSelectionMixin:
             self._blueprint_drag_begin(start_x, start_y)
             return
 
-        # If we already entered handle-editing on press, don't overwrite
+        # If we already entered handle-editing or group-rotating on press, don't overwrite
         # box_select_start.
-        if (getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None)) or \
+        if getattr(self, "rotating_group", None) or \
+           (getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None)) or \
            (getattr(self, "editing_circle", None) and getattr(self, "editing_circle_handle", None)) or \
            (getattr(self, "editing_arc", None) and getattr(self, "editing_arc_handle", None)) or \
            (getattr(self, "editing_roof_line", None) and getattr(self, "editing_roof_line_handle", None)) or \
@@ -1331,6 +1351,25 @@ class CanvasSelectionMixin:
             if len(self.selected_items) > 0 and getattr(self, "_last_pressed_item", True) is not None:
                 # Handle single selection drag for doors/windows
                 item = self._last_pressed_item if isinstance(getattr(self, "_last_pressed_item", None), dict) and self._last_pressed_item in self.selected_items else self.selected_items[0]
+
+                # If the pressed item belongs to a selected, unlocked ObjectGroup, drag the whole group as a unit
+                pressed_group = (
+                    self.get_group_for_selection_item(item)
+                    if hasattr(self, "get_group_for_selection_item")
+                    else None
+                )
+                if pressed_group is not None and not pressed_group.locked:
+                    self.dragging_group = pressed_group
+                    self._group_drag_last_model = self.device_to_model(
+                        start_x, start_y, pixels_per_inch
+                    )
+                    self.box_selecting = False
+                    try:
+                        self.save_state()
+                    except Exception:
+                        pass
+                    return
+
                 if item["type"] in ["door", "window"]:
                     wall, obj, ratio = item["object"]
                     if wall is not None and not self.is_object_on_locked_layer(obj):  # Only drag if on a wall and not locked
@@ -1670,6 +1709,24 @@ class CanvasSelectionMixin:
 
         if self.tool_mode in ("move_blueprint", "straighten_blueprint"):
             self._blueprint_drag_end(offset_x, offset_y)
+            return
+
+        # Finalize ObjectGroup rotation
+        if getattr(self, "rotating_group", None):
+            self.rotating_group = None
+            self._rotating_group_current_deg = 0.0
+            self.save_state()
+            self.emit('content-changed')
+            self.queue_draw()
+            return
+
+        # Finalize ObjectGroup move
+        if getattr(self, "dragging_group", None):
+            self.dragging_group = None
+            self._group_drag_last_model = None
+            self.save_state()
+            self.emit('content-changed')
+            self.queue_draw()
             return
 
         # If we were editing a wall endpoint, just clear that state and stop.
@@ -2299,6 +2356,49 @@ class CanvasSelectionMixin:
             self.editing_handle = None
             self.queue_draw()
 
+    def show_rotate_group_dialog(self, group) -> None:
+        """Open a small modal dialog to rotate ``group`` by a custom angle in degrees."""
+        dialog = Gtk.Window(title="Rotate Group")
+        root = self.get_root() if hasattr(self, "get_root") else None
+        if root:
+            dialog.set_transient_for(root)
+        dialog.set_modal(True)
+        dialog.set_default_size(240, 110)
+
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        for setter in (vbox.set_margin_top, vbox.set_margin_bottom, vbox.set_margin_start, vbox.set_margin_end):
+            setter(12)
+        dialog.set_child(vbox)
+
+        lbl = Gtk.Label(label="Rotation angle (degrees, clockwise):")
+        lbl.set_xalign(0)
+        vbox.append(lbl)
+
+        adj = Gtk.Adjustment(value=90.0, lower=-360.0, upper=360.0, step_increment=5.0, page_increment=45.0)
+        spin = Gtk.SpinButton(adjustment=adj, digits=1)
+        vbox.append(spin)
+
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        btn_row.set_halign(Gtk.Align.END)
+
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda b: dialog.close())
+        btn_row.append(cancel_btn)
+
+        apply_btn = Gtk.Button(label="Rotate")
+        apply_btn.add_css_class("suggested-action")
+
+        def do_rotate(*_args):
+            self.rotate_group(group, spin.get_value())
+            dialog.close()
+
+        apply_btn.connect("clicked", do_rotate)
+        spin.connect("activate", do_rotate)
+        btn_row.append(apply_btn)
+        vbox.append(btn_row)
+
+        dialog.present()
+
     def on_right_click(
             self,
             gesture: Gtk.GestureClick,
@@ -2545,6 +2645,82 @@ class CanvasSelectionMixin:
                 "clicked", lambda btn: self.show_move_to_layer_submenu(
                     btn, parent_popover))
             box.append(move_layer_btn)
+
+            # Group / Ungroup / Group Manipulation actions
+            distinct_ids = set()
+            for it in self.selected_items:
+                ext = self.extract_selection_object(it) if hasattr(self, "extract_selection_object") else None
+                if ext and getattr(ext[1], "identifier", ""):
+                    distinct_ids.add(ext[1].identifier)
+            sel_groups = self.get_selected_groups() if hasattr(self, "get_selected_groups") else []
+
+            if len(distinct_ids) >= 2 and not (len(sel_groups) == 1 and set(sel_groups[0].member_ids) == distinct_ids):
+                group_btn = Gtk.Button(label="Group Objects (Ctrl+G)")
+                group_btn.connect(
+                    "clicked",
+                    lambda btn: (self.group_selected(), parent_popover.popdown()),
+                )
+                box.append(group_btn)
+
+            if sel_groups:
+                ungroup_btn = Gtk.Button(label="Ungroup (Ctrl+Shift+G)")
+                ungroup_btn.connect(
+                    "clicked",
+                    lambda btn: (self.ungroup_selected(), parent_popover.popdown()),
+                )
+                box.append(ungroup_btn)
+
+                if len(sel_groups) == 1:
+                    grp = sel_groups[0]
+                    rot_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+                    rot_ccw = Gtk.Button(label="↺ 90°")
+                    rot_ccw.set_tooltip_text("Rotate group 90° counter-clockwise")
+                    rot_ccw.connect(
+                        "clicked",
+                        lambda b, g=grp: (self.rotate_group(g, -90.0), parent_popover.popdown()),
+                    )
+                    rot_row.append(rot_ccw)
+
+                    rot_cw = Gtk.Button(label="↻ 90°")
+                    rot_cw.set_tooltip_text("Rotate group 90° clockwise")
+                    rot_cw.connect(
+                        "clicked",
+                        lambda b, g=grp: (self.rotate_group(g, 90.0), parent_popover.popdown()),
+                    )
+                    rot_row.append(rot_cw)
+
+                    rot_180 = Gtk.Button(label="180°")
+                    rot_180.set_tooltip_text("Rotate group 180°")
+                    rot_180.connect(
+                        "clicked",
+                        lambda b, g=grp: (self.rotate_group(g, 180.0), parent_popover.popdown()),
+                    )
+                    rot_row.append(rot_180)
+
+                    rot_custom = Gtk.Button(label="Angle...")
+                    rot_custom.set_tooltip_text("Rotate group by custom angle")
+                    rot_custom.connect(
+                        "clicked",
+                        lambda b, g=grp: (parent_popover.popdown(), self.show_rotate_group_dialog(g)),
+                    )
+                    rot_row.append(rot_custom)
+                    box.append(rot_row)
+
+                    lock_lbl = "Unlock Group" if grp.locked else "Lock Group"
+                    lock_grp_btn = Gtk.Button(label=lock_lbl)
+                    lock_grp_btn.connect(
+                        "clicked",
+                        lambda b, g=grp: (self.set_group_locked(g, not g.locked), parent_popover.popdown()),
+                    )
+                    box.append(lock_grp_btn)
+
+                    del_grp_btn = Gtk.Button(label="Delete Group")
+                    del_grp_btn.add_css_class("destructive-action")
+                    del_grp_btn.connect(
+                        "clicked",
+                        lambda b, g=grp: (self.delete_group(g), parent_popover.popdown()),
+                    )
+                    box.append(del_grp_btn)
 
             separator_layer = Gtk.Separator(
                 orientation=Gtk.Orientation.HORIZONTAL)

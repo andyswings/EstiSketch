@@ -124,6 +124,30 @@ class CanvasEventsMixin:
         if not hasattr(self, "handle_radius"):
             self.handle_radius = 10
 
+        # Check for selected ObjectGroup rotation handle before individual handles
+        if hasattr(self, "get_selected_groups"):
+            sel_groups = self.get_selected_groups()
+            if len(sel_groups) == 1 and not sel_groups[0].locked:
+                grp = sel_groups[0]
+                h_dev = self.get_group_rotation_handle_device(grp)
+                if h_dev and math.hypot(x - h_dev[0], y - h_dev[1]) < max(self.handle_radius, 12):
+                    pivot = self.get_group_center(grp)
+                    if pivot is not None:
+                        self.rotating_group = grp
+                        self._rotating_group_pivot = pivot
+                        pivot_dev = (pivot[0] * T + self.offset_x, pivot[1] * T + self.offset_y)
+                        self._rotating_group_pivot_dev = pivot_dev
+                        self._rotating_group_start_mouse_deg = math.degrees(
+                            math.atan2(y - pivot_dev[1], x - pivot_dev[0])
+                        )
+                        self._rotating_group_last_deg = 0.0
+                        self._rotating_group_current_deg = 0.0
+                        try:
+                            self.save_state()
+                        except Exception:
+                            pass
+                        return
+
         for item in self.selected_items:
             if item.get("type") == "wall":
                 wall = item.get("object")

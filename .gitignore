@@ -7,6 +7,7 @@ simple_house.pdf
 simple_house.xml
 simple_house_reference.json
 long_narrow.xml
+examples/
 
 # Pixi environments and executable
 .pixi/*

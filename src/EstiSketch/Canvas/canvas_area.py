@@ -16,10 +16,11 @@ from .canvas_geometry import CanvasGeometryMixin
 from .canvas_state import CanvasStateMixin
 from .canvas_events import CanvasEventsMixin
 from .canvas_draw import CanvasDrawMixin
+from .canvas_groups import CanvasGroupMixin
 from .blueprint import CanvasBlueprintMixin
 from .blueprint_straighten import CanvasBlueprintStraightenMixin
 from ..snapping_manager import SnappingManager
-from ..components import Wall, Room, Text, Dimension, Layer, Level, DimensionChain, LeaderCallout
+from ..components import Wall, Room, Text, Dimension, Layer, Level, DimensionChain, LeaderCallout, ObjectGroup
 from ..measurement_utils import MeasurementConverter
 from gi.repository import Gtk, Gdk, GObject
 import gi
@@ -28,6 +29,7 @@ gi.require_version('Gtk', '4.0')
 
 class CanvasArea(Gtk.DrawingArea,
                  CanvasDrawMixin,
+                 CanvasGroupMixin,
                  CanvasEventsMixin,
                  CanvasBlueprintMixin,
                  CanvasBlueprintStraightenMixin,
@@ -224,6 +226,12 @@ class CanvasArea(Gtk.DrawingArea,
         # Stair state
         self.stairs = []  # List of Stair objects
 
+        # Object groups state
+        self.groups = []  # List of ObjectGroup objects
+        self.ObjectGroup = ObjectGroup
+        self.dragging_group = None
+        self.rotating_group = None
+
         # Blueprint underlay state
         self._init_blueprint_state()
 
@@ -304,6 +312,9 @@ class CanvasArea(Gtk.DrawingArea,
         self.arcs = []
         self.roofs = []
         self.stairs = []
+        self.groups = []
+        self.dragging_group = None
+        self.rotating_group = None
         self.reset_blueprints()
 
         # Clear selection
@@ -444,6 +455,11 @@ class CanvasArea(Gtk.DrawingArea,
         if hasattr(obj, 'visible') and not obj.visible:
             return False
 
+        # Check group-level visibility
+        group = self.get_group_for_object(obj) if hasattr(self, 'get_group_for_object') else None
+        if group is not None and not group.visible:
+            return False
+
         # Check level filtering
         if self.show_all_levels:
             return True
@@ -459,6 +475,11 @@ class CanvasArea(Gtk.DrawingArea,
         """Check if an object is on a locked layer or is individually locked."""
         # Check object-level lock
         if hasattr(obj, 'locked') and obj.locked:
+            return True
+
+        # Check group-level lock
+        group = self.get_group_for_object(obj) if hasattr(self, 'get_group_for_object') else None
+        if group is not None and group.locked:
             return True
 
         layer_id = getattr(obj, 'layer_id', '')
@@ -684,6 +705,11 @@ class CanvasArea(Gtk.DrawingArea,
         for item in list(self.selected_items):
             item_type = item.get("type") # Get type once for cleaner checks
 
+            # Skip locked objects/groups
+            extracted = self.extract_selection_object(item) if hasattr(self, "extract_selection_object") else None
+            if extracted and self.is_object_on_locked_layer(extracted[1]):
+                continue
+
             # Walls
             if item_type == "wall":
                 selected_id = item["object"].identifier
@@ -835,6 +861,9 @@ class CanvasArea(Gtk.DrawingArea,
             if len(target_room.points) < 3:
                 if target_room in self.rooms:
                     self.rooms.remove(target_room)
+
+        if hasattr(self, "prune_groups"):
+            self.prune_groups()
 
         self.selected_items.clear()
         self.queue_draw()

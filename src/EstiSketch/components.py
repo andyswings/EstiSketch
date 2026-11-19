@@ -69,13 +69,17 @@ class Wall:
             arc_radius=None,
             visible=True,
             locked=False,
-            height_at_end=None):
+            height_at_end=None,
+            custom_name: str = "",
+            comment: str = ""):
         self.identifier = (
             identifier if identifier else generate_identifier("wall")
         )  # unique string identifier
         self.layer_id = layer_id  # layer this wall belongs to
         self.visible = visible
         self.locked = locked
+        self.custom_name = custom_name
+        self.comment = comment
         self.start = start  # tuple of (x, y)
         self.end = end      # tuple of (x, y)
         self.width = width  # integer (inches)
@@ -140,13 +144,17 @@ class Polyline:
             layer_id: str = "",
             color: tuple = (0.0, 0.0, 0.0),
             visible=True,
-            locked=False):
+            locked=False,
+            custom_name: str = "",
+            comment: str = ""):
         self.identifier = (
             identifier if identifier else generate_identifier("polyline")
         )  # unique string identifier
         self.layer_id = layer_id  # layer this polyline belongs to
         self.visible = visible
         self.locked = locked
+        self.custom_name = custom_name
+        self.comment = comment
         self.start = start  # tuple of (x, y)
         self.end = end      # tuple of (x, y)
         self.style = "solid"  # or "dashed"
@@ -181,13 +189,17 @@ class Room:
                  identifier="",
                  layer_id: str = "",
                  visible=True,
-                 locked=False):
+                 locked=False,
+                 custom_name: str = "",
+                 comment: str = ""):
         self.identifier = (
             identifier if identifier else generate_identifier("room")
         )  # unique string identifier
         self.layer_id = layer_id  # layer this room belongs to
         self.visible = visible
         self.locked = locked
+        self.custom_name = custom_name
+        self.comment = comment
         # List of (x, y) tuples defining the room vertices
         self.points = points
         self.height = height  # Room height in inches
@@ -217,13 +229,17 @@ class Door:
             identifier="",
             layer_id: str = "",
             visible=True,
-            locked=False):
+            locked=False,
+            custom_name: str = "",
+            comment: str = ""):
         self.identifier = (
             identifier if identifier else generate_identifier("door")
         )  # unique string identifier
         self.layer_id = layer_id  # layer this door belongs to
         self.visible = visible
         self.locked = locked
+        self.custom_name = custom_name
+        self.comment = comment
         self.door_type = door_type  # Type of door
         self.width = width  # Door width in inches
         self.height = height    # Door height in inches
@@ -244,13 +260,17 @@ class Window:
             identifier="",
             layer_id: str = "",
             visible=True,
-            locked=False):
+            locked=False,
+            custom_name: str = "",
+            comment: str = ""):
         self.identifier = (
             identifier if identifier else generate_identifier("window")
         )  # unique string identifier
         self.layer_id = layer_id  # layer this window belongs to
         self.visible = visible
         self.locked = locked
+        self.custom_name = custom_name
+        self.comment = comment
         self.width = width  # Window width in inches
         self.height = height  # Window height in inches
         self.window_type = window_type  # Type of window
@@ -276,6 +296,8 @@ class Text:
     underline: bool = False
     rotation: float = 0.0  # Rotation angle in degrees
     color: tuple = (0.0, 0.0, 0.0)  # RGB color
+    custom_name: str = ""
+    comment: str = ""
 
     def __post_init__(self) -> None:
         if not self.identifier:
@@ -295,6 +317,8 @@ class Dimension:
     show_arrows: bool = True  # Whether to show extension arrows
     line_style: str = "solid"  # "solid" or "dashed"
     color: tuple = (0.0, 0.0, 0.0)  # RGB color
+    custom_name: str = ""
+    comment: str = ""
 
     def __post_init__(self) -> None:
         if not self.identifier:
@@ -311,6 +335,8 @@ class Circle:
     locked: bool = False
     line_style: str = "solid"
     color: tuple = (0.0, 0.0, 0.0)
+    custom_name: str = ""
+    comment: str = ""
 
     def __post_init__(self) -> None:
         if not self.identifier:
@@ -329,6 +355,8 @@ class Arc:
     locked: bool = False
     line_style: str = "solid"
     color: tuple = (0.0, 0.0, 0.0)
+    custom_name: str = ""
+    comment: str = ""
 
     def __post_init__(self) -> None:
         if not self.identifier:
@@ -388,6 +416,8 @@ class Stair:
     # Spiral Specifics (for future use)
     inner_radius: float = 6.0
     rotation_degrees: float = 270.0
+    custom_name: str = ""
+    comment: str = ""
 
     def __post_init__(self) -> None:
         if not self.identifier:
@@ -460,6 +490,8 @@ class DimensionChain:
     color: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     witness_gap: float = 4.0
     witness_overhang: float = 6.0
+    custom_name: str = ""
+    comment: str = ""
 
     def __post_init__(self) -> None:
         if not self.identifier:
@@ -539,9 +571,28 @@ class LeaderCallout:
     box_border: bool = False
     arrow_type: str = "arrow"
     line_style: str = "solid"
+    custom_name: str = ""
+    comment: str = ""
 
     def __post_init__(self) -> None:
         if not self.identifier:
             self.identifier = generate_identifier("leader")
+
+
+@dataclass(eq=False)
+class ObjectGroup:
+    """Represents a logical group of drawing objects manipulated as a unit."""
+    identifier: str = ""
+    name: str = ""
+    custom_name: str = ""
+    comment: str = ""
+    member_ids: List[str] = field(default_factory=list)
+    layer_id: str = ""
+    visible: bool = True
+    locked: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.identifier:
+            self.identifier = generate_identifier("group")
 
 

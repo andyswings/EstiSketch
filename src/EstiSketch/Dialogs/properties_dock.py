@@ -3159,8 +3159,8 @@ class PropertiesDock(Gtk.Box):
         self.content_paned.set_wide_handle(True)
         self.append(self.content_paned)
 
-        # ─── Layers Section (Top) ───
-        layers_frame = Gtk.Frame(label="Layers")
+        # ─── Layers & Objects Section (Top) ───
+        layers_frame = Gtk.Frame(label="Layers & Objects")
         layers_frame.set_vexpand(True)
         self.layers_page = LayersPanel(canvas)
         
