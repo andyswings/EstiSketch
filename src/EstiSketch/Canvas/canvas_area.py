@@ -182,6 +182,9 @@ class CanvasArea(Gtk.DrawingArea,
             "reference": None,
         }
 
+        # Print / PDF plot settings (dict, see Printing.print_settings)
+        self.print_settings = None
+
         # Undo/Redo stacks
         self.undo_stack = []
         self.redo_stack = []
@@ -297,6 +300,7 @@ class CanvasArea(Gtk.DrawingArea,
 
     def clear(self):
         """Clear all drawing elements from the canvas."""
+        self.print_settings = None
         self.walls = []
         self.wall_sets = []
         self.rooms = []

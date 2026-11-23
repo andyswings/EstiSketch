@@ -593,6 +593,12 @@ def save_project(canvas, window_width, window_height, filepath):
         ts_elem = ET.SubElement(root, "TakeoffState")
         ts_elem.text = json.dumps(takeoff_state, sort_keys=True)
 
+    # Save print / PDF plot settings (page setup + title block)
+    print_settings = getattr(canvas, "print_settings", None)
+    if isinstance(print_settings, dict):
+        ps_elem = ET.SubElement(root, "PrintSettings")
+        ps_elem.text = json.dumps(print_settings, sort_keys=True)
+
     # Write out the XML to the given file (with declaration and proper
     # encoding).
     tree = ET.ElementTree(root)
@@ -1416,6 +1422,17 @@ def open_project(canvas, filepath):
         except (ValueError, TypeError):
             pass
     canvas.takeoff_state = default_ts
+
+    # Load print / PDF plot settings
+    canvas.print_settings = None
+    ps_elem = root.find("PrintSettings")
+    if ps_elem is not None and ps_elem.text:
+        try:
+            loaded_ps = json.loads(ps_elem.text)
+            if isinstance(loaded_ps, dict):
+                canvas.print_settings = loaded_ps
+        except (ValueError, TypeError):
+            pass
 
     # Return the saved window size.
     return window_width, window_height

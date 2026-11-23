@@ -128,6 +128,22 @@ class CanvasDrawMixin:
         cr.translate(self.offset_x, self.offset_y)
         cr.scale(zoom_transform, zoom_transform)
 
+        self.draw_scene(cr, zoom_transform, pixels_per_inch)
+
+        cr.restore()  # Return to device coordinates.
+
+        # Draw rulers in device coordinates.
+        if self.config.SHOW_RULERS:
+            self.draw_rulers(cr, width, height, pixels_per_inch)
+
+
+    def draw_scene(self, cr, zoom_transform, pixels_per_inch, printing=False):
+        """
+        Draw the drawing content in model coordinates (cr must already be
+        transformed). With printing=True only committed content is drawn:
+        no grid, previews, selection handles, snap guides or other editing
+        overlays.
+        """
         # Get visible layer IDs for filtering - objects with no layer_id are
         # always visible
         visible_layer_ids = self.get_visible_layer_ids() if hasattr(
@@ -137,7 +153,8 @@ class CanvasDrawMixin:
         self.draw_blueprints(cr)
 
         # Draw grid, walls, rooms, etc. in model coordinates.
-        self.draw_grid(cr)
+        if not printing:
+            self.draw_grid(cr)
 
         # Draw rooms first (under walls)
         wr.draw_rooms(self, cr, zoom_transform)
@@ -155,7 +172,7 @@ class CanvasDrawMixin:
         dwr.draw_windows(self, cr, pixels_per_inch)
 
         # Door/window placement ghost (translucent preview of the click result)
-        ghost = getattr(self, "opening_ghost", None)
+        ghost = None if printing else getattr(self, "opening_ghost", None)
         if ghost is not None:
             kind, item = ghost
             if kind == "door":
@@ -210,6 +227,47 @@ class CanvasDrawMixin:
             if hasattr(self, '_draw_stair'):
                 self._draw_stair(cr, stair, zoom_transform)
                 
+        # Draw Circles
+        for circle in self.circles:
+            if not self.is_object_on_visible_layer(circle):
+                continue
+            self._draw_circle(cr, circle)
+
+        # Draw Arcs
+        for arc in self.arcs:
+            if not self.is_object_on_visible_layer(arc):
+                continue
+            self._draw_arc(cr, arc)
+        
+        # Draw finished polylines
+        cr.save()
+        cr.set_line_width(1.0 / self.zoom)
+        for poly_list in self.polyline_sets:
+            for pl in poly_list:
+                # Skip if polyline is on hidden layer
+                if not self.is_object_on_visible_layer(pl):
+                    continue
+
+                opacity = 1.0
+                if hasattr(self, 'get_object_opacity'):
+                    opacity = self.get_object_opacity(pl)
+
+                # Use polyline color if available, default to black
+                color = getattr(pl, 'color', (0.0, 0.0, 0.0))
+                cr.set_source_rgba(color[0], color[1], color[2], opacity)
+
+                if pl.style == "dashed":
+                    cr.set_dash([4 / self.zoom, 4 / self.zoom])
+                else:
+                    cr.set_dash([])
+                cr.move_to(pl.start[0], pl.start[1])
+                cr.line_to(pl.end[0], pl.end[1])
+                cr.stroke()
+        cr.restore()
+
+        if printing:
+            return
+
         # Draw temporary stair preview
         if getattr(self, 'tool_mode', None) == "add_stair" and getattr(self, 'temp_object', None):
              if hasattr(self, '_draw_stair') and hasattr(self.temp_object, 'stair_type'):
@@ -227,18 +285,6 @@ class CanvasDrawMixin:
             cr.set_line_width(1.0 / zoom_transform)
             cr.stroke()
 
-        # Draw Circles
-        for circle in self.circles:
-            if not self.is_object_on_visible_layer(circle):
-                continue
-            self._draw_circle(cr, circle)
-
-        # Draw Arcs
-        for arc in self.arcs:
-            if not self.is_object_on_visible_layer(arc):
-                continue
-            self._draw_arc(cr, arc)
-        
         # Circle Preview
         if self.tool_mode == "add_circle" and self.drawing_circle and self.circle_center and self.circle_radius_preview is not None:
             temp_circle = self.Circle(
@@ -317,32 +363,6 @@ class CanvasDrawMixin:
                  cr.line_to(last_pos[0], last_pos[1])
                  cr.stroke()
                  cr.restore()
-
-        # Draw finished polylines
-        cr.save()
-        cr.set_line_width(1.0 / self.zoom)
-        for poly_list in self.polyline_sets:
-            for pl in poly_list:
-                # Skip if polyline is on hidden layer
-                if not self.is_object_on_visible_layer(pl):
-                    continue
-
-                opacity = 1.0
-                if hasattr(self, 'get_object_opacity'):
-                    opacity = self.get_object_opacity(pl)
-
-                # Use polyline color if available, default to black
-                color = getattr(pl, 'color', (0.0, 0.0, 0.0))
-                cr.set_source_rgba(color[0], color[1], color[2], opacity)
-
-                if pl.style == "dashed":
-                    cr.set_dash([4 / self.zoom, 4 / self.zoom])
-                else:
-                    cr.set_dash([])
-                cr.move_to(pl.start[0], pl.start[1])
-                cr.line_to(pl.end[0], pl.end[1])
-                cr.stroke()
-        cr.restore()
 
         # Draw in-progress (fixed) segments
         if self.polylines:
@@ -703,12 +723,6 @@ class CanvasDrawMixin:
         self.draw_snap_indicator(cr, pixels_per_inch)
         self.draw_edit_face_guide(cr, pixels_per_inch)
         self.draw_blueprint_overlays(cr)
-
-        cr.restore()  # Return to device coordinates.
-
-        # Draw rulers in device coordinates.
-        if self.config.SHOW_RULERS:
-            self.draw_rulers(cr, width, height, pixels_per_inch)
 
     def draw_grid(self, cr):
         if not self.config.SHOW_GRID:

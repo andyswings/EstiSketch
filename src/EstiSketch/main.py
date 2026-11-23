@@ -14,6 +14,7 @@ from .Dialogs import estimate_materials
 from .Dialogs import takeoff_dialog
 from .Dialogs import manage_materials
 from .Dialogs import settings_ui
+from .Printing import print_dialog
 from .Canvas import canvas_area
 from . import toolbar
 from . import config
@@ -60,6 +61,11 @@ class EstimatorApp(Gtk.Application):
         new_action = Gio.SimpleAction.new("new")
         new_action.connect("activate", self.on_new)
         self.add_action(new_action)
+
+        # Print / export PDF
+        print_action = Gio.SimpleAction.new("print", None)
+        print_action.connect("activate", lambda a, p: self.on_print())
+        self.add_action(print_action)
 
         # Open project
         open_action = Gio.SimpleAction.new("open", None)
@@ -356,7 +362,7 @@ class EstimatorApp(Gtk.Application):
         self.tool_buttons["open"].connect(
             "clicked", lambda btn: self.show_open_dialog())
         self.tool_buttons["export"].connect(
-            "clicked", lambda btn: print("Export as PDF triggered"))
+            "clicked", lambda btn: self.on_print())
         self.tool_buttons["undo"].connect(
             "clicked", lambda btn: self.canvas.undo())
         self.tool_buttons["redo"].connect(
@@ -674,6 +680,9 @@ class EstimatorApp(Gtk.Application):
 
 
         if ctrl_pressed and not shift_pressed:
+            if keyname in ("p", "e"):
+                self.on_print()
+                return True
             if keyname == "z":
                 self.canvas.undo()
                 return True
@@ -773,6 +782,13 @@ class EstimatorApp(Gtk.Application):
         Sets the canvas zoom level to 1.0 (100%), centered on the current view.
         """
         self.canvas.reset_zoom()
+
+    def on_print(self) -> None:
+        """Open the print / PDF export dialog with live preview."""
+        name = ""
+        if self.current_filepath:
+            name = os.path.splitext(os.path.basename(self.current_filepath))[0]
+        print_dialog.show_print_dialog(self.window, self.canvas, name)
 
     def on_settings_clicked(self, button: Gtk.Button, *args) -> None:
         """

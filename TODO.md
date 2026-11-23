@@ -8,7 +8,11 @@
 - [ ] Room hole UI controls: add a "Cut lower-level ceiling under stairs" checkbox (project/takeoff settings, `canvas.cut_lower_ceiling_under_stairs`) and an "Opening clearance" field in the stair properties panel (`Stair.opening_clearance`); both are currently code/file-only.
 - [ ] Room area takeoff follow-ups: add flooring material/waste factor, ceiling finish and slab concrete lines to the supplier quote list (`get_supplier_quote_items`), and room-area rows to CSV/TXT export (a "Room Areas & Floor Openings" report tab now exists in Estimate Materials).
 - [ ] Follow-up to Room Cutouts (stair-derived holes done, see Completed): add other hole sources beyond stairs (manual "Floor Opening" tool for atriums/lightwells/courtyards, elevators, shafts, double-height spaces). `Hole.source_id` is generic so these plug in later.
-- [ ] Scaled Vector Export & Architectural PDF Plotting (Cairo vector SVG export and scaled PDF sheets with title blocks).
+- [ ] Scaled Vector Export (Cairo vector SVG export). PDF plotting with scales and title blocks is done, see Done.
+- [ ] Real printer support: add a "Print..." button to the Print dialog that sends the sheets to a physical printer via `Gtk.PrintOperation` (system print dialog, paper/printer selection), reusing `print_renderer.render_page` so output matches the preview. Needs testing on actual hardware (including large-format plotters and paper-size mapping).
+- [ ] Print line weights: lines currently print at a constant ~2 pt regardless of drawing scale. Add a line-weight setting (per-object-type pen weights / global multiplier) in the Print dialog so plots look right at any scale.
+- [ ] Print tiling: a drawing larger than the sheet at a fixed scale is clipped. Add an option to tile it across multiple pages (with overlap/registration marks and page numbering), and show the tile grid in the preview.
+- [ ] Print settings dirty state: changing print settings does not mark the project as having unsaved changes (they are only saved on the next save). Mark the project dirty when the Print dialog is closed with changed settings.
 - [ ] Add all build files for building windows and linux packages to the .gitignore file and remove them from the online repo.
 
 
@@ -160,6 +164,7 @@
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] PDF printing / export with live preview (File > Print / Export PDF..., Ctrl+P / Ctrl+E, toolbar Export button). `Printing/` package: `print_settings.py` (paper sizes Letter/Legal/Tabloid/A4-A0/ANSI B-E/Arch C-E, orientation, margins, architectural + metric scales or fit-to-page, saved in the project file as `<PrintSettings>`), `print_renderer.py` (layout, level/layer filtering, editable title block, multi-page cairo PDF output) and `print_dialog.py` (preview with drag-to-reposition, level/layer selection, title block editor). Print all levels = one page per level, or pick levels/layers. `on_draw` refactored so `draw_scene(printing=True)` renders only committed content (no grid, selection, snap guides or previews). Tests in `tests/test_printing.py`. Real-printer support can reuse `render_page` via `Gtk.PrintOperation`.
 - [x] Object grouping & unit manipulation (`ObjectGroup`, `CanvasGroupMixin`, `Ctrl+G` / `Ctrl+Shift+G`, canvas dashed bounding box + interactive rotation handle, unit move/rotate/lock/hide/delete/move-layer-or-level, right-click context menu, undo/redo, and XML project persistence) (2026-11-18)
 - [x] All Objects explorer & enhanced object management in the Layers & Objects sidebar (unified searchable/filterable list of all objects & groups across all layers/levels, per-object selection sync, hide, lock, delete, custom names, multi-line comments with `💬` indicator, move between layers/levels, and XML persistence for `custom_name`, `comment`, `visible`, `locked`) (2026-11-18)
 - [x] It is really hard to draw precise length walls. We need to make walls draw in increments of 0.25" or something like that. Also we need some method to prompt or maybe even automatically fix a wall that is drawn (at 39' 11.95" for example) to the nearest foot if it is really close. (2026-11-07)
