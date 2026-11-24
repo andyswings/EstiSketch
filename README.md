@@ -1,110 +1,95 @@
-# EstiSketch ![Status](https://img.shields.io/badge/Status-Alpha-orange)
+# EstiSketch ![Status](https://img.shields.io/badge/Status-Beta-blue)
 
-> **Alpha Release (v0.3.0-alpha)**: This software is currently in the alpha testing phase. Features may be incomplete and bugs may be present. Please report issues on our tracker.
+> **Beta Release (v0.4.0-beta)**: EstiSketch is now in beta! Core 2D drafting, roof modeling, architectural fixtures, material takeoffs, and PDF/SVG printing are functional. Please report any bugs or rough edges on our issue tracker.
 
-EstiSketch is an evolving, lightweight tool designed for contractors and designers to quickly sketch building plans and perform preliminary cost estimates. Built with an intuitive interface and essential drawing features, EstiSketch aims to help you lay out walls with precision and get immediate visual feedback on dimensions and alignments.
+EstiSketch is a lightweight, GTK4-based 2D architectural drafting and building estimation tool designed for contractors and designers to quickly sketch floor plans, generate material takeoffs, and produce scaled construction prints.
 
 ## Current Features
 
 ### Essential Drawing Tools
-- **Pointer (V)**: Select walls, corners, or objects. Supports box select, shift-extend, Tab-to-cycle through overlapping objects, and a rich right-click context menu.
-- **Pan (P)**: Smoothly navigate the canvas.
-- **Zoom**: Controls for Zoom In (Ctrl+=), Out (Ctrl+-), and Reset (Ctrl+0). Mouse wheel and pinch gestures supported.
-- **Undo/Redo**: Full undo history (Ctrl+Z / Ctrl+Y).
-- **Toolset Selector**: Dropdown to switch between tool categories (Main, Annotation, Roof, Interior Design).
+- **Pointer (V)**: Select walls, corners, rooms, roofs, stairs, fixtures, or groups. Supports box select, shift-extend, Tab-to-cycle through overlapping objects, and a rich right-click context menu.
+- **Pan (P) & Zoom**: Smooth canvas navigation with Zoom In (`Ctrl+=`), Out (`Ctrl+-`), Reset (`Ctrl+0`), mouse wheel, and pinch gestures.
+- **Undo/Redo**: Undo/redo history (`Ctrl+Z` / `Ctrl+Y`).
+- **Toolset Selector**: Switch between **Main**, **Annotation**, **Roof**, and **Interior Design** tool categories.
 
-### Wall & Room System
-- **Draw Walls (W)**: Rendered with high-quality mitered corners. Live snapping to grid/endpoints and real-time measurement labels.
-- **Curved Walls**: Press **Shift+C** after placing 2nd wall point to create arc walls with live preview. Edit curvature via drag handle or properties panel.
-- **Draw Rooms (R)**: Click connection points or double-click a closed loop to auto-generate a room.
-- **Advanced Wall Properties**: Edit wall thickness, height, stud spacing, insulation type, fire rating, finish materials, and curve properties via the **Properties Dock**.
-- **Foundations**: Toggle footers on walls and configure their depth/offsets.
-- **Smart Joining**:
-    - **Join Walls**: Strictly merge selected segments.
-    - **Join Connected Walls**: Automatically repair/merge all touching wall chains.
-- **Convert Walls**: Right-click to convert between curved and straight walls.
-    
-### Foundation Design
-- **Interactive Footers**: Toggle footers on walls, configure offsets/depth, with seamless corner joining.
-- **Concrete Slabs**: Create slabs using the Room tool with hatching, thickness, and reinforcement properties.
-- **Symbolic Walls**: Option to display only footers for dedicated foundation plans.
+### Wall, Room & Foundation System
+- **Draw Walls (W)**: Mitered corners, live grid/endpoint/face-flush snapping, 0.25" and near-foot length snapping, and sloped-top wall heights.
+- **Curved Walls**: Press **Shift+C** after placing the 2nd wall point to create 3-point arc walls with tangent opening cuts and arc snapping.
+- **Draw Rooms (R) & Floor Openings (O)**: Click points or double-click inside a closed wall loop to generate a room along interior wall faces; add procedural floor texture patterns and manual floor openings.
+- **Foundations**: Toggle wall footers with adjustable width/depth, symbolic footer-only walls, and concrete slabs with hatching and reinforcement settings.
+- **Per-Side Wall Finishes & Baseboards**: Configure left/right wall finish types, colors, and baseboard trim.
 
-### Openings & Attributes
-- **Add Doors (D) & Windows (A)**: Place openings on walls (including curved walls).
-- **Context Editing**: Right-click to change door types (Frame, Pocket, French, Sliding, Garage), toggle swing direction, or flip orientation.
+### Openings, Stairs & Architectural Fixtures
+- **Doors (D) & Windows (A)**: Placement ghosts along straight and curved walls with configurable default sizes and swing/orientation controls.
+- **Stairs**: Straight, L-shaped, U-shaped, winder, and spiral stairs with 2D/3D railings, automatic floor-to-floor rise updates, and room hole cutouts.
+- **Fixtures, Cabinetry & Appliances**: 30-symbol procedural catalog (kitchen/bath cabinetry, countertops, plumbing fixtures, appliances, HVAC) with searchable browser, 9-preset Kitchen Layout Wizard, and `draw_cabinet_run` tool.
 
-### Annotations
-- **Add Polyline (L)**: Draw arbitrary shapes or lines for diagrams.
-- **Add Dimension (M)**: Create measurement annotations.
-- **Add Text (T)**: Place text labels with rotation support.
-- **Add Circle (C)**: Draw circles with center-radius input.
-- **Add Arc (Shift+A)**: Create 3-point arcs.
+### Roof Design
+- **Roof Solver & Complex Roofs**: Gable, hip, asymmetric dual-pitch, L/T-shaped, and multisided roof generation with variable eave overhangs, angled/multi-level wall plate support, and manual roof line sketching (`Shift+L`).
 
-### User Interface
-- **Properties Dock**: Edit properties for walls, doors, windows, text, polylines, and more.
-- **Status Bar Hints**: Context-aware tool usage hints.
-- **Dirty Indicator**: Visual indicator (green/red) showing save state.
-- **Layers Panel**: Manage layer visibility (planned expansion).
+### Annotations & Levels
+- **Dimension Tools**: Single dimensions (`M`), continuous aligned dimension chains with exact segment editing, and leader callout arrows.
+- **Shapes & Text**: Polylines (`L`), Circles (`C`), Arcs (`Shift+A`), and rotatable Text labels (`T`).
+- **Multi-Level & Layers**: Multi-story levels, level onion-skinning ghosting, layer visibility/locking, object grouping (`Ctrl+G` / `Ctrl+Shift+G`), and searchable **All Objects** explorer.
+- **Compass Rose**: Interactive north azimuth overlay synced with print title blocks.
 
-### File Operations & Interoperability
-- **Save/Open**: Custom XML project format preserves all properties and relationships.
-- **Import Sweet Home 3D**: Import `.sh3d` files to migrate layouts into EstiSketch.
-
-### Estimation & Materials (Planned)
-- **Manage Materials (Ctrl+M)**: Configure library of available construction materials.
-- **Takeoffs**:
-    - **Estimate Materials (Ctrl+Shift+M)**: Generate material lists based on wall properties (studs, insulation, surfaces).
-    - **Estimate Cost (Ctrl+Shift+C)**: Calculate preliminary costs.
-
-## Planned Features
-- **Roof Design Tools**: Gable, hip, flat, custom pitches
-- **Export**: Robust export to standard document formats.
+### File Operations, Printing & Estimation
+- **Save/Open**: Custom XML project format preserving geometry, layers, levels, groups, blueprints, and print settings.
+- **Import**: Sweet Home 3D (`.sh3d`) layout import and **Blueprint Underlay** (`PNG`/`JPG`) with two-click scale calibration and perspective/curvature straightening.
+- **Print / Export (`Ctrl+P` / `Ctrl+E`)**: Live print preview, architectural/metric scales, multi-level pagination, customizable title block, PDF export, and scaled vector SVG export.
+- **Material Management & Takeoffs**: Manage material pricing (`Ctrl+M`), estimate framing/sheathing/finishes/roof/fixture materials (`Ctrl+Shift+M`), calculate costs (`Ctrl+Shift+C`), and export TXT/CSV/PDF supplier quotes.
 
 ## Installation and Usage
 
-1. **Clone the Repository:**
+### Prebuilt Packages (`.deb`, `AppImage`, Windows `.exe`)
+- **Debian / Ubuntu (`.deb`):**
+  ```bash
+  sudo apt install ./dist/estisketch_0.4.0~beta_all.deb
+  estisketch
+  ```
+- **Linux Portable (`AppImage`):**
+  ```bash
+  chmod +x dist/EstiSketch-0.4.0-beta-x86_64.AppImage
+  ./dist/EstiSketch-0.4.0-beta-x86_64.AppImage
+  ```
+- **Windows (`.exe`):** Run the Conda `constructor` installer (`EstiSketch-0.4.0-beta-Windows-x86_64.exe`).
 
+### Run or Build from Source
+
+1. **Clone the Repository:**
    ```bash
    git clone https://github.com/andyswings/EstiSketch.git
    cd EstiSketch
    ```
 
-2. **Install Dependencies:**
+2. **Install System Dependencies (Debian/Ubuntu):**
+   ```bash
+   sudo apt install libgirepository-2.0-dev gcc libcairo2-dev pkg-config python3-dev gir1.2-gtk-4.0 python3-pip
+   ```
 
-    Ensure you have Python 3 and GTK4 installed.
+3. **Create a Virtual Environment and Install Python Dependencies:**
+   ```bash
+   pip install uv
+   uv venv .venv
+   source .venv/bin/activate
+   uv pip install pycairo PyGObject numpy reportlab
+   ```
 
-    ```bash
-    sudo apt install libgirepository-2.0-dev gcc libcairo2-dev pkg-config python3-dev gir1.2-gtk-4.0 python3-pip
-    ```
+4. **Run the Application:**
+   ```bash
+   python run_dev.py
+   ```
 
-
-3. **Create and Activate a Virtual Environment**
-  
-    ```bash
-    pip install uv
-    uv venv estisketch
-    source estisketch/bin/activate
-    ```
-
-4. **Install Python Packages in the Venv**
-
-    ```bash
-    uv pip install pycairo
-    uv pip install PyGObject
-    ```
-
-5. **Run the Application:**
-
-    ```bash
-    python run_dev.py
-    ```
+### Building Release Packages Locally
+- **Debian `.deb`:** `python3 packaging/build_deb.py` -> `dist/estisketch_0.4.0~beta_all.deb`
+- **Linux AppImage:** `bash packaging/build_pyinstaller_appimage.sh` -> `dist/EstiSketch-0.4.0-beta-x86_64.AppImage`
+- **Windows `.exe` (on Windows with Conda + `conda-build` + `constructor`):** `powershell -ExecutionPolicy Bypass -File packaging/build_windows_installer.ps1`
 
 ## Contributing
 Contributions are welcome!
 
 Fork the repository, make your changes, and submit a pull request.
 For major changes, please open an issue first to discuss your ideas.
-
 
 ## License
 This project is licensed under the MIT License.

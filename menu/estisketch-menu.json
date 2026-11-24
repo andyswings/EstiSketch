@@ -4,8 +4,8 @@
         {
             "name": "EstiSketch",
             "pyscript": "${PREFIX}/Scripts/estisketch-script.py",
-            "icon": "${PREFIX}/src/EstiSketch/Icons/estisketch.png",
-            "description": "2D Floor Plan Sketcher",
+            "icon": "${PREFIX}/Menu/estisketch.ico",
+            "description": "2D Floor Plan Sketcher & Building Estimator",
             "desktop": true,
             "quicklaunch": false
         }

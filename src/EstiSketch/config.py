@@ -1,9 +1,22 @@
 import json
 import os
+import sys
 from pathlib import Path
 
-# Use XDG config directory for settings (writable location)
-CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "estisketch")
+
+def get_config_dir() -> str:
+    """Return the writable per-user configuration directory for EstiSketch."""
+    if sys.platform == "win32":
+        base_dir = os.environ.get("APPDATA") or os.path.expanduser("~")
+        return os.path.join(base_dir, "EstiSketch")
+    xdg_config = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+        os.path.expanduser("~"), ".config"
+    )
+    return os.path.join(xdg_config, "estisketch")
+
+
+# Use platform-appropriate writable config directory for user settings
+CONFIG_DIR = get_config_dir()
 CONFIG_FILE = os.path.join(CONFIG_DIR, "settings.json")
 
 DEFAULT_SETTINGS = {
@@ -109,21 +122,23 @@ DEFAULT_SETTINGS = {
 
 
 def load_config():
+    """Load user settings merged on top of ``DEFAULT_SETTINGS``."""
+    settings = DEFAULT_SETTINGS.copy()
     if os.path.exists(CONFIG_FILE):
         try:
-            with open(CONFIG_FILE, "r") as f:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 contents = f.read().strip()
-                if not contents:
-                    return DEFAULT_SETTINGS.copy()
-                settings = json.loads(contents)
-        except (json.JSONDecodeError, IOError):
-            settings = DEFAULT_SETTINGS.copy()
-    else:
-        settings = DEFAULT_SETTINGS.copy()
+                if contents:
+                    loaded = json.loads(contents)
+                    if isinstance(loaded, dict):
+                        settings.update(loaded)
+        except (json.JSONDecodeError, OSError):
+            pass
     return settings
 
 
 def save_config(settings):
+    """Persist user settings JSON to the writable ``CONFIG_FILE``."""
     os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
-    with open(CONFIG_FILE, "w") as f:
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=4)

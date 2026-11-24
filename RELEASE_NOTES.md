@@ -1,4 +1,34 @@
-# EstiSketch Alpha Release Notes
+# EstiSketch Release Notes
+
+## Version 0.4.0-beta
+**Date:** 2026-11-23
+
+### Highlights
+- **Alpha to Beta Milestone:** EstiSketch graduates from Alpha to Beta (`0.4.0-beta`) with complete 2D architectural drafting, 3D roof geometry, interactive material takeoffs, scaled PDF/SVG output, and cross-platform packaging preparation.
+- **Cross-Platform Release Packaging:** Updated `.deb` (Debian/Ubuntu), AppImage (Linux portable bundle), and Windows Conda `constructor` `.exe` installer configurations, backed by automated GitHub Actions release builds.
+- **Writable Per-User Settings:** Fixed settings persistence so installed packages store layout and configuration in the user's writable config directory (`~/.config/estisketch` on Linux, `%APPDATA%\EstiSketch` on Windows) instead of the application install directory.
+
+### New Features
+- **Architectural Fixtures, Cabinetry, Countertops & Appliances:** Added a 30-symbol procedural `Fixture` catalog with 3-pass AIA Cairo rendering, surface mounting/elevation, straight & arc wall snapping, searchable `FixtureBrowserDialog`, 9-preset `KitchenLayoutDialog`, `draw_cabinet_run` tool, and material takeoff / supplier quote integration.
+- **3D Roof Geometry Engine & Complex Roofs:** Unified 3D roof solver supporting gable, hip, asymmetric dual-pitch, L/T-shaped, and multisided roofs, manual roof-line sketching, variable eave overhangs, sloped-top walls, and multi-level plate elevations.
+- **Stairs, Winders & Railings:** Straight, L-shaped, U-shaped switchback, winder, and spiral stairs with configurable 2D/3D railings, automatic floor-to-floor rise updates, and room hole cutouts.
+- **Interactive Material Takeoff & Cost Estimation:** Comprehensive framing, foundation, exterior sheathing/housewrap, interior finish, flooring, ceiling, roof, stair, and fixture takeoff engine with material management and TXT/CSV/PDF supplier quote exports.
+- **Blueprint Tracing, Calibration & Straightening:** Import PNG/JPG blueprint underlays, calibrate scale with two clicks, and apply perspective homography / curvature straightening transforms.
+- **Floor Texture Patterns, Wall Finishes & Floor Openings:** Pure-Cairo procedural flooring patterns, per-side wall finishes and baseboards, stair-derived room holes, and first-class `FloorOpening` polygons.
+- **Continuous Dimension Chains & Leader Callouts:** Aligned dimension strings with exact segment length editing, baseline snapping, and leader callout arrows.
+- **Level Ghosting & Compass Rose:** Onion-skinning ghost view of adjacent levels (`Off`, `Below`, `Above`, or explicit level) and an interactive north-azimuth compass overlay synced with print title blocks.
+- **Scaled PDF Printing & Vector SVG Export:** Live print preview with drag-to-reposition, architectural/metric scales, multi-level pagination, customizable title block, and scaled vector SVG export.
+- **Object Grouping & All Objects Explorer:** Group/ungroup (`Ctrl+G` / `Ctrl+Shift+G`), unit move/rotate/lock/hide, custom names/comments, and unified searchable object management.
+- **Precision Snapping:** Edge-to-edge face-flush snapping, curved/arc wall midpoint & tangent snapping, and 0.25" / near-foot wall length snapping.
+
+### Packaging & Infrastructure
+- Consolidated Python package metadata into `pyproject.toml` (`EstiSketch.version.__version__` as single source of truth).
+- Updated `packaging/build_deb.py` (`0.4.0~beta` Debian versioning, `python3-numpy` dependency, `python3-reportlab` recommendation).
+- Updated `packaging/estisketch.spec` and `packaging/build_pyinstaller_appimage.sh` with full `EstiSketch` submodule collection and `settings.json` data bundling.
+- Fixed Windows Conda `constructor` pipeline (`conda-recipe/meta.yaml`, `conda-recipe/bld.bat`, `construct.yaml`, `menu/estisketch-menu.json`, `packaging/make_ico.py`, `packaging/build_windows_installer.ps1`, `pixi.toml`).
+- Added `.github/workflows/release.yml` to run tests and build `.deb`, `.AppImage`, and Windows `.exe` installers on release tags.
+
+---
 
 ## Version 0.3.0-alpha
 **Date:** 2026-01-25
@@ -73,16 +103,21 @@
 ---
 
 ## Installation
-To install the package locally:
-```bash
-pip install dist/EstiSketch-0.2.0-alpha-py3-none-any.whl
-```
-
-## Usage
-To run the application:
-```bash
-estisketch
-```
+- **Debian / Ubuntu (`.deb`):**
+  ```bash
+  sudo apt install ./dist/estisketch_0.4.0~beta_all.deb
+  ```
+- **Linux Portable (`AppImage`):**
+  ```bash
+  chmod +x EstiSketch-0.4.0-beta-x86_64.AppImage
+  ./EstiSketch-0.4.0-beta-x86_64.AppImage
+  ```
+- **Windows (`.exe` Installer):** Download and run `EstiSketch-0.4.0-beta-Windows-x86_64.exe` from the Releases page.
+- **From Source (pip):**
+  ```bash
+  pip install .
+  estisketch
+  ```
 
 ## How to Contribute
 Please report any bugs or feature requests to the issue tracker.

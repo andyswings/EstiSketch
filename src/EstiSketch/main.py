@@ -1466,17 +1466,13 @@ class EstimatorApp(Gtk.Application):
 
     def _save_settings(self) -> None:
         """
-        Save application settings to a JSON file.
+        Save application settings to the user's writable configuration file.
 
-        Collects and serializes configuration values into a JSON object,
-        then writes it to a file named 'settings.json' in the application's
-        directory. Handles missing attributes by using default values.
+        Merges window and sidebar layout state into the loaded user settings
+        and persists them via ``config.save_config``.
         """
-        settings_path = os.path.join(
-            os.path.dirname(__file__), "settings.json")
-
         # Collect values to save
-        data = {
+        layout_data = {
             "WINDOW_WIDTH": self.config.WINDOW_WIDTH,
             "WINDOW_HEIGHT": self.config.WINDOW_HEIGHT,
             "WINDOW_MAXIMIZED": getattr(
@@ -1496,18 +1492,10 @@ class EstimatorApp(Gtk.Application):
                 "SHOW_PROPERTIES_PANEL",
                 True)}
 
-        # Load existing to preserve other keys
         try:
-            with open(settings_path, 'r') as f:
-                existing = json.load(f)
-                existing.update(data)
-                data = existing
-        except BaseException:
-            pass
-
-        try:
-            with open(settings_path, 'w') as f:
-                json.dump(data, f, indent=4)
+            data = config.load_config()
+            data.update(layout_data)
+            config.save_config(data)
         except Exception as e:
             print(f"Failed to save settings: {e}")
 
