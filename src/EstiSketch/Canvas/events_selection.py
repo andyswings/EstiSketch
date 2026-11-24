@@ -543,6 +543,22 @@ class CanvasSelectionMixin:
                             best_dist = dist_seg
                             selected_item = {"type": "wall", "object": wall}
 
+        for opening in getattr(self, "floor_openings", []):
+            if self.is_object_on_locked_layer(opening) or not self.is_object_on_visible_layer(opening):
+                continue
+            for idx, pt in enumerate(opening.points):
+                pt_widget = (
+                    (pt[0] * T) + self.offset_x,
+                    (pt[1] * T) + self.offset_y,
+                )
+                dist_pt = math.hypot(click_pt[0] - pt_widget[0],
+                                     click_pt[1] - pt_widget[1])
+                if dist_pt < vertex_threshold and dist_pt < best_dist:
+                    best_dist = dist_pt
+                    selected_item = {"type": "opening_vertex", "object": (opening, idx)}
+                    from ..Resources.tool_hints import TOOL_HINTS
+                    self.update_hint(TOOL_HINTS["select_floor_opening"])
+
         for room in self.rooms:
             if self.is_object_on_locked_layer(
                     room) or not self.is_object_on_visible_layer(room):
@@ -564,6 +580,27 @@ class CanvasSelectionMixin:
         # Check for clicks on room edges (between vertices) - double-click to
         # insert vertex
         edge_threshold = 10  # device pixels for edge detection
+        if n_press == 2 and selected_item is None:  # Only on double-click, and if not clicking on a vertex
+            for opening in getattr(self, "floor_openings", []):
+                if self.is_object_on_locked_layer(opening) or not self.is_object_on_visible_layer(opening):
+                    continue
+                num_pts = len(opening.points)
+                for i in range(num_pts):
+                    p1 = opening.points[i]
+                    p2 = opening.points[(i + 1) % num_pts]
+                    p1_widget = ((p1[0] * T) + self.offset_x, (p1[1] * T) + self.offset_y)
+                    p2_widget = ((p2[0] * T) + self.offset_x, (p2[1] * T) + self.offset_y)
+                    if self.distance_point_to_segment(click_pt, p1_widget, p2_widget) < edge_threshold:
+                        new_x, new_y = self.device_to_model(x, y, pixels_per_inch)
+                        opening.points.insert(i + 1, (new_x, new_y))
+                        selected_item = {"type": "opening_vertex", "object": (opening, i + 1)}
+                        from ..geometry.room_holes import sync_stair_holes
+                        sync_stair_holes(self)
+                        self.save_state()
+                        break
+                if selected_item:
+                    break
+
         if n_press == 2 and selected_item is None:  # Only on double-click, and if not clicking on a vertex
             for room in self.rooms:
                 if self.is_object_on_locked_layer(
@@ -1175,6 +1212,21 @@ class CanvasSelectionMixin:
                      self.update_hint("Click to select stair")
                      break
 
+        # Check for click inside manual floor opening before checking rooms beneath it
+        if selected_item is None:
+            for opening in getattr(self, "floor_openings", []):
+                if self.is_object_on_locked_layer(opening) or not self.is_object_on_visible_layer(opening):
+                    continue
+                poly_widget = [
+                    ((pt[0] * T) + self.offset_x, (pt[1] * T) + self.offset_y)
+                    for pt in opening.points
+                ]
+                if self._point_in_polygon(click_pt, poly_widget):
+                    selected_item = {"type": "floor_opening", "object": opening}
+                    from ..Resources.tool_hints import TOOL_HINTS
+                    self.update_hint(TOOL_HINTS["select_floor_opening"])
+                    break
+
         # Check for click inside room (for whole-room dragging) - checked after discrete objects
         if selected_item is None:
             for room in self.rooms:
@@ -1249,6 +1301,8 @@ class CanvasSelectionMixin:
                   self.update_hint(TOOL_HINTS["select_wall"])
              elif selected_item["type"] == "room":
                   self.update_hint(TOOL_HINTS["select_room"])
+             elif selected_item["type"] in ("floor_opening", "opening_vertex"):
+                  self.update_hint(TOOL_HINTS["select_floor_opening"])
              else:
                   self.update_hint(TOOL_HINTS["select_object"])
         elif not selected_item:
@@ -1612,7 +1666,7 @@ class CanvasSelectionMixin:
                         self.box_selecting = False
 
                 # Check for whole-room dragging
-                elif item["type"] == "room" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None):
+                elif item["type"] == "room" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_opening_vertices", None):
                     room = item["object"]
 
                     if not self.is_object_on_locked_layer(room):
@@ -1633,8 +1687,39 @@ class CanvasSelectionMixin:
     
                         self.box_selecting = False
 
+                elif item["type"] == "opening_vertex" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_room", None):
+                    selected_verts = [
+                        i for i in self.selected_items
+                        if i.get("type") == "opening_vertex" and not self.is_object_on_locked_layer(i["object"][0])
+                    ]
+                    if selected_verts:
+                        self.dragging_opening_vertices = []
+                        for vert_item in selected_verts:
+                            opening, idx = vert_item["object"]
+                            self.dragging_opening_vertices.append({
+                                "opening": opening,
+                                "index": idx,
+                                "original": opening.points[idx],
+                            })
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                        self.opening_vertex_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                        self.box_selecting = False
+
+                elif item["type"] == "floor_opening" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_opening_vertices", None):
+                    opening = item["object"]
+                    if not self.is_object_on_locked_layer(opening):
+                        self.dragging_floor_opening = opening
+                        self.dragging_floor_opening_original_points = list(opening.points)
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                        self.opening_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                        self.box_selecting = False
+
                 # Check for circle dragging
-                elif item["type"] == "circle" and not getattr(self, "editing_circle", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None):
+                elif item["type"] == "circle" and not getattr(self, "editing_circle", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_floor_opening", None) and not getattr(self, "dragging_opening_vertices", None):
                     if not self.is_object_on_locked_layer(item["object"]):
                         self.dragging_circle = item["object"]
                         self.drag_start_x = start_x
@@ -1647,7 +1732,7 @@ class CanvasSelectionMixin:
                         self.box_selecting = False
 
                 # Check for arc dragging
-                elif item["type"] == "arc" and not getattr(self, "editing_arc", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_circle", None):
+                elif item["type"] == "arc" and not getattr(self, "editing_arc", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_floor_opening", None) and not getattr(self, "dragging_opening_vertices", None) and not getattr(self, "dragging_circle", None):
                     if not self.is_object_on_locked_layer(item["object"]):
                         self.dragging_arc = item["object"]
                         self.drag_start_x = start_x
@@ -1659,7 +1744,7 @@ class CanvasSelectionMixin:
                         self.box_selecting = False
 
                 # Check for stair dragging
-                elif item["type"] == "stair" and not getattr(self, "editing_stair", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_circle", None) and not getattr(self, "dragging_arc", None):
+                elif item["type"] == "stair" and not getattr(self, "editing_stair", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_floor_opening", None) and not getattr(self, "dragging_opening_vertices", None) and not getattr(self, "dragging_circle", None) and not getattr(self, "dragging_arc", None):
                     if not self.is_object_on_locked_layer(item["object"]):
                         self.dragging_stair = item["object"]
                         self.drag_start_x = start_x
@@ -1669,7 +1754,7 @@ class CanvasSelectionMixin:
                         self.box_selecting = False
 
                 # Check for roof line dragging
-                elif item["type"] == "roof_line" and not getattr(self, "editing_roof_line", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_circle", None) and not getattr(self, "dragging_arc", None) and not getattr(self, "dragging_stair", None):
+                elif item["type"] == "roof_line" and not getattr(self, "editing_roof_line", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_floor_opening", None) and not getattr(self, "dragging_opening_vertices", None) and not getattr(self, "dragging_circle", None) and not getattr(self, "dragging_arc", None) and not getattr(self, "dragging_stair", None):
                     self.dragging_roof_lines = []
                     pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
                     model_x, model_y = self.device_to_model(start_x, start_y, pixels_per_inch)
@@ -1995,6 +2080,27 @@ class CanvasSelectionMixin:
             self.queue_draw()
             return
 
+        if getattr(self, "dragging_floor_opening", None):
+            self.dragging_floor_opening = None
+            self.dragging_floor_opening_original_points = None
+            self.opening_drag_start_model = None
+            from ..geometry.room_holes import sync_stair_holes
+            sync_stair_holes(self)
+            self.save_state()
+            self.emit('content-changed')
+            self.queue_draw()
+            return
+
+        if getattr(self, "dragging_opening_vertices", None):
+            self.dragging_opening_vertices = None
+            self.opening_vertex_drag_start_model = None
+            from ..geometry.room_holes import sync_stair_holes
+            sync_stair_holes(self)
+            self.save_state()
+            self.emit('content-changed')
+            self.queue_draw()
+            return
+
         if getattr(self, "dragging_vertices", None):
             # Finalize vertex drag and clear dragging state
             self.dragging_vertices = None
@@ -2084,6 +2190,12 @@ class CanvasSelectionMixin:
                         continue
                     if self.line_intersects_rect(wall.start, wall.end, rect):
                         new_selection.append({"type": "wall", "object": wall})
+
+            for opening in getattr(self, "floor_openings", []):
+                if self.is_object_on_locked_layer(opening) or not self.is_object_on_visible_layer(opening):
+                    continue
+                if any((x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2) for pt in opening.points):
+                    new_selection.append({"type": "floor_opening", "object": opening})
 
             for room in self.rooms:
                 if self.is_object_on_locked_layer(
@@ -3590,6 +3702,14 @@ class CanvasSelectionMixin:
                 if dist < fixed_threshold:
                     candidates.append({"type": "wall", "object": wall})
         
+        # Check Floor Openings
+        for opening in getattr(self, "floor_openings", []):
+            if self.is_object_on_locked_layer(opening) or not self.is_object_on_visible_layer(opening):
+                continue
+            poly_widget = [((p[0] * T) + self.offset_x, (p[1] * T) + self.offset_y) for p in opening.points]
+            if self._point_in_polygon(click_pt, poly_widget):
+                candidates.append({"type": "floor_opening", "object": opening})
+
         # Check Rooms
         for room in self.rooms:
             if self.is_object_on_locked_layer(room) or not self.is_object_on_visible_layer(room):

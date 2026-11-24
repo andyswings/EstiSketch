@@ -194,6 +194,7 @@ class CanvasDrawMixin:
         saved_current_wall = getattr(self, "current_wall", None)
         saved_walls = getattr(self, "walls", [])
         saved_room_pts = getattr(self, "current_room_points", [])
+        saved_opening_pts = getattr(self, "current_opening_points", [])
         saved_temp_obj = getattr(self, "temp_object", None)
         saved_selected = getattr(self, "selected_items", [])
 
@@ -206,10 +207,12 @@ class CanvasDrawMixin:
             self.current_wall = None
             self.walls = []
             self.current_room_points = []
+            self.current_opening_points = []
             self.temp_object = None
             self.selected_items = []
 
             wr.draw_rooms(self, cr, zoom_transform)
+            wr.draw_floor_openings(self, cr, zoom_transform, printing=True)
             wr.draw_footers(self, cr)
             wr.draw_walls(self, cr)
             dwr.draw_doors(self, cr, pixels_per_inch)
@@ -237,6 +240,7 @@ class CanvasDrawMixin:
             self.current_wall = saved_current_wall
             self.walls = saved_walls
             self.current_room_points = saved_room_pts
+            self.current_opening_points = saved_opening_pts
             self.temp_object = saved_temp_obj
             self.selected_items = saved_selected
 
@@ -267,6 +271,9 @@ class CanvasDrawMixin:
 
         # Draw rooms first (under walls)
         wr.draw_rooms(self, cr, zoom_transform)
+
+        # Draw manual floor openings and cutouts
+        wr.draw_floor_openings(self, cr, zoom_transform, printing=printing)
 
         # Draw footers (before walls to appear underneath)
         wr.draw_footers(self, cr)
@@ -824,6 +831,51 @@ class CanvasDrawMixin:
                             cr.arc(pt[0], pt[1], handle_radius, 0, 2 * 3.14159)
                             cr.set_line_width(1.0 / self.zoom)
                             cr.stroke()
+
+                elif item["type"] == "floor_opening":
+                    opening = item["object"]
+                    if opening and getattr(opening, "points", None):
+                        cr.set_source_rgba(0.95, 0.35, 0.1, 0.18)
+                        p0 = opening.points[0]
+                        cr.move_to(p0[0], p0[1])
+                        for p in opening.points[1:]:
+                            cr.line_to(p[0], p[1])
+                        cr.close_path()
+                        cr.fill_preserve()
+
+                        cr.set_source_rgba(0.95, 0.25, 0.05, 0.9)
+                        cr.set_line_width(2.0 / self.zoom)
+                        cr.stroke()
+
+                        for pt in opening.points:
+                            cr.set_source_rgba(1, 1, 0, 1.0)
+                            cr.arc(pt[0], pt[1], handle_radius, 0, 2 * 3.14159)
+                            cr.fill()
+                            cr.set_source_rgba(0, 0, 0, 1.0)
+                            cr.arc(pt[0], pt[1], handle_radius, 0, 2 * 3.14159)
+                            cr.set_line_width(1.0 / self.zoom)
+                            cr.stroke()
+
+                elif item["type"] == "opening_vertex":
+                    opening, idx = item["object"]
+                    if opening and 0 <= idx < len(getattr(opening, "points", [])):
+                        pt = opening.points[idx]
+                        cr.set_source_rgba(0.95, 0.25, 0.05, 0.85)
+                        cr.set_line_width(1.5 / self.zoom)
+                        p0 = opening.points[0]
+                        cr.move_to(p0[0], p0[1])
+                        for p in opening.points[1:]:
+                            cr.line_to(p[0], p[1])
+                        cr.close_path()
+                        cr.stroke()
+
+                        cr.set_source_rgba(1.0, 0.3, 0.05, 1.0)
+                        cr.arc(pt[0], pt[1], handle_radius * 1.2, 0, 2 * 3.14159)
+                        cr.fill()
+                        cr.set_source_rgba(0, 0, 0, 1.0)
+                        cr.arc(pt[0], pt[1], handle_radius * 1.2, 0, 2 * 3.14159)
+                        cr.set_line_width(1.0 / self.zoom)
+                        cr.stroke()
             cr.restore()
 
         self.draw_group_overlays(cr, pixels_per_inch)

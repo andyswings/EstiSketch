@@ -38,7 +38,7 @@ class CanvasEventsMixin:
             return
 
         creating_tools = [
-            "draw_walls", "draw_rooms", "add_doors", "add_windows", 
+            "draw_walls", "draw_rooms", "add_floor_opening", "add_doors", "add_windows", 
             "add_polyline", "add_dimension", "add_dimension_chain", "add_leader", "add_text", 
             "add_circle", "add_arc", "add_stair", "design_roof", "add_roof_line"
         ]
@@ -54,6 +54,8 @@ class CanvasEventsMixin:
             self._handle_wall_click(n_press, x, y)
         elif self.tool_mode == "draw_rooms":
             self._handle_room_click(n_press, x, y)
+        elif self.tool_mode == "add_floor_opening":
+            self._handle_floor_opening_click(n_press, x, y)
         elif self.tool_mode == "add_doors":
             self._handle_door_click(n_press, x, y)
         elif self.tool_mode == "add_windows":
@@ -412,6 +414,7 @@ class CanvasEventsMixin:
             self.snap_pos = None
             self.snap_type = "none"
             self.current_room_preview = None
+            self.current_opening_preview = None
             self.queue_draw()
         if getattr(self, "_compass_hover", False):
             self._compass_hover = False
@@ -494,11 +497,11 @@ class CanvasEventsMixin:
                 canvas_x, canvas_y, apply_near_foot_auto=False)
             self.snap_pos = (hx, hy)
             self.queue_draw()
-        elif self.tool_mode not in ("draw_walls", "draw_rooms"):
+        elif self.tool_mode not in ("draw_walls", "draw_rooms", "add_floor_opening"):
             if getattr(self, "_hover_snap_shown", False):
                 self.snap_pos = None
                 self.snap_type = "none"
-        self._hover_snap_shown = self.tool_mode in ("draw_walls", "draw_rooms")
+        self._hover_snap_shown = self.tool_mode in ("draw_walls", "draw_rooms", "add_floor_opening")
 
         # Live preview for polylines
         if self.tool_mode == "add_polyline" and self.drawing_polyline:
@@ -526,6 +529,13 @@ class CanvasEventsMixin:
                 canvas_x, canvas_y)
             self.snap_pos = (snapped_x, snapped_y)
             self.current_room_preview = (snapped_x, snapped_y)
+            self.queue_draw()
+
+        elif self.tool_mode == "add_floor_opening":
+            (snapped_x, snapped_y), self.snap_type, _ = self._compute_opening_snap(
+                canvas_x, canvas_y)
+            self.snap_pos = (snapped_x, snapped_y)
+            self.current_opening_preview = (snapped_x, snapped_y)
             self.queue_draw()
 
         elif self.tool_mode == "add_circle" and self.drawing_circle and self.circle_center:

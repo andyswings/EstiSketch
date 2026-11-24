@@ -639,7 +639,17 @@ def draw_rooms(self, cr, zoom_transform):
             cr.set_source_rgba(0, 0, 0, opacity)
             _poly_path(cr, room.points)
             cr.stroke()
-            for hole_pts in _room_floor_holes(room):
+            # Manual FloorOpenings with >1 parts (concave triangulations) draw their own clean outer boundary
+            opening_part_counts = {}
+            for hole in getattr(room, "holes", []):
+                if not hole.ceiling_only and getattr(hole, "source_id", "").startswith("opening:"):
+                    opening_part_counts[hole.source_id] = opening_part_counts.get(hole.source_id, 0) + 1
+            for hole in getattr(room, "holes", []):
+                if hole.ceiling_only or len(hole.points) < 3:
+                    continue
+                if opening_part_counts.get(getattr(hole, "source_id", ""), 0) > 1:
+                    continue
+                hole_pts = hole.points
                 cr.save()
                 _clip_outside_holes(cr, room, skip=hole_pts)
                 _poly_path(cr, hole_pts)
@@ -700,6 +710,178 @@ def draw_rooms(self, cr, zoom_transform):
                 self.current_room_preview[0],
                 self.current_room_preview[1])
         cr.stroke()
+        cr.restore()
+
+
+def _polygon_centroid(pts):
+    """Return ``(cx, cy)`` area-weighted centroid of a simple polygon, falling back to vertex mean."""
+    n = len(pts)
+    if n == 0:
+        return (0.0, 0.0)
+    a2 = 0.0
+    cx = 0.0
+    cy = 0.0
+    for i in range(n):
+        x0, y0 = pts[i]
+        x1, y1 = pts[(i + 1) % n]
+        cross = x0 * y1 - x1 * y0
+        a2 += cross
+        cx += (x0 + x1) * cross
+        cy += (y0 + y1) * cross
+    if abs(a2) > 1e-6:
+        return (cx / (3.0 * a2), cy / (3.0 * a2))
+    return (sum(p[0] for p in pts) / n, sum(p[1] for p in pts) / n)
+
+
+def _pt_in_poly(pt, pts) -> bool:
+    x, y = pt
+    inside = False
+    n = len(pts)
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        if ((y1 > y) != (y2 > y)) and (x < (x2 - x1) * (y - y1) / (y2 - y1 + 1e-18) + x1):
+            inside = not inside
+    return inside
+
+
+def draw_floor_openings(self, cr, zoom_transform, printing=False):
+    """Draw manual FloorOpening objects (dashed/solid border, architectural X-cross, label) and tool preview."""
+    def is_visible(obj):
+        if hasattr(self, 'is_object_on_visible_layer'):
+            return self.is_object_on_visible_layer(obj)
+        return True
+
+    def get_opacity(obj):
+        if hasattr(self, 'get_object_opacity'):
+            return self.get_object_opacity(obj)
+        return 1.0
+
+    for opening in getattr(self, "floor_openings", []):
+        pts = getattr(opening, "points", None) or []
+        if len(pts) < 3 or not is_visible(opening):
+            continue
+
+        opacity = get_opacity(opening)
+        ceiling_only = bool(getattr(opening, "ceiling_only", False))
+        min_x = min(p[0] for p in pts)
+        max_x = max(p[0] for p in pts)
+        min_y = min(p[1] for p in pts)
+        max_y = max(p[1] for p in pts)
+        bw = max_x - min_x
+        bh = max_y - min_y
+
+        cr.save()
+        # Subtle fill tint only for ceiling_only dashed openings so users recognize non-floor voids
+        if ceiling_only:
+            _poly_path(cr, pts)
+            cr.set_source_rgba(0.75, 0.86, 0.96, opacity * 0.14)
+            cr.fill()
+
+        # Crisp opening outline (dashed blue-slate for ceiling-only; dashed/charcoal for full floor cutout)
+        cr.set_line_width(1.5 / zoom_transform)
+        if ceiling_only:
+            cr.set_source_rgba(0.22, 0.44, 0.68, opacity * 0.9)
+            cr.set_dash([6.0 / zoom_transform, 4.0 / zoom_transform])
+        else:
+            cr.set_source_rgba(0.18, 0.20, 0.24, opacity)
+            cr.set_dash([])
+        _poly_path(cr, pts)
+        cr.stroke()
+
+        # Architectural X-cross inside the opening
+        if getattr(opening, "show_cross", True):
+            cr.save()
+            _poly_path(cr, pts)
+            cr.clip()
+            cr.set_line_width(0.9 / zoom_transform)
+            if ceiling_only:
+                cr.set_source_rgba(0.28, 0.48, 0.70, opacity * 0.75)
+                cr.set_dash([5.0 / zoom_transform, 4.0 / zoom_transform])
+            else:
+                cr.set_source_rgba(0.35, 0.37, 0.42, opacity * 0.75)
+                cr.set_dash([6.0 / zoom_transform, 3.0 / zoom_transform])
+            if len(pts) == 4:
+                cr.move_to(pts[0][0], pts[0][1])
+                cr.line_to(pts[2][0], pts[2][1])
+                cr.move_to(pts[1][0], pts[1][1])
+                cr.line_to(pts[3][0], pts[3][1])
+            else:
+                cr.move_to(min_x, min_y)
+                cr.line_to(max_x, max_y)
+                cr.move_to(max_x, min_y)
+                cr.line_to(min_x, max_y)
+            cr.stroke()
+            cr.restore()
+
+        # Label centered inside the opening
+        if getattr(opening, "show_label", True):
+            label_text = getattr(opening, "display_label", "") or ""
+            if label_text:
+                cx, cy = _polygon_centroid(pts)
+                if not _pt_in_poly((cx, cy), pts):
+                    cx, cy = (min_x + max_x) / 2.0, (min_y + max_y) / 2.0
+                cr.save()
+                cr.set_dash([])
+                cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+                font_sz = max(3.5, min(9.0, min(bw, bh) * 0.14))
+                cr.set_font_size(font_sz)
+                ext = cr.text_extents(label_text)
+                if ext.width > bw * 0.85 and ext.width > 1e-6:
+                    font_sz = max(2.5, font_sz * (bw * 0.85) / ext.width)
+                    cr.set_font_size(font_sz)
+                    ext = cr.text_extents(label_text)
+                tx = cx - (ext.width / 2.0 + ext.x_bearing)
+                ty = cy - (ext.height / 2.0 + ext.y_bearing)
+                pad = font_sz * 0.25
+                cr.set_source_rgba(1.0, 1.0, 1.0, opacity * 0.85)
+                cr.rectangle(
+                    tx + ext.x_bearing - pad,
+                    ty + ext.y_bearing - pad,
+                    ext.width + 2 * pad,
+                    ext.height + 2 * pad,
+                )
+                cr.fill()
+                if ceiling_only:
+                    cr.set_source_rgba(0.18, 0.38, 0.62, opacity)
+                else:
+                    cr.set_source_rgba(0.15, 0.17, 0.22, opacity)
+                cr.move_to(tx, ty)
+                cr.show_text(label_text)
+                cr.restore()
+
+        cr.restore()
+
+    # In-progress rubber-band preview while drawing
+    cur_pts = getattr(self, "current_opening_points", None)
+    if not printing and getattr(self, "tool_mode", None) == "add_floor_opening" and cur_pts:
+        active_opacity = 1.0
+        if hasattr(self, 'active_layer_id') and hasattr(self, 'get_layer_by_id'):
+            active_layer = self.get_layer_by_id(self.active_layer_id)
+            if active_layer:
+                active_opacity = active_layer.opacity
+
+        cr.save()
+        cr.set_source_rgba(0.85, 0.35, 0.05, active_opacity)
+        cr.set_line_width(2.0 / zoom_transform)
+        cr.set_dash([5.0 / zoom_transform, 3.0 / zoom_transform])
+        cr.move_to(cur_pts[0][0], cur_pts[0][1])
+        for pt in cur_pts[1:]:
+            cr.line_to(pt[0], pt[1])
+        preview = getattr(self, "current_opening_preview", None)
+        if preview:
+            cr.line_to(preview[0], preview[1])
+            if len(cur_pts) >= 2:
+                cr.stroke()
+                cr.set_source_rgba(0.85, 0.35, 0.05, active_opacity * 0.45)
+                cr.move_to(preview[0], preview[1])
+                cr.line_to(cur_pts[0][0], cur_pts[0][1])
+        cr.stroke()
+        cr.set_dash([])
+        r = 3.5 / zoom_transform
+        for pt in cur_pts:
+            cr.arc(pt[0], pt[1], r, 0, 6.283185307179586)
+            cr.fill()
         cr.restore()
 
 

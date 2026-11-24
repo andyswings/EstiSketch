@@ -20,7 +20,7 @@ from .canvas_groups import CanvasGroupMixin
 from .blueprint import CanvasBlueprintMixin
 from .blueprint_straighten import CanvasBlueprintStraightenMixin
 from ..snapping_manager import SnappingManager
-from ..components import Wall, Room, Text, Dimension, Layer, Level, DimensionChain, LeaderCallout, ObjectGroup
+from ..components import Wall, Room, FloorOpening, Text, Dimension, Layer, Level, DimensionChain, LeaderCallout, ObjectGroup
 from ..measurement_utils import MeasurementConverter
 from gi.repository import Gtk, Gdk, GObject
 import gi
@@ -146,6 +146,11 @@ class CanvasArea(Gtk.DrawingArea,
         self.current_room_points = []  # Manual room drawing points
         self.current_room_preview = None  # Live preview point (snapped)
 
+        # Manual floor opening state
+        self.floor_openings = []
+        self.current_opening_points = []
+        self.current_opening_preview = None
+
         # List of door placements; each item is a tuple: (wall, door,
         # position_ratio)
         self.doors = []
@@ -210,6 +215,7 @@ class CanvasArea(Gtk.DrawingArea,
 
         self.Wall = Wall
         self.Room = Room
+        self.FloorOpening = FloorOpening
         self.Text = Text
         self.Dimension = Dimension
         self.DimensionChain = DimensionChain
@@ -322,6 +328,7 @@ class CanvasArea(Gtk.DrawingArea,
         self.walls = []
         self.wall_sets = []
         self.rooms = []
+        self.floor_openings = []
         self.doors = []
         self.windows = []
         self.polylines = []
@@ -347,6 +354,8 @@ class CanvasArea(Gtk.DrawingArea,
         self.drawing_wall = False
         self.current_room_points = []
         self.current_room_preview = None
+        self.current_opening_points = []
+        self.current_opening_preview = None
         self.current_polyline_start = None
         self.current_polyline_preview = None
         self.drawing_polyline = False
@@ -562,6 +571,11 @@ class CanvasArea(Gtk.DrawingArea,
         for room in self.rooms:
             if room.layer_id == layer_id:
                 objects.append(("room", room))
+
+        # Floor openings
+        for opening in getattr(self, "floor_openings", []):
+            if getattr(opening, "layer_id", "") == layer_id:
+                objects.append(("floor_opening", opening))
                 
         # Doors
         for item in self.doors:
@@ -774,6 +788,7 @@ class CanvasArea(Gtk.DrawingArea,
             return
 
         room_vertices_to_delete = {}  # room_identifier -> list of indices
+        opening_vertices_to_delete = {}  # opening_identifier -> list of indices
 
         for item in list(self.selected_items):
             item_type = item.get("type") # Get type once for cleaner checks
@@ -800,6 +815,16 @@ class CanvasArea(Gtk.DrawingArea,
                 target_room = item["object"]
                 if target_room in self.rooms:
                     self.rooms.remove(target_room)
+
+            # Floor openings & vertices
+            elif item_type == "floor_opening":
+                target_opening = item["object"]
+                if target_opening in getattr(self, "floor_openings", []):
+                    self.floor_openings.remove(target_opening)
+
+            elif item_type == "opening_vertex":
+                opening_obj, idx = item["object"]
+                opening_vertices_to_delete.setdefault(opening_obj.identifier, []).append(idx)
 
             # Vertices
             elif item_type == "vertex":
@@ -935,6 +960,22 @@ class CanvasArea(Gtk.DrawingArea,
                 if target_room in self.rooms:
                     self.rooms.remove(target_room)
 
+        for opening_id, indices in opening_vertices_to_delete.items():
+            target_opening = next(
+                (o for o in getattr(self, "floor_openings", []) if o.identifier == opening_id),
+                None,
+            )
+            if not target_opening:
+                continue
+            for idx in sorted(set(indices), reverse=True):
+                if 0 <= idx < len(target_opening.points):
+                    del target_opening.points[idx]
+            if len(target_opening.points) < 3 and target_opening in self.floor_openings:
+                self.floor_openings.remove(target_opening)
+
+        from ..geometry.room_holes import sync_stair_holes
+        sync_stair_holes(self)
+
         if hasattr(self, "prune_groups"):
             self.prune_groups()
 
@@ -1036,6 +1077,11 @@ class CanvasArea(Gtk.DrawingArea,
         for stair in getattr(self, 'stairs', []):
             if not self.is_object_on_locked_layer(stair) and self.is_object_on_visible_layer(stair):
                 self.selected_items.append({"type": "stair", "object": stair})
+
+        # Select all manual floor openings
+        for opening in getattr(self, 'floor_openings', []):
+            if not self.is_object_on_locked_layer(opening) and self.is_object_on_visible_layer(opening):
+                self.selected_items.append({"type": "floor_opening", "object": opening})
 
         self.queue_draw()
 

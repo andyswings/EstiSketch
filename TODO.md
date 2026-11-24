@@ -2,7 +2,6 @@
 
 ## 🚀 High Priority (do next)
 - [ ] Architectural Fixtures & Cabinetry 2D Symbols (Kitchen base/wall cabinets, bathroom fixtures, major appliances).
-- [ ] Follow-up to Room Cutouts (stair-derived holes done, see Completed): add other hole sources beyond stairs (manual "Floor Opening" tool for atriums/lightwells/courtyards, elevators, shafts, double-height spaces). `Hole.source_id` is generic so these plug in later.
 - [ ] Arc wall snapping & tangent cuts (SH3D parity Phase 1).
 - [ ] Real printer support: add a "Print..." button to the Print dialog that sends the sheets to a physical printer via `Gtk.PrintOperation` (system print dialog, paper/printer selection), reusing `print_renderer.render_page` so output matches the preview. Needs testing on actual hardware (including large-format plotters and paper-size mapping).
 - [ ] Print line weights: lines currently print at a constant ~2 pt regardless of drawing scale. Add a line-weight setting (per-object-type pen weights / global multiplier) in the Print dialog so plots look right at any scale.
@@ -21,7 +20,7 @@
 - [ ] Ceiling types (dropped, vaulted, cathedral)
 - [ ] Railings/Guardrails (deck, stair, balcony)
 - [ ] Add Bath Vanity / Kitchen Tool (Should also take care of countertops) (draw it like you would a wall? Or should we just select kitchen or bath type from a list [One-wall kitchen, Galley kitchen, L-shaped Kitchen, U-shaped Kitchen, G-shaped Kitchen, Peninsula Kitchen, Island Kitchen, ...etc] and then click where we want it to go? Once done we should be able to click on the cabinets to edit them individually.) (We also need options for bathroom vanities [Single, Double, ...etc].) Cabinets should cover whatever floor texture is under them and then the countertop should be placed on top of the cabinets. Appliances should be able to be placed on top of the floor (and match its height) or they should be able to be placed on top of a concrete slab (and match its height if there is one. I would like there to be a height property for cabinets, like there is for rooms and what not.)
-- [ ] Appliances library (fridges, stoves, dishwashers, ovens, range hoods, microwaves, washers, dryers, water heaters, furnaces, air conditioners, etc...)
+- [ ] Appliances library (fridges, stoves, sinks, dishwashers, ovens, range hoods, microwaves, washers, dryers, water heaters, furnaces, air conditioners, etc...)
 - [ ] Moldings (crown, base, chair rail, casing)
 
 ### Dimensions & Annotations
@@ -146,6 +145,7 @@
 - [ ] Themes
 
 ## 🐛 Known Bugs / FIXMEs
+- [ ] Double clicking in a closed loop of walls to create a room, draws a room to the center of the walls instead of drawing to the inside edge of the walls as was intended.
 - [ ] Unable to select objects under a roof.
 - [ ] When selecting "New" from the file menu, not all canvas data is deleted. This is a problem.
 - [ ] Doors and windows are not able to be placed in the center of a wall after a wall is split because a window or door cannot span multiple walls.
@@ -154,11 +154,8 @@
 - [ ] Unable to select and move a room once created.
 - [ ] Trying to move multiple objects at the same time does not always work properly.
 
-## 💡 Takeoffs
-- [ ] Material Estimator
-- [ ] Cost Estimator
-
 ## Done ✅ (latest first)
+- [x] Manual Floor Opening tool (Phase 4 Room Cutouts follow-up): added first-class `FloorOpening` component (`opening`, `atrium`, `lightwell`, `courtyard`, `elevator`, `shaft`, `double_height`), ear-clip triangulation & concave/convex clipping in `geometry/room_holes.py` (`compute_opening_holes`, `triangulate_polygon`, `sync_stair_holes`), toolbar button (`O`) + hints + rubber-band polygon tool (`Canvas/events_room.py`), selection/vertex/drag/group/undo-redo integration, architectural X-cross + label rendering (`draw_floor_openings`), `FloorOpeningPropertiesWidget` (including `ceiling_only` toggle), `LayersPanel` Objects explorer integration, `<FloorOpenings>` XML persistence, and tests in `tests/test_floor_openings.py` (2026-11-23)
 - [x] Per-side wall finishes & baseboards (SH3D parity Phase 4): added `left_finish`/`right_finish`, `left_color`/`right_color`, and `left_baseboard`/`right_baseboard` on `Wall`, 2D side color & baseboard trim indicators in `draw_walls`, `WallPropertiesWidget` controls + Swap Left/Right, XML persistence, `extract_wall_finishes` / `generate_wall_finish_report` + supplier quote lines, and tests in `tests/test_wall_finishes.py` (2026-11-23)
 - [x] Floor texture patterns (SH3D parity Phase 4): pure-Cairo procedural fills (`Canvas/floor_patterns.py`) for wood plank, LVP/laminate plank, herringbone, chevron wood, tile grids (12"/18"/24"), 1/2 & 1/3 offset tile, hexagon & basketweave tile, plush & Berber weave carpet, and concrete stipple with per-room pattern rotation & scale, hole-clipped rendering in `draw_rooms`, `RoomPropertiesWidget` controls, XML persistence, and tests in `tests/test_floor_patterns.py` (ceiling patterns deferred to 3D) (2026-11-23)
 - [x] Level onion-skinning ghosting (SH3D parity Phase 6): `ghost_level_id` (`Off` / `Below (N-1)` / `Above (N+1)` / explicit level) & `ghost_opacity` (default 0.25) on `CanvasArea`, muted background render pass (`draw_ghost_level`, excluded from print/PDF/SVG), Ghost dropdown + opacity slider in `LayersPanel`, and XML persistence; tests in `tests/test_level_ghosting.py` (2026-11-23)

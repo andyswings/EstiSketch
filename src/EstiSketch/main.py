@@ -207,7 +207,7 @@ class EstimatorApp(Gtk.Application):
 
         # Define toggle callbacks.
 
-        TOGGLE_BTNS = ["pointer", "draw_walls", "draw_rooms", "add_doors", "add_windows", 
+        TOGGLE_BTNS = ["pointer", "draw_walls", "draw_rooms", "add_floor_opening", "add_doors", "add_windows", 
         "add_polyline", "add_dimension", "add_text", "add_stair", "panning", "add_dimension_chain", 
         "add_leader", "design_roof", "add_roof_line", "add_arc", "add_circle"]
 
@@ -260,6 +260,9 @@ class EstimatorApp(Gtk.Application):
         def on_draw_rooms_toggled(toggle_button):
             on_btn_toggled("draw_rooms", toggle_button, TOGGLE_BTNS)
 
+        def on_add_floor_opening_toggled(toggle_button):
+            on_btn_toggled("add_floor_opening", toggle_button, TOGGLE_BTNS)
+
         def on_add_doors_toggled(toggle_button):
             on_btn_toggled("add_doors", toggle_button, TOGGLE_BTNS)
 
@@ -298,6 +301,7 @@ class EstimatorApp(Gtk.Application):
             "panning": on_panning_toggled,
             "draw_walls": on_draw_walls_toggled,
             "draw_rooms": on_draw_rooms_toggled,
+            "add_floor_opening": on_add_floor_opening_toggled,
             "add_doors": on_add_doors_toggled,
             "add_windows": on_add_windows_toggled,
             "add_polyline": on_add_polyline_toggled,
@@ -516,6 +520,9 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "r":
                 self.tool_buttons["draw_rooms"].set_active(True)
                 return True
+            elif keyname == "o":
+                self.tool_buttons["add_floor_opening"].set_active(True)
+                return True
             elif keyname == "d":
                 self.tool_buttons["add_doors"].set_active(True)
                 return True
@@ -569,6 +576,9 @@ class EstimatorApp(Gtk.Application):
                     self.canvas.finalize_room()
                     self.canvas.save_state()
                     self.canvas.queue_draw()
+                    return True
+                elif self.canvas.tool_mode == "add_floor_opening" and getattr(self.canvas, "current_opening_points", None):
+                    self.canvas.finalize_floor_opening()
                     return True
                 elif self.canvas.tool_mode == "add_stair" and getattr(self.canvas, "action_state", "idle") != "idle":
                     self.canvas.temp_object = None
@@ -921,6 +931,7 @@ class EstimatorApp(Gtk.Application):
                 self.canvas.existing_ids.extend(imported["identifiers"])
                 # Mark the canvas as dirty since it has new content.
                 self.update_dirty_state(True)
+                self._refresh_sidebar_layers()
                 # Request redraw of canvas
                 self.canvas.queue_draw()
             except Exception as e:
@@ -1018,6 +1029,7 @@ class EstimatorApp(Gtk.Application):
         self.current_filepath = None
         # Reset the dirty state
         self.update_dirty_state(False)
+        self._refresh_sidebar_layers()
         # Redraw the canvas
         self.canvas.queue_draw()
 
@@ -1197,10 +1209,17 @@ class EstimatorApp(Gtk.Application):
         self.add_to_recent(path)
         self.current_filepath = path
         open_project(self.canvas, path)
-        if hasattr(self, 'layers_panel'):
-            self.layers_panel.refresh_layers()
+        self._refresh_sidebar_layers()
         self.canvas.queue_draw()
         self.update_dirty_state(False)
+
+    def _refresh_sidebar_layers(self) -> None:
+        """Refresh level, ghost, and layer controls in the sidebar after project load/reset."""
+        if hasattr(self, "properties_dock") and self.properties_dock:
+            lp = getattr(self.properties_dock, "layers_page", None)
+            if lp is not None:
+                lp.refresh_level_ui()
+                lp.refresh_layers()
 
     def on_open_recent(self, action: Gio.SimpleAction, parameter) -> None:
         """
@@ -1231,9 +1250,9 @@ class EstimatorApp(Gtk.Application):
                     label=Gio.File.new_for_path(path).get_basename())
 
                 def _on_click(button, p=path):
+                    self.current_filepath = p
                     open_project(self.canvas, p)
-                    if hasattr(self, 'layers_panel'):
-                        self.layers_panel.refresh_layers()
+                    self._refresh_sidebar_layers()
                     self.canvas.queue_draw()
                     self.update_dirty_state(False)
                     popover.popdown()

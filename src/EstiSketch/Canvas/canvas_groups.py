@@ -40,6 +40,9 @@ class CanvasGroupMixin:
         for room in getattr(self, "rooms", []):
             objects.append(("room", room))
 
+        for opening in getattr(self, "floor_openings", []):
+            objects.append(("floor_opening", opening))
+
         for item in getattr(self, "doors", []):
             objects.append(("door", item[1]))
 
@@ -101,6 +104,10 @@ class CanvasGroupMixin:
         if otype == "vertex":
             if isinstance(obj, tuple) and len(obj) >= 1:
                 return ("room", obj[0])
+            return None
+        if otype == "opening_vertex":
+            if isinstance(obj, tuple) and len(obj) >= 1:
+                return ("floor_opening", obj[0])
             return None
         if otype in ("wall_handle", "curved_wall_handle"):
             if isinstance(obj, tuple) and len(obj) >= 1:
@@ -212,6 +219,13 @@ class CanvasGroupMixin:
             if obj in self.rooms:
                 self.rooms.remove(obj)
                 removed = True
+        elif type_name == "floor_opening":
+            openings = getattr(self, "floor_openings", [])
+            if obj in openings:
+                openings.remove(obj)
+                removed = True
+                from ..geometry.room_holes import sync_stair_holes
+                sync_stair_holes(self)
         elif type_name == "door":
             for dt in list(self.doors):
                 if dt[1] is obj or (obj_id and getattr(dt[1], "identifier", "") == obj_id):
@@ -683,6 +697,8 @@ class CanvasGroupMixin:
                 pts.append((cx + r * math.cos(mid_a), cy + r * math.sin(mid_a)))
         elif type_name == "room":
             pts.extend(getattr(obj, "points", []))
+        elif type_name == "floor_opening":
+            pts.extend(getattr(obj, "points", []))
         elif type_name == "polyline":
             pts.extend([obj.start, obj.end])
         elif type_name in ("door", "window"):
@@ -805,6 +821,10 @@ class CanvasGroupMixin:
                 obj.arc_center = (obj.arc_center[0] + dx, obj.arc_center[1] + dy)
         elif type_name == "room":
             obj.points = [(p[0] + dx, p[1] + dy) for p in obj.points]
+        elif type_name == "floor_opening":
+            obj.points = [(p[0] + dx, p[1] + dy) for p in obj.points]
+            from ..geometry.room_holes import sync_stair_holes
+            sync_stair_holes(self)
         elif type_name == "polyline":
             obj.start = (obj.start[0] + dx, obj.start[1] + dy)
             obj.end = (obj.end[0] + dx, obj.end[1] + dy)
@@ -897,6 +917,10 @@ class CanvasGroupMixin:
                 obj.arc_center = _rotate_point(obj.arc_center, cx, cy, cos_a, sin_a)
         elif type_name == "room":
             obj.points = [_rotate_point(p, cx, cy, cos_a, sin_a) for p in obj.points]
+        elif type_name == "floor_opening":
+            obj.points = [_rotate_point(p, cx, cy, cos_a, sin_a) for p in obj.points]
+            from ..geometry.room_holes import sync_stair_holes
+            sync_stair_holes(self)
         elif type_name == "polyline":
             obj.start = _rotate_point(obj.start, cx, cy, cos_a, sin_a)
             obj.end = _rotate_point(obj.end, cx, cy, cos_a, sin_a)

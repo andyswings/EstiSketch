@@ -211,6 +211,70 @@ class Hole:
             self.identifier = generate_identifier("hole")
 
 
+FLOOR_OPENING_TYPES = [
+    ("opening", "Floor Opening"),
+    ("atrium", "Atrium"),
+    ("lightwell", "Lightwell"),
+    ("courtyard", "Courtyard"),
+    ("elevator", "Elevator Shaft"),
+    ("shaft", "Mechanical / Utility Shaft"),
+    ("double_height", "Double-Height / Open to Below"),
+]
+
+FLOOR_OPENING_DEFAULT_LABELS = {
+    "opening": "OPEN TO BELOW",
+    "atrium": "ATRIUM",
+    "lightwell": "LIGHTWELL",
+    "courtyard": "COURTYARD",
+    "elevator": "ELEVATOR",
+    "shaft": "SHAFT",
+    "double_height": "OPEN TO BELOW",
+}
+
+
+@dataclass(eq=False)
+class FloorOpening:
+    """Manual polygon floor/ceiling opening (atrium, shaft, elevator, stairwell, etc.)."""
+
+    def __init__(
+        self,
+        points: List[Tuple[float, float]],
+        opening_type: str = "opening",
+        label: str = "",
+        ceiling_only: bool = False,
+        show_cross: bool = True,
+        show_label: bool = True,
+        identifier: str = "",
+        layer_id: str = "",
+        visible: bool = True,
+        locked: bool = False,
+        custom_name: str = "",
+        comment: str = "",
+    ):
+        self.identifier = identifier if identifier else generate_identifier("opening")
+        self.layer_id = layer_id
+        self.visible = visible
+        self.locked = locked
+        self.custom_name = custom_name
+        self.comment = comment
+        self.points = [tuple(pt) for pt in points]
+        self.opening_type = opening_type
+        self.label = label
+        self.ceiling_only = bool(ceiling_only)
+        self.show_cross = bool(show_cross)
+        self.show_label = bool(show_label)
+
+    @property
+    def display_label(self) -> str:
+        """Return explicit custom label or default architectural label for ``opening_type``."""
+        text = (self.label or "").strip()
+        if text:
+            return text
+        if self.ceiling_only and self.opening_type == "opening":
+            return "CEILING OPENING"
+        return FLOOR_OPENING_DEFAULT_LABELS.get(self.opening_type, "OPEN TO BELOW")
+
+
 @dataclass
 class Room:
     def __init__(self,

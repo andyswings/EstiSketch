@@ -105,8 +105,8 @@ class LayersPanel(Gtk.Box):
             ) if b.get_active() else None,
         )
 
-        # Store expanders to preserve state
-        self.layer_expanders = {}
+        # Store per-layer object count badges
+        self.layer_count_buttons = {}
 
         # Initial population
         self.refresh_level_ui()
@@ -136,6 +136,7 @@ class LayersPanel(Gtk.Box):
             ("All Types", "all"),
             ("Walls", "wall"),
             ("Rooms", "room"),
+            ("Floor Openings", "floor_opening"),
             ("Doors", "door"),
             ("Windows", "window"),
             ("Stairs", "stair"),
@@ -161,6 +162,19 @@ class LayersPanel(Gtk.Box):
         self.obj_all_levels_btn.connect("toggled", lambda b: self.refresh_objects_list())
         filter_row.append(self.obj_all_levels_btn)
         self.objects_view.append(filter_row)
+
+        # Layer filter row
+        layer_filter_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        layer_filter_row.append(Gtk.Label(label="Layer:"))
+        self._updating_layer_filter = False
+        self._layer_filter_options = [("All Layers", "all")]
+        self.obj_layer_dropdown = Gtk.DropDown()
+        self.obj_layer_dropdown.set_hexpand(True)
+        self.obj_layer_dropdown.set_tooltip_text("Filter objects by layer")
+        self.obj_layer_dropdown.connect("notify::selected", self._on_obj_layer_filter_changed)
+        layer_filter_row.append(self.obj_layer_dropdown)
+        self.objects_view.append(layer_filter_row)
+        self._refresh_obj_layer_filter()
 
         # Quick bulk action bar for current selection
         action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
@@ -529,11 +543,8 @@ class LayersPanel(Gtk.Box):
             if child is None:
                 break
             self.layer_list.remove(child)
-            
-        # Clear stored expanders references for removed/recreated rows
-        # Actually we might want to preserve expansion state by ID
-        old_expanded_states = {lid: exp.get_expanded() for lid, exp in self.layer_expanders.items()}
-        self.layer_expanders = {}
+
+        self.layer_count_buttons = {}
 
         # Build layer rows (in reverse order so top layer is at top of list)
         for layer in reversed(self.canvas.layers):
@@ -542,15 +553,10 @@ class LayersPanel(Gtk.Box):
             is_active_level = (layer.level_id == self.canvas.active_level_id)
 
             if self.canvas.show_all_levels or is_global or is_active_level:
-                row_expander = self._create_layer_row(layer)
-                
-                # Restore expansion state
-                if layer.id in old_expanded_states:
-                    row_expander.set_expanded(old_expanded_states[layer.id])
-                    
-                self.layer_list.append(row_expander)
-                self.layer_expanders[layer.id] = row_expander
+                row_box = self._create_layer_row(layer)
+                self.layer_list.append(row_box)
 
+        self._refresh_obj_layer_filter()
         self.refresh_blueprints()
         self.refresh_objects_list()
 
@@ -704,21 +710,78 @@ class LayersPanel(Gtk.Box):
         self.canvas.update_blueprint(bp, rotation=spin.get_value())
                 
     def refresh_layer_contents(self):
-        """Refresh the object lists within layer expanders and the Objects view."""
+        """Update per-layer object count badges and refresh the Objects view."""
         if self._updating_ui:
             return
         self._updating_ui = True
         try:
-            for layer in self.canvas.layers:
-                if layer.id in self.layer_expanders:
-                    expander = self.layer_expanders[layer.id]
-                    object_list_box = expander.get_child()
-                    if object_list_box:
-                        self._populate_object_list(object_list_box, layer)
+            for layer_id, btn in self.layer_count_buttons.items():
+                count = len(self.canvas.get_objects_by_layer_id(layer_id))
+                btn.set_label(f"({count})")
             if hasattr(self, "all_objects_box"):
                 self._populate_all_objects_view()
         finally:
             self._updating_ui = False
+
+    def _refresh_obj_layer_filter(self):
+        """Rebuild the Objects tab Layer dropdown while preserving selection if possible."""
+        if not hasattr(self, "obj_layer_dropdown"):
+            return
+        prev_key = "all"
+        prev_idx = self.obj_layer_dropdown.get_selected()
+        if 0 <= prev_idx < len(getattr(self, "_layer_filter_options", [])):
+            prev_key = self._layer_filter_options[prev_idx][1]
+
+        multi_level = len(getattr(self.canvas, "levels", [])) > 1
+        level_names = {lv.id: lv.name for lv in getattr(self.canvas, "levels", [])}
+        options = [("All Layers", "all")]
+        for layer in getattr(self.canvas, "layers", []):
+            if multi_level:
+                lvl = level_names.get(getattr(layer, "level_id", ""), "Global")
+                label = f"{layer.name} ({lvl})"
+            else:
+                label = layer.name
+            options.append((label, layer.id))
+        options.append(("Unassigned", "__unassigned__"))
+        self._layer_filter_options = options
+
+        self._updating_layer_filter = True
+        try:
+            self.obj_layer_dropdown.set_model(
+                Gtk.StringList.new([lbl for lbl, _ in options])
+            )
+            sel_idx = 0
+            for idx, (_, key) in enumerate(options):
+                if key == prev_key:
+                    sel_idx = idx
+                    break
+            self.obj_layer_dropdown.set_selected(sel_idx)
+        finally:
+            self._updating_layer_filter = False
+
+    def _on_obj_layer_filter_changed(self, dropdown, pspec):
+        if getattr(self, "_updating_layer_filter", False):
+            return
+        self.refresh_objects_list()
+
+    def show_objects_for_layer(self, layer_id: str) -> None:
+        """Switch to the Objects tab filtered to ``layer_id``."""
+        self._refresh_obj_layer_filter()
+        sel_idx = 0
+        for idx, (_, key) in enumerate(getattr(self, "_layer_filter_options", [])):
+            if key == layer_id:
+                sel_idx = idx
+                break
+        self._updating_layer_filter = True
+        try:
+            if hasattr(self, "obj_layer_dropdown"):
+                self.obj_layer_dropdown.set_selected(sel_idx)
+        finally:
+            self._updating_layer_filter = False
+
+        self.objects_tab_btn.set_active(True)
+        self.view_stack.set_visible_child_name("objects")
+        self.refresh_objects_list()
 
     def refresh_objects_list(self):
         """Refresh the All Objects & Groups explorer view."""
@@ -770,17 +833,29 @@ class LayersPanel(Gtk.Box):
         else:
             filter_key = "all"
         show_all_levels = self.obj_all_levels_btn.get_active() if hasattr(self, "obj_all_levels_btn") else True
+        layer_filter_key = "all"
+        if hasattr(self, "obj_layer_dropdown"):
+            l_idx = self.obj_layer_dropdown.get_selected()
+            if 0 <= l_idx < len(getattr(self, "_layer_filter_options", [])):
+                layer_filter_key = self._layer_filter_options[l_idx][1]
 
         # ── Groups Section ──
         groups = getattr(self.canvas, "groups", [])
         matching_groups = []
         if filter_key in ("all", "group"):
             for grp in groups:
-                loc = self._get_location_label(getattr(grp, "layer_id", ""))
-                if not show_all_levels:
-                    layer = self.canvas.get_layer_by_id(getattr(grp, "layer_id", ""))
+                grp_layer_id = getattr(grp, "layer_id", "")
+                if layer_filter_key == "__unassigned__":
+                    if grp_layer_id:
+                        continue
+                elif layer_filter_key != "all":
+                    if grp_layer_id != layer_filter_key:
+                        continue
+                elif not show_all_levels:
+                    layer = self.canvas.get_layer_by_id(grp_layer_id)
                     if layer and layer.level_id and layer.level_id != self.canvas.active_level_id:
                         continue
+                loc = self._get_location_label(grp_layer_id)
                 g_name = getattr(grp, "custom_name", "") or getattr(grp, "name", "") or "Group"
                 g_comment = getattr(grp, "comment", "") or ""
                 if query:
@@ -818,7 +893,13 @@ class LayersPanel(Gtk.Box):
                 continue
 
             layer_id = getattr(obj, "layer_id", "")
-            if not show_all_levels and layer_id:
+            if layer_filter_key == "__unassigned__":
+                if layer_id:
+                    continue
+            elif layer_filter_key != "all":
+                if layer_id != layer_filter_key:
+                    continue
+            elif not show_all_levels and layer_id:
                 layer = self.canvas.get_layer_by_id(layer_id)
                 if layer and layer.level_id and layer.level_id != self.canvas.active_level_id:
                     continue
@@ -847,18 +928,10 @@ class LayersPanel(Gtk.Box):
             self.all_objects_box.append(row)
 
     def _create_layer_row(self, layer):
-        """Create a row widget for a layer (Expander with header)."""
-        
-        # Main Container (Expander)
-        expander = Gtk.Expander()
-        
-        # Header Box (Layer Controls)
+        """Create a compact row widget for a layer with a clickable object count badge."""
         header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         header_row.set_margin_top(2)
         header_row.set_margin_bottom(2)
-        
-        # We need to set the label widget of the expander to be our custom header_row
-        expander.set_label_widget(header_row)
 
         # Visibility toggle (eye icon)
         visibility_btn = Gtk.ToggleButton()
@@ -911,7 +984,17 @@ class LayersPanel(Gtk.Box):
         
         if not getattr(self.canvas.config, "LAYER_FOCUS_MODE", False):
             header_row.append(opacity_scale)
-        
+
+        # Clickable object count badge -> jumps to Objects tab filtered to this layer
+        count = len(self.canvas.get_objects_by_layer_id(layer.id))
+        count_btn = Gtk.Button(label=f"({count})")
+        count_btn.set_has_frame(False)
+        count_btn.add_css_class("layer-control")
+        count_btn.set_tooltip_text("View objects on this layer in the Objects tab")
+        count_btn.connect("clicked", lambda b, lid=layer.id: self.show_objects_for_layer(lid))
+        header_row.append(count_btn)
+        self.layer_count_buttons[layer.id] = count_btn
+
         # Select All button (small)
         select_all_btn = Gtk.Button()
         select_all_btn.set_label("☑")
@@ -927,16 +1010,8 @@ class LayersPanel(Gtk.Box):
         deselect_all_btn.set_tooltip_text("Deselect all objects in this layer")
         deselect_all_btn.connect("clicked", self.on_deselect_all_layer, layer)
         header_row.append(deselect_all_btn)
-            
-        # Object List (Expander Child)
-        object_list_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        object_list_box.set_margin_start(20) # Indent
-        
-        self._populate_object_list(object_list_box, layer)
-        
-        expander.set_child(object_list_box)
 
-        return expander
+        return header_row
     
     def on_select_all_layer(self, button, layer):
         """Select all objects on this layer."""
@@ -1033,26 +1108,6 @@ class LayersPanel(Gtk.Box):
             elif item_obj == obj:
                 return True
         return False
-
-    def _populate_object_list(self, list_box, layer):
-        """Populate the list box with objects for the given layer."""
-        while True:
-            child = list_box.get_first_child()
-            if not child:
-                break
-            list_box.remove(child)
-
-        objects = self.canvas.get_objects_by_layer_id(layer.id)
-        if not objects:
-            return
-
-        room_counter = 1
-        for type_name, obj in objects:
-            r_idx = room_counter
-            if type_name == "room":
-                room_counter += 1
-            row = self._create_object_row(type_name, obj, r_idx, show_location=False)
-            list_box.append(row)
 
     def _create_object_row(self, type_name, obj, room_counter=1, show_location=False):
         """Build a compact interactive row for a single drawing object."""
@@ -1291,6 +1346,12 @@ class LayersPanel(Gtk.Box):
             if rname and rname != "Room":
                 return f"Room - {rname}"
             return f"Room - #{room_counter}"
+
+        elif type_name == "floor_opening":
+            from ..geometry.room_holes import polygon_area
+            lbl = getattr(obj, 'display_label', '') or 'Floor Opening'
+            area_sqft = polygon_area(getattr(obj, 'points', []) or []) / 144.0
+            return f"Opening - {lbl} ({area_sqft:.1f} sq ft)"
 
         elif type_name == "door":
             width = getattr(obj, 'width', 36)

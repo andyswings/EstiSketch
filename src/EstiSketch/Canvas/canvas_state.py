@@ -10,6 +10,8 @@ class CanvasStateMixin:
             "drawing_wall": self.drawing_wall,
             "rooms": copy.deepcopy(self.rooms),
             "current_room_points": copy.deepcopy(self.current_room_points),
+            "floor_openings": copy.deepcopy(getattr(self, "floor_openings", [])),
+            "current_opening_points": copy.deepcopy(getattr(self, "current_opening_points", [])),
             "polylines": copy.deepcopy(self.polylines),
             "polyline_sets": copy.deepcopy(self.polyline_sets),
             "doors": copy.deepcopy(self.doors),
@@ -44,6 +46,9 @@ class CanvasStateMixin:
         self.drawing_wall = state["drawing_wall"]
         self.rooms = copy.deepcopy(state["rooms"])
         self.current_room_points = copy.deepcopy(state["current_room_points"])
+        self.floor_openings = copy.deepcopy(state.get("floor_openings", []))
+        self.current_opening_points = copy.deepcopy(state.get("current_opening_points", []))
+        self.current_opening_preview = None
         self.polylines = copy.deepcopy(state.get("polylines", []))
         self.polyline_sets = copy.deepcopy(state.get("polyline_sets", []))
         self.doors = copy.deepcopy(state.get("doors", []))
@@ -59,6 +64,8 @@ class CanvasStateMixin:
         self.leader_callouts = copy.deepcopy(state.get("leader_callouts", []))
         self.groups = copy.deepcopy(state.get("groups", []))
         self.north_angle = float(state.get("north_angle", 0.0))
+        from ..geometry.room_holes import sync_stair_holes
+        sync_stair_holes(self)
         self.snap_type = "none"
         self.queue_draw()
         if hasattr(self, "emit"):

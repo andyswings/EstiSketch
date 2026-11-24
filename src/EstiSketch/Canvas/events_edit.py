@@ -134,29 +134,44 @@ class EditEventsMixin:
         midpoint = (mid_x, mid_y)
 
         # Create two new walls
+        end_h = getattr(wall, "height_at_end", wall.height)
+        mid_h = (wall.height + end_h) / 2.0
+        wall_layer_id = getattr(wall, "layer_id", "")
         # Wall 1: start -> midpoint
         w1 = self.Wall(
             wall.start, midpoint, wall.width, wall.height, getattr(
                 wall, "exterior_wall", True), identifier=self.generate_identifier(
-                "wall", self.existing_ids))
+                "wall", self.existing_ids), layer_id=wall_layer_id,
+            height_at_end=mid_h)
         # Wall 2: midpoint -> end
         w2 = self.Wall(
-            midpoint, wall.end, wall.width, wall.height, getattr(
+            midpoint, wall.end, wall.width, mid_h, getattr(
                 wall, "exterior_wall", True), identifier=self.generate_identifier(
-                "wall", self.existing_ids))
+                "wall", self.existing_ids), layer_id=wall_layer_id,
+            height_at_end=end_h)
 
-        # Copy properties if needed (e.g., footer settings, materials)
-        # Assuming Wall class has methods/attributes for these, or we rely on defaults/manual copy.
-        # Ideally we should copy specific attributes.
+        # Copy wall construction, finish, visibility, and lock attributes
         for attr in [
-            "has_footer",
+            "material",
+            "footer",
+            "footer_left_offset",
+            "footer_right_offset",
             "footer_depth",
-            "footer_offset",
+            "symbolic",
             "stud_spacing",
             "insulation_type",
             "fire_rating",
             "exterior_finish",
-                "interior_finish"]:
+            "interior_finish",
+            "left_finish",
+            "right_finish",
+            "left_color",
+            "right_color",
+            "left_baseboard",
+            "right_baseboard",
+            "visible",
+            "locked",
+        ]:
             if hasattr(wall, attr):
                 val = getattr(wall, attr)
                 setattr(w1, attr, val)
@@ -915,6 +930,51 @@ class EditEventsMixin:
                 self.dragging_room.points[i] = (
                     orig_pt[0] + dx, orig_pt[1] + dy)
 
+            self.queue_draw()
+            return
+
+        # Handle floor opening dragging - moves all vertices together and updates holes
+        if getattr(self, "dragging_floor_opening", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(
+                current_device_x, current_device_y, pixels_per_inch)
+            dx = current_model[0] - self.opening_drag_start_model[0]
+            dy = current_model[1] - self.opening_drag_start_model[1]
+            for i, orig_pt in enumerate(self.dragging_floor_opening_original_points):
+                self.dragging_floor_opening.points[i] = (orig_pt[0] + dx, orig_pt[1] + dy)
+            from ..geometry.room_holes import sync_stair_holes
+            sync_stair_holes(self)
+            self.queue_draw()
+            return
+
+        # Handle floor opening corner dragging
+        if getattr(self, "dragging_opening_vertices", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(
+                current_device_x, current_device_y, pixels_per_inch)
+            dx = current_model[0] - self.opening_vertex_drag_start_model[0]
+            dy = current_model[1] - self.opening_vertex_drag_start_model[1]
+            first = self.dragging_opening_vertices[0]
+            orig = first["original"]
+            new_pos = (orig[0] + dx, orig[1] + dy)
+            if self.snap_manager.snap_enabled:
+                walls = [w for ws in self.wall_sets for w in ws]
+                snapped_pos, snap_type = self.snap_manager.snap_point(
+                    new_pos[0], new_pos[1], orig[0], orig[1],
+                    walls, self.rooms, canvas_width=self.get_width(), zoom=self.zoom,
+                )
+                if snap_type != "none":
+                    dx = snapped_pos[0] - orig[0]
+                    dy = snapped_pos[1] - orig[1]
+            for vert_info in self.dragging_opening_vertices:
+                vorig = vert_info["original"]
+                vert_info["opening"].points[vert_info["index"]] = (vorig[0] + dx, vorig[1] + dy)
+            from ..geometry.room_holes import sync_stair_holes
+            sync_stair_holes(self)
             self.queue_draw()
             return
 

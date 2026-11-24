@@ -18,6 +18,7 @@ from EstiSketch.components import Wall  # noqa: E402
 EXPECTED_TABS = [
     "wall",
     "room",
+    "floor_opening",
     "text",
     "dimension",
     "dimension_chain",

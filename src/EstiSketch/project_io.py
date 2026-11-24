@@ -2,7 +2,7 @@ import base64
 import json
 import xml.etree.ElementTree as ET
 from .Canvas.utils import generate_identifier
-from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair, BackgroundImage, DimensionChain, LeaderCallout, ObjectGroup
+from .components import Wall, Room, FloorOpening, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair, BackgroundImage, DimensionChain, LeaderCallout, ObjectGroup
 from .geometry.room_holes import sync_stair_holes
 from .roof_components import Roof, RoofEdge, RoofLine
 
@@ -228,6 +228,22 @@ def save_project(canvas, window_width, window_height, filepath):
             h_elem = ET.SubElement(holes_elem, "Hole")
             h_elem.set("source_id", hole.source_id)
             h_elem.set("ceiling_only", str(hole.ceiling_only))
+
+    # Save manual FloorOpenings
+    floor_openings_elem = ET.SubElement(root, "FloorOpenings")
+    for fo in getattr(canvas, "floor_openings", []):
+        fo_elem = ET.SubElement(floor_openings_elem, "FloorOpening")
+        fo_elem.set("identifier", getattr(fo, "identifier", ""))
+        _save_obj_meta(fo_elem, fo)
+        fo_elem.set("opening_type", getattr(fo, "opening_type", "opening") or "opening")
+        fo_elem.set("label", getattr(fo, "label", "") or "")
+        fo_elem.set("ceiling_only", str(bool(getattr(fo, "ceiling_only", False))))
+        fo_elem.set("show_cross", str(bool(getattr(fo, "show_cross", True))))
+        fo_elem.set("show_label", str(bool(getattr(fo, "show_label", True))))
+        fo_elem.set("layer_id", getattr(fo, "layer_id", "") or "")
+        pts_elem = ET.SubElement(fo_elem, "Points")
+        for pt in getattr(fo, "points", []):
+            ET.SubElement(pts_elem, "Point", x=str(pt[0]), y=str(pt[1]))
 
     # Save doors. In addition to their properties and attachment ratio, also
     # save a wall reference.
@@ -1402,6 +1418,34 @@ def open_project(canvas, filepath):
                     canvas.get_blueprint_surface(bp)  # decodes & sets pixel size
                 canvas.blueprints.append(bp)
 
+    # --- Restore Manual FloorOpenings ---
+    if hasattr(canvas, "floor_openings"):
+        canvas.floor_openings.clear()
+    else:
+        canvas.floor_openings = []
+    fo_root = root.find("FloorOpenings")
+    if fo_root is not None:
+        for fo_elem in fo_root.findall("FloorOpening"):
+            pts = []
+            pts_elem = fo_elem.find("Points")
+            if pts_elem is not None:
+                for p_elem in pts_elem.findall("Point"):
+                    pts.append((float(p_elem.get("x", 0.0)), float(p_elem.get("y", 0.0))))
+            if len(pts) < 3:
+                continue
+            fo = FloorOpening(
+                points=pts,
+                opening_type=fo_elem.get("opening_type", "opening") or "opening",
+                label=fo_elem.get("label", "") or "",
+                ceiling_only=fo_elem.get("ceiling_only", "False") == "True",
+                show_cross=fo_elem.get("show_cross", "True") == "True",
+                show_label=fo_elem.get("show_label", "True") == "True",
+                identifier=fo_elem.get("identifier", ""),
+                layer_id=fo_elem.get("layer_id", "") or "",
+            )
+            _load_obj_meta(fo_elem, fo)
+            canvas.floor_openings.append(fo)
+
     # --- Restore Holes (derived) ---
     # Saved <Holes> only record the source link; geometry is recomputed from
     # the sources, so holes whose source no longer exists simply vanish.
@@ -1446,6 +1490,7 @@ def open_project(canvas, filepath):
         "circles",
         "arcs",
         "stairs",
+        "floor_openings",
         "blueprints",
         "groups",
     ):

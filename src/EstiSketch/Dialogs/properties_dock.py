@@ -8,7 +8,8 @@ from .layers_panel import LayersPanel
 from .properties_stair import StairPropertiesWidget
 from ..ui.properties_panel import bind_roof_overhang, bind_plane_pitch
 from ..Canvas.floor_patterns import FLOOR_PATTERNS
-from ..components import WALL_FINISH_OPTIONS
+from ..components import WALL_FINISH_OPTIONS, FLOOR_OPENING_TYPES, FLOOR_OPENING_DEFAULT_LABELS
+from ..geometry.room_holes import polygon_area, sync_stair_holes
 
 # Stub widgets—you can flesh these out with real controls
 
@@ -3365,6 +3366,154 @@ class RoomPropertiesWidget(Gtk.Box):
         self._block_updates = False
 
 
+class FloorOpeningPropertiesWidget(Gtk.Box):
+    """Widget for viewing and editing selected manual FloorOpening properties."""
+
+    __gsignals__ = {
+        'property-changed': (GObject.SignalFlags.RUN_FIRST, None, ()),
+    }
+
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.current_openings = []
+        self.canvas = None
+        self._block_updates = False
+
+        frame = Gtk.Frame(label="Floor Opening Properties")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
+        frame.set_child(box)
+        self.append(frame)
+
+        # Opening Type
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Type:"))
+        self.type_combo = Gtk.ComboBoxText()
+        self._type_keys = [key for key, _ in FLOOR_OPENING_TYPES]
+        for key, display in FLOOR_OPENING_TYPES:
+            self.type_combo.append(key, display)
+        self.type_combo.set_hexpand(True)
+        self.type_combo.connect("changed", self.on_type_changed)
+        row.append(self.type_combo)
+        box.append(row)
+
+        # Custom Label
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Label:"))
+        self.label_entry = Gtk.Entry()
+        self.label_entry.set_hexpand(True)
+        self.label_entry.set_placeholder_text("OPEN TO BELOW")
+        self.label_entry.connect("changed", self.on_label_changed)
+        row.append(self.label_entry)
+        box.append(row)
+
+        # Architectural X-cross
+        self.show_cross_check = Gtk.CheckButton(label="Show architectural X-cross")
+        self.show_cross_check.set_active(True)
+        self.show_cross_check.connect("toggled", self.on_show_cross_toggled)
+        box.append(self.show_cross_check)
+
+        # Show label
+        self.show_label_check = Gtk.CheckButton(label="Show label")
+        self.show_label_check.set_active(True)
+        self.show_label_check.connect("toggled", self.on_show_label_toggled)
+        box.append(self.show_label_check)
+
+        # Ceiling-only cutout toggle
+        self.ceiling_only_check = Gtk.CheckButton(
+            label="Ceiling-only opening (keep floor & slab)"
+        )
+        self.ceiling_only_check.set_active(False)
+        self.ceiling_only_check.connect("toggled", self.on_ceiling_only_toggled)
+        box.append(self.ceiling_only_check)
+
+        # Read-only area readout
+        self.area_label = Gtk.Label(label="Area: 0.0 sq ft", xalign=0)
+        self.area_label.add_css_class("dim-label")
+        box.append(self.area_label)
+
+    def _commit_changes(self, save_undo=True):
+        if self.canvas:
+            sync_stair_holes(self.canvas)
+            if save_undo and hasattr(self.canvas, "save_state"):
+                self.canvas.save_state()
+            if hasattr(self.canvas, "emit"):
+                self.canvas.emit("content-changed")
+            self.canvas.queue_draw()
+        self.emit("property-changed")
+
+    def on_type_changed(self, combo):
+        if self._block_updates or not self.current_openings:
+            return
+        otype = combo.get_active_id() or "opening"
+        for op in self.current_openings:
+            op.opening_type = otype
+        self.label_entry.set_placeholder_text(
+            FLOOR_OPENING_DEFAULT_LABELS.get(otype, "OPEN TO BELOW")
+        )
+        self._commit_changes()
+
+    def on_label_changed(self, entry):
+        if self._block_updates or not self.current_openings:
+            return
+        text = entry.get_text()
+        for op in self.current_openings:
+            op.label = text
+        self._commit_changes(save_undo=False)
+
+    def on_show_cross_toggled(self, check):
+        if self._block_updates or not self.current_openings:
+            return
+        val = check.get_active()
+        for op in self.current_openings:
+            op.show_cross = val
+        self._commit_changes()
+
+    def on_show_label_toggled(self, check):
+        if self._block_updates or not self.current_openings:
+            return
+        val = check.get_active()
+        for op in self.current_openings:
+            op.show_label = val
+        self._commit_changes()
+
+    def on_ceiling_only_toggled(self, check):
+        if self._block_updates or not self.current_openings:
+            return
+        val = check.get_active()
+        for op in self.current_openings:
+            op.ceiling_only = val
+        self._commit_changes()
+
+    def set_opening(self, openings):
+        """Populate UI widgets from one or more FloorOpening objects."""
+        self._block_updates = True
+        if not isinstance(openings, list):
+            openings = [openings]
+        self.current_openings = openings
+        if not openings:
+            self._block_updates = False
+            return
+        first = openings[0]
+        otype = getattr(first, "opening_type", "opening") or "opening"
+        if not self.type_combo.set_active_id(otype):
+            self.type_combo.set_active_id("opening")
+            otype = "opening"
+        self.label_entry.set_placeholder_text(
+            FLOOR_OPENING_DEFAULT_LABELS.get(otype, "OPEN TO BELOW")
+        )
+        self.label_entry.set_text(getattr(first, "label", "") or "")
+        self.show_cross_check.set_active(bool(getattr(first, "show_cross", True)))
+        self.show_label_check.set_active(bool(getattr(first, "show_label", True)))
+        self.ceiling_only_check.set_active(bool(getattr(first, "ceiling_only", False)))
+        total_sqin = sum(polygon_area(getattr(op, "points", [])) for op in openings)
+        self.area_label.set_label(f"Area: {total_sqin / 144.0:.1f} sq ft")
+        self._block_updates = False
+
+
 class PropertiesDock(Gtk.Box):
 
     __gsignals__ = {
@@ -3530,6 +3679,14 @@ class PropertiesDock(Gtk.Box):
         self.tab_bar.append(room_btn)
         self.tabs["room"] = room_btn
 
+        self.floor_opening_page = FloorOpeningPropertiesWidget()
+        self.floor_opening_page.canvas = canvas
+        self.stack.add_titled(self.floor_opening_page, "floor_opening", "Floor Opening Properties")
+        opening_btn = self._make_tab_button("floor_opening", icon_dir, "add_floor_opening")
+        opening_btn.set_tooltip_text("Floor Opening")
+        self.tab_bar.append(opening_btn)
+        self.tabs["floor_opening"] = opening_btn
+
         self.text_page = TextPropertiesWidget()
         self.text_page.canvas = canvas
         self.stack.add_titled(self.text_page, "text", "Text Properties")
@@ -3643,6 +3800,7 @@ class PropertiesDock(Gtk.Box):
         roof_line_items = []
         stair_items = []
         room_items = []
+        opening_items = []
 
         for item in selected_items:
             item_type = item["type"]
@@ -3676,6 +3834,14 @@ class PropertiesDock(Gtk.Box):
                 stair_items.append(item)
             elif item_type == "room":
                 room_items.append(item)
+            elif item_type == "floor_opening":
+                opening_items.append(item)
+            elif item_type == "opening_vertex":
+                obj = item["object"]
+                if isinstance(obj, tuple) and len(obj) == 2:
+                    op, idx = obj
+                    if hasattr(op, 'points'):
+                        opening_items.append({"type": "floor_opening", "object": op})
             elif item_type == "vertex":
                 # Only if it's a room vertex
                 obj = item["object"]
@@ -3698,6 +3864,7 @@ class PropertiesDock(Gtk.Box):
         wants_roof = len(roof_items) > 0 or wants_roof_line
         wants_stair = len(stair_items) > 0
         wants_room = len(room_items) > 0
+        wants_opening = len(opening_items) > 0
 
         # Enable/disable tabs based on selection
         self.tabs["wall"].set_sensitive(wants_wall)
@@ -3713,6 +3880,7 @@ class PropertiesDock(Gtk.Box):
         self.tabs["roof"].set_sensitive(wants_roof)
         self.tabs["stair"].set_sensitive(wants_stair)
         self.tabs["room"].set_sensitive(wants_room)
+        self.tabs["floor_opening"].set_sensitive(wants_opening)
 
         # Update content for each type
         if wants_wall:
@@ -3773,6 +3941,16 @@ class PropertiesDock(Gtk.Box):
                     idx_seen.add(id(room))
             self.room_page.set_room(unique_rooms)
 
+        if wants_opening:
+            idx_seen = set()
+            unique_openings = []
+            for item in opening_items:
+                op = item["object"]
+                if id(op) not in idx_seen:
+                    unique_openings.append(op)
+                    idx_seen.add(id(op))
+            self.floor_opening_page.set_opening(unique_openings)
+
         # Tab Switching Logic
         # Skip if selection came from layers panel (don't steal focus)
         from_layers_panel = getattr(self.canvas, '_selection_from_layers_panel', False)
@@ -3782,7 +3960,7 @@ class PropertiesDock(Gtk.Box):
         has_selection = (wants_wall or wants_text or wants_dimension or 
                         wants_dimension_chain or wants_leader or
                         wants_window or wants_door or wants_circle or 
-                        wants_arc or wants_polyline or wants_roof or wants_stair or wants_room)
+                        wants_arc or wants_polyline or wants_roof or wants_stair or wants_room or wants_opening)
 
         if has_selection:
             # Decide which tab to show
@@ -3803,6 +3981,7 @@ class PropertiesDock(Gtk.Box):
             elif current_tab == "roof" and wants_roof: keep_current = True
             elif current_tab == "stair" and wants_stair: keep_current = True
             elif current_tab == "room" and wants_room: keep_current = True
+            elif current_tab == "floor_opening" and wants_opening: keep_current = True
             
             if not keep_current:
                 # Switch to first available type
@@ -3818,6 +3997,7 @@ class PropertiesDock(Gtk.Box):
                 elif wants_polyline: self._set_active_tab("polyline"); self.stack.set_visible_child_name("polyline")
                 elif wants_roof: self._set_active_tab("roof"); self.stack.set_visible_child_name("roof")
                 elif wants_stair: self._set_active_tab("stair"); self.stack.set_visible_child_name("stair")
+                elif wants_opening: self._set_active_tab("floor_opening"); self.stack.set_visible_child_name("floor_opening")
                 elif wants_room: self._set_active_tab("room"); self.stack.set_visible_child_name("room")
             else:
                 # Ensure tab button is visually active
