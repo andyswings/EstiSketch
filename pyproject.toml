@@ -4,13 +4,43 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "EstiSketch"
-version = "1.0.0"
-description = "Building estimation and canvas drafting software"
+dynamic = ["version"]
+description = "A lightweight 2-D floor-plan sketcher and building estimation tool"
 readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Andrew Sharon", email = "andrewsharon@gmx.com"},
+]
 requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "PyGObject",
+    "pycairo",
+    "numpy",
+]
+
+[project.optional-dependencies]
+pdf-takeoff = ["reportlab"]
+
+[project.scripts]
+estisketch = "EstiSketch.main:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+version = {attr = "EstiSketch.version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+EstiSketch = ["*.json", "Resources/*.json", "Icons/*"]
 
 [tool.pyright]
 extraPaths = ["src"]

@@ -1,33 +1,37 @@
 # -*- mode: python ; coding: utf-8 -*-
+import importlib.util
+from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
 
+hiddenimports = [
+    'gi',
+    'gi.repository',
+    'gi.repository.Gtk',
+    'gi.repository.Gdk',
+    'gi.repository.GdkPixbuf',
+    'gi.repository.Gio',
+    'gi.repository.GLib',
+    'gi.repository.GObject',
+    'gi.repository.Pango',
+    'gi.repository.PangoCairo',
+    'cairo',
+    'numpy',
+]
+hiddenimports.extend(collect_submodules('EstiSketch'))
+if importlib.util.find_spec('reportlab') is not None:
+    hiddenimports.extend(collect_submodules('reportlab'))
+
 a = Analysis(
     ['../run_estisketch.py'],
-    pathex=[],
+    pathex=['../src'],
     binaries=[],
     datas=[
         ('../src/EstiSketch/Icons', 'EstiSketch/Icons'),
         ('../src/EstiSketch/Resources', 'EstiSketch/Resources'),
+        ('../src/EstiSketch/settings.json', 'EstiSketch'),
     ],
-    hiddenimports=[
-        'gi',
-        'gi.repository',
-        'gi.repository.Gtk',
-        'gi.repository.Gdk',
-        'gi.repository.GdkPixbuf',
-        'gi.repository.Gio',
-        'gi.repository.GLib',
-        'gi.repository.GObject',
-        'gi.repository.Pango',
-        'gi.repository.PangoCairo',
-        'cairo',
-        'EstiSketch',
-        'EstiSketch.Canvas',
-        'EstiSketch.Dialogs',
-        'EstiSketch.Resources',
-        'EstiSketch.Takeoff',
-    ],
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

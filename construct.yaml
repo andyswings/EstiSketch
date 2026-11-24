@@ -1,19 +1,22 @@
 name: EstiSketch
-version: 0.3.0
+version: 0.4.0-beta
 license_file: LICENSE.txt
 channels:
+  - local
   - https://conda.anaconda.org/conda-forge
 
 specs:
   - python 3.10.*
+  - estisketch 0.4.0b0
   - gtk4
   - pygobject
   - gobject-introspection
   - cairo
+  - pycairo
+  - numpy
+  - reportlab
   - pkg-config
   - pip
 
-post_install: post_install.bat
-
 menu_packages:
-  - estisketch-menu
+  - estisketch
