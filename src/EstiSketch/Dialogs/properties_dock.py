@@ -9,6 +9,13 @@ from .properties_stair import StairPropertiesWidget
 from ..ui.properties_panel import bind_roof_overhang, bind_plane_pitch
 from ..Canvas.floor_patterns import FLOOR_PATTERNS
 from ..components import WALL_FINISH_OPTIONS, FLOOR_OPENING_TYPES, FLOOR_OPENING_DEFAULT_LABELS
+from ..fixtures_catalog import (
+    COUNTERTOP_MATERIALS,
+    FIXTURE_CATALOG,
+    MOUNT_SURFACES,
+    get_fixture_spec,
+    resolve_fixture_surface,
+)
 from ..geometry.room_holes import polygon_area, sync_stair_holes
 
 # Stub widgets—you can flesh these out with real controls
@@ -3514,6 +3521,287 @@ class FloorOpeningPropertiesWidget(Gtk.Box):
         self._block_updates = False
 
 
+class FixturePropertiesWidget(Gtk.Box):
+    """Widget for viewing and editing selected architectural Fixture(s), cabinetry & countertops."""
+
+    __gsignals__ = {
+        "property-changed": (GObject.SignalFlags.RUN_FIRST, None, ()),
+    }
+
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.current_fixtures = []
+        self.canvas = None
+        self._block_updates = False
+
+        # Symbol & Geometry frame
+        frame = Gtk.Frame(label="Fixture / Cabinet Geometry")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        frame.set_child(box)
+        self.append(frame)
+
+        def add_row(parent_box, label_text, widget, extra=None):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            lbl = Gtk.Label(label=label_text, xalign=0)
+            lbl.set_hexpand(True)
+            row.append(lbl)
+            row.append(widget)
+            if extra is not None:
+                row.append(extra)
+            parent_box.append(row)
+
+        self.symbol_combo = Gtk.ComboBoxText()
+        for sym, spec in FIXTURE_CATALOG.items():
+            self.symbol_combo.append(sym, spec["label"])
+        self.symbol_combo.connect("changed", self.on_symbol_changed)
+        add_row(box, "Symbol:", self.symbol_combo)
+
+        def _bind_spin(spin, handler):
+            spin.connect("value-changed", handler)
+            spin.connect("activate", lambda s: s.update())
+            fc = Gtk.EventControllerFocus()
+            fc.connect("leave", lambda _c, s=spin: s.update())
+            spin.add_controller(fc)
+
+        self.width_spin = Gtk.SpinButton.new_with_range(4.0, 240.0, 1.0)
+        _bind_spin(self.width_spin, self.on_width_changed)
+        add_row(box, "Width (in):", self.width_spin)
+
+        self.depth_spin = Gtk.SpinButton.new_with_range(4.0, 120.0, 1.0)
+        _bind_spin(self.depth_spin, self.on_depth_changed)
+        add_row(box, "Depth (in):", self.depth_spin)
+
+        self.height_spin = Gtk.SpinButton.new_with_range(2.0, 120.0, 0.5)
+        _bind_spin(self.height_spin, self.on_height_changed)
+        add_row(box, "Height (in):", self.height_spin)
+
+        self.elev_spin = Gtk.SpinButton.new_with_range(0.0, 120.0, 1.0)
+        _bind_spin(self.elev_spin, self.on_elev_changed)
+        add_row(box, "Elevation (in):", self.elev_spin)
+
+        rot_btn = Gtk.Button(label="↻ 90°")
+        rot_btn.connect("clicked", self.on_rotate_90_clicked)
+        self.rot_spin = Gtk.SpinButton.new_with_range(0.0, 359.0, 15.0)
+        self.rot_spin.set_wrap(True)
+        _bind_spin(self.rot_spin, self.on_rot_changed)
+        add_row(box, "Rotation (°):", self.rot_spin, extra=rot_btn)
+
+        self.mount_combo = Gtk.ComboBoxText()
+        for ms in MOUNT_SURFACES:
+            self.mount_combo.append(ms, ms.title())
+        self.mount_combo.connect("changed", self.on_mount_changed)
+        add_row(box, "Mount Surface:", self.mount_combo)
+
+        self.surface_status_lbl = Gtk.Label(label="Surface: Floor (0.0\")", xalign=0)
+        self.surface_status_lbl.add_css_class("dim-label")
+        box.append(self.surface_status_lbl)
+
+        self.swing_combo = Gtk.ComboBoxText()
+        for sw in ("left", "right", "double"):
+            self.swing_combo.append(sw, sw.title())
+        self.swing_combo.connect("changed", self.on_swing_changed)
+        add_row(box, "Cabinet Swing:", self.swing_combo)
+
+        # Countertop frame
+        ct_frame = Gtk.Frame(label="Countertop")
+        ct_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        ct_box.set_margin_top(6)
+        ct_box.set_margin_bottom(6)
+        ct_box.set_margin_start(6)
+        ct_box.set_margin_end(6)
+        ct_frame.set_child(ct_box)
+        self.append(ct_frame)
+
+        self.has_ct_check = Gtk.CheckButton(label="Has Countertop")
+        self.has_ct_check.connect("toggled", self.on_ct_changed)
+        ct_box.append(self.has_ct_check)
+
+        self.ct_mat_combo = Gtk.ComboBoxText()
+        for mat in COUNTERTOP_MATERIALS:
+            self.ct_mat_combo.append(mat, mat.replace("_", " ").title())
+        self.ct_mat_combo.connect("changed", self.on_ct_changed)
+        add_row(ct_box, "Material:", self.ct_mat_combo)
+
+        self.ct_overhang_spin = Gtk.SpinButton.new_with_range(0.0, 24.0, 0.5)
+        self.ct_overhang_spin.connect("value-changed", self.on_ct_changed)
+        add_row(ct_box, "Overhang (in):", self.ct_overhang_spin)
+
+        self.ct_thick_spin = Gtk.SpinButton.new_with_range(0.5, 6.0, 0.25)
+        self.ct_thick_spin.connect("value-changed", self.on_ct_changed)
+        add_row(ct_box, "Thickness (in):", self.ct_thick_spin)
+
+        self.backsplash_check = Gtk.CheckButton(label="Include 4\" Backsplash")
+        self.backsplash_check.connect("toggled", self.on_ct_changed)
+        ct_box.append(self.backsplash_check)
+
+    def _commit(self):
+        if self.canvas:
+            rooms = getattr(self.canvas, "rooms", [])
+            for f in self.current_fixtures:
+                resolve_fixture_surface(f, rooms)
+            self._refresh_surface_label()
+            if hasattr(self.canvas, "save_state"):
+                self.canvas.save_state()
+            if hasattr(self.canvas, "emit"):
+                self.canvas.emit("content-changed")
+            self.canvas.queue_draw()
+        self.emit("property-changed")
+
+    def _refresh_surface_label(self):
+        if not self.current_fixtures:
+            return
+        first = self.current_fixtures[0]
+        base_z = float(getattr(first, "base_elevation", 0.0) or 0.0)
+        if base_z > 0.0:
+            self.surface_status_lbl.set_label(
+                f"Surface: Concrete Slab (+{base_z:.1f}\") | Top: {first.total_top_elevation:.1f}\""
+            )
+        else:
+            self.surface_status_lbl.set_label(
+                f"Surface: Floor (0.0\") | Top: {first.total_top_elevation:.1f}\""
+            )
+
+    def on_symbol_changed(self, combo):
+        if self._block_updates or not self.current_fixtures:
+            return
+        sym = combo.get_active_id()
+        if not sym:
+            return
+        spec = get_fixture_spec(sym)
+        for f in self.current_fixtures:
+            f.symbol_type = sym
+            f.category = spec["category"]
+        self._commit()
+
+    def on_width_changed(self, _spin):
+        if self._block_updates or not self.current_fixtures:
+            return
+        w = float(self.width_spin.get_value())
+        for f in self.current_fixtures:
+            f.width = w
+        self._commit()
+
+    def on_depth_changed(self, _spin):
+        if self._block_updates or not self.current_fixtures:
+            return
+        d = float(self.depth_spin.get_value())
+        for f in self.current_fixtures:
+            f.depth = d
+        self._commit()
+
+    def on_height_changed(self, _spin):
+        if self._block_updates or not self.current_fixtures:
+            return
+        h = float(self.height_spin.get_value())
+        for f in self.current_fixtures:
+            f.height = h
+        self._commit()
+
+    def on_elev_changed(self, _spin):
+        if self._block_updates or not self.current_fixtures:
+            return
+        el = float(self.elev_spin.get_value())
+        for f in self.current_fixtures:
+            f.elevation = el
+        self._commit()
+
+    def on_rot_changed(self, _spin):
+        if self._block_updates or not self.current_fixtures:
+            return
+        rot = float(self.rot_spin.get_value()) % 360.0
+        for f in self.current_fixtures:
+            f.rotation = rot
+        self._commit()
+
+    def on_dim_changed(self, _spin):
+        if self._block_updates or not self.current_fixtures:
+            return
+        w = float(self.width_spin.get_value())
+        d = float(self.depth_spin.get_value())
+        h = float(self.height_spin.get_value())
+        el = float(self.elev_spin.get_value())
+        rot = float(self.rot_spin.get_value()) % 360.0
+        for f in self.current_fixtures:
+            f.width = w
+            f.depth = d
+            f.height = h
+            f.elevation = el
+            f.rotation = rot
+        self._commit()
+
+    def on_rotate_90_clicked(self, _btn):
+        if self._block_updates or not self.current_fixtures:
+            return
+        new_rot = (float(self.rot_spin.get_value()) + 90.0) % 360.0
+        self.rot_spin.set_value(new_rot)
+
+    def on_mount_changed(self, combo):
+        if self._block_updates or not self.current_fixtures:
+            return
+        ms = combo.get_active_id() or "auto"
+        for f in self.current_fixtures:
+            f.mount_surface = ms
+        self._commit()
+
+    def on_swing_changed(self, combo):
+        if self._block_updates or not self.current_fixtures:
+            return
+        sw = combo.get_active_id() or "left"
+        for f in self.current_fixtures:
+            f.door_swing = sw
+        self._commit()
+
+    def on_ct_changed(self, _widget):
+        if self._block_updates or not self.current_fixtures:
+            return
+        has_ct = bool(self.has_ct_check.get_active())
+        mat = self.ct_mat_combo.get_active_id() or "quartz"
+        oh = float(self.ct_overhang_spin.get_value())
+        th = float(self.ct_thick_spin.get_value())
+        bs = bool(self.backsplash_check.get_active())
+        for f in self.current_fixtures:
+            f.has_countertop = has_ct
+            f.countertop_material = mat
+            f.countertop_overhang = oh
+            f.countertop_thickness = th
+            f.has_backsplash = bs
+        self._commit()
+
+    def set_fixtures(self, fixtures):
+        """Populate UI widgets from one or more Fixture objects."""
+        self._block_updates = True
+        if not isinstance(fixtures, list):
+            fixtures = [fixtures]
+        self.current_fixtures = fixtures
+        if not fixtures:
+            self._block_updates = False
+            return
+        first = fixtures[0]
+        if not self.symbol_combo.set_active_id(first.symbol_type):
+            self.symbol_combo.set_active_id("base_cabinet")
+        self.width_spin.set_value(float(first.width))
+        self.depth_spin.set_value(float(first.depth))
+        self.height_spin.set_value(float(first.height))
+        self.elev_spin.set_value(float(first.elevation))
+        self.rot_spin.set_value(float(first.rotation) % 360.0)
+        if not self.mount_combo.set_active_id(first.mount_surface or "auto"):
+            self.mount_combo.set_active_id("auto")
+        if not self.swing_combo.set_active_id(getattr(first, "door_swing", "left") or "left"):
+            self.swing_combo.set_active_id("left")
+        self.has_ct_check.set_active(bool(first.has_countertop))
+        if not self.ct_mat_combo.set_active_id(first.countertop_material or "quartz"):
+            self.ct_mat_combo.set_active_id("quartz")
+        self.ct_overhang_spin.set_value(float(first.countertop_overhang))
+        self.ct_thick_spin.set_value(float(first.countertop_thickness))
+        self.backsplash_check.set_active(bool(getattr(first, "has_backsplash", True)))
+        self._refresh_surface_label()
+        self._block_updates = False
+
+
 class PropertiesDock(Gtk.Box):
 
     __gsignals__ = {
@@ -3687,6 +3975,14 @@ class PropertiesDock(Gtk.Box):
         self.tab_bar.append(opening_btn)
         self.tabs["floor_opening"] = opening_btn
 
+        self.fixture_page = FixturePropertiesWidget()
+        self.fixture_page.canvas = canvas
+        self.stack.add_titled(self.fixture_page, "fixture", "Fixture & Cabinet Properties")
+        fixture_btn = self._make_tab_button("fixture", icon_dir, "add_fixture")
+        fixture_btn.set_tooltip_text("Fixtures & Cabinets")
+        self.tab_bar.append(fixture_btn)
+        self.tabs["fixture"] = fixture_btn
+
         self.text_page = TextPropertiesWidget()
         self.text_page.canvas = canvas
         self.stack.add_titled(self.text_page, "text", "Text Properties")
@@ -3801,6 +4097,7 @@ class PropertiesDock(Gtk.Box):
         stair_items = []
         room_items = []
         opening_items = []
+        fixture_items = []
 
         for item in selected_items:
             item_type = item["type"]
@@ -3836,6 +4133,8 @@ class PropertiesDock(Gtk.Box):
                 room_items.append(item)
             elif item_type == "floor_opening":
                 opening_items.append(item)
+            elif item_type == "fixture":
+                fixture_items.append(item)
             elif item_type == "opening_vertex":
                 obj = item["object"]
                 if isinstance(obj, tuple) and len(obj) == 2:
@@ -3865,6 +4164,7 @@ class PropertiesDock(Gtk.Box):
         wants_stair = len(stair_items) > 0
         wants_room = len(room_items) > 0
         wants_opening = len(opening_items) > 0
+        wants_fixture = len(fixture_items) > 0
 
         # Enable/disable tabs based on selection
         self.tabs["wall"].set_sensitive(wants_wall)
@@ -3881,6 +4181,7 @@ class PropertiesDock(Gtk.Box):
         self.tabs["stair"].set_sensitive(wants_stair)
         self.tabs["room"].set_sensitive(wants_room)
         self.tabs["floor_opening"].set_sensitive(wants_opening)
+        self.tabs["fixture"].set_sensitive(wants_fixture)
 
         # Update content for each type
         if wants_wall:
@@ -3951,6 +4252,16 @@ class PropertiesDock(Gtk.Box):
                     idx_seen.add(id(op))
             self.floor_opening_page.set_opening(unique_openings)
 
+        if wants_fixture:
+            idx_seen = set()
+            unique_fixtures = []
+            for item in fixture_items:
+                fx = item["object"]
+                if id(fx) not in idx_seen:
+                    unique_fixtures.append(fx)
+                    idx_seen.add(id(fx))
+            self.fixture_page.set_fixtures(unique_fixtures)
+
         # Tab Switching Logic
         # Skip if selection came from layers panel (don't steal focus)
         from_layers_panel = getattr(self.canvas, '_selection_from_layers_panel', False)
@@ -3960,7 +4271,7 @@ class PropertiesDock(Gtk.Box):
         has_selection = (wants_wall or wants_text or wants_dimension or 
                         wants_dimension_chain or wants_leader or
                         wants_window or wants_door or wants_circle or 
-                        wants_arc or wants_polyline or wants_roof or wants_stair or wants_room or wants_opening)
+                        wants_arc or wants_polyline or wants_roof or wants_stair or wants_room or wants_opening or wants_fixture)
 
         if has_selection:
             # Decide which tab to show
@@ -3982,6 +4293,7 @@ class PropertiesDock(Gtk.Box):
             elif current_tab == "stair" and wants_stair: keep_current = True
             elif current_tab == "room" and wants_room: keep_current = True
             elif current_tab == "floor_opening" and wants_opening: keep_current = True
+            elif current_tab == "fixture" and wants_fixture: keep_current = True
             
             if not keep_current:
                 # Switch to first available type
@@ -3997,6 +4309,7 @@ class PropertiesDock(Gtk.Box):
                 elif wants_polyline: self._set_active_tab("polyline"); self.stack.set_visible_child_name("polyline")
                 elif wants_roof: self._set_active_tab("roof"); self.stack.set_visible_child_name("roof")
                 elif wants_stair: self._set_active_tab("stair"); self.stack.set_visible_child_name("stair")
+                elif wants_fixture: self._set_active_tab("fixture"); self.stack.set_visible_child_name("fixture")
                 elif wants_opening: self._set_active_tab("floor_opening"); self.stack.set_visible_child_name("floor_opening")
                 elif wants_room: self._set_active_tab("room"); self.stack.set_visible_child_name("room")
             else:

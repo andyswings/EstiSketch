@@ -4,6 +4,7 @@ from typing import Any, Optional, Tuple, List, Dict, Union
 from gi.repository import Gtk, Pango, PangoCairo
 from . import door_window_renderer as dwr
 from . import wall_room_renderer as wr
+from . import render_fixtures as rf
 from .label_utils import upright_angle
 from .compass import draw_north_arrow
 
@@ -195,6 +196,9 @@ class CanvasDrawMixin:
         saved_walls = getattr(self, "walls", [])
         saved_room_pts = getattr(self, "current_room_points", [])
         saved_opening_pts = getattr(self, "current_opening_points", [])
+        saved_fix_ghost = getattr(self, "fixture_ghost", None)
+        saved_layout_ghost = getattr(self, "layout_ghost_fixtures", [])
+        saved_cab_start = getattr(self, "cabinet_run_start", None)
         saved_temp_obj = getattr(self, "temp_object", None)
         saved_selected = getattr(self, "selected_items", [])
 
@@ -208,11 +212,15 @@ class CanvasDrawMixin:
             self.walls = []
             self.current_room_points = []
             self.current_opening_points = []
+            self.fixture_ghost = None
+            self.layout_ghost_fixtures = []
+            self.cabinet_run_start = None
             self.temp_object = None
             self.selected_items = []
 
             wr.draw_rooms(self, cr, zoom_transform)
             wr.draw_floor_openings(self, cr, zoom_transform, printing=True)
+            rf.draw_fixtures(self, cr, zoom_transform, printing=True)
             wr.draw_footers(self, cr)
             wr.draw_walls(self, cr)
             dwr.draw_doors(self, cr, pixels_per_inch)
@@ -241,6 +249,9 @@ class CanvasDrawMixin:
             self.walls = saved_walls
             self.current_room_points = saved_room_pts
             self.current_opening_points = saved_opening_pts
+            self.fixture_ghost = saved_fix_ghost
+            self.layout_ghost_fixtures = saved_layout_ghost
+            self.cabinet_run_start = saved_cab_start
             self.temp_object = saved_temp_obj
             self.selected_items = saved_selected
 
@@ -274,6 +285,9 @@ class CanvasDrawMixin:
 
         # Draw manual floor openings and cutouts
         wr.draw_floor_openings(self, cr, zoom_transform, printing=printing)
+
+        # Draw fixtures, cabinetry, countertops, and appliances (masks floor patterns)
+        rf.draw_fixtures(self, cr, zoom_transform, printing=printing)
 
         # Draw footers (before walls to appear underneath)
         wr.draw_footers(self, cr)
@@ -876,6 +890,42 @@ class CanvasDrawMixin:
                         cr.arc(pt[0], pt[1], handle_radius * 1.2, 0, 2 * 3.14159)
                         cr.set_line_width(1.0 / self.zoom)
                         cr.stroke()
+
+                elif item["type"] == "fixture":
+                    fix = item["object"]
+                    if fix and hasattr(fix, "world_corners"):
+                        corners = fix.world_corners(include_overhang=True)
+                        cr.set_source_rgba(0.10, 0.55, 0.78, 0.22)
+                        cr.move_to(corners[0][0], corners[0][1])
+                        for p in corners[1:]:
+                            cr.line_to(p[0], p[1])
+                        cr.close_path()
+                        cr.fill_preserve()
+
+                        cr.set_source_rgba(0.05, 0.45, 0.75, 0.95)
+                        cr.set_line_width(2.0 / self.zoom)
+                        cr.stroke()
+
+                        # Rotation handle in front (+Y local) when single unlocked fixture is selected
+                        if len(self.selected_items) == 1 and not self.is_object_on_locked_layer(fix):
+                            front_mid = (
+                                (corners[2][0] + corners[3][0]) / 2.0,
+                                (corners[2][1] + corners[3][1]) / 2.0,
+                            )
+                            rad = math.radians(fix.rotation)
+                            hx = front_mid[0] - math.sin(rad) * (12.0 / self.zoom)
+                            hy = front_mid[1] + math.cos(rad) * (12.0 / self.zoom)
+                            cr.set_source_rgba(0.05, 0.45, 0.75, 0.9)
+                            cr.set_line_width(1.5 / self.zoom)
+                            cr.move_to(front_mid[0], front_mid[1])
+                            cr.line_to(hx, hy)
+                            cr.stroke()
+                            cr.set_source_rgba(0.2, 0.75, 0.95, 1.0)
+                            cr.arc(hx, hy, handle_radius * 1.05, 0, 2 * math.pi)
+                            cr.fill_preserve()
+                            cr.set_source_rgba(0, 0, 0, 1.0)
+                            cr.set_line_width(1.0 / self.zoom)
+                            cr.stroke()
             cr.restore()
 
         self.draw_group_overlays(cr, pixels_per_inch)

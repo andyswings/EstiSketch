@@ -19,6 +19,7 @@ EXPECTED_TABS = [
     "wall",
     "room",
     "floor_opening",
+    "fixture",
     "text",
     "dimension",
     "dimension_chain",

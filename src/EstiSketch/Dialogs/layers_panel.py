@@ -137,6 +137,7 @@ class LayersPanel(Gtk.Box):
             ("Walls", "wall"),
             ("Rooms", "room"),
             ("Floor Openings", "floor_opening"),
+            ("Fixtures & Cabinets", "fixture"),
             ("Doors", "door"),
             ("Windows", "window"),
             ("Stairs", "stair"),
@@ -1352,6 +1353,13 @@ class LayersPanel(Gtk.Box):
             lbl = getattr(obj, 'display_label', '') or 'Floor Opening'
             area_sqft = polygon_area(getattr(obj, 'points', []) or []) / 144.0
             return f"Opening - {lbl} ({area_sqft:.1f} sq ft)"
+
+        elif type_name == "fixture":
+            from ..fixtures_catalog import get_fixture_spec
+            spec = get_fixture_spec(getattr(obj, 'symbol_type', 'base_cabinet'))
+            w = int(round(getattr(obj, 'width', 0)))
+            d = int(round(getattr(obj, 'depth', 0)))
+            return f"{spec['label']} - {w}\"×{d}\""
 
         elif type_name == "door":
             width = getattr(obj, 'width', 36)

@@ -983,6 +983,83 @@ class EditEventsMixin:
             self.queue_draw()
             return
 
+        if getattr(self, "rotating_fixture", None):
+            fix = self.rotating_fixture
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            if hasattr(self, "drag_start_x") and hasattr(self, "drag_start_y"):
+                current_device_x = self.drag_start_x + offset_x
+                current_device_y = self.drag_start_y + offset_y
+            elif hasattr(self, "click_start"):
+                current_device_x = self.click_start[0] + offset_x
+                current_device_y = self.click_start[1] + offset_y
+            else:
+                current_device_x = self.mouse_x
+                current_device_y = self.mouse_y
+            mx, my = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            ang = math.degrees(math.atan2(my - fix.y, mx - fix.x)) - 90.0
+            fix.rotation = (round(ang / 15.0) * 15.0) % 360.0
+            self.queue_draw()
+            return
+
+        if getattr(self, "dragging_fixtures", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            dx = current_model[0] - self.fixture_drag_start_model[0]
+            dy = current_model[1] - self.fixture_drag_start_model[1]
+
+            from ..fixtures_catalog import resolve_fixture_surface, snap_fixture_to_walls
+
+            snap_shift = (0.0, 0.0)
+            if getattr(getattr(self, "snap_manager", None), "snap_enabled", True):
+                walls = self._get_visible_walls() if hasattr(self, "_get_visible_walls") else []
+                best_mag = float("inf")
+                for fix, ox, oy, orig_rot in self.dragging_fixtures:
+                    cand_x, cand_y = ox + dx, oy + dy
+                    sx, sy, _srot, wall_hit = snap_fixture_to_walls(
+                        cand_x, cand_y, fix.width, fix.depth, walls,
+                        snap_dist=14.0, current_rotation=orig_rot, symbol_type=fix.symbol_type,
+                    )
+                    if wall_hit is not None:
+                        mag = math.hypot(sx - cand_x, sy - cand_y)
+                        if mag < best_mag:
+                            best_mag = mag
+                            snap_shift = (sx - cand_x, sy - cand_y)
+
+            rooms = getattr(self, "rooms", [])
+            for fix, ox, oy, orig_rot in self.dragging_fixtures:
+                fix.x = ox + dx + snap_shift[0]
+                fix.y = oy + dy + snap_shift[1]
+                fix.rotation = orig_rot
+                resolve_fixture_surface(fix, rooms)
+            self.queue_draw()
+            return
+
+        if getattr(self, "dragging_fixture", None):
+            fix = self.dragging_fixture
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            dx = current_model[0] - self.fixture_drag_start_model[0]
+            dy = current_model[1] - self.fixture_drag_start_model[1]
+            ox, oy, orig_rot = self.dragging_fixture_start_pos
+            nx, ny = ox + dx, oy + dy
+            from ..fixtures_catalog import resolve_fixture_surface, snap_fixture_to_walls
+            if getattr(getattr(self, "snap_manager", None), "snap_enabled", True):
+                sx, sy, rot, _ = snap_fixture_to_walls(
+                    nx, ny, fix.width, fix.depth,
+                    self._get_visible_walls() if hasattr(self, "_get_visible_walls") else [],
+                    snap_dist=20.0, current_rotation=orig_rot, symbol_type=fix.symbol_type,
+                )
+                fix.x, fix.y, fix.rotation = sx, sy, rot
+            else:
+                fix.x, fix.y = nx, ny
+            resolve_fixture_surface(fix, getattr(self, "rooms", []))
+            self.queue_draw()
+            return
+
         # Handle polyline endpoint editing
         if getattr(
                 self,

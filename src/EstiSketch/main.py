@@ -208,7 +208,7 @@ class EstimatorApp(Gtk.Application):
         # Define toggle callbacks.
 
         TOGGLE_BTNS = ["pointer", "draw_walls", "draw_rooms", "add_floor_opening", "add_doors", "add_windows", 
-        "add_polyline", "add_dimension", "add_text", "add_stair", "panning", "add_dimension_chain", 
+        "add_polyline", "add_dimension", "add_text", "add_stair", "add_fixture", "add_kitchen_layout", "draw_cabinet_run", "panning", "add_dimension_chain", 
         "add_leader", "design_roof", "add_roof_line", "add_arc", "add_circle"]
 
 
@@ -287,6 +287,39 @@ class EstimatorApp(Gtk.Application):
         def on_add_stair_toggled(toggle_button):
             on_btn_toggled("add_stair", toggle_button, TOGGLE_BTNS)
 
+        def open_fixture_browser():
+            from EstiSketch.Dialogs.fixture_browser import FixtureBrowserDialog
+            if not getattr(self, "_fixture_browser_win", None):
+                self._fixture_browser_win = FixtureBrowserDialog(self.window, self.canvas)
+                self._fixture_browser_win.connect(
+                    "close-request",
+                    lambda _w: (setattr(self, "_fixture_browser_win", None), False)[1],
+                )
+            self._fixture_browser_win.present()
+
+        def open_kitchen_layout_dialog():
+            from EstiSketch.Dialogs.fixture_browser import KitchenLayoutDialog
+            if not getattr(self, "_kitchen_layout_win", None):
+                self._kitchen_layout_win = KitchenLayoutDialog(self.window, self.canvas)
+                self._kitchen_layout_win.connect(
+                    "close-request",
+                    lambda _w: (setattr(self, "_kitchen_layout_win", None), False)[1],
+                )
+            self._kitchen_layout_win.present()
+
+        def on_add_fixture_toggled(toggle_button):
+            on_btn_toggled("add_fixture", toggle_button, TOGGLE_BTNS)
+            if toggle_button.get_active():
+                open_fixture_browser()
+
+        def on_add_kitchen_layout_toggled(toggle_button):
+            on_btn_toggled("add_kitchen_layout", toggle_button, TOGGLE_BTNS)
+            if toggle_button.get_active():
+                open_kitchen_layout_dialog()
+
+        def on_draw_cabinet_run_toggled(toggle_button):
+            on_btn_toggled("draw_cabinet_run", toggle_button, TOGGLE_BTNS)
+
         def on_add_roof_line_toggled(toggle_button):
             on_btn_toggled("add_roof_line", toggle_button, TOGGLE_BTNS)
 
@@ -313,12 +346,32 @@ class EstimatorApp(Gtk.Application):
             "add_arc": on_add_arc_toggled,
             "design_roof": on_design_roof_toggled,
             "add_stair": on_add_stair_toggled,
+            "add_fixture": on_add_fixture_toggled,
+            "add_kitchen_layout": on_add_kitchen_layout_toggled,
+            "draw_cabinet_run": on_draw_cabinet_run_toggled,
             "add_roof_line": on_add_roof_line_toggled
         }
 
         toolbar_box, self.tool_buttons, extra_buttons, self.toolset_info = toolbar.create_toolbar(
             self.config, callbacks, self.canvas)
         vbox.append(toolbar_box)
+
+        # Clicking an already-active fixture or layout button re-presents its palette/dialog
+        for btn_key, opener in (
+            ("add_fixture", open_fixture_browser),
+            ("add_kitchen_layout", open_kitchen_layout_dialog),
+        ):
+            btn = self.tool_buttons.get(btn_key)
+            if btn is not None:
+                reopen_click = Gtk.GestureClick()
+                reopen_click.connect(
+                    "pressed",
+                    lambda _g, _n, _x, _y, b=btn, fn=opener: fn() if b.get_active() else None,
+                )
+                btn.add_controller(reopen_click)
+
+        self._open_fixture_browser = open_fixture_browser
+        self._open_kitchen_layout_dialog = open_kitchen_layout_dialog
 
         # Connect toolset dropdown to switch handler
         self.toolset_info["dropdown"].connect(
@@ -518,7 +571,27 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["draw_walls"].set_active(True)
                 return True
             elif keyname == "r":
+                if self.canvas.tool_mode in ("add_fixture", "add_kitchen_layout"):
+                    self.canvas.rotate_active_fixture_preview(90.0)
+                    return True
+                elif self.canvas.tool_mode == "draw_cabinet_run":
+                    self.canvas.cabinet_run_side = -1.0 if getattr(self.canvas, "cabinet_run_side", 1.0) >= 0.0 else 1.0
+                    self.canvas._cabinet_run_manual_side = True
+                    self.canvas.queue_draw()
+                    return True
                 self.tool_buttons["draw_rooms"].set_active(True)
+                return True
+            elif keyname == "f":
+                if self.tool_buttons["add_fixture"].get_active():
+                    open_fixture_browser()
+                else:
+                    self.tool_buttons["add_fixture"].set_active(True)
+                return True
+            elif keyname == "k":
+                if self.tool_buttons["add_kitchen_layout"].get_active():
+                    open_kitchen_layout_dialog()
+                else:
+                    self.tool_buttons["add_kitchen_layout"].set_active(True)
                 return True
             elif keyname == "o":
                 self.tool_buttons["add_floor_opening"].set_active(True)
@@ -579,6 +652,13 @@ class EstimatorApp(Gtk.Application):
                     return True
                 elif self.canvas.tool_mode == "add_floor_opening" and getattr(self.canvas, "current_opening_points", None):
                     self.canvas.finalize_floor_opening()
+                    return True
+                elif self.canvas.tool_mode in ("add_fixture", "add_kitchen_layout", "draw_cabinet_run"):
+                    if hasattr(self.canvas, "_reset_fixture_interaction_state"):
+                        self.canvas._reset_fixture_interaction_state()
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS.get(self.canvas.tool_mode, ""))
+                    self.canvas.queue_draw()
                     return True
                 elif self.canvas.tool_mode == "add_stair" and getattr(self.canvas, "action_state", "idle") != "idle":
                     self.canvas.temp_object = None
@@ -673,6 +753,9 @@ class EstimatorApp(Gtk.Application):
                  return True
             elif keyname == "r":
                  self.tool_buttons["design_roof"].set_active(True)
+                 return True
+            elif keyname == "k":
+                 self.tool_buttons["draw_cabinet_run"].set_active(True)
                  return True
             elif keyname == "l":
                  self.tool_buttons["add_roof_line"].set_active(True)

@@ -10,6 +10,7 @@ from .events_wall import CanvasWallMixin
 from .events_roof import CanvasRoofEventsMixin
 from .events_selection import CanvasSelectionMixin
 from .events_stair import CanvasStairEventsMixin
+from .events_fixture import CanvasFixtureMixin
 from .render_stair import CanvasStairRendererMixin
 from .canvas_tool import CanvasToolMixin
 from .canvas_geometry import CanvasGeometryMixin
@@ -20,7 +21,7 @@ from .canvas_groups import CanvasGroupMixin
 from .blueprint import CanvasBlueprintMixin
 from .blueprint_straighten import CanvasBlueprintStraightenMixin
 from ..snapping_manager import SnappingManager
-from ..components import Wall, Room, FloorOpening, Text, Dimension, Layer, Level, DimensionChain, LeaderCallout, ObjectGroup
+from ..components import Wall, Room, FloorOpening, Fixture, Text, Dimension, Layer, Level, DimensionChain, LeaderCallout, ObjectGroup
 from ..measurement_utils import MeasurementConverter
 from gi.repository import Gtk, Gdk, GObject
 import gi
@@ -41,6 +42,7 @@ class CanvasArea(Gtk.DrawingArea,
                  CanvasRoofEventsMixin,
                  CanvasStairEventsMixin,
                  CanvasStairRendererMixin,
+                 CanvasFixtureMixin,
                  CanvasRoomMixin,
                  CanvasToolsMixin,
                  EditEventsMixin,
@@ -216,6 +218,7 @@ class CanvasArea(Gtk.DrawingArea,
         self.Wall = Wall
         self.Room = Room
         self.FloorOpening = FloorOpening
+        self.Fixture = Fixture
         self.Text = Text
         self.Dimension = Dimension
         self.DimensionChain = DimensionChain
@@ -244,6 +247,10 @@ class CanvasArea(Gtk.DrawingArea,
 
         # Stair state
         self.stairs = []  # List of Stair objects
+
+        # Architectural fixtures, cabinetry & appliances state
+        self.fixtures = []
+        self._init_fixture_state()
 
         # Object groups state
         self.groups = []  # List of ObjectGroup objects
@@ -341,6 +348,9 @@ class CanvasArea(Gtk.DrawingArea,
         self.arcs = []
         self.roofs = []
         self.stairs = []
+        self.fixtures = []
+        if hasattr(self, "_reset_fixture_interaction_state"):
+            self._reset_fixture_interaction_state()
         self.groups = []
         self.dragging_group = None
         self.rotating_group = None
@@ -635,6 +645,11 @@ class CanvasArea(Gtk.DrawingArea,
             for stair in self.stairs:
                 if getattr(stair, 'layer_id', '') == layer_id:
                     objects.append(("stair", stair))
+
+        # Fixtures
+        for fix in getattr(self, "fixtures", []):
+            if getattr(fix, "layer_id", "") == layer_id:
+                objects.append(("fixture", fix))
 
         return objects
 
@@ -936,6 +951,11 @@ class CanvasArea(Gtk.DrawingArea,
                 if target_stair in getattr(self, 'stairs', []):
                     self.stairs.remove(target_stair)
 
+            elif item_type == "fixture":
+                target_fix = item["object"]
+                if target_fix in getattr(self, "fixtures", []):
+                    self.fixtures.remove(target_fix)
+
 
         # Process room vertex deletions
         for room_id, indices in room_vertices_to_delete.items():
@@ -1082,6 +1102,11 @@ class CanvasArea(Gtk.DrawingArea,
         for opening in getattr(self, 'floor_openings', []):
             if not self.is_object_on_locked_layer(opening) and self.is_object_on_visible_layer(opening):
                 self.selected_items.append({"type": "floor_opening", "object": opening})
+
+        # Select all fixtures & cabinetry
+        for fix in getattr(self, 'fixtures', []):
+            if not self.is_object_on_locked_layer(fix) and self.is_object_on_visible_layer(fix):
+                self.selected_items.append({"type": "fixture", "object": fix})
 
         self.queue_draw()
 
@@ -1407,6 +1432,21 @@ class CanvasArea(Gtk.DrawingArea,
                 self.leader_callouts.append(new_lead)
                 self.selected_items.append(
                     {"type": "leader_callout", "object": new_lead})
+
+            elif item_type == "fixture":
+                fix = item["object"]
+                new_fix = copy_module.deepcopy(fix)
+                new_fix.x = fix.x + offset[0]
+                new_fix.y = fix.y + offset[1]
+                new_fix.identifier = self.generate_identifier(
+                    "fixture", self.existing_ids)
+                new_fix.layer_id = self.active_layer_id
+                self.existing_ids.append(new_fix.identifier)
+                if not hasattr(self, "fixtures"):
+                    self.fixtures = []
+                self.fixtures.append(new_fix)
+                self.selected_items.append(
+                    {"type": "fixture", "object": new_fix})
 
             elif item_type == "polyline":
                 poly = item["object"]

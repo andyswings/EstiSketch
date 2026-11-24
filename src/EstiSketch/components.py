@@ -275,6 +275,129 @@ class FloorOpening:
         return FLOOR_OPENING_DEFAULT_LABELS.get(self.opening_type, "OPEN TO BELOW")
 
 
+@dataclass(eq=False)
+class Fixture:
+    """Parametric architectural cabinet, vanity, plumbing fixture, appliance, or HVAC unit."""
+
+    def __init__(
+        self,
+        symbol_type: str = "base_cabinet",
+        x: float = 0.0,
+        y: float = 0.0,
+        width: Optional[float] = None,
+        depth: Optional[float] = None,
+        height: Optional[float] = None,
+        rotation: float = 0.0,
+        elevation: Optional[float] = None,
+        mount_surface: Optional[str] = None,
+        base_elevation: float = 0.0,
+        has_countertop: Optional[bool] = None,
+        countertop_overhang: Optional[float] = None,
+        countertop_thickness: float = 1.5,
+        countertop_material: str = "quartz",
+        has_backsplash: bool = True,
+        door_swing: str = "left",
+        fill_color: Optional[Tuple[float, float, float]] = None,
+        countertop_color: Optional[Tuple[float, float, float]] = None,
+        category: str = "",
+        identifier: str = "",
+        layer_id: str = "",
+        visible: bool = True,
+        locked: bool = False,
+        custom_name: str = "",
+        comment: str = "",
+    ):
+        from .fixtures_catalog import get_fixture_spec
+
+        spec = get_fixture_spec(symbol_type)
+        self.identifier = identifier if identifier else generate_identifier("fixture")
+        self.layer_id = layer_id
+        self.visible = visible
+        self.locked = locked
+        self.custom_name = custom_name
+        self.comment = comment
+
+        self.symbol_type = symbol_type
+        self.category = category if category else spec["category"]
+        self.x = float(x)
+        self.y = float(y)
+        self.width = float(width if width is not None else spec["width"])
+        self.depth = float(depth if depth is not None else spec["depth"])
+        self.height = float(height if height is not None else spec["height"])
+        self.rotation = float(rotation) % 360.0
+        self.elevation = float(elevation if elevation is not None else spec["elevation"])
+        self.mount_surface = mount_surface if mount_surface else spec["mount_surface"]
+        self.base_elevation = float(base_elevation)
+
+        ct_default = bool(spec["has_countertop"])
+        self.has_countertop = ct_default if has_countertop is None else bool(has_countertop)
+        oh_default = float(spec["countertop_overhang"]) if self.has_countertop else 0.0
+        self.countertop_overhang = float(
+            countertop_overhang if countertop_overhang is not None else oh_default
+        )
+        self.countertop_thickness = float(countertop_thickness)
+        self.countertop_material = countertop_material or "quartz"
+        self.has_backsplash = bool(has_backsplash)
+        self.door_swing = door_swing or "left"
+        self.fill_color = fill_color
+        self.countertop_color = countertop_color
+
+    @property
+    def is_upper(self) -> bool:
+        """Return True if this fixture is wall-hung above counter height (drawn dashed)."""
+        from .fixtures_catalog import get_fixture_spec
+
+        if bool(get_fixture_spec(self.symbol_type).get("is_upper", False)):
+            return True
+        return self.elevation >= 42.0 and self.mount_surface == "wall"
+
+    @property
+    def total_top_elevation(self) -> float:
+        """Return top elevation in inches above datum (floor/slab + elevation + height + countertop)."""
+        ct = self.countertop_thickness if self.has_countertop else 0.0
+        return self.base_elevation + self.elevation + self.height + ct
+
+    def world_corners(self, include_overhang: bool = False) -> List[Tuple[float, float]]:
+        """Return 4 world-coordinate bounding corners in inches."""
+        import math
+
+        hw = self.width / 2.0
+        hd = self.depth / 2.0
+        extra = (
+            float(self.countertop_overhang)
+            if (include_overhang and self.has_countertop and self.countertop_overhang > 0)
+            else 0.0
+        )
+        local_pts = [(-hw, -hd), (hw, -hd), (hw, hd + extra), (-hw, hd + extra)]
+        rad = math.radians(self.rotation)
+        ca, sa = math.cos(rad), math.sin(rad)
+        return [
+            (self.x + lx * ca - ly * sa, self.y + lx * sa + ly * ca)
+            for lx, ly in local_pts
+        ]
+
+    def point_inside(self, px: float, py: float, tolerance: float = 0.0) -> bool:
+        """Return True if model point ``(px, py)`` falls inside this fixture's 2D footprint."""
+        import math
+
+        dx = px - self.x
+        dy = py - self.y
+        rad = math.radians(-self.rotation)
+        ca, sa = math.cos(rad), math.sin(rad)
+        lx = dx * ca - dy * sa
+        ly = dx * sa + dy * ca
+
+        hw = self.width / 2.0 + tolerance
+        hd = self.depth / 2.0 + tolerance
+        extra = float(self.countertop_overhang) if (self.has_countertop and self.countertop_overhang > 0) else 0.0
+        if not (-hw <= lx <= hw and -hd <= ly <= hd + extra):
+            return False
+        if self.symbol_type in ("corner_base_cabinet", "corner_upper_cabinet"):
+            arm = (12.0 if self.symbol_type == "corner_upper_cabinet" else 24.0) + tolerance
+            return (lx <= -self.width / 2.0 + arm) or (ly <= -self.depth / 2.0 + arm)
+        return True
+
+
 @dataclass
 class Room:
     def __init__(self,

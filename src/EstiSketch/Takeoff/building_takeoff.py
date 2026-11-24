@@ -1282,6 +1282,67 @@ def get_supplier_quote_items(canvas, config, custom_items: Optional[List[Dict]] 
         })
         item_counter += 1
 
+    # Cabinets, countertops, plumbing & appliances
+    fx_takeoff = extract_fixtures_takeoff(canvas)
+    if fx_takeoff["base_cabinet_lf"] > 0:
+        lf = fx_takeoff["base_cabinet_lf"]
+        items.append({
+            'id': f"ITEM-{item_counter:03d}",
+            'description': "Base Cabinets / Vanities",
+            'qty': round(lf, 1),
+            'unit': 'Lin Ft',
+            'notes': f"Total base & vanity run ({lf:.1f} LF)",
+            'is_auto': True,
+            'is_excluded': False,
+        })
+        item_counter += 1
+    if fx_takeoff["upper_cabinet_lf"] > 0:
+        ulf = fx_takeoff["upper_cabinet_lf"]
+        items.append({
+            'id': f"ITEM-{item_counter:03d}",
+            'description': "Upper Wall Cabinets",
+            'qty': round(ulf, 1),
+            'unit': 'Lin Ft',
+            'notes': f"Total upper cabinet run ({ulf:.1f} LF)",
+            'is_auto': True,
+            'is_excluded': False,
+        })
+        item_counter += 1
+    if fx_takeoff["tall_cabinet_count"] > 0:
+        items.append({
+            'id': f"ITEM-{item_counter:03d}",
+            'description': "Tall Pantry Cabinets",
+            'qty': fx_takeoff["tall_cabinet_count"],
+            'unit': 'Ea',
+            'notes': "Full-height pantry units",
+            'is_auto': True,
+            'is_excluded': False,
+        })
+        item_counter += 1
+    for mat, area in sorted(fx_takeoff["countertop_sqft_by_material"].items()):
+        if area > 0:
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': f"Countertop ({mat.replace('_', ' ').title()})",
+                'qty': math.ceil(area * 1.10 - 1e-9),
+                'unit': 'Sq Ft',
+                'notes': f"Net countertop surface ({area:.1f} sq ft + 10% waste)",
+                'is_auto': True,
+                'is_excluded': False,
+            })
+            item_counter += 1
+    for label, count in sorted(fx_takeoff["fixture_counts_by_label"].items()):
+        items.append({
+            'id': f"ITEM-{item_counter:03d}",
+            'description': label,
+            'qty': count,
+            'unit': 'Ea',
+            'notes': "Architectural fixture / appliance schedule item",
+            'is_auto': True,
+            'is_excluded': False,
+        })
+        item_counter += 1
+
     # Include custom line items
     if custom_items:
         for c in custom_items:
@@ -1598,5 +1659,100 @@ def generate_wall_finish_report(canvas) -> str:
     for fin, area in sorted(data["exterior_by_finish"].items()):
         lines.append(f"  - {fin}: {area:.1f} sq ft")
     lines.append(f"Total Baseboard Linear Footage: {data['baseboard_linear_ft']:.1f} LF")
+    lines.append("=" * 90)
+    return "\n".join(lines)
+
+
+def extract_fixtures_takeoff(canvas) -> Dict:
+    """Summarize cabinets, countertops, vanities, plumbing fixtures, appliances, and mechanical units."""
+    from ..fixtures_catalog import get_fixture_spec
+
+    base_cabinet_in = 0.0
+    upper_cabinet_in = 0.0
+    tall_cabinet_count = 0
+    countertop_by_mat: Dict[str, float] = {}
+    fixture_counts: Dict[str, int] = {}
+    rows = []
+
+    for fx in getattr(canvas, "fixtures", []):
+        if getattr(fx, "visible", True) is False:
+            continue
+        sym = getattr(fx, "symbol_type", "base_cabinet")
+        spec = get_fixture_spec(sym)
+        cat = getattr(fx, "category", spec["category"])
+        w = float(getattr(fx, "width", spec["width"]))
+        d = float(getattr(fx, "depth", spec["depth"]))
+        h = float(getattr(fx, "height", spec["height"]))
+        base_z = float(getattr(fx, "base_elevation", 0.0) or 0.0)
+
+        is_upper = getattr(fx, "is_upper", False)
+        if sym == "tall_pantry":
+            tall_cabinet_count += 1
+        elif sym in ("upper_cabinet", "corner_upper_cabinet"):
+            upper_cabinet_in += (w + d - 12.0) if sym == "corner_upper_cabinet" else w
+        elif cat in ("kitchen_cabinet", "bathroom_vanity") and not is_upper:
+            base_cabinet_in += (w + d - 24.0) if sym == "corner_base_cabinet" else w
+
+        if getattr(fx, "has_countertop", False) and not is_upper:
+            oh = max(0.0, float(getattr(fx, "countertop_overhang", 0.0) or 0.0))
+            if sym == "corner_base_cabinet":
+                arm = min(24.0 + oh, w, d)
+                area_sqin = w * arm + (d - arm) * arm
+            else:
+                area_sqin = w * (d + oh)
+            mat = getattr(fx, "countertop_material", "quartz") or "quartz"
+            countertop_by_mat[mat] = countertop_by_mat.get(mat, 0.0) + area_sqin / 144.0
+
+        if cat in ("bathroom_fixture", "kitchen_appliance", "laundry_appliance", "mechanical_utility") or sym in ("vanity_single", "vanity_double", "island_cabinet"):
+            lbl = spec["label"]
+            fixture_counts[lbl] = fixture_counts.get(lbl, 0) + 1
+
+        rows.append({
+            "id": getattr(fx, "identifier", ""),
+            "label": spec["label"],
+            "category": cat,
+            "width_in": w,
+            "depth_in": d,
+            "height_in": h,
+            "base_elevation_in": base_z,
+        })
+
+    return {
+        "total_fixtures": len(rows),
+        "base_cabinet_lf": round(base_cabinet_in / 12.0, 2),
+        "upper_cabinet_lf": round(upper_cabinet_in / 12.0, 2),
+        "tall_cabinet_count": tall_cabinet_count,
+        "countertop_sqft_by_material": {k: round(v, 2) for k, v in countertop_by_mat.items()},
+        "total_countertop_sqft": round(sum(countertop_by_mat.values()), 2),
+        "fixture_counts_by_label": fixture_counts,
+        "rows": rows,
+    }
+
+
+def generate_fixtures_report(canvas) -> str:
+    """Return formatted architectural cabinetry, countertop, fixture & appliance schedule."""
+    data = extract_fixtures_takeoff(canvas)
+    lines = [
+        "=" * 90,
+        "ESTISKETCH ARCHITECTURAL FIXTURES, CABINETRY & APPLIANCE SCHEDULE",
+        "=" * 90,
+    ]
+    if data["total_fixtures"] == 0:
+        lines.append("No fixtures, cabinets, or appliances found.")
+        return "\n".join(lines)
+
+    lines.append(f"Base Cabinets & Vanities:   {data['base_cabinet_lf']:.1f} Lin Ft")
+    lines.append(f"Upper Wall Cabinets:        {data['upper_cabinet_lf']:.1f} Lin Ft")
+    if data["tall_cabinet_count"] > 0:
+        lines.append(f"Tall Pantry Units:          {data['tall_cabinet_count']} Ea")
+    lines.append(f"Total Countertop Area:      {data['total_countertop_sqft']:.1f} Sq Ft")
+    for mat, sqft in sorted(data["countertop_sqft_by_material"].items()):
+        lines.append(f"  - {mat.replace('_', ' ').title()}: {sqft:.1f} sq ft")
+    lines.append("-" * 90)
+    if data["fixture_counts_by_label"]:
+        lines.append("Plumbing Fixtures, Appliances & Mechanical Schedule:")
+        for lbl, cnt in sorted(data["fixture_counts_by_label"].items()):
+            lines.append(f"  - {lbl:<40} {cnt:>4} Ea")
+        lines.append("-" * 90)
     lines.append("=" * 90)
     return "\n".join(lines)

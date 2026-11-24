@@ -50,10 +50,10 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
 
     # ─── Toolset Definitions ───
     TOOLSETS = {
-        "Main": ["pointer", "panning", "draw_walls", "draw_rooms", "add_floor_opening", "add_doors", "add_windows", "add_stair", "add_dimension", "add_dimension_chain", "add_leader", "add_text"],
+        "Main": ["pointer", "panning", "draw_walls", "draw_rooms", "add_floor_opening", "add_doors", "add_windows", "add_stair", "add_fixture", "add_dimension", "add_dimension_chain", "add_leader", "add_text"],
         "Annotation": ["pointer", "panning", "add_polyline", "add_dimension", "add_dimension_chain", "add_leader", "add_text", "add_circle", "add_arc"],
         "Roof": ["pointer", "design_roof", "add_roof_line", "panning", "add_dimension"],
-        "Interior Design": ["pointer", "panning", "add_doors", "add_windows", "add_dimension", "add_text"],  # Placeholder
+        "Interior Design": ["pointer", "panning", "add_fixture", "add_kitchen_layout", "draw_cabinet_run", "add_doors", "add_windows", "add_dimension", "add_text"],
     }
     
     # ─── Toolset Dropdown ───
@@ -84,6 +84,12 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
         "add_windows", f"{config_constants.ADD_WINDOWS_LABEL} (A)")
     tool_buttons["add_stair"] = create_icon_toggle_button(
         "stairs", "Add Stairs (S)")
+    tool_buttons["add_fixture"] = create_icon_toggle_button(
+        "add_fixture", "Place Single Cabinet / Fixture / Appliance (F)")
+    tool_buttons["add_kitchen_layout"] = create_icon_toggle_button(
+        "add_kitchen_layout", "Kitchen & Bath Vanity Layout Generator (K)")
+    tool_buttons["draw_cabinet_run"] = create_icon_toggle_button(
+        "draw_cabinet_run", "Draw Cabinet Run (Shift+K)")
     tool_buttons["add_polyline"] = create_icon_toggle_button(
         "add_polyline", f"Add Polyline (L)")
     tool_buttons["add_dimension"] = create_icon_toggle_button(
@@ -111,6 +117,9 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
     tool_buttons["add_doors"].set_group(tool_buttons["pointer"])
     tool_buttons["add_windows"].set_group(tool_buttons["pointer"])
     tool_buttons["add_stair"].set_group(tool_buttons["pointer"])
+    tool_buttons["add_fixture"].set_group(tool_buttons["pointer"])
+    tool_buttons["add_kitchen_layout"].set_group(tool_buttons["pointer"])
+    tool_buttons["draw_cabinet_run"].set_group(tool_buttons["pointer"])
     tool_buttons["add_polyline"].set_group(tool_buttons["pointer"])
     tool_buttons["add_dimension"].set_group(tool_buttons["pointer"])
     tool_buttons["add_dimension_chain"].set_group(tool_buttons["pointer"])
@@ -130,6 +139,9 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
     tb.append(tool_buttons["add_doors"])
     tb.append(tool_buttons["add_windows"])
     tb.append(tool_buttons["add_stair"])
+    tb.append(tool_buttons["add_fixture"])
+    tb.append(tool_buttons["add_kitchen_layout"])
+    tb.append(tool_buttons["draw_cabinet_run"])
     tb.append(tool_buttons["add_polyline"])
     tb.append(tool_buttons["add_dimension"])
     tb.append(tool_buttons["add_dimension_chain"])
@@ -196,7 +208,8 @@ def create_toolbar(config_constants, callbacks=None, canvas=None):
         
         # List of all toggle tool buttons that can be shown/hidden
         all_tools = ["pointer", "panning", "draw_walls", "draw_rooms", "add_floor_opening",
-                     "add_doors", "add_windows", "add_stair", "add_polyline", 
+                     "add_doors", "add_windows", "add_stair", "add_fixture",
+                     "add_kitchen_layout", "draw_cabinet_run", "add_polyline", 
                      "add_dimension", "add_dimension_chain", "add_leader",
                      "add_text", "add_circle", "add_arc", "design_roof", "add_roof_line"]
         

@@ -17,6 +17,7 @@ from ..Takeoff.building_takeoff import (
     generate_stair_takeoff_report,
     generate_room_area_report,
     generate_wall_finish_report,
+    generate_fixtures_report,
     get_supplier_quote_items,
     export_supplier_quote_txt,
     extract_room_areas,
@@ -90,7 +91,8 @@ def create_estimate_materials_dialog(parent, canvas):
         ("roof", "Roof Material Takeoff"),
         ("stairs", "Stair & Railing Material Takeoff"),
         ("rooms", "Room Areas & Floor Openings"),
-        ("wall_finishes", "Wall Finishes & Baseboards")
+        ("wall_finishes", "Wall Finishes & Baseboards"),
+        ("fixtures", "Cabinets, Countertops & Fixtures"),
     ]
     for key, name in report_types:
         report_combo.append(key, name)
@@ -160,6 +162,8 @@ def create_estimate_materials_dialog(parent, canvas):
             text = generate_room_area_report(canvas)
         elif active_id == "wall_finishes":
             text = generate_wall_finish_report(canvas)
+        elif active_id == "fixtures":
+            text = generate_fixtures_report(canvas)
         else:
             text = "Select a report."
 

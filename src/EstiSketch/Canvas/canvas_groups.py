@@ -43,6 +43,9 @@ class CanvasGroupMixin:
         for opening in getattr(self, "floor_openings", []):
             objects.append(("floor_opening", opening))
 
+        for fixture in getattr(self, "fixtures", []):
+            objects.append(("fixture", fixture))
+
         for item in getattr(self, "doors", []):
             objects.append(("door", item[1]))
 
@@ -281,6 +284,11 @@ class CanvasGroupMixin:
             stairs = getattr(self, "stairs", [])
             if obj in stairs:
                 stairs.remove(obj)
+                removed = True
+        elif type_name == "fixture":
+            fixtures = getattr(self, "fixtures", [])
+            if obj in fixtures:
+                fixtures.remove(obj)
                 removed = True
 
         return removed
@@ -699,6 +707,11 @@ class CanvasGroupMixin:
             pts.extend(getattr(obj, "points", []))
         elif type_name == "floor_opening":
             pts.extend(getattr(obj, "points", []))
+        elif type_name == "fixture":
+            if hasattr(obj, "world_corners"):
+                pts.extend(obj.world_corners(include_overhang=True))
+            else:
+                pts.append((obj.x, obj.y))
         elif type_name == "polyline":
             pts.extend([obj.start, obj.end])
         elif type_name in ("door", "window"):
@@ -825,6 +838,11 @@ class CanvasGroupMixin:
             obj.points = [(p[0] + dx, p[1] + dy) for p in obj.points]
             from ..geometry.room_holes import sync_stair_holes
             sync_stair_holes(self)
+        elif type_name == "fixture":
+            obj.x += dx
+            obj.y += dy
+            from ..fixtures_catalog import resolve_fixture_surface
+            resolve_fixture_surface(obj, getattr(self, "rooms", []))
         elif type_name == "polyline":
             obj.start = (obj.start[0] + dx, obj.start[1] + dy)
             obj.end = (obj.end[0] + dx, obj.end[1] + dy)
@@ -921,6 +939,9 @@ class CanvasGroupMixin:
             obj.points = [_rotate_point(p, cx, cy, cos_a, sin_a) for p in obj.points]
             from ..geometry.room_holes import sync_stair_holes
             sync_stair_holes(self)
+        elif type_name == "fixture":
+            obj.x, obj.y = _rotate_point((obj.x, obj.y), cx, cy, cos_a, sin_a)
+            obj.rotation = (getattr(obj, "rotation", 0.0) + angle_deg) % 360.0
         elif type_name == "polyline":
             obj.start = _rotate_point(obj.start, cx, cy, cos_a, sin_a)
             obj.end = _rotate_point(obj.end, cx, cy, cos_a, sin_a)

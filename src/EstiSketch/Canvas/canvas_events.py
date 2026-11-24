@@ -40,7 +40,8 @@ class CanvasEventsMixin:
         creating_tools = [
             "draw_walls", "draw_rooms", "add_floor_opening", "add_doors", "add_windows", 
             "add_polyline", "add_dimension", "add_dimension_chain", "add_leader", "add_text", 
-            "add_circle", "add_arc", "add_stair", "design_roof", "add_roof_line"
+            "add_circle", "add_arc", "add_stair", "design_roof", "add_roof_line",
+            "add_fixture", "add_kitchen_layout", "draw_cabinet_run",
         ]
         
         if self.tool_mode in creating_tools:
@@ -87,6 +88,12 @@ class CanvasEventsMixin:
             self._handle_arc_click(n_press, x, y)
         elif self.tool_mode == "add_stair":
             self._handle_stair_click(n_press, x, y)
+        elif self.tool_mode == "add_fixture":
+            self._handle_fixture_click(n_press, x, y)
+        elif self.tool_mode == "add_kitchen_layout":
+            self._handle_kitchen_layout_click(n_press, x, y)
+        elif self.tool_mode == "draw_cabinet_run":
+            self._handle_cabinet_run_click(n_press, x, y)
         elif self.tool_mode == "calibrate_blueprint":
             self._handle_calibration_click(n_press, x, y)
 
@@ -313,6 +320,19 @@ class CanvasEventsMixin:
                                 pass
                             return
 
+        if len(self.selected_items) == 1 and self.selected_items[0].get("type") == "fixture":
+            fix = self.selected_items[0]["object"]
+            if not self.is_object_on_locked_layer(fix) and hasattr(self, "get_fixture_rotation_handle_device"):
+                h_dev = self.get_fixture_rotation_handle_device(fix)
+                if h_dev and math.hypot(x - h_dev[0], y - h_dev[1]) < max(self.handle_radius, 12):
+                    self.rotating_fixture = fix
+                    self._rotating_fixture_start = fix.rotation
+                    try:
+                        self.save_state()
+                    except Exception:
+                        pass
+                    return
+
         # If no handle was pressed, proceed with normal click selection
         self._handle_pointer_click(gesture, n_press, x, y)
 
@@ -418,6 +438,10 @@ class CanvasEventsMixin:
             self.queue_draw()
         if getattr(self, "_compass_hover", False):
             self._compass_hover = False
+            self.queue_draw()
+        if getattr(self, "fixture_ghost", None) is not None or getattr(self, "layout_ghost_fixtures", None):
+            self.fixture_ghost = None
+            self.layout_ghost_fixtures = []
             self.queue_draw()
 
     def on_motion(
@@ -579,6 +603,12 @@ class CanvasEventsMixin:
 
         elif self.tool_mode == "add_stair":
             self._handle_stair_motion(x, y)
+        elif self.tool_mode == "add_fixture":
+            self._handle_fixture_motion(x, y)
+        elif self.tool_mode == "add_kitchen_layout":
+            self._handle_kitchen_layout_motion(x, y)
+        elif self.tool_mode == "draw_cabinet_run":
+            self._handle_cabinet_run_motion(x, y)
         elif self.tool_mode == "add_roof_line":
             self._handle_roof_line_motion(x, y)
         elif self.tool_mode == "calibrate_blueprint":

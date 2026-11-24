@@ -2,7 +2,7 @@ import base64
 import json
 import xml.etree.ElementTree as ET
 from .Canvas.utils import generate_identifier
-from .components import Wall, Room, FloorOpening, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair, BackgroundImage, DimensionChain, LeaderCallout, ObjectGroup
+from .components import Wall, Room, FloorOpening, Fixture, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair, BackgroundImage, DimensionChain, LeaderCallout, ObjectGroup
 from .geometry.room_holes import sync_stair_holes
 from .roof_components import Roof, RoofEdge, RoofLine
 
@@ -244,6 +244,37 @@ def save_project(canvas, window_width, window_height, filepath):
         pts_elem = ET.SubElement(fo_elem, "Points")
         for pt in getattr(fo, "points", []):
             ET.SubElement(pts_elem, "Point", x=str(pt[0]), y=str(pt[1]))
+
+    # Save Fixtures, Cabinetry & Appliances
+    fixtures_elem = ET.SubElement(root, "Fixtures")
+    for fx in getattr(canvas, "fixtures", []):
+        fx_elem = ET.SubElement(fixtures_elem, "Fixture")
+        fx_elem.set("identifier", getattr(fx, "identifier", ""))
+        _save_obj_meta(fx_elem, fx)
+        fx_elem.set("symbol_type", getattr(fx, "symbol_type", "base_cabinet"))
+        fx_elem.set("category", getattr(fx, "category", ""))
+        fx_elem.set("x", str(float(getattr(fx, "x", 0.0))))
+        fx_elem.set("y", str(float(getattr(fx, "y", 0.0))))
+        fx_elem.set("width", str(float(getattr(fx, "width", 24.0))))
+        fx_elem.set("depth", str(float(getattr(fx, "depth", 24.0))))
+        fx_elem.set("height", str(float(getattr(fx, "height", 34.5))))
+        fx_elem.set("rotation", str(float(getattr(fx, "rotation", 0.0))))
+        fx_elem.set("elevation", str(float(getattr(fx, "elevation", 0.0))))
+        fx_elem.set("mount_surface", getattr(fx, "mount_surface", "auto"))
+        fx_elem.set("base_elevation", str(float(getattr(fx, "base_elevation", 0.0))))
+        fx_elem.set("has_countertop", str(bool(getattr(fx, "has_countertop", False))))
+        fx_elem.set("countertop_overhang", str(float(getattr(fx, "countertop_overhang", 0.0))))
+        fx_elem.set("countertop_thickness", str(float(getattr(fx, "countertop_thickness", 1.5))))
+        fx_elem.set("countertop_material", getattr(fx, "countertop_material", "quartz"))
+        fx_elem.set("has_backsplash", str(bool(getattr(fx, "has_backsplash", True))))
+        fx_elem.set("door_swing", getattr(fx, "door_swing", "left"))
+        fx_elem.set("layer_id", getattr(fx, "layer_id", "") or "")
+        fill_hex = _rgb_to_hex(getattr(fx, "fill_color", None))
+        if fill_hex:
+            fx_elem.set("fill_color", fill_hex)
+        ct_hex = _rgb_to_hex(getattr(fx, "countertop_color", None))
+        if ct_hex:
+            fx_elem.set("countertop_color", ct_hex)
 
     # Save doors. In addition to their properties and attachment ratio, also
     # save a wall reference.
@@ -1446,6 +1477,40 @@ def open_project(canvas, filepath):
             _load_obj_meta(fo_elem, fo)
             canvas.floor_openings.append(fo)
 
+    # --- Restore Fixtures, Cabinetry & Appliances ---
+    if hasattr(canvas, "fixtures"):
+        canvas.fixtures.clear()
+    else:
+        canvas.fixtures = []
+    fx_root = root.find("Fixtures")
+    if fx_root is not None:
+        for fx_elem in fx_root.findall("Fixture"):
+            fx = Fixture(
+                symbol_type=fx_elem.get("symbol_type", "base_cabinet"),
+                x=_get_attr_float(fx_elem, "x", 0.0),
+                y=_get_attr_float(fx_elem, "y", 0.0),
+                width=_get_attr_float(fx_elem, "width", 24.0),
+                depth=_get_attr_float(fx_elem, "depth", 24.0),
+                height=_get_attr_float(fx_elem, "height", 34.5),
+                rotation=_get_attr_float(fx_elem, "rotation", 0.0),
+                elevation=_get_attr_float(fx_elem, "elevation", 0.0),
+                mount_surface=fx_elem.get("mount_surface", "auto"),
+                base_elevation=_get_attr_float(fx_elem, "base_elevation", 0.0),
+                has_countertop=fx_elem.get("has_countertop", "False") == "True",
+                countertop_overhang=_get_attr_float(fx_elem, "countertop_overhang", 0.0),
+                countertop_thickness=_get_attr_float(fx_elem, "countertop_thickness", 1.5),
+                countertop_material=fx_elem.get("countertop_material", "quartz"),
+                has_backsplash=fx_elem.get("has_backsplash", "True") == "True",
+                door_swing=fx_elem.get("door_swing", "left"),
+                fill_color=_hex_to_rgb(fx_elem.get("fill_color", "")),
+                countertop_color=_hex_to_rgb(fx_elem.get("countertop_color", "")),
+                category=fx_elem.get("category", ""),
+                identifier=fx_elem.get("identifier", ""),
+                layer_id=fx_elem.get("layer_id", "") or "",
+            )
+            _load_obj_meta(fx_elem, fx)
+            canvas.fixtures.append(fx)
+
     # --- Restore Holes (derived) ---
     # Saved <Holes> only record the source link; geometry is recomputed from
     # the sources, so holes whose source no longer exists simply vanish.
@@ -1491,6 +1556,7 @@ def open_project(canvas, filepath):
         "arcs",
         "stairs",
         "floor_openings",
+        "fixtures",
         "blueprints",
         "groups",
     ):

@@ -1,7 +1,6 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Architectural Fixtures & Cabinetry 2D Symbols (Kitchen base/wall cabinets, bathroom fixtures, major appliances).
 - [ ] Real printer support: add a "Print..." button to the Print dialog that sends the sheets to a physical printer via `Gtk.PrintOperation` (system print dialog, paper/printer selection), reusing `print_renderer.render_page` so output matches the preview. Needs testing on actual hardware (including large-format plotters and paper-size mapping).
 - [ ] Print line weights: lines currently print at a constant ~2 pt regardless of drawing scale. Add a line-weight setting (per-object-type pen weights / global multiplier) in the Print dialog so plots look right at any scale.
 - [ ] Print tiling: a drawing larger than the sheet at a fixed scale is clipped. Add an option to tile it across multiple pages (with overlap/registration marks and page numbering), and show the tile grid in the preview.
@@ -18,8 +17,6 @@
 - [ ] Beams (load bearing, decorative, cantilever, etc...) (should be able to specify material and dimensions or let it auto calculate dimensions based on load)
 - [ ] Ceiling types (dropped, vaulted, cathedral)
 - [ ] Railings/Guardrails (deck, stair, balcony)
-- [ ] Add Bath Vanity / Kitchen Tool (Should also take care of countertops) (draw it like you would a wall? Or should we just select kitchen or bath type from a list [One-wall kitchen, Galley kitchen, L-shaped Kitchen, U-shaped Kitchen, G-shaped Kitchen, Peninsula Kitchen, Island Kitchen, ...etc] and then click where we want it to go? Once done we should be able to click on the cabinets to edit them individually.) (We also need options for bathroom vanities [Single, Double, ...etc].) Cabinets should cover whatever floor texture is under them and then the countertop should be placed on top of the cabinets. Appliances should be able to be placed on top of the floor (and match its height) or they should be able to be placed on top of a concrete slab (and match its height if there is one. I would like there to be a height property for cabinets, like there is for rooms and what not.)
-- [ ] Appliances library (fridges, stoves, sinks, dishwashers, ovens, range hoods, microwaves, washers, dryers, water heaters, furnaces, air conditioners, etc...)
 - [ ] Moldings (crown, base, chair rail, casing)
 
 ### Dimensions & Annotations
@@ -106,7 +103,6 @@
 
 ### Electrical/Plumbing/HVAC
 - [ ] Electrical symbols (outlets, switches, lights, panels)
-- [ ] Plumbing fixtures (sinks, toilets, showers, tubs)
 - [ ] HVAC (vents, returns, units)
 - [ ] Circuit calculations
 - [ ] Pipe routing
@@ -122,9 +118,7 @@
 - [ ] Grading (elevation changes)
 
 ### Kitchen/Bath Specialized
-- [ ] Create Furniture & Fixture library
-- [ ] Cabinet designer (custom cabinets)
-- [ ] Countertop templates
+- [ ] Living/bedroom furniture library (sofas, beds, dining tables, chairs — architectural kitchen/bath fixtures & appliances done, see Done)
 - [ ] Backsplash patterns
 - [ ] Tile layouts
 
@@ -154,6 +148,7 @@
 - [ ] Trying to move multiple objects at the same time does not always work properly.
 
 ## Done ✅ (latest first)
+- [x] Architectural Fixtures, Cabinetry, Countertops & Appliances (SH3D parity Phase 5): Added 30-symbol procedural `Fixture` catalog (`fixtures_catalog.py`, `components.py`) covering kitchen base/upper/tall/corner cabinets, bath vanities & plumbing fixtures (toilets, sinks, bathtubs, showers, W/D), major appliances, and HVAC/utility units; 3-pass AIA Cairo renderer (`render_fixtures.py`) with opaque base floor-pattern masking, overhung countertops, drop-in sinks/cooktops, and dashed uppers; surface mounting & elevation (`floor` vs `slab` `slab_thickness` auto-resolve); straight & arc wall snapping and 15°-snapped handle rotation; searchable `FixtureBrowserDialog`, 9-preset `KitchenLayoutDialog` (`one_wall`, `galley`, `l_shaped`, `u_shaped`, `g_shaped`, `peninsula`, `island`, `vanity_single`, `vanity_double`), and 2-click `draw_cabinet_run` tool producing individually-editable `Fixture` items; Properties dock tab, Layers panel filtering/badges, `<Fixtures>` XML save/load, and material takeoff / supplier quotes (`extract_fixtures_takeoff`, countertop sq ft + waste, linear feet of cabinets, fixture counts) (2026-11-23).
 - [x] Arc wall snapping & tangent cuts (SH3D parity Phase 1): added pure-Python [arc_wall.py](file:///home/andrew/Documents/Python_Projects/EstiSketch/src/EstiSketch/geometry/arc_wall.py) geometry helpers; `SnappingManager` support for curved-wall true arc midpoints, concentric face edges, line-arc & arc-arc intersections, tangent-from-point & tangent-continuation snapping (with cyan guide in `draw_snap_indicator`), and radial perpendicular snapping; fixed CW & 0/2π seam placement & dragging in `_locate_on_wall` / `dragging_door_window`; added annular-sector + radial-jamb tangent cutouts in `_draw_opening_cutout` and curved per-side wall finish/baseboard arcs in `_draw_wall_side_accents`; tests in `tests/test_arc_wall_snapping_and_cuts.py` (2026-11-23)
 - [x] Manual Floor Opening tool (Phase 4 Room Cutouts follow-up): added first-class `FloorOpening` component (`opening`, `atrium`, `lightwell`, `courtyard`, `elevator`, `shaft`, `double_height`), ear-clip triangulation & concave/convex clipping in `geometry/room_holes.py` (`compute_opening_holes`, `triangulate_polygon`, `sync_stair_holes`), toolbar button (`O`) + hints + rubber-band polygon tool (`Canvas/events_room.py`), selection/vertex/drag/group/undo-redo integration, architectural X-cross + label rendering (`draw_floor_openings`), `FloorOpeningPropertiesWidget` (including `ceiling_only` toggle), `LayersPanel` Objects explorer integration, `<FloorOpenings>` XML persistence, and tests in `tests/test_floor_openings.py` (2026-11-23)
 - [x] Per-side wall finishes & baseboards (SH3D parity Phase 4): added `left_finish`/`right_finish`, `left_color`/`right_color`, and `left_baseboard`/`right_baseboard` on `Wall`, 2D side color & baseboard trim indicators in `draw_walls`, `WallPropertiesWidget` controls + Swap Left/Right, XML persistence, `extract_wall_finishes` / `generate_wall_finish_report` + supplier quote lines, and tests in `tests/test_wall_finishes.py` (2026-11-23)

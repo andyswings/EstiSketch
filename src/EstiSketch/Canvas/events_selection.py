@@ -1212,6 +1212,24 @@ class CanvasSelectionMixin:
                      self.update_hint("Click to select stair")
                      break
 
+        # Check for click inside fixture / cabinet / appliance (upper/countertop first) before floor openings and rooms
+        if selected_item is None:
+            model_pt = self.device_to_model(x, y, pixels_per_inch)
+            mx, my = model_pt
+            ordered = sorted(
+                getattr(self, "fixtures", []),
+                key=lambda f: (2 if getattr(f, "is_upper", False) else (1 if getattr(f, "mount_surface", "") == "countertop" else 0)),
+                reverse=True,
+            )
+            for fix in ordered:
+                if self.is_object_on_locked_layer(fix) or not self.is_object_on_visible_layer(fix):
+                    continue
+                if hasattr(fix, "point_inside") and fix.point_inside(mx, my):
+                    selected_item = {"type": "fixture", "object": fix}
+                    from ..Resources.tool_hints import TOOL_HINTS
+                    self.update_hint(TOOL_HINTS["select_fixture"])
+                    break
+
         # Check for click inside manual floor opening before checking rooms beneath it
         if selected_item is None:
             for opening in getattr(self, "floor_openings", []):
@@ -1303,6 +1321,8 @@ class CanvasSelectionMixin:
                   self.update_hint(TOOL_HINTS["select_room"])
              elif selected_item["type"] in ("floor_opening", "opening_vertex"):
                   self.update_hint(TOOL_HINTS["select_floor_opening"])
+             elif selected_item["type"] == "fixture":
+                  self.update_hint(TOOL_HINTS["select_fixture"])
              else:
                   self.update_hint(TOOL_HINTS["select_object"])
         elif not selected_item:
@@ -1354,6 +1374,7 @@ class CanvasSelectionMixin:
         # If we already entered handle-editing or group-rotating on press, don't overwrite
         # box_select_start.
         if getattr(self, "rotating_group", None) or \
+           getattr(self, "rotating_fixture", None) or \
            (getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None)) or \
            (getattr(self, "editing_circle", None) and getattr(self, "editing_circle_handle", None)) or \
            (getattr(self, "editing_arc", None) and getattr(self, "editing_arc_handle", None)) or \
@@ -1718,8 +1739,33 @@ class CanvasSelectionMixin:
                         self.opening_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
                         self.box_selecting = False
 
+                elif item["type"] == "fixture" and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_floor_opening", None) and not getattr(self, "dragging_opening_vertices", None) and not getattr(self, "dragging_fixture", None) and not getattr(self, "dragging_fixtures", None):
+                    sel_fixtures = [
+                        it["object"]
+                        for it in self.selected_items
+                        if it.get("type") == "fixture" and not self.is_object_on_locked_layer(it["object"])
+                    ]
+                    if len(sel_fixtures) > 1:
+                        self.dragging_fixture = None
+                        self.dragging_fixtures = [(f, f.x, f.y, f.rotation) for f in sel_fixtures]
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                        self.fixture_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                        self.box_selecting = False
+                    elif len(sel_fixtures) == 1:
+                        fix = sel_fixtures[0]
+                        self.dragging_fixture = fix
+                        self.dragging_fixtures = None
+                        self.dragging_fixture_start_pos = (fix.x, fix.y, fix.rotation)
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                        self.fixture_drag_start_model = self.device_to_model(start_x, start_y, pixels_per_inch)
+                        self.box_selecting = False
+
                 # Check for circle dragging
-                elif item["type"] == "circle" and not getattr(self, "editing_circle", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_floor_opening", None) and not getattr(self, "dragging_opening_vertices", None):
+                elif item["type"] == "circle" and not getattr(self, "editing_circle", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_floor_opening", None) and not getattr(self, "dragging_opening_vertices", None) and not getattr(self, "dragging_fixture", None):
                     if not self.is_object_on_locked_layer(item["object"]):
                         self.dragging_circle = item["object"]
                         self.drag_start_x = start_x
@@ -1732,7 +1778,7 @@ class CanvasSelectionMixin:
                         self.box_selecting = False
 
                 # Check for arc dragging
-                elif item["type"] == "arc" and not getattr(self, "editing_arc", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_floor_opening", None) and not getattr(self, "dragging_opening_vertices", None) and not getattr(self, "dragging_circle", None):
+                elif item["type"] == "arc" and not getattr(self, "editing_arc", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_floor_opening", None) and not getattr(self, "dragging_opening_vertices", None) and not getattr(self, "dragging_fixture", None) and not getattr(self, "dragging_circle", None):
                     if not self.is_object_on_locked_layer(item["object"]):
                         self.dragging_arc = item["object"]
                         self.drag_start_x = start_x
@@ -1744,7 +1790,7 @@ class CanvasSelectionMixin:
                         self.box_selecting = False
 
                 # Check for stair dragging
-                elif item["type"] == "stair" and not getattr(self, "editing_stair", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_floor_opening", None) and not getattr(self, "dragging_opening_vertices", None) and not getattr(self, "dragging_circle", None) and not getattr(self, "dragging_arc", None):
+                elif item["type"] == "stair" and not getattr(self, "editing_stair", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_floor_opening", None) and not getattr(self, "dragging_opening_vertices", None) and not getattr(self, "dragging_fixture", None) and not getattr(self, "dragging_circle", None) and not getattr(self, "dragging_arc", None):
                     if not self.is_object_on_locked_layer(item["object"]):
                         self.dragging_stair = item["object"]
                         self.drag_start_x = start_x
@@ -1754,7 +1800,7 @@ class CanvasSelectionMixin:
                         self.box_selecting = False
 
                 # Check for roof line dragging
-                elif item["type"] == "roof_line" and not getattr(self, "editing_roof_line", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_floor_opening", None) and not getattr(self, "dragging_opening_vertices", None) and not getattr(self, "dragging_circle", None) and not getattr(self, "dragging_arc", None) and not getattr(self, "dragging_stair", None):
+                elif item["type"] == "roof_line" and not getattr(self, "editing_roof_line", None) and not getattr(self, "dragging_door_window", None) and not getattr(self, "dragging_wall", None) and not getattr(self, "dragging_vertices", None) and not getattr(self, "dragging_dimensions", None) and not getattr(self, "dragging_polylines", None) and not getattr(self, "dragging_room", None) and not getattr(self, "dragging_floor_opening", None) and not getattr(self, "dragging_opening_vertices", None) and not getattr(self, "dragging_fixture", None) and not getattr(self, "dragging_circle", None) and not getattr(self, "dragging_arc", None) and not getattr(self, "dragging_stair", None):
                     self.dragging_roof_lines = []
                     pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
                     model_x, model_y = self.device_to_model(start_x, start_y, pixels_per_inch)
@@ -2080,6 +2126,27 @@ class CanvasSelectionMixin:
             self.queue_draw()
             return
 
+        if getattr(self, "rotating_fixture", None):
+            self.rotating_fixture = None
+            self.dragging_fixture = None
+            self.dragging_fixtures = None
+            self.save_state()
+            self.emit("selection-changed", self.selected_items)
+            self.emit("content-changed")
+            self.queue_draw()
+            return
+
+        if getattr(self, "dragging_fixtures", None) or getattr(self, "dragging_fixture", None):
+            self.dragging_fixture = None
+            self.dragging_fixtures = None
+            self.dragging_fixture_start_pos = None
+            self.fixture_drag_start_model = None
+            self.save_state()
+            self.emit("selection-changed", self.selected_items)
+            self.emit("content-changed")
+            self.queue_draw()
+            return
+
         if getattr(self, "dragging_floor_opening", None):
             self.dragging_floor_opening = None
             self.dragging_floor_opening_original_points = None
@@ -2196,6 +2263,13 @@ class CanvasSelectionMixin:
                     continue
                 if any((x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2) for pt in opening.points):
                     new_selection.append({"type": "floor_opening", "object": opening})
+
+            for fix in getattr(self, "fixtures", []):
+                if self.is_object_on_locked_layer(fix) or not self.is_object_on_visible_layer(fix):
+                    continue
+                if hasattr(fix, "world_corners"):
+                    if any((x1 <= pt[0] <= x2) and (y1 <= pt[1] <= y2) for pt in fix.world_corners(include_overhang=True)):
+                        new_selection.append({"type": "fixture", "object": fix})
 
             for room in self.rooms:
                 if self.is_object_on_locked_layer(
@@ -2653,6 +2727,8 @@ class CanvasSelectionMixin:
             item for item in self.selected_items if item.get("type") == "roof_line"]
         selected_roofs = [
             item for item in self.selected_items if item.get("type") == "roof"]
+        selected_fixtures = [
+            item for item in self.selected_items if item.get("type") == "fixture"]
 
         # Create a popover to serve as the context menu
         parent_popover = Gtk.Popover()
@@ -3135,6 +3211,60 @@ class CanvasSelectionMixin:
                     self.solve_active_roof(selected_roofs[0]["object"]),
                     parent_popover.popdown()))
             box.append(solve_roof_btn)
+
+        if selected_fixtures:
+            fix_sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            box.append(fix_sep)
+
+            def _rotate_sel_fixtures(delta_deg: float):
+                for item in selected_fixtures:
+                    fx = item["object"]
+                    if not self.is_object_on_locked_layer(fx):
+                        fx.rotation = (float(fx.rotation) + delta_deg) % 360.0
+                self.save_state()
+                self.emit("selection-changed", self.selected_items)
+                self.emit("content-changed")
+                self.queue_draw()
+                parent_popover.popdown()
+
+            def _snap_sel_fixtures():
+                from ..fixtures_catalog import resolve_fixture_surface, snap_fixture_to_walls
+                walls = self._get_visible_walls() if hasattr(self, "_get_visible_walls") else []
+                rooms = getattr(self, "rooms", [])
+                for item in selected_fixtures:
+                    fx = item["object"]
+                    if not self.is_object_on_locked_layer(fx):
+                        sx, sy, rot, _ = snap_fixture_to_walls(
+                            fx.x, fx.y, fx.width, fx.depth, walls,
+                            snap_dist=36.0, current_rotation=fx.rotation, symbol_type=fx.symbol_type,
+                        )
+                        fx.x, fx.y, fx.rotation = sx, sy, rot
+                        resolve_fixture_surface(fx, rooms)
+                self.save_state()
+                self.emit("selection-changed", self.selected_items)
+                self.emit("content-changed")
+                self.queue_draw()
+                parent_popover.popdown()
+
+            rot_cw_btn = Gtk.Button(label="Rotate 90° CW")
+            rot_cw_btn.connect("clicked", lambda _b: _rotate_sel_fixtures(90.0))
+            box.append(rot_cw_btn)
+
+            rot_ccw_btn = Gtk.Button(label="Rotate 90° CCW")
+            rot_ccw_btn.connect("clicked", lambda _b: _rotate_sel_fixtures(-90.0))
+            box.append(rot_ccw_btn)
+
+            snap_wall_btn = Gtk.Button(label="Snap to Nearest Wall")
+            snap_wall_btn.connect("clicked", lambda _b: _snap_sel_fixtures())
+            box.append(snap_wall_btn)
+
+            del_fix_btn = Gtk.Button(label="Delete Selected")
+            del_fix_btn.connect(
+                "clicked", lambda _b: (
+                    self.delete_selected(),
+                    self.save_state(),
+                    parent_popover.popdown()))
+            box.append(del_fix_btn)
 
         # Position the popover at the click location
         rect = Gdk.Rectangle()
@@ -3702,6 +3832,14 @@ class CanvasSelectionMixin:
                 if dist < fixed_threshold:
                     candidates.append({"type": "wall", "object": wall})
         
+        # Check Fixtures
+        model_pt = self.device_to_model(click_pt[0], click_pt[1], pixels_per_inch)
+        for fix in getattr(self, "fixtures", []):
+            if self.is_object_on_locked_layer(fix) or not self.is_object_on_visible_layer(fix):
+                continue
+            if hasattr(fix, "point_inside") and fix.point_inside(model_pt[0], model_pt[1]):
+                candidates.append({"type": "fixture", "object": fix})
+
         # Check Floor Openings
         for opening in getattr(self, "floor_openings", []):
             if self.is_object_on_locked_layer(opening) or not self.is_object_on_visible_layer(opening):
