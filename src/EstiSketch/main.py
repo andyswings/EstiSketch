@@ -788,7 +788,12 @@ class EstimatorApp(Gtk.Application):
         name = ""
         if self.current_filepath:
             name = os.path.splitext(os.path.basename(self.current_filepath))[0]
-        print_dialog.show_print_dialog(self.window, self.canvas, name)
+        print_dialog.show_print_dialog(
+            self.window,
+            self.canvas,
+            name,
+            on_settings_changed=lambda: self.update_dirty_state(True),
+        )
 
     def on_settings_clicked(self, button: Gtk.Button, *args) -> None:
         """

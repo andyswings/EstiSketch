@@ -94,6 +94,12 @@ class CanvasArea(Gtk.DrawingArea,
         self.show_all_levels = False
         # Takeoff setting: also cut the lower level's ceiling under stairs
         self.cut_lower_ceiling_under_stairs = False
+        # Compass rose / north azimuth (degrees clockwise from straight up)
+        self.north_angle = 0.0
+        self.dragging_compass = False
+        self._compass_hover = False
+        self._compass_drag_moved = False
+        self._compass_click_consumed = False
 
         self.layers = [Layer(
             id=default_layer_id,
@@ -301,6 +307,9 @@ class CanvasArea(Gtk.DrawingArea,
     def clear(self):
         """Clear all drawing elements from the canvas."""
         self.print_settings = None
+        self.north_angle = 0.0
+        self.dragging_compass = False
+        self._compass_hover = False
         self.walls = []
         self.wall_sets = []
         self.rooms = []

@@ -15,6 +15,7 @@ from typing import List, Optional, Tuple
 import cairo
 
 from .print_settings import PrintSettings, SCALES, FIT_SCALE
+from ..Canvas.compass import draw_north_arrow
 
 Rect = Tuple[float, float, float, float]  # x, y, w, h
 Bounds = Tuple[float, float, float, float]  # x0, y0, x1, y1 (model inches)
@@ -167,12 +168,15 @@ def _cell(cr, rect: Rect, label: str, value: str, value_size: float, bold: bool 
 
 
 def draw_title_block(cr, rect: Rect, settings: PrintSettings, sheet_title: str,
-                     sheet_number: str, scale_text: str) -> None:
+                     sheet_number: str, scale_text: str,
+                     north_angle: float = 0.0) -> None:
     tb = settings.title_block
     x, y, w, h = rect
     date = tb.date.strip() or datetime.date.today().strftime("%b %d, %Y")
-    c1, c2 = w * 0.45, w * 0.30
-    c3 = w - c1 - c2
+    c_north = min(h, w * 0.10)
+    rem = w - c_north
+    c1, c2 = rem * 0.45, rem * 0.30
+    c3 = rem - c1 - c2
     big = h * 0.34
 
     # Column 1: company / project / address
@@ -197,6 +201,21 @@ def draw_title_block(cr, rect: Rect, settings: PrintSettings, sheet_title: str,
     _cell(cr, (x3, y, c3, t_h), "Sheet", sheet_title, h * 0.24, bold=True)
     _cell(cr, (x3, y + t_h, c3 / 2, h - t_h), "Sheet No.", sheet_number, h * 0.24, bold=True)
     _cell(cr, (x3 + c3 / 2, y + t_h, c3 / 2, h - t_h), "Scale", scale_text, h * 0.14)
+
+    # Column 4: North arrow cell
+    nx, ny = x + rem, y
+    _cell(cr, (nx, ny, c_north, h), "North", "", h * 0.14)
+    label_h = max(4.0, min(7.0, h * 0.18)) + 3.0
+    avail_h = max(8.0, h - label_h - 3.0)
+    arrow_r = min(c_north - 8.0, avail_h) * 0.46
+    draw_north_arrow(
+        cr,
+        nx + c_north / 2.0,
+        ny + label_h + avail_h / 2.0,
+        arrow_r,
+        north_angle,
+        monochrome=True,
+    )
 
     # Heavier outer outline
     cr.set_source_rgb(0, 0, 0)
@@ -247,7 +266,8 @@ def render_page(cr, canvas, settings: PrintSettings, level, page_index: int,
             title = f"{tb.drawing_title.strip()} - {level.name}"
         number = f"{tb.sheet_prefix}-{page_index + 1}" if tb.sheet_prefix else str(page_index + 1)
         draw_title_block(cr, layout.title_rect, settings, title, number,
-                         scale_label(settings, scale))
+                         scale_label(settings, scale),
+                         north_angle=float(getattr(canvas, "north_angle", 0.0)))
     return layout
 
 

@@ -1287,6 +1287,12 @@ class CanvasSelectionMixin:
         self.drag_start_x = start_x
         self.drag_start_y = start_y
 
+        if getattr(self, "dragging_compass", False) or self._hit_test_compass(start_x, start_y):
+            self.dragging_compass = True
+            self._compass_drag_moved = False
+            self._compass_click_consumed = True
+            return
+
         if self.tool_mode in ("move_blueprint", "straighten_blueprint"):
             self._blueprint_drag_begin(start_x, start_y)
             return
@@ -1706,6 +1712,16 @@ class CanvasSelectionMixin:
         Returns:
             None
         """
+
+        if getattr(self, "dragging_compass", False):
+            self.dragging_compass = False
+            self._compass_click_consumed = True
+            if getattr(self, "_compass_drag_moved", False):
+                self._compass_drag_moved = False
+                self.save_state()
+                self.emit('content-changed')
+            self.queue_draw()
+            return
 
         if self.tool_mode in ("move_blueprint", "straighten_blueprint"):
             self._blueprint_drag_end(offset_x, offset_y)

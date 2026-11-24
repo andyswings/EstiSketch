@@ -6,12 +6,10 @@
 - [ ] Floor & ceiling texture patterns (SH3D parity Phase 4): procedural Cairo fills for wood plank, tile grid (12"/18"/24"), herringbone and concrete stipple, with pattern rotation and scale per room.
 - [ ] Per-side wall finishes (SH3D parity Phase 4): `Wall.left_finish/right_finish`, `left_color/right_color`, `left_baseboard/right_baseboard`; takeoff computes separate interior/exterior surface areas and baseboard linear footage.
 - [ ] Level onion-skinning ghosting (SH3D parity Phase 6): show adjacent level (N-1/N+1) as a muted background trace (`ghost_level_id`, `ghost_opacity` default 25%).
-- [ ] Compass rose / north azimuth (SH3D parity Phase 6): `canvas.north_angle`, draggable north arrow on canvas, saved in project file, used in the print title block.
 - [ ] Arc wall snapping & tangent cuts (SH3D parity Phase 1).
 - [ ] Real printer support: add a "Print..." button to the Print dialog that sends the sheets to a physical printer via `Gtk.PrintOperation` (system print dialog, paper/printer selection), reusing `print_renderer.render_page` so output matches the preview. Needs testing on actual hardware (including large-format plotters and paper-size mapping).
 - [ ] Print line weights: lines currently print at a constant ~2 pt regardless of drawing scale. Add a line-weight setting (per-object-type pen weights / global multiplier) in the Print dialog so plots look right at any scale.
 - [ ] Print tiling: a drawing larger than the sheet at a fixed scale is clipped. Add an option to tile it across multiple pages (with overlap/registration marks and page numbering), and show the tile grid in the preview.
-- [ ] Print settings dirty state: changing print settings does not mark the project as having unsaved changes (they are only saved on the next save). Mark the project dirty when the Print dialog is closed with changed settings.
 - [ ] Add all build files for building windows and linux packages to the .gitignore file and remove them from the online repo.
 
 
@@ -163,6 +161,8 @@
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Compass rose / north azimuth (SH3D parity Phase 6): `canvas.north_angle`, interactive draggable top-right compass overlay in `Canvas/compass.py` & `canvas_draw.py` (double-click resets to 0°), undo/redo & XML persistence, and North cell in the print/SVG title block; tests in `tests/test_compass_rose.py` & `tests/test_printing.py` (2026-11-23)
+- [x] Print settings dirty state: `PrintDialog` now checks for changed settings on close and invokes `on_settings_changed` to mark the project dirty in `main.py`; tested in `tests/test_printing.py` (2026-11-23)
 - [x] Scaled Vector SVG Export (SH3D parity Phase 7): added `export_svg` in `Printing/print_renderer.py` using `cairo.SVGSurface` (point physical units, single-level or per-level named files, reusing `render_page` scales and title blocks), "Export SVG..." button in `PrintDialog`, updated File menu label, and tests in `tests/test_printing.py` (2026-11-23)
 - [x] Room area takeoff follow-ups: added `FLOORING_WASTE_PCT`, `CEILING_WASTE_PCT`, and `CONCRETE_WASTE_PCT` settings (with controls in Manage Materials), flooring by `floor_type`, ceiling drywall sheets, and ready-mix slab concrete lines in `get_supplier_quote_items`, room-area summary rows in CSV/TXT supplier quote exports, and tests in `tests/test_room_holes.py` (2026-11-23)
 - [x] Room hole UI controls: "Opening clearance (in)" spinner in the stair properties panel and a project-level "Cut lower-level ceiling under stairs" switch in Settings (saved in the project file) (2026-11-23)

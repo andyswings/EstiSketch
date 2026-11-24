@@ -223,6 +223,21 @@ class EditEventsMixin:
         """
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
 
+        if getattr(self, "dragging_compass", False):
+            cur_x = self.drag_start_x + offset_x
+            cur_y = self.drag_start_y + offset_y
+            cx, cy, _ = self._compass_geometry()
+            if math.hypot(cur_x - cx, cur_y - cy) > 3.0:
+                self.north_angle = float(
+                    round(math.degrees(math.atan2(cur_x - cx, -(cur_y - cy)))) % 360
+                )
+                self._compass_drag_moved = True
+                self.update_hint(
+                    f"North Azimuth: {int(self.north_angle)}° (double-click compass to reset)"
+                )
+                self.queue_draw()
+            return
+
         if self.tool_mode in ("move_blueprint", "straighten_blueprint"):
             self._blueprint_drag_update(offset_x, offset_y)
             return

@@ -131,3 +131,40 @@ def test_print_dialog_has_export_svg_button():
     dlg = PrintDialog(None, canvas, "Test")
     assert dlg.export_svg_btn.get_label() == "Export SVG..."
     dlg.destroy()
+
+
+def test_print_dialog_dirty_state_only_on_change():
+    from EstiSketch.Printing.print_dialog import PrintDialog
+
+    canvas = _load_canvas()
+    changes = []
+    dlg = PrintDialog(None, canvas, "Test", on_settings_changed=lambda: changes.append(True))
+    dlg._on_close()
+    assert changes == []
+    assert canvas.print_settings is None
+    dlg.destroy()
+
+    dlg2 = PrintDialog(None, canvas, "Test", on_settings_changed=lambda: changes.append(True))
+    dlg2.border_chk.set_active(not dlg2.border_chk.get_active())
+    dlg2._on_close()
+    assert changes == [True]
+    assert isinstance(canvas.print_settings, dict)
+    assert canvas.print_settings["draw_border"] is False
+    dlg2.destroy()
+
+
+def test_title_block_includes_north_arrow_svg(tmp_path):
+    import xml.etree.ElementTree as ET
+
+    canvas = _load_canvas()
+    for angle in (0.0, 45.0, 180.0, 270.0):
+        canvas.north_angle = angle
+        s = PrintSettings(paper="Arch D (24 x 36 in)")
+        s.title_block.enabled = True
+        s.title_block.project_name = "North Test"
+        out = tmp_path / f"north_{int(angle)}.svg"
+        pr.export_svg(canvas, s, str(out))
+        raw = out.read_bytes()
+        root = ET.fromstring(raw)
+        assert root.tag.endswith("svg")
+        assert len(raw) > 1000

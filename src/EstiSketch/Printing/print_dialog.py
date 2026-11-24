@@ -74,6 +74,8 @@ class PrintDialog(Gtk.Window):
         root.append(bar)
 
         self.connect("close-request", self._on_close)
+        self._pull_settings()
+        self._initial_settings_dict = self.settings.to_dict()
         self._building = False
         self._refresh_pages()
 
@@ -389,9 +391,11 @@ class PrintDialog(Gtk.Window):
 
     def _on_close(self, *args) -> bool:
         self._pull_settings()
-        self.canvas.print_settings = self.settings.to_dict()
-        if self.on_settings_changed:
-            self.on_settings_changed()
+        new_dict = self.settings.to_dict()
+        if new_dict != self._initial_settings_dict:
+            self.canvas.print_settings = new_dict
+            if self.on_settings_changed:
+                self.on_settings_changed()
         return False
 
 

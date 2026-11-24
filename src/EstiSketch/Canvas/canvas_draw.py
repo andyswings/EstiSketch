@@ -5,6 +5,7 @@ from gi.repository import Gtk, Pango, PangoCairo
 from . import door_window_renderer as dwr
 from . import wall_room_renderer as wr
 from .label_utils import upright_angle
+from .compass import draw_north_arrow
 
 
 class CanvasDrawMixin:
@@ -135,6 +136,48 @@ class CanvasDrawMixin:
         # Draw rulers in device coordinates.
         if self.config.SHOW_RULERS:
             self.draw_rulers(cr, width, height, pixels_per_inch)
+
+        # Draw interactive compass rose overlay in device coordinates.
+        self.draw_compass_rose(cr, width, height)
+
+    def _compass_geometry(
+            self,
+            width: Optional[float] = None,
+            height: Optional[float] = None) -> Tuple[float, float, float]:
+        """Return ``(cx, cy, radius)`` for the canvas compass widget in device coordinates."""
+        radius = 28.0
+        margin_right = 20.0
+        margin_top = 36.0 if getattr(self.config, "SHOW_RULERS", True) else 20.0
+        w = float(width) if width is not None else float(self.get_width())
+        cx = w - margin_right - radius
+        cy = margin_top + radius
+        return cx, cy, radius
+
+    def _hit_test_compass(self, x: float, y: float) -> bool:
+        """Return True if device point ``(x, y)`` is inside the compass rose hit target."""
+        if self.get_width() <= 0:
+            return False
+        cx, cy, radius = self._compass_geometry()
+        return math.hypot(x - cx, y - cy) <= radius + 6.0
+
+    def draw_compass_rose(self, cr, width: float, height: float) -> None:
+        """Render the interactive North arrow overlay in the top-right corner."""
+        if width < 120 or height < 120:
+            return
+        cx, cy, radius = self._compass_geometry(width, height)
+        highlight = bool(
+            getattr(self, "dragging_compass", False)
+            or getattr(self, "_compass_hover", False)
+        )
+        draw_north_arrow(
+            cr,
+            cx,
+            cy,
+            radius,
+            float(getattr(self, "north_angle", 0.0)),
+            show_degree_label=True,
+            highlight=highlight,
+        )
 
 
     def draw_scene(self, cr, zoom_transform, pixels_per_inch, printing=False):

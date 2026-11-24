@@ -31,6 +31,12 @@ class CanvasEventsMixin:
             None
         """
         # Check if active layer is locked for creation tools
+        if getattr(self, "_compass_click_consumed", False):
+            self._compass_click_consumed = False
+            return
+        if self._hit_test_compass(x, y) or getattr(self, "dragging_compass", False):
+            return
+
         creating_tools = [
             "draw_walls", "draw_rooms", "add_doors", "add_windows", 
             "add_polyline", "add_dimension", "add_dimension_chain", "add_leader", "add_text", 
@@ -110,6 +116,22 @@ class CanvasEventsMixin:
 
         # Reset drag active state on new press
         self.drag_active = False
+
+        if self._hit_test_compass(x, y):
+            self._compass_click_consumed = True
+            if n_press == 2:
+                self.north_angle = 0.0
+                self.dragging_compass = False
+                self._compass_drag_moved = False
+                self.save_state()
+                self.emit('content-changed')
+                self.update_hint("North azimuth reset to 0°")
+                self.queue_draw()
+                return
+            self.dragging_compass = True
+            self._compass_drag_moved = False
+            self.queue_draw()
+            return
 
         # --- Detect wall-handle press so drag can edit endpoints ---
         # If a selected wall handle was pressed, set editing state and record
@@ -391,6 +413,9 @@ class CanvasEventsMixin:
             self.snap_type = "none"
             self.current_room_preview = None
             self.queue_draw()
+        if getattr(self, "_compass_hover", False):
+            self._compass_hover = False
+            self.queue_draw()
 
     def on_motion(
             self,
@@ -425,6 +450,11 @@ class CanvasEventsMixin:
 
         # Door/window placement ghost
         self._update_opening_ghost(x, y)
+
+        hover_compass = self._hit_test_compass(x, y)
+        if hover_compass != getattr(self, "_compass_hover", False):
+            self._compass_hover = hover_compass
+            self.queue_draw()
 
         # Update dimension preview if in dimension drawing mode
         if self.tool_mode == "add_dimension" and self.drawing_dimension:

@@ -24,6 +24,7 @@ class CanvasStateMixin:
             "dimension_chains": copy.deepcopy(getattr(self, "dimension_chains", [])),
             "leader_callouts": copy.deepcopy(getattr(self, "leader_callouts", [])),
             "groups": copy.deepcopy(getattr(self, "groups", [])),
+            "north_angle": float(getattr(self, "north_angle", 0.0)),
         }
         self.undo_stack.append(state)
         if len(self.undo_stack) > self.config.UNDO_REDO_LIMIT:
@@ -57,6 +58,7 @@ class CanvasStateMixin:
         self.dimension_chains = copy.deepcopy(state.get("dimension_chains", []))
         self.leader_callouts = copy.deepcopy(state.get("leader_callouts", []))
         self.groups = copy.deepcopy(state.get("groups", []))
+        self.north_angle = float(state.get("north_angle", 0.0))
         self.snap_type = "none"
         self.queue_draw()
         if hasattr(self, "emit"):
