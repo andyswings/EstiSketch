@@ -1,5 +1,12 @@
 import math
+import gi
+gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
+from ..geometry.arc_wall import (
+    arc_wall_project,
+    clamp_opening_ratio,
+    is_curved_wall,
+)
 
 
 class EditEventsMixin:
@@ -132,29 +139,44 @@ class EditEventsMixin:
         midpoint = (mid_x, mid_y)
 
         # Create two new walls
+        end_h = getattr(wall, "height_at_end", wall.height)
+        mid_h = (wall.height + end_h) / 2.0
+        wall_layer_id = getattr(wall, "layer_id", "")
         # Wall 1: start -> midpoint
         w1 = self.Wall(
             wall.start, midpoint, wall.width, wall.height, getattr(
                 wall, "exterior_wall", True), identifier=self.generate_identifier(
-                "wall", self.existing_ids))
+                "wall", self.existing_ids), layer_id=wall_layer_id,
+            height_at_end=mid_h)
         # Wall 2: midpoint -> end
         w2 = self.Wall(
-            midpoint, wall.end, wall.width, wall.height, getattr(
+            midpoint, wall.end, wall.width, mid_h, getattr(
                 wall, "exterior_wall", True), identifier=self.generate_identifier(
-                "wall", self.existing_ids))
+                "wall", self.existing_ids), layer_id=wall_layer_id,
+            height_at_end=end_h)
 
-        # Copy properties if needed (e.g., footer settings, materials)
-        # Assuming Wall class has methods/attributes for these, or we rely on defaults/manual copy.
-        # Ideally we should copy specific attributes.
+        # Copy wall construction, finish, visibility, and lock attributes
         for attr in [
-            "has_footer",
+            "material",
+            "footer",
+            "footer_left_offset",
+            "footer_right_offset",
             "footer_depth",
-            "footer_offset",
+            "symbolic",
             "stud_spacing",
             "insulation_type",
             "fire_rating",
             "exterior_finish",
-                "interior_finish"]:
+            "interior_finish",
+            "left_finish",
+            "right_finish",
+            "left_color",
+            "right_color",
+            "left_baseboard",
+            "right_baseboard",
+            "visible",
+            "locked",
+        ]:
             if hasattr(wall, attr):
                 val = getattr(wall, attr)
                 setattr(w1, attr, val)
@@ -221,6 +243,68 @@ class EditEventsMixin:
         """
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
 
+        if getattr(self, "dragging_compass", False):
+            cur_x = self.drag_start_x + offset_x
+            cur_y = self.drag_start_y + offset_y
+            cx, cy, _ = self._compass_geometry()
+            if math.hypot(cur_x - cx, cur_y - cy) > 3.0:
+                self.north_angle = float(
+                    round(math.degrees(math.atan2(cur_x - cx, -(cur_y - cy)))) % 360
+                )
+                self._compass_drag_moved = True
+                self.update_hint(
+                    f"North Azimuth: {int(self.north_angle)}° (double-click compass to reset)"
+                )
+                self.queue_draw()
+            return
+
+        if self.tool_mode in ("move_blueprint", "straighten_blueprint"):
+            self._blueprint_drag_update(offset_x, offset_y)
+            return
+
+        # Handle interactive ObjectGroup rotation
+        if getattr(self, "rotating_group", None):
+            curr_dev_x = self.drag_start_x + offset_x
+            curr_dev_y = self.drag_start_y + offset_y
+            px_dev, py_dev = self._rotating_group_pivot_dev
+            curr_mouse_deg = math.degrees(math.atan2(curr_dev_y - py_dev, curr_dev_x - px_dev))
+            total_deg = curr_mouse_deg - self._rotating_group_start_mouse_deg
+            # Snap to 15-degree increments when Shift is held
+            try:
+                from gi.repository import Gdk
+                event = gesture.get_current_event()
+                state = event.get_modifier_state() if hasattr(event, "get_modifier_state") else event.state
+                if state & Gdk.ModifierType.SHIFT_MASK:
+                    total_deg = round(total_deg / 15.0) * 15.0
+            except Exception:
+                pass
+            delta_deg = total_deg - getattr(self, "_rotating_group_last_deg", 0.0)
+            if abs(delta_deg) > 1e-6:
+                self.rotate_group(
+                    self.rotating_group,
+                    delta_deg,
+                    pivot=self._rotating_group_pivot,
+                    save_undo=False,
+                )
+                self._rotating_group_last_deg = total_deg
+                self._rotating_group_current_deg = total_deg
+            self.queue_draw()
+            return
+
+        # Handle ObjectGroup unit dragging
+        if getattr(self, "dragging_group", None):
+            curr_dev_x = self.drag_start_x + offset_x
+            curr_dev_y = self.drag_start_y + offset_y
+            curr_model = self.device_to_model(curr_dev_x, curr_dev_y, pixels_per_inch)
+            last_model = getattr(self, "_group_drag_last_model", curr_model)
+            dx = curr_model[0] - last_model[0]
+            dy = curr_model[1] - last_model[1]
+            if abs(dx) > 1e-9 or abs(dy) > 1e-9:
+                self.translate_group(self.dragging_group, dx, dy, save_undo=False)
+                self._group_drag_last_model = curr_model
+            self.queue_draw()
+            return
+
         # Handle wall endpoint editing
         if getattr(
                 self,
@@ -239,24 +323,87 @@ class EditEventsMixin:
             new_x = origin[0] + (offset_x / T)
             new_y = origin[1] + (offset_y / T)
 
-            # --- Angle Snapping Logic ---
+            # --- Snapping & Guide Logic for Endpoint Editing ---
+            raw_point = (new_x, new_y)
+            self.raw_current_end = raw_point
+            self.alignment_candidate = None
+            self.snap_pos = None
+            self.snap_type = "none"
+            self.edit_face_guide = None
             best_snap = (new_x, new_y)
 
             # Only apply snapping if enabled in settings
             if self.snap_manager.snap_enabled:
-                # Check against anchors of all connected walls
-                for wall_obj, endpoint_name in getattr(
-                        self, "connected_endpoints", []):
-                    # The anchor is the OTHER end of the wall
-                    anchor = wall_obj.end if endpoint_name == "start" else wall_obj.start
+                connected = getattr(self, "connected_endpoints", [])
+                edited = {id(w) for w, _ in connected}
+                edited.add(id(self.editing_wall))
+                primary = self.editing_wall
+                anchor = (primary.end if self.editing_handle == "start"
+                          else primary.start)
+                others = [w for w in self._get_snap_walls()
+                          if id(w) not in edited]
+                canvas_width = getattr(getattr(self, "get_allocation", lambda: None)(), "width", None) or getattr(self.config, "WINDOW_WIDTH", 1024)
 
-                    # Try snapping to angle relative to this anchor
-                    snap_pt, snap_type = self.snap_manager.snap_to_angle(
-                        new_x, new_y, anchor[0], anchor[1])
+                snapped_pt, snap_type = self.snap_manager.snap_point(
+                    new_x, new_y, anchor[0], anchor[1], others, self.rooms,
+                    current_wall=primary, canvas_width=canvas_width,
+                    zoom=self.zoom, new_wall_width=primary.width
+                )
 
-                    if snap_type != "none":
-                        best_snap = snap_pt
-                        break  # Snap to the first valid alignment we find
+                # Check angle snapping against any connected walls if snap_type was none
+                if snap_type == "none":
+                    for wall_obj, endpoint_name in connected:
+                        other_anchor = wall_obj.end if endpoint_name == "start" else wall_obj.start
+                        ang_pt, ang_type = self.snap_manager.snap_to_angle(
+                            new_x, new_y, other_anchor[0], other_anchor[1])
+                        if ang_type != "none":
+                            snapped_pt = ang_pt
+                            snap_type = ang_type
+                            break
+
+                # Horizontal / vertical alignment snapping to other vertices (excluding self anchor)
+                aligned_x, aligned_y, candidate = self._apply_alignment_snapping(
+                    new_x, new_y, exclude_points=[origin, anchor])
+                self.alignment_candidate = candidate
+
+                aligned_applied = False
+                if snap_type in ("none", "grid", "angle", "axis") and candidate is not None:
+                    if snap_type in ("angle", "axis"):
+                        dx = snapped_pt[0] - anchor[0]
+                        dy = snapped_pt[1] - anchor[1]
+                        if abs(dy) < 1e-6:
+                            if aligned_x != new_x:
+                                snapped_pt = (aligned_x, anchor[1])
+                                snap_type = "alignment"
+                                aligned_applied = True
+                        elif abs(dx) < 1e-6:
+                            if aligned_y != new_y:
+                                snapped_pt = (anchor[0], aligned_y)
+                                snap_type = "alignment"
+                                aligned_applied = True
+                        else:
+                            snapped_pt = (aligned_x, aligned_y)
+                            snap_type = "alignment"
+                            aligned_applied = True
+                    else:
+                        snapped_pt = (aligned_x, aligned_y)
+                        snap_type = "alignment"
+                        aligned_applied = True
+                if not aligned_applied:
+                    self.alignment_candidate = None
+                    if len(connected) <= 1 and snap_type in (
+                        "none", "grid", "angle", "axis", "perpendicular", "distance"
+                    ):
+                        snapped_pt, _, _ = self.snap_manager.quantize_wall_length(
+                            anchor[0], anchor[1], snapped_pt[0], snapped_pt[1],
+                            apply_near_foot_auto=True
+                        )
+
+                best_snap = snapped_pt
+                self.snap_type = snap_type
+                self.snap_pos = snapped_pt
+                if snap_type == "face_flush":
+                    self.edit_face_guide = self.snap_manager.face_flush_guide
 
             new_point = best_snap
 
@@ -538,6 +685,41 @@ class EditEventsMixin:
             self.queue_draw()
             return
 
+        # Handle editing dimension chain handles
+        if getattr(self, "editing_dimension_chain", None) and getattr(self, "editing_dimension_chain_handle", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            if hasattr(self, "click_start"):
+                cur_dev_x = self.click_start[0] + offset_x
+                cur_dev_y = self.click_start[1] + offset_y
+                new_x, new_y = self.device_to_model(cur_dev_x, cur_dev_y, pixels_per_inch)
+                chain = self.editing_dimension_chain
+                handle_type, handle_idx = self.editing_dimension_chain_handle
+
+                self._drag_chain_handle(chain, handle_type, handle_idx, new_x, new_y)
+
+                self.queue_draw()
+                return
+
+        # Handle editing leader callout handles
+        if getattr(self, "editing_leader", None) and getattr(self, "editing_leader_handle", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            if hasattr(self, "click_start"):
+                cur_dev_x = self.click_start[0] + offset_x
+                cur_dev_y = self.click_start[1] + offset_y
+                new_x, new_y = self.device_to_model(cur_dev_x, cur_dev_y, pixels_per_inch)
+                callout = self.editing_leader
+                handle_name = self.editing_leader_handle
+
+                if handle_name == "tip":
+                    callout.tip = self._snap_leader_target(new_x, new_y, 16.0 / (self.zoom * pixels_per_inch))
+                elif handle_name == "elbow":
+                    callout.elbow = (new_x, new_y)
+                elif handle_name == "shoulder":
+                    callout.shoulder = (new_x, new_y)
+
+                self.queue_draw()
+                return
+
         # Handle text rotation
         if getattr(self, "rotating_text", None):
             pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
@@ -672,6 +854,41 @@ class EditEventsMixin:
             self.queue_draw()
             return
 
+        # Handle dimension chain dragging - translates all points together
+        if getattr(self, "dragging_dimension_chains", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            dx = current_model[0] - self.dimension_chain_drag_start_model[0]
+            dy = current_model[1] - self.dimension_chain_drag_start_model[1]
+
+            for item in self.dragging_dimension_chains:
+                ch = item["chain"]
+                orig_pts = item["original_points"]
+                ch.points = [(p[0] + dx, p[1] + dy) for p in orig_pts]
+
+            self.queue_draw()
+            return
+
+        # Handle leader callout dragging - translates tip, elbow, shoulder together
+        if getattr(self, "dragging_leaders", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            dx = current_model[0] - self.leader_drag_start_model[0]
+            dy = current_model[1] - self.leader_drag_start_model[1]
+
+            for item in self.dragging_leaders:
+                ld = item["leader"]
+                ld.tip = (item["original_tip"][0] + dx, item["original_tip"][1] + dy)
+                ld.elbow = (item["original_elbow"][0] + dx, item["original_elbow"][1] + dy)
+                ld.shoulder = (item["original_shoulder"][0] + dx, item["original_shoulder"][1] + dy)
+
+            self.queue_draw()
+            return
+
         # Handle polyline dragging - moves entire polyline (start and end
         # points together)
         if getattr(self, "dragging_polylines", None):
@@ -718,6 +935,128 @@ class EditEventsMixin:
                 self.dragging_room.points[i] = (
                     orig_pt[0] + dx, orig_pt[1] + dy)
 
+            self.queue_draw()
+            return
+
+        # Handle floor opening dragging - moves all vertices together and updates holes
+        if getattr(self, "dragging_floor_opening", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(
+                current_device_x, current_device_y, pixels_per_inch)
+            dx = current_model[0] - self.opening_drag_start_model[0]
+            dy = current_model[1] - self.opening_drag_start_model[1]
+            for i, orig_pt in enumerate(self.dragging_floor_opening_original_points):
+                self.dragging_floor_opening.points[i] = (orig_pt[0] + dx, orig_pt[1] + dy)
+            from ..geometry.room_holes import sync_stair_holes
+            sync_stair_holes(self)
+            self.queue_draw()
+            return
+
+        # Handle floor opening corner dragging
+        if getattr(self, "dragging_opening_vertices", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(
+                current_device_x, current_device_y, pixels_per_inch)
+            dx = current_model[0] - self.opening_vertex_drag_start_model[0]
+            dy = current_model[1] - self.opening_vertex_drag_start_model[1]
+            first = self.dragging_opening_vertices[0]
+            orig = first["original"]
+            new_pos = (orig[0] + dx, orig[1] + dy)
+            if self.snap_manager.snap_enabled:
+                walls = [w for ws in self.wall_sets for w in ws]
+                snapped_pos, snap_type = self.snap_manager.snap_point(
+                    new_pos[0], new_pos[1], orig[0], orig[1],
+                    walls, self.rooms, canvas_width=self.get_width(), zoom=self.zoom,
+                )
+                if snap_type != "none":
+                    dx = snapped_pos[0] - orig[0]
+                    dy = snapped_pos[1] - orig[1]
+            for vert_info in self.dragging_opening_vertices:
+                vorig = vert_info["original"]
+                vert_info["opening"].points[vert_info["index"]] = (vorig[0] + dx, vorig[1] + dy)
+            from ..geometry.room_holes import sync_stair_holes
+            sync_stair_holes(self)
+            self.queue_draw()
+            return
+
+        if getattr(self, "rotating_fixture", None):
+            fix = self.rotating_fixture
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            if hasattr(self, "drag_start_x") and hasattr(self, "drag_start_y"):
+                current_device_x = self.drag_start_x + offset_x
+                current_device_y = self.drag_start_y + offset_y
+            elif hasattr(self, "click_start"):
+                current_device_x = self.click_start[0] + offset_x
+                current_device_y = self.click_start[1] + offset_y
+            else:
+                current_device_x = self.mouse_x
+                current_device_y = self.mouse_y
+            mx, my = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            ang = math.degrees(math.atan2(my - fix.y, mx - fix.x)) - 90.0
+            fix.rotation = (round(ang / 15.0) * 15.0) % 360.0
+            self.queue_draw()
+            return
+
+        if getattr(self, "dragging_fixtures", None):
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            dx = current_model[0] - self.fixture_drag_start_model[0]
+            dy = current_model[1] - self.fixture_drag_start_model[1]
+
+            from ..fixtures_catalog import resolve_fixture_surface, snap_fixture_to_walls
+
+            snap_shift = (0.0, 0.0)
+            if getattr(getattr(self, "snap_manager", None), "snap_enabled", True):
+                walls = self._get_visible_walls() if hasattr(self, "_get_visible_walls") else []
+                best_mag = float("inf")
+                for fix, ox, oy, orig_rot in self.dragging_fixtures:
+                    cand_x, cand_y = ox + dx, oy + dy
+                    sx, sy, _srot, wall_hit = snap_fixture_to_walls(
+                        cand_x, cand_y, fix.width, fix.depth, walls,
+                        snap_dist=14.0, current_rotation=orig_rot, symbol_type=fix.symbol_type,
+                    )
+                    if wall_hit is not None:
+                        mag = math.hypot(sx - cand_x, sy - cand_y)
+                        if mag < best_mag:
+                            best_mag = mag
+                            snap_shift = (sx - cand_x, sy - cand_y)
+
+            rooms = getattr(self, "rooms", [])
+            for fix, ox, oy, orig_rot in self.dragging_fixtures:
+                fix.x = ox + dx + snap_shift[0]
+                fix.y = oy + dy + snap_shift[1]
+                fix.rotation = orig_rot
+                resolve_fixture_surface(fix, rooms)
+            self.queue_draw()
+            return
+
+        if getattr(self, "dragging_fixture", None):
+            fix = self.dragging_fixture
+            pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            current_device_x = self.drag_start_x + offset_x
+            current_device_y = self.drag_start_y + offset_y
+            current_model = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
+            dx = current_model[0] - self.fixture_drag_start_model[0]
+            dy = current_model[1] - self.fixture_drag_start_model[1]
+            ox, oy, orig_rot = self.dragging_fixture_start_pos
+            nx, ny = ox + dx, oy + dy
+            from ..fixtures_catalog import resolve_fixture_surface, snap_fixture_to_walls
+            if getattr(getattr(self, "snap_manager", None), "snap_enabled", True):
+                sx, sy, rot, _ = snap_fixture_to_walls(
+                    nx, ny, fix.width, fix.depth,
+                    self._get_visible_walls() if hasattr(self, "_get_visible_walls") else [],
+                    snap_dist=20.0, current_rotation=orig_rot, symbol_type=fix.symbol_type,
+                )
+                fix.x, fix.y, fix.rotation = sx, sy, rot
+            else:
+                fix.x, fix.y = nx, ny
+            resolve_fixture_surface(fix, getattr(self, "rooms", []))
             self.queue_draw()
             return
 
@@ -863,6 +1202,83 @@ class EditEventsMixin:
                 self.wall_drag_original_end[0] + dx,
                 self.wall_drag_original_end[1] + dy)
 
+            # Face-to-face, centerline, and endpoint snapping for whole-wall drag
+            self.edit_face_guide = None
+            self.snap_pos = None
+            self.snap_type = "none"
+            self.alignment_candidate = None
+            self.raw_current_end = None
+
+            sm = self.snap_manager
+            wlen = math.hypot(new_end[0] - new_start[0], new_end[1] - new_start[1])
+            if (sm.snap_enabled and wlen > 1e-6 and
+                    not getattr(wall, "is_curved", False)):
+                excluded = {id(wall)}
+                excluded.update(id(w) for w, _ in getattr(
+                    self, "wall_drag_connected_start", []))
+                excluded.update(id(w) for w, _ in getattr(
+                    self, "wall_drag_connected_end", []))
+                others = [w for w in self._get_snap_walls()
+                          if id(w) not in excluded]
+                mid = ((new_start[0] + new_end[0]) / 2.0,
+                       (new_start[1] + new_end[1]) / 2.0)
+                direction = ((new_end[0] - new_start[0]) / wlen,
+                             (new_end[1] - new_start[1]) / wlen)
+                snapped_mid, kind = sm.snap_face_flush_for_edit(
+                    mid[0], mid[1], mid[0], mid[1], others, wall.width,
+                    direction=direction)
+                if kind == "face_flush":
+                    sx, sy = snapped_mid[0] - mid[0], snapped_mid[1] - mid[1]
+                    new_start = (new_start[0] + sx, new_start[1] + sy)
+                    new_end = (new_end[0] + sx, new_end[1] + sy)
+                    self.edit_face_guide = sm.face_flush_guide
+                    self.snap_type = "face_flush"
+                    self.snap_pos = ((new_start[0] + new_end[0]) / 2.0,
+                                     (new_start[1] + new_end[1]) / 2.0)
+                else:
+                    # Endpoint-to-point / centerline snapping for the dragged wall
+                    points = sm.collect_points_of_interest(others, self.rooms)
+                    snap_candidates = []
+                    pt_s, type_s = sm.snap_to_points(new_start[0], new_start[1], points, others)
+                    if type_s != "none":
+                        snap_candidates.append((pt_s, type_s, new_start))
+                    else:
+                        pt_sc, type_sc = sm.snap_to_wall_centerline(new_start[0], new_start[1], others)
+                        if type_sc != "none":
+                            snap_candidates.append((pt_sc, type_sc, new_start))
+
+                    pt_e, type_e = sm.snap_to_points(new_end[0], new_end[1], points, others)
+                    if type_e != "none":
+                        snap_candidates.append((pt_e, type_e, new_end))
+                    else:
+                        pt_ec, type_ec = sm.snap_to_wall_centerline(new_end[0], new_end[1], others)
+                        if type_ec != "none":
+                            snap_candidates.append((pt_ec, type_ec, new_end))
+
+                    if snap_candidates:
+                        snap_candidates.sort(key=lambda item: (item[0][0] - item[2][0])**2 + (item[0][1] - item[2][1])**2)
+                        target_pt, snap_k, orig_pt = snap_candidates[0]
+                        sx = target_pt[0] - orig_pt[0]
+                        sy = target_pt[1] - orig_pt[1]
+                        new_start = (new_start[0] + sx, new_start[1] + sy)
+                        new_end = (new_end[0] + sx, new_end[1] + sy)
+                        self.snap_type = snap_k
+                        self.snap_pos = target_pt
+                    else:
+                        # Try alignment snapping on the wall midpoint
+                        raw_mid = mid
+                        self.raw_current_end = raw_mid
+                        exclude_pts = [self.wall_drag_original_start, self.wall_drag_original_end]
+                        aligned_x, aligned_y, candidate = self._apply_alignment_snapping(
+                            raw_mid[0], raw_mid[1], exclude_points=exclude_pts)
+                        self.alignment_candidate = candidate
+                        if candidate is not None:
+                            sx, sy = aligned_x - raw_mid[0], aligned_y - raw_mid[1]
+                            new_start = (new_start[0] + sx, new_start[1] + sy)
+                            new_end = (new_end[0] + sx, new_end[1] + sy)
+                            self.snap_type = "alignment"
+                            self.snap_pos = candidate
+
             wall.start = new_start
             wall.end = new_end
 
@@ -912,34 +1328,40 @@ class EditEventsMixin:
             snap_threshold = 24.0  # 24 inches for switching to different wall
 
             # Check all walls (iterate through wall_sets)
+            opening_width = getattr(obj, "width", None)
             for i, wall_set in enumerate(self.wall_sets):
                 for j, check_wall in enumerate(wall_set):
-                    dist = self.distance_point_to_segment(
-                        (target_x, target_y), check_wall.start, check_wall.end)
+                    is_current_wall = (check_wall is wall)
+                    if not is_current_wall:
+                        if hasattr(self, "is_object_on_visible_layer") and not self.is_object_on_visible_layer(check_wall):
+                            continue
+                        if hasattr(self, "is_object_on_locked_layer") and self.is_object_on_locked_layer(check_wall):
+                            continue
+
+                    if is_curved_wall(check_wall):
+                        raw_ratio, dist, _ = arc_wall_project(check_wall, (target_x, target_y))
+                    else:
+                        dist = self.distance_point_to_segment(
+                            (target_x, target_y), check_wall.start, check_wall.end)
 
                     # Qualification check: Current wall is always valid, others
                     # must be within threshold
-                    is_current_wall = (check_wall is wall)
                     is_valid_candidate = is_current_wall or (
                         dist < snap_threshold)
 
-                    if is_valid_candidate:
-                        # Optimization check: Is this strictly closer than the
-                        # best we've found so far?
-                        if dist < best_dist:
-                            best_dist = dist
-                            best_wall = check_wall
-
-                            # Calculate ratio on this wall
+                    if is_valid_candidate and dist < best_dist:
+                        best_dist = dist
+                        best_wall = check_wall
+                        if is_curved_wall(check_wall):
+                            best_ratio = clamp_opening_ratio(check_wall, raw_ratio, opening_width)
+                        else:
                             wx = check_wall.end[0] - check_wall.start[0]
                             wy = check_wall.end[1] - check_wall.start[1]
                             wall_len_sq = wx * wx + wy * wy
                             if wall_len_sq > 0:
                                 dot = (
                                     target_x - check_wall.start[0]) * wx + (target_y - check_wall.start[1]) * wy
-                                # Clamp to keep on wall
-                                best_ratio = max(
-                                    0.05, min(0.95, dot / wall_len_sq))
+                                best_ratio = clamp_opening_ratio(check_wall, dot / wall_len_sq, opening_width)
                             else:
                                 best_ratio = 0.5
 

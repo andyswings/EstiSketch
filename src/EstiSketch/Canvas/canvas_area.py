@@ -10,14 +10,18 @@ from .events_wall import CanvasWallMixin
 from .events_roof import CanvasRoofEventsMixin
 from .events_selection import CanvasSelectionMixin
 from .events_stair import CanvasStairEventsMixin
+from .events_fixture import CanvasFixtureMixin
 from .render_stair import CanvasStairRendererMixin
 from .canvas_tool import CanvasToolMixin
 from .canvas_geometry import CanvasGeometryMixin
 from .canvas_state import CanvasStateMixin
 from .canvas_events import CanvasEventsMixin
 from .canvas_draw import CanvasDrawMixin
+from .canvas_groups import CanvasGroupMixin
+from .blueprint import CanvasBlueprintMixin
+from .blueprint_straighten import CanvasBlueprintStraightenMixin
 from ..snapping_manager import SnappingManager
-from ..components import Wall, Room, Text, Dimension, Layer, Level
+from ..components import Wall, Room, FloorOpening, Fixture, Text, Dimension, Layer, Level, DimensionChain, LeaderCallout, ObjectGroup
 from ..measurement_utils import MeasurementConverter
 from gi.repository import Gtk, Gdk, GObject
 import gi
@@ -26,7 +30,10 @@ gi.require_version('Gtk', '4.0')
 
 class CanvasArea(Gtk.DrawingArea,
                  CanvasDrawMixin,
+                 CanvasGroupMixin,
                  CanvasEventsMixin,
+                 CanvasBlueprintMixin,
+                 CanvasBlueprintStraightenMixin,
                  CanvasStateMixin,
                  CanvasGeometryMixin,
                  CanvasToolMixin,
@@ -35,6 +42,7 @@ class CanvasArea(Gtk.DrawingArea,
                  CanvasRoofEventsMixin,
                  CanvasStairEventsMixin,
                  CanvasStairRendererMixin,
+                 CanvasFixtureMixin,
                  CanvasRoomMixin,
                  CanvasToolsMixin,
                  EditEventsMixin,
@@ -70,15 +78,34 @@ class CanvasArea(Gtk.DrawingArea,
         self.offset_x = self.ruler_offset
         self.offset_y = self.ruler_offset
 
+        # ID stack
+        self.existing_ids = []
+
         # Layers system - max 24 layers
         self.MAX_LAYERS = 24
-        # Create default layer using generate_identifier
-        default_layer_id = self.generate_identifier("layer", [])
+        default_level_id = self.generate_identifier("level", self.existing_ids)
+        self.existing_ids.append(default_level_id)
+        default_layer_id = self.generate_identifier("layer", self.existing_ids)
+        self.existing_ids.append(default_layer_id)
 
         # Level system
-        self.levels = [Level(id="level-1", name="Level 1", elevation=0.0)]
-        self.active_level_id = "level-1"
+        self.levels = [
+            Level(id=default_level_id, name="Level 1", elevation=0.0)
+        ]
+        self.active_level_id = default_level_id
         self.show_all_levels = False
+        # Level onion-skinning ghosting (None = off, "below", "above", or level ID)
+        self.ghost_level_id = None
+        self.ghost_opacity = 0.25
+        self._rendering_ghost_level = None
+        # Takeoff setting: also cut the lower level's ceiling under stairs
+        self.cut_lower_ceiling_under_stairs = False
+        # Compass rose / north azimuth (degrees clockwise from straight up)
+        self.north_angle = 0.0
+        self.dragging_compass = False
+        self._compass_hover = False
+        self._compass_drag_moved = False
+        self._compass_click_consumed = False
 
         self.layers = [Layer(
             id=default_layer_id,
@@ -86,7 +113,7 @@ class CanvasArea(Gtk.DrawingArea,
             visible=True,
             locked=False,
             opacity=1.0,
-            level_id="level-1"  # Default layer assigned to default level
+            level_id=default_level_id  # Default layer assigned to default level
         )]
         self.active_layer_id = default_layer_id
 
@@ -121,6 +148,11 @@ class CanvasArea(Gtk.DrawingArea,
         self.current_room_points = []  # Manual room drawing points
         self.current_room_preview = None  # Live preview point (snapped)
 
+        # Manual floor opening state
+        self.floor_openings = []
+        self.current_opening_points = []
+        self.current_opening_preview = None
+
         # List of door placements; each item is a tuple: (wall, door,
         # position_ratio)
         self.doors = []
@@ -136,15 +168,39 @@ class CanvasArea(Gtk.DrawingArea,
         self.dimension_end = None  # Second click point (x, y)
         self.dimension_offset_preview = None  # Mouse position for offset preview
 
+        # Dimension chain & leader callout state
+        self.dimension_chains = []  # List of DimensionChain objects
+        self.drawing_dimension_chain = False
+        self.dimension_chain_points = []
+        self.dimension_chain_offset = None
+        self.dimension_chain_preview_point = None
+
+        self.leader_callouts = []  # List of LeaderCallout objects
+        self.drawing_leader = False
+        self.leader_tip = None
+        self.leader_elbow = None
+        self.leader_preview_point = None
+
         # Alignment snapping (used for walls and rooms)
         self.alignment_candidate = None
         self.raw_current_end = None
 
         self.snap_type = "none"
+        # Face-flush guide (line_start, line_end, kind) shown while editing
+        # an existing wall; None when no face snap is active.
+        self.edit_face_guide = None
         self.tool_mode = None  # "draw_walls" or "draw_rooms"
 
-        # ID stack
-        self.existing_ids = []
+        # Project-level takeoff state (assumptions, overrides, custom items, reference)
+        self.takeoff_state = {
+            "assumptions": {},
+            "overrides": {},
+            "custom_items": [],
+            "reference": None,
+        }
+
+        # Print / PDF plot settings (dict, see Printing.print_settings)
+        self.print_settings = None
 
         # Undo/Redo stacks
         self.undo_stack = []
@@ -159,11 +215,14 @@ class CanvasArea(Gtk.DrawingArea,
         # Clipboard for copy/paste operations
         self.clipboard = []
 
-        # Expose Wall and Room for mixins
         self.Wall = Wall
         self.Room = Room
+        self.FloorOpening = FloorOpening
+        self.Fixture = Fixture
         self.Text = Text
         self.Dimension = Dimension
+        self.DimensionChain = DimensionChain
+        self.LeaderCallout = LeaderCallout
         from ..components import Circle, Arc
         self.Circle = Circle
         self.Arc = Arc
@@ -188,6 +247,19 @@ class CanvasArea(Gtk.DrawingArea,
 
         # Stair state
         self.stairs = []  # List of Stair objects
+
+        # Architectural fixtures, cabinetry & appliances state
+        self.fixtures = []
+        self._init_fixture_state()
+
+        # Object groups state
+        self.groups = []  # List of ObjectGroup objects
+        self.ObjectGroup = ObjectGroup
+        self.dragging_group = None
+        self.rotating_group = None
+
+        # Blueprint underlay state
+        self._init_blueprint_state()
 
         # Initialize snapping manager
         self.snap_manager = SnappingManager(
@@ -216,6 +288,7 @@ class CanvasArea(Gtk.DrawingArea,
 
         motion_controller = Gtk.EventControllerMotion.new()
         motion_controller.connect("motion", self.on_motion)
+        motion_controller.connect("leave", self._on_pointer_leave)
         self.add_controller(motion_controller)
 
         pinch_gesture = Gtk.GestureZoom.new()
@@ -238,11 +311,13 @@ class CanvasArea(Gtk.DrawingArea,
         self.zoom = new_zoom
         self.queue_draw()
 
+
     def reset_zoom(self):
         self.zoom = 1.0
         self.offset_x = 0
         self.offset_y = 0
         self.queue_draw()
+
 
     def update_hint(self, message):
         """Emit status-update signal with message."""
@@ -250,20 +325,36 @@ class CanvasArea(Gtk.DrawingArea,
 
     def clear(self):
         """Clear all drawing elements from the canvas."""
+        self.print_settings = None
+        self.ghost_level_id = None
+        self.ghost_opacity = 0.25
+        self._rendering_ghost_level = None
+        self.north_angle = 0.0
+        self.dragging_compass = False
+        self._compass_hover = False
         self.walls = []
         self.wall_sets = []
         self.rooms = []
+        self.floor_openings = []
         self.doors = []
         self.windows = []
         self.polylines = []
         self.polyline_sets = []
         self.dimensions = []
+        self.dimension_chains = []
+        self.leader_callouts = []
         self.texts = []
         self.circles = []
         self.arcs = []
-        self.arcs = []
         self.roofs = []
         self.stairs = []
+        self.fixtures = []
+        if hasattr(self, "_reset_fixture_interaction_state"):
+            self._reset_fixture_interaction_state()
+        self.groups = []
+        self.dragging_group = None
+        self.rotating_group = None
+        self.reset_blueprints()
 
         # Clear selection
         self.selected_items = []
@@ -273,6 +364,8 @@ class CanvasArea(Gtk.DrawingArea,
         self.drawing_wall = False
         self.current_room_points = []
         self.current_room_preview = None
+        self.current_opening_points = []
+        self.current_opening_preview = None
         self.current_polyline_start = None
         self.current_polyline_preview = None
         self.drawing_polyline = False
@@ -301,6 +394,7 @@ class CanvasArea(Gtk.DrawingArea,
         # self._initialize_levels_and_layers()
 
         self.queue_draw()
+
         self.emit('selection-changed', self.selected_items)
 
 
@@ -314,8 +408,11 @@ class CanvasArea(Gtk.DrawingArea,
             print(f"Cannot add more than {self.MAX_LAYERS} layers")
             return None
 
-        existing_ids = [layer.id for layer in self.layers]
+        existing_ids = list(self.existing_ids) + [
+            layer.id for layer in self.layers
+        ]
         new_layer_id = self.generate_identifier("layer", existing_ids)
+        self.existing_ids.append(new_layer_id)
         layer_num = len(self.layers)
         layer_name = name if name else f"Layer {layer_num}"
 
@@ -345,9 +442,10 @@ class CanvasArea(Gtk.DrawingArea,
         for i, layer in enumerate(self.layers):
             if layer.id == layer_id:
                 self.layers.pop(i)
-                # If active layer was removed, switch to first layer
+                self.deselect_items_on_layer(layer_id)
+                # If active layer was removed, ensure a valid active layer for current level
                 if self.active_layer_id == layer_id:
-                    self.active_layer_id = self.layers[0].id
+                    self._ensure_valid_active_layer()
                 return True
         return False
 
@@ -362,8 +460,11 @@ class CanvasArea(Gtk.DrawingArea,
         """Set the active layer by ID. Returns True if successful."""
         layer = self.get_layer_by_id(layer_id)
         if layer:
+            if not self.show_all_levels and layer.level_id and layer.level_id != self.active_level_id:
+                return False
             self.active_layer_id = layer_id
             self.queue_draw()
+
             return True
         return False
 
@@ -384,11 +485,11 @@ class CanvasArea(Gtk.DrawingArea,
         """
         layer_id = getattr(obj, 'layer_id', '')
         if not layer_id:
-            return True
+            return False if getattr(self, '_rendering_ghost_level', None) else True
 
         layer = self.get_layer_by_id(layer_id)
         if not layer:
-            return True  # Legacy/Fallback
+            return False if getattr(self, '_rendering_ghost_level', None) else True  # Legacy/Fallback
 
         if not layer.visible:
             return False
@@ -396,6 +497,16 @@ class CanvasArea(Gtk.DrawingArea,
         # Check object-level visibility
         if hasattr(obj, 'visible') and not obj.visible:
             return False
+
+        # Check group-level visibility
+        group = self.get_group_for_object(obj) if hasattr(self, 'get_group_for_object') else None
+        if group is not None and not group.visible:
+            return False
+
+        ghost_level = getattr(self, '_rendering_ghost_level', None)
+        if ghost_level:
+            # Ghost pass only renders layers explicitly assigned to the ghost level
+            return bool(layer.level_id) and layer.level_id == ghost_level
 
         # Check level filtering
         if self.show_all_levels:
@@ -412,6 +523,11 @@ class CanvasArea(Gtk.DrawingArea,
         """Check if an object is on a locked layer or is individually locked."""
         # Check object-level lock
         if hasattr(obj, 'locked') and obj.locked:
+            return True
+
+        # Check group-level lock
+        group = self.get_group_for_object(obj) if hasattr(self, 'get_group_for_object') else None
+        if group is not None and group.locked:
             return True
 
         layer_id = getattr(obj, 'layer_id', '')
@@ -465,6 +581,11 @@ class CanvasArea(Gtk.DrawingArea,
         for room in self.rooms:
             if room.layer_id == layer_id:
                 objects.append(("room", room))
+
+        # Floor openings
+        for opening in getattr(self, "floor_openings", []):
+            if getattr(opening, "layer_id", "") == layer_id:
+                objects.append(("floor_opening", opening))
                 
         # Doors
         for item in self.doors:
@@ -486,6 +607,16 @@ class CanvasArea(Gtk.DrawingArea,
         for dim in self.dimensions:
             if dim.layer_id == layer_id:
                 objects.append(("dimension", dim))
+
+        # Dimension chains
+        for chain in getattr(self, 'dimension_chains', []):
+            if chain.layer_id == layer_id:
+                objects.append(("dimension_chain", chain))
+
+        # Leader callouts
+        for callout in getattr(self, 'leader_callouts', []):
+            if callout.layer_id == layer_id:
+                objects.append(("leader_callout", callout))
                 
         # Polylines
         for poly_set in self.polyline_sets:
@@ -515,6 +646,11 @@ class CanvasArea(Gtk.DrawingArea,
                 if getattr(stair, 'layer_id', '') == layer_id:
                     objects.append(("stair", stair))
 
+        # Fixtures
+        for fix in getattr(self, "fixtures", []):
+            if getattr(fix, "layer_id", "") == layer_id:
+                objects.append(("fixture", fix))
+
         return objects
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -523,8 +659,11 @@ class CanvasArea(Gtk.DrawingArea,
 
     def add_level(self, name: str) -> str:
         """Add a new level and return its ID."""
-        existing_ids = [l.id for l in self.levels]
+        existing_ids = list(self.existing_ids) + [
+            level.id for level in self.levels
+        ]
         new_id = self.generate_identifier("level", existing_ids)
+        self.existing_ids.append(new_id)
 
         # Calculate default elevation
         elevation = 0.0
@@ -548,6 +687,8 @@ class CanvasArea(Gtk.DrawingArea,
         for i, level in enumerate(self.levels):
             if level.id == level_id:
                 self.levels.pop(i)
+                if getattr(self, "ghost_level_id", None) == level_id:
+                    self.ghost_level_id = None
                 # If active level removed, switch to first
                 if self.active_level_id == level_id:
                     self.active_level_id = self.levels[0].id
@@ -570,7 +711,52 @@ class CanvasArea(Gtk.DrawingArea,
         # Ensure active layer is valid for this level
         self._ensure_valid_active_layer()
 
+        # Deselect any items that are no longer on a visible layer for this level
+        self.deselect_non_visible_items()
+
         self.queue_draw()
+
+    def resolve_ghost_level_id(self):
+        """Return the concrete level ID to render as an onion-skin ghost, or None."""
+        if getattr(self, "show_all_levels", False):
+            return None
+        target = getattr(self, "ghost_level_id", None)
+        if not target:
+            return None
+        levels = list(getattr(self, "levels", []))
+        if not levels:
+            return None
+        if target in ("below", "above"):
+            ordered = [lv for _, lv in sorted(
+                enumerate(levels),
+                key=lambda item: (getattr(item[1], "elevation", 0.0), item[0]),
+            )]
+            active_idx = next(
+                (i for i, lv in enumerate(ordered) if lv.id == self.active_level_id),
+                None,
+            )
+            if active_idx is None:
+                return None
+            adj_idx = active_idx - 1 if target == "below" else active_idx + 1
+            if 0 <= adj_idx < len(ordered):
+                return ordered[adj_idx].id
+            return None
+        if target == self.active_level_id:
+            return None
+        if any(lv.id == target for lv in levels):
+            return target
+        return None
+
+    def set_ghost_level(self, level_id) -> None:
+        """Set the onion-skinning ghost level (None, 'below', 'above', or level ID)."""
+        self.ghost_level_id = level_id or None
+        self.queue_draw()
+
+    def set_ghost_opacity(self, opacity: float) -> None:
+        """Set the onion-skinning ghost opacity (clamped to 0.05..0.80)."""
+        self.ghost_opacity = max(0.05, min(0.80, float(opacity)))
+        self.queue_draw()
+
 
     def _initialize_levels_and_layers(self):
         """Initializes levels and layers, typically called on clear or load."""
@@ -602,14 +788,10 @@ class CanvasArea(Gtk.DrawingArea,
                 return
 
         # If all else fails, create a default layer for this level
-        from ..components import Layer
-        # add_layer will need update or manual handling?
-        new_id = self.add_layer(f"Layer 1")
-        # Actually add_layer needs to know about current level.
-        # For now, let's fix add_layer separately or handle it here?
-        # Let's fix add_layer in the next chunk/step, but for now just fallback
-        # to 0
-        if self.layers:
+        new_id = self.add_layer(f"Layer {len(self.layers)}", level_id=self.active_level_id)
+        if new_id:
+            self.active_layer_id = new_id
+        elif self.layers:
             self.active_layer_id = self.layers[0].id
 
     def delete_selected(self):
@@ -621,9 +803,15 @@ class CanvasArea(Gtk.DrawingArea,
             return
 
         room_vertices_to_delete = {}  # room_identifier -> list of indices
+        opening_vertices_to_delete = {}  # opening_identifier -> list of indices
 
         for item in list(self.selected_items):
             item_type = item.get("type") # Get type once for cleaner checks
+
+            # Skip locked objects/groups
+            extracted = self.extract_selection_object(item) if hasattr(self, "extract_selection_object") else None
+            if extracted and self.is_object_on_locked_layer(extracted[1]):
+                continue
 
             # Walls
             if item_type == "wall":
@@ -642,6 +830,16 @@ class CanvasArea(Gtk.DrawingArea,
                 target_room = item["object"]
                 if target_room in self.rooms:
                     self.rooms.remove(target_room)
+
+            # Floor openings & vertices
+            elif item_type == "floor_opening":
+                target_opening = item["object"]
+                if target_opening in getattr(self, "floor_openings", []):
+                    self.floor_openings.remove(target_opening)
+
+            elif item_type == "opening_vertex":
+                opening_obj, idx = item["object"]
+                opening_vertices_to_delete.setdefault(opening_obj.identifier, []).append(idx)
 
             # Vertices
             elif item_type == "vertex":
@@ -698,6 +896,22 @@ class CanvasArea(Gtk.DrawingArea,
                 if dim_obj in self.dimensions:
                     self.dimensions.remove(dim_obj)
 
+            # Dimension chain
+            elif item_type in ("dimension_chain", "dimension_chain_handle"):
+                chain_obj = item["object"]
+                if isinstance(chain_obj, tuple):
+                    chain_obj = chain_obj[0]
+                if chain_obj in getattr(self, 'dimension_chains', []):
+                    self.dimension_chains.remove(chain_obj)
+
+            # Leader callout
+            elif item_type in ("leader_callout", "leader_handle"):
+                lead_obj = item["object"]
+                if isinstance(lead_obj, tuple):
+                    lead_obj = lead_obj[0]
+                if lead_obj in getattr(self, 'leader_callouts', []):
+                    self.leader_callouts.remove(lead_obj)
+
             # Circle
             elif item_type == "circle":
                 circle_obj = item["object"]
@@ -737,6 +951,11 @@ class CanvasArea(Gtk.DrawingArea,
                 if target_stair in getattr(self, 'stairs', []):
                     self.stairs.remove(target_stair)
 
+            elif item_type == "fixture":
+                target_fix = item["object"]
+                if target_fix in getattr(self, "fixtures", []):
+                    self.fixtures.remove(target_fix)
+
 
         # Process room vertex deletions
         for room_id, indices in room_vertices_to_delete.items():
@@ -761,8 +980,28 @@ class CanvasArea(Gtk.DrawingArea,
                 if target_room in self.rooms:
                     self.rooms.remove(target_room)
 
+        for opening_id, indices in opening_vertices_to_delete.items():
+            target_opening = next(
+                (o for o in getattr(self, "floor_openings", []) if o.identifier == opening_id),
+                None,
+            )
+            if not target_opening:
+                continue
+            for idx in sorted(set(indices), reverse=True):
+                if 0 <= idx < len(target_opening.points):
+                    del target_opening.points[idx]
+            if len(target_opening.points) < 3 and target_opening in self.floor_openings:
+                self.floor_openings.remove(target_opening)
+
+        from ..geometry.room_holes import sync_stair_holes
+        sync_stair_holes(self)
+
+        if hasattr(self, "prune_groups"):
+            self.prune_groups()
+
         self.selected_items.clear()
         self.queue_draw()
+
         self.emit('selection-changed', self.selected_items)
         self.emit('content-changed')
 
@@ -789,10 +1028,10 @@ class CanvasArea(Gtk.DrawingArea,
         # Select all doors
         for door_item in self.doors:
             # door_item is (wall, door, ratio)
-            # check the door object (index 1)
+            # check the door object (index 1) and parent wall (index 0)
             if not self.is_object_on_locked_layer(
                     door_item[1]) and self.is_object_on_visible_layer(
-                    door_item[1]):
+                    door_item[1]) and (door_item[0] is None or self.is_object_on_visible_layer(door_item[0])):
                 self.selected_items.append(
                     {"type": "door", "object": door_item})
 
@@ -800,7 +1039,7 @@ class CanvasArea(Gtk.DrawingArea,
         for window_item in self.windows:
             if not self.is_object_on_locked_layer(
                     window_item[1]) and self.is_object_on_visible_layer(
-                    window_item[1]):
+                    window_item[1]) and (window_item[0] is None or self.is_object_on_visible_layer(window_item[0])):
                 self.selected_items.append(
                     {"type": "window", "object": window_item})
 
@@ -816,6 +1055,20 @@ class CanvasArea(Gtk.DrawingArea,
                     dim) and self.is_object_on_visible_layer(dim):
                 self.selected_items.append(
                     {"type": "dimension", "object": dim})
+
+        # Select all dimension chains
+        for chain in getattr(self, 'dimension_chains', []):
+            if not self.is_object_on_locked_layer(
+                    chain) and self.is_object_on_visible_layer(chain):
+                self.selected_items.append(
+                    {"type": "dimension_chain", "object": chain})
+
+        # Select all leader callouts
+        for callout in getattr(self, 'leader_callouts', []):
+            if not self.is_object_on_locked_layer(
+                    callout) and self.is_object_on_visible_layer(callout):
+                self.selected_items.append(
+                    {"type": "leader_callout", "object": callout})
 
         # Select all polylines
         for polyline_set in self.polyline_sets:
@@ -840,7 +1093,23 @@ class CanvasArea(Gtk.DrawingArea,
             if not self.is_object_on_locked_layer(roof) and self.is_object_on_visible_layer(roof):
                 self.selected_items.append({"type": "roof", "object": roof})
 
+        # Select all stairs
+        for stair in getattr(self, 'stairs', []):
+            if not self.is_object_on_locked_layer(stair) and self.is_object_on_visible_layer(stair):
+                self.selected_items.append({"type": "stair", "object": stair})
+
+        # Select all manual floor openings
+        for opening in getattr(self, 'floor_openings', []):
+            if not self.is_object_on_locked_layer(opening) and self.is_object_on_visible_layer(opening):
+                self.selected_items.append({"type": "floor_opening", "object": opening})
+
+        # Select all fixtures & cabinetry
+        for fix in getattr(self, 'fixtures', []):
+            if not self.is_object_on_locked_layer(fix) and self.is_object_on_visible_layer(fix):
+                self.selected_items.append({"type": "fixture", "object": fix})
+
         self.queue_draw()
+
         self.emit('selection-changed', self.selected_items)
         print(f"Selected {len(self.selected_items)} objects")
 
@@ -879,16 +1148,56 @@ class CanvasArea(Gtk.DrawingArea,
         if changed:
             self.selected_items = new_selection
             self.queue_draw()
+
+            self.emit('selection-changed', self.selected_items)
+
+    def deselect_non_visible_items(self):
+        """Deselect any items in selected_items that are not on a currently visible/active-level layer."""
+        if not self.selected_items:
+            return
+
+        new_selection = []
+        changed = False
+
+        for item in self.selected_items:
+            obj = item["object"]
+            real_obj = obj
+            otype = item.get("type")
+
+            if otype in ("door", "window"):
+                if isinstance(obj, tuple) and len(obj) >= 2:
+                    real_obj = obj[1]
+            elif otype == "vertex":
+                if isinstance(obj, tuple) and len(obj) >= 1:
+                    real_obj = obj[0]
+            elif otype in ("wall_handle", "polyline_handle", "dimension_handle", "arc_handle", "roof_line_handle"):
+                if isinstance(obj, tuple) and len(obj) >= 1:
+                    real_obj = obj[0]
+            elif otype == "roof_line" and item.get("roof") is not None:
+                real_obj = item.get("roof")
+
+            if not self.is_object_on_visible_layer(real_obj) or self.is_object_on_locked_layer(real_obj):
+                changed = True
+            else:
+                new_selection.append(item)
+
+        if changed:
+            self.selected_items = new_selection
+            self.queue_draw()
+
             self.emit('selection-changed', self.selected_items)
 
     def copy_selected(self):
         """Copy selected items to clipboard"""
         import copy as copy_module
         self.clipboard.clear()
+        memo = {}
 
         for item in self.selected_items:
-            # Store a deep copy of the item dictionary
-            self.clipboard.append(copy_module.deepcopy(item))
+            # Store a deep copy of the item dictionary using a shared memo so
+            # shared references (e.g. a wall with doors/windows or a room with vertices)
+            # remain consistent within the clipboard snapshot.
+            self.clipboard.append(copy_module.deepcopy(item, memo))
 
     def cut_selected(self):
         """Cut selected items (copy + delete)"""
@@ -896,14 +1205,45 @@ class CanvasArea(Gtk.DrawingArea,
         self.delete_selected()
         self.save_state()
 
+    def _resolve_live_wall(self, wall_ref):
+        """Find the live Wall instance in self.wall_sets matching wall_ref."""
+        if wall_ref is None:
+            return None
+        wid = getattr(wall_ref, "identifier", None)
+        for wall_set in self.wall_sets:
+            for w in wall_set:
+                if w is wall_ref or (wid and getattr(w, "identifier", None) == wid):
+                    return w
+        return wall_ref
+
+    def _next_opening_ratio(self, wall, base_ratio: float, is_window: bool = True) -> float:
+        """Compute a non-overlapping ratio along `wall` for a pasted door or window."""
+        existing_ratios = []
+        collection = self.windows if is_window else self.doors
+        wid = getattr(wall, "identifier", None)
+        for w, _, r in collection:
+            if w is wall or (wid and getattr(w, "identifier", None) == wid):
+                existing_ratios.append(r)
+
+        candidate = base_ratio + 0.1
+        step = 0.1
+        attempts = 0
+        while attempts < 9:
+            if 0.05 <= candidate <= 0.95 and all(abs(candidate - r) > 0.04 for r in existing_ratios):
+                return candidate
+            candidate += step
+            if candidate > 0.95:
+                candidate = max(0.05, base_ratio - step)
+                step += 0.1
+            attempts += 1
+        return max(0.05, min(0.95, base_ratio + 0.05))
+
     def paste(self):
         """Paste clipboard items with offset"""
         if not self.clipboard:
             return
 
         import copy as copy_module
-        import string
-        import random
 
         # Offset for pasted items (12 inches down and right)
         offset = (12, 12)
@@ -911,12 +1251,16 @@ class CanvasArea(Gtk.DrawingArea,
         # Clear current selection
         self.selected_items.clear()
 
-        # Paste each item
+        # Pass 1: Paste walls first so doors/windows copied with their wall can attach to the new wall
+        pasted_wall_map = {}
         for item in self.clipboard:
-            item_type = item.get("type")
-
-            if item_type == "wall":
+            if item.get("type") == "wall":
                 wall = item["object"]
+                old_wid = getattr(wall, "identifier", None)
+                wall_id = self.generate_identifier(
+                    "wall", self.existing_ids
+                )
+                self.existing_ids.append(wall_id)
                 # Create new wall with offset
                 new_wall = self.Wall(
                     start=(
@@ -928,42 +1272,66 @@ class CanvasArea(Gtk.DrawingArea,
                     width=wall.width,
                     height=wall.height,
                     exterior_wall=wall.exterior_wall,
-                    identifier=self.generate_identifier(
-                        "wall",
-                        self.existing_ids))
+                    identifier=wall_id,
+                    layer_id=self.active_layer_id,
+                    height_at_end=getattr(wall, "height_at_end", wall.height))
                 # Copy all other properties
                 new_wall.footer = wall.footer
                 new_wall.footer_left_offset = wall.footer_left_offset
                 new_wall.footer_right_offset = wall.footer_right_offset
                 new_wall.footer_depth = wall.footer_depth
+                new_wall.symbolic = getattr(wall, "symbolic", False)
                 new_wall.material = wall.material
                 new_wall.interior_finish = wall.interior_finish
                 new_wall.exterior_finish = wall.exterior_finish
                 new_wall.stud_spacing = wall.stud_spacing
                 new_wall.insulation_type = wall.insulation_type
                 new_wall.fire_rating = wall.fire_rating
+                new_wall.is_curved = getattr(wall, "is_curved", False)
+                if new_wall.is_curved and getattr(wall, "arc_center", None):
+                    new_wall.arc_center = (
+                        wall.arc_center[0] + offset[0],
+                        wall.arc_center[1] + offset[1],
+                    )
+                    new_wall.arc_radius = getattr(wall, "arc_radius", None)
+
+                if old_wid:
+                    pasted_wall_map[old_wid] = new_wall
+                pasted_wall_map[id(wall)] = new_wall
 
                 # Add to a new wall set
                 self.wall_sets.append([new_wall])
                 self.selected_items.append(
                     {"type": "wall", "object": new_wall})
 
+        # Pass 2: Paste all other non-wall items
+        for item in self.clipboard:
+            item_type = item.get("type")
+
+            if item_type == "wall":
+                continue
+
             elif item_type == "door":
                 # Doors are (wall, door, ratio) tuples
                 old_wall, door, ratio = item["object"]
-                # Create new door object
                 new_door = copy_module.deepcopy(door)
                 new_door.identifier = self.generate_identifier(
                     "door", self.existing_ids)
+                new_door.layer_id = self.active_layer_id
+                self.existing_ids.append(new_door.identifier)
 
-                # Paste on same wall with offset ratio
-                new_ratio = ratio + 0.1  # 10% offset along the wall
-                if new_ratio > 1.0:
-                    # Try going backward or clamp to 0.9
-                    new_ratio = min(0.9, ratio - 0.1)
+                old_wid = getattr(old_wall, "identifier", None)
+                if old_wid and old_wid in pasted_wall_map:
+                    target_wall = pasted_wall_map[old_wid]
+                    new_ratio = ratio
+                elif id(old_wall) in pasted_wall_map:
+                    target_wall = pasted_wall_map[id(old_wall)]
+                    new_ratio = ratio
+                else:
+                    target_wall = self._resolve_live_wall(old_wall)
+                    new_ratio = self._next_opening_ratio(target_wall, ratio, is_window=False)
 
-                # Store door on same wall
-                new_door_tuple = (old_wall, new_door, new_ratio)
+                new_door_tuple = (target_wall, new_door, new_ratio)
                 self.doors.append(new_door_tuple)
                 self.selected_items.append(
                     {"type": "door", "object": new_door_tuple})
@@ -971,19 +1339,24 @@ class CanvasArea(Gtk.DrawingArea,
             elif item_type == "window":
                 # Windows are (wall, window, ratio) tuples
                 old_wall, window, ratio = item["object"]
-                # Create new window object
                 new_window = copy_module.deepcopy(window)
                 new_window.identifier = self.generate_identifier(
                     "window", self.existing_ids)
+                new_window.layer_id = self.active_layer_id
+                self.existing_ids.append(new_window.identifier)
 
-                # Paste on same wall with offset ratio
-                new_ratio = ratio + 0.1  # 10% offset along the wall
-                if new_ratio > 1.0:
-                    # Try going backward or clamp to 0.9
-                    new_ratio = min(0.9, ratio - 0.1)
+                old_wid = getattr(old_wall, "identifier", None)
+                if old_wid and old_wid in pasted_wall_map:
+                    target_wall = pasted_wall_map[old_wid]
+                    new_ratio = ratio
+                elif id(old_wall) in pasted_wall_map:
+                    target_wall = pasted_wall_map[id(old_wall)]
+                    new_ratio = ratio
+                else:
+                    target_wall = self._resolve_live_wall(old_wall)
+                    new_ratio = self._next_opening_ratio(target_wall, ratio, is_window=True)
 
-                # Store window on same wall
-                new_window_tuple = (old_wall, new_window, new_ratio)
+                new_window_tuple = (target_wall, new_window, new_ratio)
                 self.windows.append(new_window_tuple)
                 self.selected_items.append(
                     {"type": "window", "object": new_window_tuple})
@@ -996,6 +1369,7 @@ class CanvasArea(Gtk.DrawingArea,
                 new_text.y = text.y + offset[1]
                 new_text.identifier = self.generate_identifier(
                     "text", self.existing_ids)
+                self.existing_ids.append(new_text.identifier)
 
                 self.texts.append(new_text)
                 self.selected_items.append(
@@ -1003,6 +1377,10 @@ class CanvasArea(Gtk.DrawingArea,
 
             elif item_type == "dimension":
                 dim = item["object"]
+                dim_id = self.generate_identifier(
+                    "dimension", self.existing_ids
+                )
+                self.existing_ids.append(dim_id)
                 # Create new dimension with offset
                 new_dim = self.Dimension(
                     start=(
@@ -1012,9 +1390,7 @@ class CanvasArea(Gtk.DrawingArea,
                         dim.end[0] + offset[0],
                         dim.end[1] + offset[1]),
                     offset=dim.offset,
-                    identifier=self.generate_identifier(
-                        "dimension",
-                        self.existing_ids),
+                    identifier=dim_id,
                     text_size=dim.text_size,
                     show_arrows=dim.show_arrows,
                     line_style=dim.line_style,
@@ -1023,6 +1399,54 @@ class CanvasArea(Gtk.DrawingArea,
                 self.dimensions.append(new_dim)
                 self.selected_items.append(
                     {"type": "dimension", "object": new_dim})
+
+            elif item_type == "dimension_chain":
+                chain = item["object"]
+                new_points = [
+                    (p[0] + offset[0], p[1] + offset[1]) for p in chain.points
+                ]
+                new_chain = copy_module.deepcopy(chain)
+                new_chain.points = new_points
+                new_chain.identifier = self.generate_identifier(
+                    "dim_chain", self.existing_ids)
+                self.existing_ids.append(new_chain.identifier)
+                self.dimension_chains.append(new_chain)
+                self.selected_items.append(
+                    {"type": "dimension_chain", "object": new_chain})
+
+            elif item_type == "leader_callout":
+                lead = item["object"]
+                new_lead = copy_module.deepcopy(lead)
+                new_lead.tip = (
+                    lead.tip[0] + offset[0], lead.tip[1] + offset[1]
+                )
+                new_lead.elbow = (
+                    lead.elbow[0] + offset[0], lead.elbow[1] + offset[1]
+                )
+                new_lead.shoulder = (
+                    lead.shoulder[0] + offset[0], lead.shoulder[1] + offset[1]
+                )
+                new_lead.identifier = self.generate_identifier(
+                    "leader", self.existing_ids)
+                self.existing_ids.append(new_lead.identifier)
+                self.leader_callouts.append(new_lead)
+                self.selected_items.append(
+                    {"type": "leader_callout", "object": new_lead})
+
+            elif item_type == "fixture":
+                fix = item["object"]
+                new_fix = copy_module.deepcopy(fix)
+                new_fix.x = fix.x + offset[0]
+                new_fix.y = fix.y + offset[1]
+                new_fix.identifier = self.generate_identifier(
+                    "fixture", self.existing_ids)
+                new_fix.layer_id = self.active_layer_id
+                self.existing_ids.append(new_fix.identifier)
+                if not hasattr(self, "fixtures"):
+                    self.fixtures = []
+                self.fixtures.append(new_fix)
+                self.selected_items.append(
+                    {"type": "fixture", "object": new_fix})
 
             elif item_type == "polyline":
                 poly = item["object"]
@@ -1036,11 +1460,81 @@ class CanvasArea(Gtk.DrawingArea,
                     poly.end[1] + offset[1])
                 new_poly.identifier = self.generate_identifier(
                     "polyline", self.existing_ids)
+                self.existing_ids.append(new_poly.identifier)
 
                 # Add as a new polyline set
                 self.polyline_sets.append([new_poly])
                 self.selected_items.append(
-                    {"type": "polyline", "object": new_poly, "identifier": new_poly.identifier})
+                    {
+                        "type": "polyline",
+                        "object": new_poly,
+                        "identifier": new_poly.identifier,
+                    })
+
+            elif item_type == "circle":
+                circle = item["object"]
+                new_circle = copy_module.deepcopy(circle)
+                new_circle.center = (
+                    circle.center[0] + offset[0],
+                    circle.center[1] + offset[1])
+                new_circle.identifier = self.generate_identifier(
+                    "circle", self.existing_ids)
+                self.existing_ids.append(new_circle.identifier)
+                self.circles.append(new_circle)
+                self.selected_items.append(
+                    {"type": "circle", "object": new_circle})
+
+            elif item_type == "arc":
+                arc = item["object"]
+                new_arc = copy_module.deepcopy(arc)
+                new_arc.center = (
+                    arc.center[0] + offset[0],
+                    arc.center[1] + offset[1])
+                new_arc.identifier = self.generate_identifier(
+                    "arc", self.existing_ids)
+                self.existing_ids.append(new_arc.identifier)
+                self.arcs.append(new_arc)
+                self.selected_items.append(
+                    {"type": "arc", "object": new_arc})
+
+            elif item_type == "stair":
+                stair = item["object"]
+                new_stair = copy_module.deepcopy(stair)
+                new_stair.start_point = (
+                    stair.start_point[0] + offset[0],
+                    stair.start_point[1] + offset[1])
+                new_stair.identifier = self.generate_identifier(
+                    "stair", self.existing_ids)
+                new_stair.layer_id = self.active_layer_id
+                self.existing_ids.append(new_stair.identifier)
+                self.stairs.append(new_stair)
+                self.selected_items.append(
+                    {"type": "stair", "object": new_stair})
+
+            elif item_type == "roof":
+                roof = item["object"]
+                new_roof = copy_module.deepcopy(roof)
+                new_roof.identifier = self.generate_identifier(
+                    "roof", self.existing_ids)
+                new_roof.layer_id = self.active_layer_id
+                self.existing_ids.append(new_roof.identifier)
+                new_roof.outline_points = [
+                    (pt[0] + offset[0], pt[1] + offset[1])
+                    for pt in getattr(roof, "outline_points", [])
+                ]
+                for attr in ("ridge_lines", "hip_lines", "valley_lines", "rake_lines", "eave_lines"):
+                    segs = getattr(roof, attr, [])
+                    setattr(new_roof, attr, [
+                        ((s[0] + offset[0], s[1] + offset[1]), (e[0] + offset[0], e[1] + offset[1]))
+                        for s, e in segs
+                    ])
+                for line_list_attr in ("manual_lines", "solved_lines"):
+                    for rl in getattr(new_roof, line_list_attr, []):
+                        rl.start = (rl.start[0] + offset[0], rl.start[1] + offset[1])
+                        rl.end = (rl.end[0] + offset[0], rl.end[1] + offset[1])
+                self.roofs.append(new_roof)
+                self.selected_items.append(
+                    {"type": "roof", "object": new_roof})
 
             elif item_type == "vertex":
                 # Room vertices - we'll handle this by pasting the whole room
@@ -1052,28 +1546,43 @@ class CanvasArea(Gtk.DrawingArea,
         for item in self.clipboard:
             if item["type"] == "vertex":
                 room, idx = item["object"]
-                # Use object id to track unique rooms
-                rooms_to_paste.add(id(room))
+                key = getattr(room, "identifier", None) or id(room)
+                rooms_to_paste.add(key)
+            elif item["type"] == "room":
+                room = item["object"]
+                key = getattr(room, "identifier", None) or id(room)
+                rooms_to_paste.add(key)
 
         # Paste unique rooms
         for item in self.clipboard:
-            if item["type"] == "vertex":
-                room, idx = item["object"]
-                if id(room) in rooms_to_paste:
+            if item["type"] in ("vertex", "room"):
+                room = (
+                    item["object"][0]
+                    if item["type"] == "vertex"
+                    else item["object"]
+                )
+                key = getattr(room, "identifier", None) or id(room)
+                if key in rooms_to_paste:
+                    room_id = self.generate_identifier(
+                        "room", self.existing_ids
+                    )
+                    self.existing_ids.append(room_id)
                     # Create new room with offset
                     new_points = [(pt[0] + offset[0], pt[1] + offset[1])
                                   for pt in room.points]
                     new_room = self.Room(
                         points=new_points,
                         height=room.height,
-                        identifier=self.generate_identifier(
-                            "room",
-                            self.existing_ids),
+                        identifier=room_id,
                         layer_id=self.active_layer_id)
                     new_room.floor_type = room.floor_type
                     new_room.wall_finish = room.wall_finish
                     new_room.room_type = room.room_type
                     new_room.name = room.name
+                    new_room.slab = getattr(room, "slab", False)
+                    new_room.slab_thickness = getattr(room, "slab_thickness", 4.0)
+                    new_room.slab_reinforcement = getattr(room, "slab_reinforcement", "none")
+                    new_room.slab_edge_type = getattr(room, "slab_edge_type", "monolithic")
 
                     self.rooms.append(new_room)
                     # Add all vertices to selection
@@ -1081,10 +1590,12 @@ class CanvasArea(Gtk.DrawingArea,
                         self.selected_items.append(
                             {"type": "vertex", "object": (new_room, i)})
 
-                    rooms_to_paste.remove(id(room))  # Don't paste again
+                    rooms_to_paste.remove(key)  # Don't paste again
 
         self.save_state()
         self.queue_draw()
+
+        self.emit('content-changed')
         self.emit('selection-changed', self.selected_items)
 
 

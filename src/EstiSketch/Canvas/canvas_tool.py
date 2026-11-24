@@ -1,6 +1,7 @@
 class CanvasToolMixin:
     def set_tool_mode(self, mode):
         self.tool_mode = mode
+        self.opening_ghost = None  # clear door/window ghost on tool change
         self.current_wall = None
         self.drawing_wall = False
         self.snap_type = "none"
@@ -14,6 +15,50 @@ class CanvasToolMixin:
         self.editing_roof_line = None
         self.editing_roof_line_handle = None
         self.dragging_roof_lines = None
+
+        # Reset dimension tool state
+        self.drawing_dimension = False
+        self.dimension_start = None
+        self.dimension_end = None
+        self.dimension_offset_preview = None
+
+        # Reset dimension chain tool state
+        self.drawing_dimension_chain = False
+        self.dimension_chain_points = []
+        self.dimension_chain_offset = None
+
+        # Reset leader callout tool state
+        self.drawing_leader = False
+        self.leader_tip = None
+        self.leader_elbow = None
+
+        # Reset stair tool state
+        self.temp_object = None
+        self.temp_start_point = None
+        self.action_state = "idle"
+
+        # Reset polyline, circle, and arc tool state
+        self.drawing_polyline = False
+        self.current_polyline_start = None
+        self.current_polyline_preview = None
+        self.drawing_circle = False
+        self.circle_center = None
+        self.circle_radius_preview = None
+        self.drawing_arc = False
+        self.arc_start = None
+        self.arc_end = None
+        self.arc_preview_point = None
+
+        # Clear selection when activating creation tools
+        creation_tools = (
+            "add_dimension_chain", "add_dimension", "add_leader",
+            "draw_walls", "draw_rooms", "add_polyline", "add_doors",
+            "add_windows", "add_circle", "add_arc", "add_stair", "add_roof_line"
+        )
+        if mode in creation_tools and getattr(self, "selected_items", None):
+            self.selected_items = []
+            self.emit('selection-changed', self.selected_items)
+
         self.queue_draw()
 
         # Update hint for the new tool mode

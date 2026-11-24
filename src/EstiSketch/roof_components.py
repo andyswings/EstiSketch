@@ -8,7 +8,8 @@ expansion to complex roof types.
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Optional, Any, Union
 
-from models.roof import (
+from .Canvas.utils import generate_identifier
+from .models.roof import (
     ROOF_LINE_COLORS,
     RoofEdge,
     RoofVertex,
@@ -40,6 +41,11 @@ class RoofLine:
     pitch_rise: Optional[float] = None  # Override pitch (rise in 12) if specified
     overhang: Optional[float] = None    # Override overhang (inches) for eaves
     is_auto_generated: bool = False     # True if solver created this line
+    wall_identifier: str = ""           # Optional linked wall identifier
+
+    def __post_init__(self) -> None:
+        if not self.identifier:
+            self.identifier = generate_identifier("roof_line")
 
     @property
     def length_in(self) -> float:
@@ -63,6 +69,10 @@ class Roof:
     """
     identifier: str = ""
     layer_id: str = ""
+    visible: bool = True
+    locked: bool = False
+    custom_name: str = ""
+    comment: str = ""
     
     # Wall bindings
     edges: List[RoofEdge] = field(default_factory=list)
@@ -96,4 +106,9 @@ class Roof:
     
     # Materials
     material: str = "asphalt_shingle"
+
+    def __post_init__(self) -> None:
+        if not self.identifier:
+            self.identifier = generate_identifier("roof")
+
 

@@ -1,6 +1,58 @@
+import base64
+import json
 import xml.etree.ElementTree as ET
-from .components import Wall, Room, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair
+from .Canvas.utils import generate_identifier
+from .components import Wall, Room, FloorOpening, Fixture, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair, BackgroundImage, DimensionChain, LeaderCallout, ObjectGroup
+from .geometry.room_holes import sync_stair_holes
 from .roof_components import Roof, RoofEdge, RoofLine
+
+
+def _save_obj_meta(elem, obj):
+    """Save common object metadata (visible, locked, custom_name, comment)."""
+    if "visible" not in elem.attrib:
+        elem.set("visible", str(bool(getattr(obj, "visible", True))))
+    if "locked" not in elem.attrib:
+        elem.set("locked", str(bool(getattr(obj, "locked", False))))
+    custom_name = getattr(obj, "custom_name", "") or ""
+    if custom_name:
+        elem.set("custom_name", custom_name)
+    comment = getattr(obj, "comment", "") or ""
+    if comment:
+        elem.set("comment", comment)
+
+
+def _load_obj_meta(elem, obj):
+    """Restore common object metadata (visible, locked, custom_name, comment)."""
+    if "visible" in elem.attrib:
+        obj.visible = elem.get("visible", "True") == "True"
+    if "locked" in elem.attrib:
+        obj.locked = elem.get("locked", "False") == "True"
+    obj.custom_name = elem.get("custom_name", "") or ""
+    obj.comment = elem.get("comment", "") or ""
+
+
+def _rgb_to_hex(color) -> str:
+    """Serialize an optional (r, g, b) float tuple in 0..1 to '#RRGGBB', or ''."""
+    if not isinstance(color, (tuple, list)) or len(color) < 3:
+        return ""
+    r = max(0, min(255, int(round(float(color[0]) * 255.0))))
+    g = max(0, min(255, int(round(float(color[1]) * 255.0))))
+    b = max(0, min(255, int(round(float(color[2]) * 255.0))))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _hex_to_rgb(text: str):
+    """Parse '#RRGGBB' into an (r, g, b) float tuple in 0..1, or None."""
+    s = (text or "").strip().lstrip("#")
+    if len(s) != 6:
+        return None
+    try:
+        r = int(s[0:2], 16) / 255.0
+        g = int(s[2:4], 16) / 255.0
+        b = int(s[4:6], 16) / 255.0
+        return (r, g, b)
+    except ValueError:
+        return None
 
 
 def save_project(canvas, window_width, window_height, filepath):
@@ -34,6 +86,12 @@ def save_project(canvas, window_width, window_height, filepath):
     # Save active level ID
     active_level_id = getattr(canvas, 'active_level_id', '')
     root.set("active_level_id", active_level_id)
+    root.set("cut_lower_ceiling_under_stairs",
+             str(bool(getattr(canvas, 'cut_lower_ceiling_under_stairs', False))))
+    root.set("north_angle", str(float(getattr(canvas, 'north_angle', 0.0))))
+    if getattr(canvas, 'ghost_level_id', None):
+        root.set("ghost_level_id", str(canvas.ghost_level_id))
+    root.set("ghost_opacity", str(float(getattr(canvas, 'ghost_opacity', 0.25))))
 
     # Save layers
     layers_elem = ET.SubElement(root, "Layers")
@@ -61,6 +119,11 @@ def save_project(canvas, window_width, window_height, filepath):
         for wall_index, wall in enumerate(wall_set):
             wall_mapping[id(wall)] = (set_index, wall_index)
             wall_elem = ET.SubElement(ws_elem, "Wall")
+            wall_elem.set("identifier", getattr(wall, "identifier", ""))
+            _save_obj_meta(wall_elem, wall)
+            ET.SubElement(wall_elem, "Identifier").text = getattr(
+                wall, "identifier", ""
+            )
             # Save coordinates and dimensions.
             ET.SubElement(
                 wall_elem, "Start", x=str(
@@ -93,6 +156,24 @@ def save_project(canvas, window_width, window_height, filepath):
                 "ExteriorFinish").text = wall.exterior_finish
             ET.SubElement(
                 wall_elem,
+                "LeftFinish").text = getattr(wall, "left_finish", "Drywall")
+            ET.SubElement(
+                wall_elem,
+                "RightFinish").text = getattr(wall, "right_finish", "Drywall")
+            ET.SubElement(
+                wall_elem,
+                "LeftColor").text = _rgb_to_hex(getattr(wall, "left_color", None))
+            ET.SubElement(
+                wall_elem,
+                "RightColor").text = _rgb_to_hex(getattr(wall, "right_color", None))
+            ET.SubElement(
+                wall_elem,
+                "LeftBaseboard").text = str(bool(getattr(wall, "left_baseboard", False)))
+            ET.SubElement(
+                wall_elem,
+                "RightBaseboard").text = str(bool(getattr(wall, "right_baseboard", False)))
+            ET.SubElement(
+                wall_elem,
                 "StudSpacing").text = str(
                 wall.stud_spacing)
             ET.SubElement(
@@ -111,11 +192,19 @@ def save_project(canvas, window_width, window_height, filepath):
     rooms_elem = ET.SubElement(root, "Rooms")
     for room in canvas.rooms:
         room_elem = ET.SubElement(rooms_elem, "Room")
+        room_elem.set("identifier", getattr(room, "identifier", ""))
+        _save_obj_meta(room_elem, room)
+        ET.SubElement(room_elem, "Identifier").text = getattr(
+            room, "identifier", ""
+        )
         points_elem = ET.SubElement(room_elem, "Points")
         for pt in room.points:
             ET.SubElement(points_elem, "Point", x=str(pt[0]), y=str(pt[1]))
         ET.SubElement(room_elem, "Height").text = str(room.height)
         ET.SubElement(room_elem, "FloorType").text = room.floor_type
+        ET.SubElement(room_elem, "FloorPattern").text = getattr(room, "floor_pattern", "none")
+        ET.SubElement(room_elem, "PatternRotation").text = str(float(getattr(room, "pattern_rotation", 0.0)))
+        ET.SubElement(room_elem, "PatternScale").text = str(float(getattr(room, "pattern_scale", 1.0)))
         ET.SubElement(room_elem, "WallFinish").text = room.wall_finish
         ET.SubElement(room_elem, "RoomType").text = room.room_type
         ET.SubElement(room_elem, "Name").text = room.name
@@ -132,11 +221,71 @@ def save_project(canvas, window_width, window_height, filepath):
         ET.SubElement(room_elem, "SlabReinforcement").text = getattr(room, 'slab_reinforcement', 'wire_mesh')
         ET.SubElement(room_elem, "SlabEdgeType").text = getattr(room, 'slab_edge_type', 'thickened')
 
+        # Save holes: only the link to the source object. Points are derived
+        # and recomputed on load.
+        holes_elem = ET.SubElement(room_elem, "Holes")
+        for hole in getattr(room, 'holes', []):
+            h_elem = ET.SubElement(holes_elem, "Hole")
+            h_elem.set("source_id", hole.source_id)
+            h_elem.set("ceiling_only", str(hole.ceiling_only))
+
+    # Save manual FloorOpenings
+    floor_openings_elem = ET.SubElement(root, "FloorOpenings")
+    for fo in getattr(canvas, "floor_openings", []):
+        fo_elem = ET.SubElement(floor_openings_elem, "FloorOpening")
+        fo_elem.set("identifier", getattr(fo, "identifier", ""))
+        _save_obj_meta(fo_elem, fo)
+        fo_elem.set("opening_type", getattr(fo, "opening_type", "opening") or "opening")
+        fo_elem.set("label", getattr(fo, "label", "") or "")
+        fo_elem.set("ceiling_only", str(bool(getattr(fo, "ceiling_only", False))))
+        fo_elem.set("show_cross", str(bool(getattr(fo, "show_cross", True))))
+        fo_elem.set("show_label", str(bool(getattr(fo, "show_label", True))))
+        fo_elem.set("layer_id", getattr(fo, "layer_id", "") or "")
+        pts_elem = ET.SubElement(fo_elem, "Points")
+        for pt in getattr(fo, "points", []):
+            ET.SubElement(pts_elem, "Point", x=str(pt[0]), y=str(pt[1]))
+
+    # Save Fixtures, Cabinetry & Appliances
+    fixtures_elem = ET.SubElement(root, "Fixtures")
+    for fx in getattr(canvas, "fixtures", []):
+        fx_elem = ET.SubElement(fixtures_elem, "Fixture")
+        fx_elem.set("identifier", getattr(fx, "identifier", ""))
+        _save_obj_meta(fx_elem, fx)
+        fx_elem.set("symbol_type", getattr(fx, "symbol_type", "base_cabinet"))
+        fx_elem.set("category", getattr(fx, "category", ""))
+        fx_elem.set("x", str(float(getattr(fx, "x", 0.0))))
+        fx_elem.set("y", str(float(getattr(fx, "y", 0.0))))
+        fx_elem.set("width", str(float(getattr(fx, "width", 24.0))))
+        fx_elem.set("depth", str(float(getattr(fx, "depth", 24.0))))
+        fx_elem.set("height", str(float(getattr(fx, "height", 34.5))))
+        fx_elem.set("rotation", str(float(getattr(fx, "rotation", 0.0))))
+        fx_elem.set("elevation", str(float(getattr(fx, "elevation", 0.0))))
+        fx_elem.set("mount_surface", getattr(fx, "mount_surface", "auto"))
+        fx_elem.set("base_elevation", str(float(getattr(fx, "base_elevation", 0.0))))
+        fx_elem.set("has_countertop", str(bool(getattr(fx, "has_countertop", False))))
+        fx_elem.set("countertop_overhang", str(float(getattr(fx, "countertop_overhang", 0.0))))
+        fx_elem.set("countertop_thickness", str(float(getattr(fx, "countertop_thickness", 1.5))))
+        fx_elem.set("countertop_material", getattr(fx, "countertop_material", "quartz"))
+        fx_elem.set("has_backsplash", str(bool(getattr(fx, "has_backsplash", True))))
+        fx_elem.set("door_swing", getattr(fx, "door_swing", "left"))
+        fx_elem.set("layer_id", getattr(fx, "layer_id", "") or "")
+        fill_hex = _rgb_to_hex(getattr(fx, "fill_color", None))
+        if fill_hex:
+            fx_elem.set("fill_color", fill_hex)
+        ct_hex = _rgb_to_hex(getattr(fx, "countertop_color", None))
+        if ct_hex:
+            fx_elem.set("countertop_color", ct_hex)
+
     # Save doors. In addition to their properties and attachment ratio, also
     # save a wall reference.
     doors_elem = ET.SubElement(root, "Doors")
     for attached_wall, door, ratio in canvas.doors:
         door_elem = ET.SubElement(doors_elem, "Door")
+        door_elem.set("identifier", getattr(door, "identifier", ""))
+        _save_obj_meta(door_elem, door)
+        ET.SubElement(door_elem, "Identifier").text = getattr(
+            door, "identifier", ""
+        )
         ET.SubElement(door_elem, "DoorType").text = door.door_type
         ET.SubElement(door_elem, "Width").text = str(door.width)
         ET.SubElement(door_elem, "Height").text = str(door.height)
@@ -167,6 +316,11 @@ def save_project(canvas, window_width, window_height, filepath):
     windows_elem = ET.SubElement(root, "Windows")
     for attached_wall, window_obj, ratio in canvas.windows:
         win_elem = ET.SubElement(windows_elem, "Window")
+        win_elem.set("identifier", getattr(window_obj, "identifier", ""))
+        _save_obj_meta(win_elem, window_obj)
+        ET.SubElement(win_elem, "Identifier").text = getattr(
+            window_obj, "identifier", ""
+        )
         ET.SubElement(win_elem, "Width").text = str(window_obj.width)
         ET.SubElement(win_elem, "Height").text = str(window_obj.height)
         ET.SubElement(win_elem, "WindowType").text = window_obj.window_type
@@ -207,6 +361,8 @@ def save_project(canvas, window_width, window_height, filepath):
         t_elem.set("underline", str(text.underline))
         t_elem.set("identifier", text.identifier)
         t_elem.set("layer_id", getattr(text, 'layer_id', ''))
+        t_elem.set("rotation", str(getattr(text, 'rotation', 0.0)))
+        _save_obj_meta(t_elem, text)
 
     # Save dimensions
     dimensions_elem = ET.SubElement(root, "Dimensions")
@@ -226,6 +382,59 @@ def save_project(canvas, window_width, window_height, filepath):
         d_elem.set("color_r", str(color[0]))
         d_elem.set("color_g", str(color[1]))
         d_elem.set("color_b", str(color[2]))
+        _save_obj_meta(d_elem, dimension)
+
+    # Save Dimension Chains
+    dim_chains_elem = ET.SubElement(root, "DimensionChains")
+    for chain in getattr(canvas, 'dimension_chains', []):
+        c_elem = ET.SubElement(dim_chains_elem, "DimensionChain")
+        c_elem.set("identifier", chain.identifier)
+        c_elem.set("offset", str(chain.offset))
+        c_elem.set("summary_dimension", str(chain.summary_dimension))
+        c_elem.set("summary_offset", str(chain.summary_offset))
+        c_elem.set("layer_id", getattr(chain, 'layer_id', ''))
+        c_elem.set("visible", str(chain.visible))
+        c_elem.set("locked", str(chain.locked))
+        c_elem.set("text_size", str(chain.text_size))
+        c_elem.set("show_arrows", str(chain.show_arrows))
+        c_elem.set("arrow_style", chain.arrow_style)
+        c_elem.set("line_style", chain.line_style)
+        color = getattr(chain, 'color', (0.0, 0.0, 0.0))
+        c_elem.set("color_r", str(color[0]))
+        c_elem.set("color_g", str(color[1]))
+        c_elem.set("color_b", str(color[2]))
+        c_elem.set("witness_gap", str(chain.witness_gap))
+        c_elem.set("witness_overhang", str(chain.witness_overhang))
+        _save_obj_meta(c_elem, chain)
+        for pt in chain.points:
+            p_elem = ET.SubElement(c_elem, "Point")
+            p_elem.set("x", str(pt[0]))
+            p_elem.set("y", str(pt[1]))
+
+    # Save Leader Callouts
+    leaders_elem = ET.SubElement(root, "LeaderCallouts")
+    for callout in getattr(canvas, 'leader_callouts', []):
+        l_elem = ET.SubElement(leaders_elem, "LeaderCallout")
+        l_elem.set("identifier", callout.identifier)
+        l_elem.set("tip_x", str(callout.tip[0]))
+        l_elem.set("tip_y", str(callout.tip[1]))
+        l_elem.set("elbow_x", str(callout.elbow[0]))
+        l_elem.set("elbow_y", str(callout.elbow[1]))
+        l_elem.set("shoulder_x", str(callout.shoulder[0]))
+        l_elem.set("shoulder_y", str(callout.shoulder[1]))
+        l_elem.set("text", callout.text)
+        l_elem.set("layer_id", getattr(callout, 'layer_id', ''))
+        l_elem.set("visible", str(callout.visible))
+        l_elem.set("locked", str(callout.locked))
+        l_elem.set("text_size", str(callout.text_size))
+        color = getattr(callout, 'color', (0.0, 0.0, 0.0))
+        l_elem.set("color_r", str(color[0]))
+        l_elem.set("color_g", str(color[1]))
+        l_elem.set("color_b", str(color[2]))
+        l_elem.set("box_border", str(callout.box_border))
+        l_elem.set("arrow_type", callout.arrow_type)
+        l_elem.set("line_style", callout.line_style)
+        _save_obj_meta(l_elem, callout)
 
 
     # Save Polylines
@@ -248,6 +457,7 @@ def save_project(canvas, window_width, window_height, filepath):
             pl_elem.set("color_r", str(color[0]))
             pl_elem.set("color_g", str(color[1]))
             pl_elem.set("color_b", str(color[2]))
+            _save_obj_meta(pl_elem, pl)
 
     # Save Circles
     circles_elem = ET.SubElement(root, "Circles")
@@ -263,6 +473,7 @@ def save_project(canvas, window_width, window_height, filepath):
         c_elem.set("color_r", str(color[0]))
         c_elem.set("color_g", str(color[1]))
         c_elem.set("color_b", str(color[2]))
+        _save_obj_meta(c_elem, circle)
 
     # Save Arcs
     arcs_elem = ET.SubElement(root, "Arcs")
@@ -280,6 +491,7 @@ def save_project(canvas, window_width, window_height, filepath):
         a_elem.set("color_r", str(color[0]))
         a_elem.set("color_g", str(color[1]))
         a_elem.set("color_b", str(color[2]))
+        _save_obj_meta(a_elem, arc)
 
     # Save Roofs
     roofs_elem = ET.SubElement(root, "Roofs")
@@ -292,6 +504,7 @@ def save_project(canvas, window_width, window_height, filepath):
         r_elem.set("pitch_run", str(roof.pitch_run))
         r_elem.set("overhang", str(roof.overhang))
         r_elem.set("material", roof.material)
+        _save_obj_meta(r_elem, roof)
         
         # Save edges with overrides
         edges_elem = ET.SubElement(r_elem, "Edges")
@@ -319,6 +532,8 @@ def save_project(canvas, window_width, window_height, filepath):
             if ml.overhang is not None:
                 l_elem.set("overhang", str(ml.overhang))
             l_elem.set("is_auto", str(ml.is_auto_generated))
+            if getattr(ml, "wall_identifier", ""):
+                l_elem.set("wall_identifier", ml.wall_identifier)
 
         # Save solved topology lines
         solved_elem = ET.SubElement(r_elem, "SolvedLines")
@@ -335,6 +550,8 @@ def save_project(canvas, window_width, window_height, filepath):
             if sl.overhang is not None:
                 l_elem.set("overhang", str(sl.overhang))
             l_elem.set("is_auto", str(sl.is_auto_generated))
+            if getattr(sl, "wall_identifier", ""):
+                l_elem.set("wall_identifier", sl.wall_identifier)
 
         # Save calculated geometry
         ridge_elem = ET.SubElement(r_elem, "RidgeLines")
@@ -425,6 +642,58 @@ def save_project(canvas, window_width, window_height, filepath):
         # Visual
         s_elem.set("show_up_arrow", str(stair.show_up_arrow))
         s_elem.set("show_step_count", str(stair.show_step_count))
+
+        # L/U/Spiral specifics (incl. winders)
+        s_elem.set("turn_direction", str(getattr(stair, 'turn_direction', 'left')))
+        s_elem.set("landing_depth", str(getattr(stair, 'landing_depth', 36.0)))
+        s_elem.set("steps_before_landing", str(getattr(stair, 'steps_before_landing', 0)))
+        s_elem.set("winder_count", str(getattr(stair, 'winder_count', 0)))
+        s_elem.set("opening_clearance", str(getattr(stair, 'opening_clearance', 0.0)))
+        _save_obj_meta(s_elem, stair)
+
+    # Save ObjectGroups
+    groups_elem = ET.SubElement(root, "Groups")
+    for group in getattr(canvas, 'groups', []):
+        g_elem = ET.SubElement(groups_elem, "Group")
+        g_elem.set("identifier", group.identifier)
+        g_elem.set("name", getattr(group, 'name', ''))
+        g_elem.set("layer_id", getattr(group, 'layer_id', ''))
+        _save_obj_meta(g_elem, group)
+        for member_id in getattr(group, 'member_ids', []):
+            m_elem = ET.SubElement(g_elem, "Member")
+            m_elem.set("id", member_id)
+
+    # Save Blueprint underlays (image bytes are embedded so the project is
+    # self-contained and portable between machines).
+    blueprints_elem = ET.SubElement(root, "Blueprints")
+    for bp in getattr(canvas, 'blueprints', []):
+        b_elem = ET.SubElement(blueprints_elem, "Blueprint")
+        b_elem.set("identifier", bp.identifier)
+        b_elem.set("name", bp.name)
+        b_elem.set("image_path", bp.image_path)
+        b_elem.set("x", str(bp.x))
+        b_elem.set("y", str(bp.y))
+        b_elem.set("scale_x", str(bp.scale_x))
+        b_elem.set("scale_y", str(bp.scale_y))
+        b_elem.set("rotation", str(bp.rotation))
+        b_elem.set("opacity", str(bp.opacity))
+        b_elem.set("visible", str(bp.visible))
+        b_elem.set("locked", str(bp.locked))
+        b_elem.set("level_id", bp.level_id)
+        data_elem = ET.SubElement(b_elem, "ImageData")
+        data_elem.text = base64.b64encode(bp.image_data).decode("ascii")
+
+    # Save TakeoffEngine project state (assumptions, overrides, custom items, reference)
+    takeoff_state = getattr(canvas, "takeoff_state", None)
+    if isinstance(takeoff_state, dict):
+        ts_elem = ET.SubElement(root, "TakeoffState")
+        ts_elem.text = json.dumps(takeoff_state, sort_keys=True)
+
+    # Save print / PDF plot settings (page setup + title block)
+    print_settings = getattr(canvas, "print_settings", None)
+    if isinstance(print_settings, dict):
+        ps_elem = ET.SubElement(root, "PrintSettings")
+        ps_elem.text = json.dumps(print_settings, sort_keys=True)
 
     # Write out the XML to the given file (with declaration and proper
     # encoding).
@@ -520,6 +789,10 @@ def open_project(canvas, filepath):
     canvas.windows.clear()
     canvas.texts.clear()
     canvas.dimensions.clear()
+    if hasattr(canvas, 'dimension_chains'):
+        canvas.dimension_chains.clear()
+    if hasattr(canvas, 'leader_callouts'):
+        canvas.leader_callouts.clear()
     if hasattr(canvas, 'layers'):
         canvas.layers.clear()
     if hasattr(canvas, 'levels'):
@@ -540,7 +813,9 @@ def open_project(canvas, filepath):
 
     # Default level if none found
     if hasattr(canvas, 'levels') and not canvas.levels:
-        canvas.levels.append(Level(id="level-1", name="Level 1"))
+        canvas.levels.append(
+            Level(id=generate_identifier("level"), name="Level 1")
+        )
 
     # Restore active level ID
     active_level_id = _get_attr_text(root, "active_level_id", "")
@@ -596,13 +871,31 @@ def open_project(canvas, filepath):
                 height = _get_elem_float(wall_elem, "Height", 96.0)
                 height_at_end = _get_elem_float(wall_elem, "HeightAtEnd", height)
                 exterior_wall = _get_elem_bool(wall_elem, "ExteriorWall", False)
+                wall_id = (
+                    _get_attr_text(wall_elem, "identifier", "")
+                    or _get_elem_text(wall_elem, "Identifier", "")
+                )
 
                 # Create a new Wall instance.
-                wall = Wall(start, end, width, height, exterior_wall, height_at_end=height_at_end)
+                wall = Wall(
+                    start,
+                    end,
+                    width,
+                    height,
+                    exterior_wall,
+                    identifier=wall_id,
+                    height_at_end=height_at_end,
+                )
                 wall.layer_id = _get_elem_text(wall_elem, "LayerId", "")
                 wall.material = _get_elem_text(wall_elem, "Material", "2x4 Wood Stud")
                 wall.interior_finish = _get_elem_text(wall_elem, "InteriorFinish", "1/2\" Drywall")
                 wall.exterior_finish = _get_elem_text(wall_elem, "ExteriorFinish", "Vinyl Siding")
+                wall.left_finish = _get_elem_text(wall_elem, "LeftFinish", "Drywall") or "Drywall"
+                wall.right_finish = _get_elem_text(wall_elem, "RightFinish", "Drywall") or "Drywall"
+                wall.left_color = _hex_to_rgb(_get_elem_text(wall_elem, "LeftColor", ""))
+                wall.right_color = _hex_to_rgb(_get_elem_text(wall_elem, "RightColor", ""))
+                wall.left_baseboard = _get_elem_bool(wall_elem, "LeftBaseboard", False)
+                wall.right_baseboard = _get_elem_bool(wall_elem, "RightBaseboard", False)
                 wall.stud_spacing = _get_elem_int(wall_elem, "StudSpacing", 16)
                 wall.insulation_type = _get_elem_text(wall_elem, "InsulationType", "Fiberglass Batt")
                 wall.fire_rating = _get_elem_text(wall_elem, "FireRating", "None")
@@ -613,6 +906,7 @@ def open_project(canvas, filepath):
                 wall.footer_right_offset = _get_elem_float(wall_elem, "FooterRightOffset", 6.0)
                 wall.footer_depth = _get_elem_float(wall_elem, "FooterDepth", 8.0)
                 wall.symbolic = _get_elem_bool(wall_elem, "Symbolic", False)
+                _load_obj_meta(wall_elem, wall)
 
                 wall_set.append(wall)
             canvas.wall_sets.append(wall_set)
@@ -629,8 +923,15 @@ def open_project(canvas, filepath):
                     y = _get_attr_float(pt_elem, "y", 0.0)
                     points.append((x, y))
             height = _get_elem_float(room_elem, "Height", 96.0)
-            room = Room(points, height)
+            room_id = (
+                _get_attr_text(room_elem, "identifier", "")
+                or _get_elem_text(room_elem, "Identifier", "")
+            )
+            room = Room(points, height, identifier=room_id)
             room.floor_type = _get_elem_text(room_elem, "FloorType", "Hardwood")
+            room.floor_pattern = _get_elem_text(room_elem, "FloorPattern", "none") or "none"
+            room.pattern_rotation = _get_elem_float(room_elem, "PatternRotation", 0.0) % 360.0
+            room.pattern_scale = max(0.25, min(4.0, _get_elem_float(room_elem, "PatternScale", 1.0)))
             room.wall_finish = _get_elem_text(room_elem, "WallFinish", "Paint")
             room.room_type = _get_elem_text(room_elem, "RoomType", "Living Room")
             room.name = _get_elem_text(room_elem, "Name", "Room")
@@ -641,6 +942,7 @@ def open_project(canvas, filepath):
             room.slab_thickness = _get_elem_float(room_elem, "SlabThickness", 4.0)
             room.slab_reinforcement = _get_elem_text(room_elem, "SlabReinforcement", "wire_mesh")
             room.slab_edge_type = _get_elem_text(room_elem, "SlabEdgeType", "thickened")
+            _load_obj_meta(room_elem, room)
 
             canvas.rooms.append(room)
 
@@ -654,9 +956,21 @@ def open_project(canvas, filepath):
             swing = _get_elem_text(door_elem, "Swing", "left")
             orientation = _get_elem_text(door_elem, "Orientation", "inswing")
             ratio = _get_elem_float(door_elem, "AttachedToWallRatio", 0.5)
+            door_id = (
+                _get_attr_text(door_elem, "identifier", "")
+                or _get_elem_text(door_elem, "Identifier", "")
+            )
 
-            door = Door(door_type, width, height, swing, orientation)
+            door = Door(
+                door_type,
+                width,
+                height,
+                swing,
+                orientation,
+                identifier=door_id,
+            )
             door.layer_id = _get_elem_text(door_elem, "LayerId", "")
+            _load_obj_meta(door_elem, door)
             attached_wall = None
             wall_ref_elem = door_elem.find("WallReference")
             if wall_ref_elem is not None:
@@ -677,9 +991,16 @@ def open_project(canvas, filepath):
             win_height = _get_elem_float(win_elem, "Height", 48.0)
             window_type = _get_elem_text(win_elem, "WindowType", "sliding")
             ratio = _get_elem_float(win_elem, "AttachedToWallRatio", 0.5)
+            win_id = (
+                _get_attr_text(win_elem, "identifier", "")
+                or _get_elem_text(win_elem, "Identifier", "")
+            )
 
-            window_obj = Window(win_width, win_height, window_type)
+            window_obj = Window(
+                win_width, win_height, window_type, identifier=win_id
+            )
             window_obj.layer_id = _get_elem_text(win_elem, "LayerId", "")
+            _load_obj_meta(win_elem, window_obj)
             attached_wall = None
             wall_ref_elem = win_elem.find("WallReference")
             if wall_ref_elem is not None:
@@ -709,7 +1030,9 @@ def open_project(canvas, filepath):
             text_obj.bold = _get_attr_text(t_elem, "bold", "False") == "True"
             text_obj.italic = _get_attr_text(t_elem, "italic", "False") == "True"
             text_obj.underline = _get_attr_text(t_elem, "underline", "False") == "True"
+            text_obj.rotation = _get_attr_float(t_elem, "rotation", 0.0)
             text_obj.layer_id = _get_attr_text(t_elem, "layer_id", "")
+            _load_obj_meta(t_elem, text_obj)
 
             canvas.texts.append(text_obj)
 
@@ -738,8 +1061,71 @@ def open_project(canvas, filepath):
             color_b = _get_attr_float(d_elem, "color_b", 0.0)
             dimension_obj.color = (color_r, color_g, color_b)
             dimension_obj.layer_id = _get_attr_text(d_elem, "layer_id", "")
+            _load_obj_meta(d_elem, dimension_obj)
 
             canvas.dimensions.append(dimension_obj)
+
+    # --- Restore Dimension Chains ---
+    if hasattr(canvas, 'dimension_chains'):
+        dim_chains_elem = root.find("DimensionChains")
+        if dim_chains_elem is not None:
+            for c_elem in dim_chains_elem.findall("DimensionChain"):
+                points = []
+                for p_elem in c_elem.findall("Point"):
+                    px = _get_attr_float(p_elem, "x", 0.0)
+                    py = _get_attr_float(p_elem, "y", 0.0)
+                    points.append((px, py))
+                chain_obj = DimensionChain(
+                    points=points,
+                    offset=_get_attr_float(c_elem, "offset", 18.0),
+                    summary_dimension=_get_attr_text(c_elem, "summary_dimension", "True") == "True",
+                    summary_offset=_get_attr_float(c_elem, "summary_offset", 16.0),
+                    identifier=_get_attr_text(c_elem, "identifier", ""),
+                    layer_id=_get_attr_text(c_elem, "layer_id", ""),
+                    visible=_get_attr_text(c_elem, "visible", "True") == "True",
+                    locked=_get_attr_text(c_elem, "locked", "False") == "True",
+                    text_size=_get_attr_float(c_elem, "text_size", 12.0),
+                    show_arrows=_get_attr_text(c_elem, "show_arrows", "True") == "True",
+                    arrow_style=_get_attr_text(c_elem, "arrow_style", "architectural_tick"),
+                    line_style=_get_attr_text(c_elem, "line_style", "solid"),
+                    witness_gap=_get_attr_float(c_elem, "witness_gap", 4.0),
+                    witness_overhang=_get_attr_float(c_elem, "witness_overhang", 6.0),
+                )
+                cr_ = _get_attr_float(c_elem, "color_r", 0.0)
+                cg_ = _get_attr_float(c_elem, "color_g", 0.0)
+                cb_ = _get_attr_float(c_elem, "color_b", 0.0)
+                chain_obj.color = (cr_, cg_, cb_)
+                _load_obj_meta(c_elem, chain_obj)
+                canvas.dimension_chains.append(chain_obj)
+
+    # --- Restore Leader Callouts ---
+    if hasattr(canvas, 'leader_callouts'):
+        leaders_elem = root.find("LeaderCallouts")
+        if leaders_elem is not None:
+            for l_elem in leaders_elem.findall("LeaderCallout"):
+                tip = (_get_attr_float(l_elem, "tip_x", 0.0), _get_attr_float(l_elem, "tip_y", 0.0))
+                elbow = (_get_attr_float(l_elem, "elbow_x", 0.0), _get_attr_float(l_elem, "elbow_y", 0.0))
+                shoulder = (_get_attr_float(l_elem, "shoulder_x", 0.0), _get_attr_float(l_elem, "shoulder_y", 0.0))
+                callout_obj = LeaderCallout(
+                    tip=tip,
+                    elbow=elbow,
+                    shoulder=shoulder,
+                    text=_get_attr_text(l_elem, "text", "Note"),
+                    identifier=_get_attr_text(l_elem, "identifier", ""),
+                    layer_id=_get_attr_text(l_elem, "layer_id", ""),
+                    visible=_get_attr_text(l_elem, "visible", "True") == "True",
+                    locked=_get_attr_text(l_elem, "locked", "False") == "True",
+                    text_size=_get_attr_float(l_elem, "text_size", 12.0),
+                    box_border=_get_attr_text(l_elem, "box_border", "False") == "True",
+                    arrow_type=_get_attr_text(l_elem, "arrow_type", "arrow"),
+                    line_style=_get_attr_text(l_elem, "line_style", "solid"),
+                )
+                cr_ = _get_attr_float(l_elem, "color_r", 0.0)
+                cg_ = _get_attr_float(l_elem, "color_g", 0.0)
+                cb_ = _get_attr_float(l_elem, "color_b", 0.0)
+                callout_obj.color = (cr_, cg_, cb_)
+                _load_obj_meta(l_elem, callout_obj)
+                canvas.leader_callouts.append(callout_obj)
 
     # --- Restore Polylines ---
     if hasattr(canvas, 'polyline_sets'):
@@ -761,6 +1147,7 @@ def open_project(canvas, filepath):
                     color_g = _get_attr_float(pl_elem, "color_g", 0.0)
                     color_b = _get_attr_float(pl_elem, "color_b", 0.0)
                     pl.color = (color_r, color_g, color_b)
+                    _load_obj_meta(pl_elem, pl)
 
                     poly_set.append(pl)
                 canvas.polyline_sets.append(poly_set)
@@ -783,6 +1170,7 @@ def open_project(canvas, filepath):
                 color_g = _get_attr_float(c_elem, "color_g", 0.0)
                 color_b = _get_attr_float(c_elem, "color_b", 0.0)
                 c.color = (color_r, color_g, color_b)
+                _load_obj_meta(c_elem, c)
 
                 canvas.circles.append(c)
 
@@ -806,6 +1194,7 @@ def open_project(canvas, filepath):
                 color_g = _get_attr_float(a_elem, "color_g", 0.0)
                 color_b = _get_attr_float(a_elem, "color_b", 0.0)
                 a.color = (color_r, color_g, color_b)
+                _load_obj_meta(a_elem, a)
 
                 canvas.arcs.append(a)
 
@@ -855,7 +1244,8 @@ def open_project(canvas, filepath):
                         end=(_get_attr_float(l_elem, "x2", 0.0), _get_attr_float(l_elem, "y2", 0.0)),
                         pitch_rise=p_rise,
                         overhang=oh,
-                        is_auto_generated=_get_attr_text(l_elem, "is_auto", "False") == "True"
+                        is_auto_generated=_get_attr_text(l_elem, "is_auto", "False") == "True",
+                        wall_identifier=_get_attr_text(l_elem, "wall_identifier", ""),
                     ))
 
             # Load solved topology lines
@@ -872,7 +1262,8 @@ def open_project(canvas, filepath):
                         end=(_get_attr_float(l_elem, "x2", 0.0), _get_attr_float(l_elem, "y2", 0.0)),
                         pitch_rise=p_rise,
                         overhang=oh,
-                        is_auto_generated=_get_attr_text(l_elem, "is_auto", "False") == "True"
+                        is_auto_generated=_get_attr_text(l_elem, "is_auto", "False") == "True",
+                        wall_identifier=_get_attr_text(l_elem, "wall_identifier", ""),
                     ))
 
             # Load geometry
@@ -956,6 +1347,7 @@ def open_project(canvas, filepath):
             if lines_for_planes:
                 roof.roof_planes = extract_3d_roof_planes(lines_for_planes, pitch_rise)
 
+            _load_obj_meta(r_elem, roof)
             canvas.roofs.append(roof)
 
     # --- Restore Stairs ---
@@ -995,7 +1387,224 @@ def open_project(canvas, filepath):
             stair.show_up_arrow = _get_attr_text(s_elem, "show_up_arrow", "True") == "True"
             stair.show_step_count = _get_attr_text(s_elem, "show_step_count", "True") == "True"
 
+            stair.turn_direction = _get_attr_text(s_elem, "turn_direction", "left")
+            stair.landing_depth = _get_attr_float(s_elem, "landing_depth", 36.0)
+            stair.steps_before_landing = _get_attr_int(s_elem, "steps_before_landing", 0)
+            stair.winder_count = _get_attr_int(s_elem, "winder_count", 0)
+            stair.opening_clearance = _get_attr_float(s_elem, "opening_clearance", 0.0)
+            _load_obj_meta(s_elem, stair)
+
             canvas.stairs.append(stair)
+
+    # --- Restore ObjectGroups ---
+    if hasattr(canvas, 'groups'):
+        canvas.groups.clear()
+        groups_elem = root.find("Groups")
+        if groups_elem is not None:
+            for g_elem in groups_elem.findall("Group"):
+                member_ids = [
+                    m_elem.get("id", "")
+                    for m_elem in g_elem.findall("Member")
+                    if m_elem.get("id", "")
+                ]
+                grp = ObjectGroup(
+                    identifier=_get_attr_text(g_elem, "identifier", ""),
+                    name=_get_attr_text(g_elem, "name", ""),
+                    layer_id=_get_attr_text(g_elem, "layer_id", ""),
+                    member_ids=member_ids,
+                )
+                _load_obj_meta(g_elem, grp)
+                canvas.groups.append(grp)
+
+    # --- Restore Blueprints ---
+    if hasattr(canvas, 'blueprints'):
+        canvas.blueprints.clear()
+        if hasattr(canvas, '_blueprint_surfaces'):
+            canvas._blueprint_surfaces.clear()
+        blueprints_elem = root.find("Blueprints")
+        if blueprints_elem is not None:
+            for b_elem in blueprints_elem.findall("Blueprint"):
+                data_elem = b_elem.find("ImageData")
+                try:
+                    image_data = base64.b64decode(
+                        (data_elem.text or "") if data_elem is not None else "")
+                except Exception:
+                    image_data = b""
+                bp = BackgroundImage(
+                    identifier=_get_attr_text(b_elem, "identifier", ""),
+                    name=_get_attr_text(b_elem, "name", ""),
+                    image_path=_get_attr_text(b_elem, "image_path", ""),
+                    x=_get_attr_float(b_elem, "x", 0.0),
+                    y=_get_attr_float(b_elem, "y", 0.0),
+                    scale_x=_get_attr_float(b_elem, "scale_x", 1.0),
+                    scale_y=_get_attr_float(b_elem, "scale_y", 1.0),
+                    rotation=_get_attr_float(b_elem, "rotation", 0.0),
+                    opacity=_get_attr_float(b_elem, "opacity", 0.5),
+                    visible=_get_attr_text(b_elem, "visible", "True") == "True",
+                    locked=_get_attr_text(b_elem, "locked", "True") == "True",
+                    level_id=_get_attr_text(b_elem, "level_id", ""),
+                    image_data=image_data,
+                )
+                if hasattr(canvas, 'get_blueprint_surface'):
+                    canvas.get_blueprint_surface(bp)  # decodes & sets pixel size
+                canvas.blueprints.append(bp)
+
+    # --- Restore Manual FloorOpenings ---
+    if hasattr(canvas, "floor_openings"):
+        canvas.floor_openings.clear()
+    else:
+        canvas.floor_openings = []
+    fo_root = root.find("FloorOpenings")
+    if fo_root is not None:
+        for fo_elem in fo_root.findall("FloorOpening"):
+            pts = []
+            pts_elem = fo_elem.find("Points")
+            if pts_elem is not None:
+                for p_elem in pts_elem.findall("Point"):
+                    pts.append((float(p_elem.get("x", 0.0)), float(p_elem.get("y", 0.0))))
+            if len(pts) < 3:
+                continue
+            fo = FloorOpening(
+                points=pts,
+                opening_type=fo_elem.get("opening_type", "opening") or "opening",
+                label=fo_elem.get("label", "") or "",
+                ceiling_only=fo_elem.get("ceiling_only", "False") == "True",
+                show_cross=fo_elem.get("show_cross", "True") == "True",
+                show_label=fo_elem.get("show_label", "True") == "True",
+                identifier=fo_elem.get("identifier", ""),
+                layer_id=fo_elem.get("layer_id", "") or "",
+            )
+            _load_obj_meta(fo_elem, fo)
+            canvas.floor_openings.append(fo)
+
+    # --- Restore Fixtures, Cabinetry & Appliances ---
+    if hasattr(canvas, "fixtures"):
+        canvas.fixtures.clear()
+    else:
+        canvas.fixtures = []
+    fx_root = root.find("Fixtures")
+    if fx_root is not None:
+        for fx_elem in fx_root.findall("Fixture"):
+            fx = Fixture(
+                symbol_type=fx_elem.get("symbol_type", "base_cabinet"),
+                x=_get_attr_float(fx_elem, "x", 0.0),
+                y=_get_attr_float(fx_elem, "y", 0.0),
+                width=_get_attr_float(fx_elem, "width", 24.0),
+                depth=_get_attr_float(fx_elem, "depth", 24.0),
+                height=_get_attr_float(fx_elem, "height", 34.5),
+                rotation=_get_attr_float(fx_elem, "rotation", 0.0),
+                elevation=_get_attr_float(fx_elem, "elevation", 0.0),
+                mount_surface=fx_elem.get("mount_surface", "auto"),
+                base_elevation=_get_attr_float(fx_elem, "base_elevation", 0.0),
+                has_countertop=fx_elem.get("has_countertop", "False") == "True",
+                countertop_overhang=_get_attr_float(fx_elem, "countertop_overhang", 0.0),
+                countertop_thickness=_get_attr_float(fx_elem, "countertop_thickness", 1.5),
+                countertop_material=fx_elem.get("countertop_material", "quartz"),
+                has_backsplash=fx_elem.get("has_backsplash", "True") == "True",
+                door_swing=fx_elem.get("door_swing", "left"),
+                fill_color=_hex_to_rgb(fx_elem.get("fill_color", "")),
+                countertop_color=_hex_to_rgb(fx_elem.get("countertop_color", "")),
+                category=fx_elem.get("category", ""),
+                identifier=fx_elem.get("identifier", ""),
+                layer_id=fx_elem.get("layer_id", "") or "",
+            )
+            _load_obj_meta(fx_elem, fx)
+            canvas.fixtures.append(fx)
+
+    # --- Restore Holes (derived) ---
+    # Saved <Holes> only record the source link; geometry is recomputed from
+    # the sources, so holes whose source no longer exists simply vanish.
+    canvas.cut_lower_ceiling_under_stairs = (
+        root.get("cut_lower_ceiling_under_stairs", "False") == "True")
+    canvas.north_angle = _get_attr_float(root, "north_angle", 0.0) % 360.0
+    canvas.ghost_level_id = root.get("ghost_level_id", "") or None
+    canvas.ghost_opacity = max(0.05, min(0.80, _get_attr_float(root, "ghost_opacity", 0.25)))
+    for room in canvas.rooms:
+        room.holes = []
+    sync_stair_holes(canvas)
+
+    # Rebuild canvas.existing_ids from all loaded objects
+    loaded_ids = []
+    for level_obj in getattr(canvas, "levels", []):
+        if getattr(level_obj, "id", ""):
+            loaded_ids.append(level_obj.id)
+    for layer_obj in getattr(canvas, "layers", []):
+        if getattr(layer_obj, "id", ""):
+            loaded_ids.append(layer_obj.id)
+    for wall_set in getattr(canvas, "wall_sets", []):
+        for wall_obj in wall_set:
+            if getattr(wall_obj, "identifier", ""):
+                loaded_ids.append(wall_obj.identifier)
+    for room_obj in getattr(canvas, "rooms", []):
+        if getattr(room_obj, "identifier", ""):
+            loaded_ids.append(room_obj.identifier)
+        for hole_obj in getattr(room_obj, "holes", []):
+            if getattr(hole_obj, "identifier", ""):
+                loaded_ids.append(hole_obj.identifier)
+    for _, door_obj, _ in getattr(canvas, "doors", []):
+        if getattr(door_obj, "identifier", ""):
+            loaded_ids.append(door_obj.identifier)
+    for _, win_obj, _ in getattr(canvas, "windows", []):
+        if getattr(win_obj, "identifier", ""):
+            loaded_ids.append(win_obj.identifier)
+    for list_name in (
+        "texts",
+        "dimensions",
+        "dimension_chains",
+        "leader_callouts",
+        "circles",
+        "arcs",
+        "stairs",
+        "floor_openings",
+        "fixtures",
+        "blueprints",
+        "groups",
+    ):
+        for obj in getattr(canvas, list_name, []):
+            if getattr(obj, "identifier", ""):
+                loaded_ids.append(obj.identifier)
+    for poly_set in getattr(canvas, "polyline_sets", []):
+        for pl_obj in poly_set:
+            if getattr(pl_obj, "identifier", ""):
+                loaded_ids.append(pl_obj.identifier)
+    for roof_obj in getattr(canvas, "roofs", []):
+        if getattr(roof_obj, "identifier", ""):
+            loaded_ids.append(roof_obj.identifier)
+        for rl_obj in getattr(roof_obj, "manual_lines", []):
+            if getattr(rl_obj, "identifier", ""):
+                loaded_ids.append(rl_obj.identifier)
+        for rl_obj in getattr(roof_obj, "solved_lines", []):
+            if getattr(rl_obj, "identifier", ""):
+                loaded_ids.append(rl_obj.identifier)
+    canvas.existing_ids = loaded_ids
+
+    # Restore TakeoffEngine project state (backwards-compatible with older XML files)
+    default_ts = {
+        "assumptions": {},
+        "overrides": {},
+        "custom_items": [],
+        "reference": None,
+    }
+    ts_elem = root.find("TakeoffState")
+    if ts_elem is not None and ts_elem.text:
+        try:
+            loaded_ts = json.loads(ts_elem.text)
+            if isinstance(loaded_ts, dict):
+                default_ts.update(loaded_ts)
+        except (ValueError, TypeError):
+            pass
+    canvas.takeoff_state = default_ts
+
+    # Load print / PDF plot settings
+    canvas.print_settings = None
+    ps_elem = root.find("PrintSettings")
+    if ps_elem is not None and ps_elem.text:
+        try:
+            loaded_ps = json.loads(ps_elem.text)
+            if isinstance(loaded_ps, dict):
+                canvas.print_settings = loaded_ps
+        except (ValueError, TypeError):
+            pass
 
     # Return the saved window size.
     return window_width, window_height

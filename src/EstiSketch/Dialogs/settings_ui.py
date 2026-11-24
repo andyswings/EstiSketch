@@ -39,8 +39,14 @@ def create_settings_dialog(parent, config_constants, canvas):
         ("Default Wall Width (inches)", "DEFAULT_WALL_WIDTH"),
         ("Default Room Height (inches)", "DEFAULT_ROOM_HEIGHT"),
         ("Default Level Height (inches)", "DEFAULT_LEVEL_HEIGHT"),
+        ("Default Door Width (inches)", "DEFAULT_DOOR_WIDTH"),
+        ("Default Door Height (inches)", "DEFAULT_DOOR_HEIGHT"),
+        ("Default Window Width (inches)", "DEFAULT_WINDOW_WIDTH"),
+        ("Default Window Height (inches)", "DEFAULT_WINDOW_HEIGHT"),
         ("Grid Spacing (pixels)", "GRID_SPACING"),
         ("Wall Join Tolerance", "WALL_JOIN_TOLERANCE"),
+        ("Wall Length Snap Increment (inches)", "WALL_LENGTH_SNAP_INCREMENT"),
+        ("Near-Foot Snap Tolerance (inches)", "WALL_NEAR_FOOT_TOLERANCE"),
         ("Snap to Angle Increment", "SNAP_TO_ANGLE_INCREMENT"),
         ("Undo/Redo Limit", "UNDO_REDO_LIMIT"),
         ("Labor Cost per Hour ($)", "LABOR_COST_PER_HOUR"),
@@ -64,11 +70,13 @@ def create_settings_dialog(parent, config_constants, canvas):
     # Group 2: Dropdown Menus
     dropdowns = [
         ("Units", "UNITS", ["feet_inches", "metric"]),
+        ("Near-Foot Length Fix", "WALL_NEAR_FOOT_BEHAVIOR", ["auto", "prompt", "off"]),
         ("Wall Display Pattern", "WALL_DISPLAY_PATTERN", ["solid", "patterned", "filled_rectangle"]),
         ("Construction Type", "CONSTRUCTION_TYPE", ["stick", "metal", "cinder", "pole"]),
         ("Default Door Type", "DEFAULT_DOOR_TYPE", ["single", "double", "sliding", "pocket", "bi-fold", "double bi-fold", "frame", "garage"]),
         ("Default Window Type", "DEFAULT_WINDOW_TYPE", ["sliding", "fixed", "double-hung"]),
         ("Default Interior Wall Material", "DEFAULT_INTERIOR_WALL_MATERIAL", ["Drywall", "T&G"]),
+        ("Default Ceiling Type", "TAKEOFF_CEILING_TYPE", ["vaulted", "flat"]),
         ("Default Exterior Wall Material", "DEFAULT_EXTERIOR_WALL_MATERIAL", ["Brick", "LP Lap Siding", "Hardie", "Stucco", "Wood", "Stone"]),
         ("Default Polyline Type", "POLYLINE_TYPE", ["solid", "dashed"]),
         ("Default File Format", "DEFAULT_FILE_FORMAT", ["json", "xml", "csv"])
@@ -99,6 +107,7 @@ def create_settings_dialog(parent, config_constants, canvas):
         ("Enable Undo/Redo Limit", "ENABLE_UNDO_REDO_LIMIT"),
         ("Include Cost Estimate in Export", "INCLUDE_COST_ESTIMATE_IN_EXPORT"),
         ("Layer Focus Mode", "LAYER_FOCUS_MODE"),
+        ("Debug", "DEBUG")
     ]
 
     switches = {}
@@ -113,6 +122,20 @@ def create_settings_dialog(parent, config_constants, canvas):
         grid.attach(switch, 1, row, 1, 1)
         row += 1
 
+    # Project-level setting (stored on the canvas / project file, not config)
+    lbl = Gtk.Label(label="Cut lower-level ceiling under stairs")
+    lbl.set_xalign(0)
+    lbl.set_tooltip_text(
+        "Also deduct the stair opening from the ceiling takeoff of rooms on "
+        "the level below. Saved with the project.")
+    grid.attach(lbl, 0, row, 1, 1)
+    cut_ceiling_switch = Gtk.Switch()
+    cut_ceiling_switch.set_active(
+        bool(getattr(canvas, "cut_lower_ceiling_under_stairs", False)))
+    cut_ceiling_switch.set_halign(Gtk.Align.END)
+    grid.attach(cut_ceiling_switch, 1, row, 1, 1)
+    row += 1
+
     # Apply changes: update the config and also force a redraw of the canvas
     def update_config():
         for key, entry in numeric_entries.items():
@@ -126,6 +149,11 @@ def create_settings_dialog(parent, config_constants, canvas):
 
         for key, switch in switches.items():
             setattr(config_constants, key, switch.get_active())
+
+        new_cut = cut_ceiling_switch.get_active()
+        if new_cut != bool(getattr(canvas, "cut_lower_ceiling_under_stairs", False)):
+            canvas.cut_lower_ceiling_under_stairs = new_cut
+            canvas.emit('content-changed')
 
         # Sync snap_enabled to the snap_manager so it takes effect immediately
         if hasattr(canvas, 'snap_manager'):

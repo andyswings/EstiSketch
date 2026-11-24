@@ -1,8 +1,13 @@
 import math
+from typing import Any
 from gi.repository import Gtk
 
 
 class CanvasEventsMixin:
+    walls: Any
+    current_room_points: Any
+    circle_center: Any
+
     def on_click(
             self,
             gesture: Gtk.Gesture,
@@ -26,10 +31,17 @@ class CanvasEventsMixin:
             None
         """
         # Check if active layer is locked for creation tools
+        if getattr(self, "_compass_click_consumed", False):
+            self._compass_click_consumed = False
+            return
+        if self._hit_test_compass(x, y) or getattr(self, "dragging_compass", False):
+            return
+
         creating_tools = [
-            "draw_walls", "draw_rooms", "add_doors", "add_windows", 
-            "add_polyline", "add_dimension", "add_text", 
-            "add_circle", "add_arc", "add_stair", "design_roof", "add_roof_line"
+            "draw_walls", "draw_rooms", "add_floor_opening", "add_doors", "add_windows", 
+            "add_polyline", "add_dimension", "add_dimension_chain", "add_leader", "add_text", 
+            "add_circle", "add_arc", "add_stair", "design_roof", "add_roof_line",
+            "add_fixture", "add_kitchen_layout", "draw_cabinet_run",
         ]
         
         if self.tool_mode in creating_tools:
@@ -43,6 +55,8 @@ class CanvasEventsMixin:
             self._handle_wall_click(n_press, x, y)
         elif self.tool_mode == "draw_rooms":
             self._handle_room_click(n_press, x, y)
+        elif self.tool_mode == "add_floor_opening":
+            self._handle_floor_opening_click(n_press, x, y)
         elif self.tool_mode == "add_doors":
             self._handle_door_click(n_press, x, y)
         elif self.tool_mode == "add_windows":
@@ -62,6 +76,10 @@ class CanvasEventsMixin:
             self._handle_polyline_click(n_press, x, y)
         elif self.tool_mode == "add_dimension":
             self._handle_dimension_click(n_press, x, y)
+        elif self.tool_mode == "add_dimension_chain":
+            self._handle_dimension_chain_click(n_press, x, y)
+        elif self.tool_mode == "add_leader":
+            self._handle_leader_click(n_press, x, y)
         elif self.tool_mode == "add_text":
             self._handle_text_click(n_press, x, y)
         elif self.tool_mode == "add_circle":
@@ -70,6 +88,14 @@ class CanvasEventsMixin:
             self._handle_arc_click(n_press, x, y)
         elif self.tool_mode == "add_stair":
             self._handle_stair_click(n_press, x, y)
+        elif self.tool_mode == "add_fixture":
+            self._handle_fixture_click(n_press, x, y)
+        elif self.tool_mode == "add_kitchen_layout":
+            self._handle_kitchen_layout_click(n_press, x, y)
+        elif self.tool_mode == "draw_cabinet_run":
+            self._handle_cabinet_run_click(n_press, x, y)
+        elif self.tool_mode == "calibrate_blueprint":
+            self._handle_calibration_click(n_press, x, y)
 
 
     def on_click_pressed(
@@ -100,6 +126,22 @@ class CanvasEventsMixin:
         # Reset drag active state on new press
         self.drag_active = False
 
+        if self._hit_test_compass(x, y):
+            self._compass_click_consumed = True
+            if n_press == 2:
+                self.north_angle = 0.0
+                self.dragging_compass = False
+                self._compass_drag_moved = False
+                self.save_state()
+                self.emit('content-changed')
+                self.update_hint("North azimuth reset to 0°")
+                self.queue_draw()
+                return
+            self.dragging_compass = True
+            self._compass_drag_moved = False
+            self.queue_draw()
+            return
+
         # --- Detect wall-handle press so drag can edit endpoints ---
         # If a selected wall handle was pressed, set editing state and record
         # the model-space start point for the drag logic (box_select_start).
@@ -112,6 +154,30 @@ class CanvasEventsMixin:
         # Ensure attributes exist
         if not hasattr(self, "handle_radius"):
             self.handle_radius = 10
+
+        # Check for selected ObjectGroup rotation handle before individual handles
+        if hasattr(self, "get_selected_groups"):
+            sel_groups = self.get_selected_groups()
+            if len(sel_groups) == 1 and not sel_groups[0].locked:
+                grp = sel_groups[0]
+                h_dev = self.get_group_rotation_handle_device(grp)
+                if h_dev and math.hypot(x - h_dev[0], y - h_dev[1]) < max(self.handle_radius, 12):
+                    pivot = self.get_group_center(grp)
+                    if pivot is not None:
+                        self.rotating_group = grp
+                        self._rotating_group_pivot = pivot
+                        pivot_dev = (pivot[0] * T + self.offset_x, pivot[1] * T + self.offset_y)
+                        self._rotating_group_pivot_dev = pivot_dev
+                        self._rotating_group_start_mouse_deg = math.degrees(
+                            math.atan2(y - pivot_dev[1], x - pivot_dev[0])
+                        )
+                        self._rotating_group_last_deg = 0.0
+                        self._rotating_group_current_deg = 0.0
+                        try:
+                            self.save_state()
+                        except Exception:
+                            pass
+                        return
 
         for item in self.selected_items:
             if item.get("type") == "wall":
@@ -202,6 +268,71 @@ class CanvasEventsMixin:
                             pass
                         return
 
+            if item.get("type") == "dimension_chain":
+                chain = item.get("object")
+                if not self.is_object_on_locked_layer(chain):
+                    pts = getattr(chain, "points", [])
+                    # Check point handles
+                    for idx, pt in enumerate(pts):
+                        pt_widget = ((pt[0] * T) + self.offset_x, (pt[1] * T) + self.offset_y)
+                        if math.hypot(x - pt_widget[0], y - pt_widget[1]) < self.handle_radius:
+                            self.editing_dimension_chain = chain
+                            self.editing_dimension_chain_handle = ("point", idx)
+                            self.box_select_start = pt
+                            try:
+                                self.save_state()
+                            except Exception:
+                                pass
+                            return
+                    # Check offset handle (midpoint of chain line)
+                    if len(pts) >= 2:
+                        p0, p1 = pts[0], pts[1]
+                        blen = math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+                        if blen > 1e-4:
+                            ux, uy = (p1[0] - p0[0]) / blen, (p1[1] - p0[1]) / blen
+                            px, py = -uy, ux
+                            projs = [(p[0] - p0[0]) * ux + (p[1] - p0[1]) * uy for p in pts]
+                            mid_t = (min(projs) + max(projs)) / 2.0
+                            h_pt = (p0[0] + mid_t * ux + chain.offset * px, p0[1] + mid_t * uy + chain.offset * py)
+                            h_widget = ((h_pt[0] * T) + self.offset_x, (h_pt[1] * T) + self.offset_y)
+                            if math.hypot(x - h_widget[0], y - h_widget[1]) < self.handle_radius:
+                                self.editing_dimension_chain = chain
+                                self.editing_dimension_chain_handle = ("offset", 0)
+                                self.box_select_start = h_pt
+                                try:
+                                    self.save_state()
+                                except Exception:
+                                    pass
+                                return
+
+            if item.get("type") == "leader_callout":
+                callout = item.get("object")
+                if not self.is_object_on_locked_layer(callout):
+                    for h_name, h_pos in [("tip", callout.tip), ("elbow", callout.elbow), ("shoulder", callout.shoulder)]:
+                        h_widget = ((h_pos[0] * T) + self.offset_x, (h_pos[1] * T) + self.offset_y)
+                        if math.hypot(x - h_widget[0], y - h_widget[1]) < self.handle_radius:
+                            self.editing_leader = callout
+                            self.editing_leader_handle = h_name
+                            self.box_select_start = h_pos
+                            try:
+                                self.save_state()
+                            except Exception:
+                                pass
+                            return
+
+        if len(self.selected_items) == 1 and self.selected_items[0].get("type") == "fixture":
+            fix = self.selected_items[0]["object"]
+            if not self.is_object_on_locked_layer(fix) and hasattr(self, "get_fixture_rotation_handle_device"):
+                h_dev = self.get_fixture_rotation_handle_device(fix)
+                if h_dev and math.hypot(x - h_dev[0], y - h_dev[1]) < max(self.handle_radius, 12):
+                    self.rotating_fixture = fix
+                    self._rotating_fixture_start = fix.rotation
+                    try:
+                        self.save_state()
+                    except Exception:
+                        pass
+                    return
+
         # If no handle was pressed, proceed with normal click selection
         self._handle_pointer_click(gesture, n_press, x, y)
 
@@ -265,6 +396,54 @@ class CanvasEventsMixin:
                         self.moving_text.x, self.moving_text.y)
                     return
 
+    def _update_opening_ghost(self, x: float, y: float) -> None:
+        """Show/hide the translucent door or window ghost under the pointer.
+
+        Uses the same wall hit-test as the click handlers so the ghost matches
+        exactly what a click would place. Hidden when the pointer is not near a
+        wall or the active layer is locked.
+        """
+        new_ghost = None
+        if self.tool_mode in ("add_doors", "add_windows"):
+            active_layer = self.get_layer_by_id(self.active_layer_id)
+            layer_locked = bool(active_layer and active_layer.locked)
+            if not layer_locked:
+                if self.tool_mode == "add_doors":
+                    opening = self._build_default_door(identifier="ghost")
+                    width = opening.width
+                    kind = "door"
+                else:
+                    opening = self._build_default_window(identifier="ghost")
+                    width = opening.width
+                    kind = "window"
+                hit = self._locate_on_wall(x, y, opening_width=width)
+                if hit is not None:
+                    wall, ratio = hit
+                    new_ghost = (kind, (wall, opening, ratio))
+        old = getattr(self, "opening_ghost", None)
+        self.opening_ghost = new_ghost
+        if old is not None or new_ghost is not None:
+            self.queue_draw()
+
+    def _on_pointer_leave(self, controller) -> None:
+        """Clear the door/window ghost when the pointer leaves the canvas."""
+        if getattr(self, "opening_ghost", None) is not None:
+            self.opening_ghost = None
+            self.queue_draw()
+        if getattr(self, "_hover_snap_shown", False):
+            self.snap_pos = None
+            self.snap_type = "none"
+            self.current_room_preview = None
+            self.current_opening_preview = None
+            self.queue_draw()
+        if getattr(self, "_compass_hover", False):
+            self._compass_hover = False
+            self.queue_draw()
+        if getattr(self, "fixture_ghost", None) is not None or getattr(self, "layout_ghost_fixtures", None):
+            self.fixture_ghost = None
+            self.layout_ghost_fixtures = []
+            self.queue_draw()
+
     def on_motion(
             self,
             controller: Gtk.EventControllerMotion,
@@ -296,6 +475,14 @@ class CanvasEventsMixin:
         # Store last mouse position for dimension preview
         self._last_mouse_pos = (canvas_x, canvas_y)
 
+        # Door/window placement ghost
+        self._update_opening_ghost(x, y)
+
+        hover_compass = self._hit_test_compass(x, y)
+        if hover_compass != getattr(self, "_compass_hover", False):
+            self._compass_hover = hover_compass
+            self.queue_draw()
+
         # Update dimension preview if in dimension drawing mode
         if self.tool_mode == "add_dimension" and self.drawing_dimension:
             if self.dimension_end:
@@ -306,27 +493,20 @@ class CanvasEventsMixin:
             elif self.dimension_start:
                 self.queue_draw()
 
-        if self.tool_mode == "draw_walls" and self.drawing_wall and self.current_wall:
-            last_wall = self.walls[-1] if self.walls else None
-            canvas_width = self.get_allocation().width or self.config.WINDOW_WIDTH
-            candidate_points = self._get_candidate_points()
+        if self.tool_mode == "add_dimension_chain" and getattr(self, "drawing_dimension_chain", False):
+            self.dimension_chain_hover = self._chain_hover_point(canvas_x, canvas_y)
+            self.queue_draw()
 
-            polylines = [
-                pl for poly_set in self.polyline_sets for pl in poly_set]
-            (snapped_x, snapped_y), self.snap_type = self.snap_manager.snap_point(
-                canvas_x, canvas_y,
-                self.current_wall.start[0], self.current_wall.start[1],
-                self.walls, self.rooms,
-                current_wall=self.current_wall, last_wall=last_wall,
-                in_progress_points=candidate_points,
-                canvas_width=canvas_width, zoom=self.zoom,
-                polylines=polylines
+        if self.tool_mode == "add_leader" and getattr(self, "drawing_leader", False):
+            self.queue_draw()
+
+        if self.tool_mode == "draw_walls" and self.drawing_wall and self.current_wall:
+            (snapped_x, snapped_y), self.snap_type, candidate, _ = (
+                self._compute_wall_draw_snap(canvas_x, canvas_y, apply_near_foot_auto=True)
             )
             self.raw_current_end = raw_point
-            aligned_x, aligned_y, candidate = self._apply_alignment_snapping(
-                canvas_x, canvas_y)
-            snapped_x, snapped_y = aligned_x, aligned_y
             self.alignment_candidate = candidate
+            self.snap_pos = None
 
             # Check if we're in curve mode - update curve preview point
             if self.wall_curve_mode:
@@ -334,6 +514,18 @@ class CanvasEventsMixin:
             else:
                 self.current_wall.end = (snapped_x, snapped_y)
             self.queue_draw()
+
+        # Hover snap indicator for the wall tool before the first click
+        if self.tool_mode == "draw_walls" and not self.drawing_wall:
+            (hx, hy), self.snap_type, _, _ = self._compute_wall_draw_snap(
+                canvas_x, canvas_y, apply_near_foot_auto=False)
+            self.snap_pos = (hx, hy)
+            self.queue_draw()
+        elif self.tool_mode not in ("draw_walls", "draw_rooms", "add_floor_opening"):
+            if getattr(self, "_hover_snap_shown", False):
+                self.snap_pos = None
+                self.snap_type = "none"
+        self._hover_snap_shown = self.tool_mode in ("draw_walls", "draw_rooms", "add_floor_opening")
 
         # Live preview for polylines
         if self.tool_mode == "add_polyline" and self.drawing_polyline:
@@ -357,27 +549,17 @@ class CanvasEventsMixin:
             self.queue_draw()
 
         elif self.tool_mode == "draw_rooms":
-            base_x = self.current_room_points[-1][0] if self.current_room_points else canvas_x
-            base_y = self.current_room_points[-1][1] if self.current_room_points else canvas_y
-            candidate_points = self._get_candidate_points()
-            candidate_points.extend(self.current_room_points)
-
-            polylines = [
-                pl for poly_set in self.polyline_sets for pl in poly_set]
-            (snapped_x, snapped_y), _ = self.snap_manager.snap_point(
-                canvas_x, canvas_y, base_x, base_y,
-                self.walls, self.rooms,
-                current_wall=None, last_wall=None,
-                in_progress_points=candidate_points,
-                canvas_width=self.get_allocation().width or self.config.WINDOW_WIDTH,
-                zoom=self.zoom,
-                polylines=polylines
-            )
-            aligned_x, aligned_y, _ = self._apply_alignment_snapping(
+            (snapped_x, snapped_y), self.snap_type, _ = self._compute_room_snap(
                 canvas_x, canvas_y)
-            snapped_x, snapped_y = aligned_x, aligned_y
-
+            self.snap_pos = (snapped_x, snapped_y)
             self.current_room_preview = (snapped_x, snapped_y)
+            self.queue_draw()
+
+        elif self.tool_mode == "add_floor_opening":
+            (snapped_x, snapped_y), self.snap_type, _ = self._compute_opening_snap(
+                canvas_x, canvas_y)
+            self.snap_pos = (snapped_x, snapped_y)
+            self.current_opening_preview = (snapped_x, snapped_y)
             self.queue_draw()
 
         elif self.tool_mode == "add_circle" and self.drawing_circle and self.circle_center:
@@ -395,7 +577,8 @@ class CanvasEventsMixin:
              )
              
              self.circle_radius_preview = math.hypot(sx - self.circle_center[0], sy - self.circle_center[1])
-             print(f"DEBUG: Circle preview r={self.circle_radius_preview}")
+             if self.config.DEBUG:
+                 print(f"DEBUG: Circle preview r={self.circle_radius_preview}")
              self.queue_draw()
              
         elif self.tool_mode == "add_arc" and self.drawing_arc:
@@ -407,19 +590,29 @@ class CanvasEventsMixin:
                     self.walls, self.rooms, zoom=self.zoom
                  )
                  self.arc_preview_point = (sx, sy)
-                 print(f"DEBUG: Arc preview pt={self.arc_preview_point}")
+                 if self.config.DEBUG:
+                     print(f"DEBUG: Arc preview pt={self.arc_preview_point}")
                  self.queue_draw()
              elif self.arc_start:
                  # We are waiting for 2nd click (End point).
                  # Just queue draw to update the dashed line to _last_mouse_pos
                  # _last_mouse_pos is updated at start of on_motion
-                 print("DEBUG: Arc preview dragging end point")
+                 if self.config.DEBUG:
+                     print("DEBUG: Arc preview dragging end point")
                  self.queue_draw()
 
         elif self.tool_mode == "add_stair":
             self._handle_stair_motion(x, y)
+        elif self.tool_mode == "add_fixture":
+            self._handle_fixture_motion(x, y)
+        elif self.tool_mode == "add_kitchen_layout":
+            self._handle_kitchen_layout_motion(x, y)
+        elif self.tool_mode == "draw_cabinet_run":
+            self._handle_cabinet_run_motion(x, y)
         elif self.tool_mode == "add_roof_line":
             self._handle_roof_line_motion(x, y)
+        elif self.tool_mode == "calibrate_blueprint":
+            self._handle_calibration_motion(x, y)
 
 
     def on_zoom_changed(

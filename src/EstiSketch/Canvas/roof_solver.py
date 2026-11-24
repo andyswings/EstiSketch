@@ -9,7 +9,7 @@ and extract closed 3D roof plane polygons for takeoff estimation.
 import math
 from typing import List, Tuple, Dict, Optional, Set
 from ..roof_components import Roof, RoofLine, RoofEdge
-from geometry.roof_solver import (
+from ..geometry.roof_solver import (
     build_plane_equations,
     intersect_planes,
     solve_junction_vertex,
@@ -131,7 +131,8 @@ def cluster_and_snap_endpoints(
                 line_type=line.line_type,
                 pitch_rise=line.pitch_rise,
                 overhang=line.overhang,
-                is_auto_generated=line.is_auto_generated
+                is_auto_generated=line.is_auto_generated,
+                wall_identifier=getattr(line, "wall_identifier", ""),
             ))
 
     return solved_lines
@@ -327,7 +328,8 @@ def intersect_and_clean_lines(
             line_type=l.line_type,
             pitch_rise=l.pitch_rise,
             overhang=l.overhang,
-            is_auto_generated=l.is_auto_generated
+            is_auto_generated=l.is_auto_generated,
+            wall_identifier=getattr(l, "wall_identifier", ""),
         ))
 
     # Cluster endpoints
@@ -343,7 +345,8 @@ def intersect_and_clean_lines(
             "type": l.line_type,
             "pitch": l.pitch_rise,
             "overhang": l.overhang,
-            "auto": l.is_auto_generated
+            "auto": l.is_auto_generated,
+            "wall_identifier": getattr(l, "wall_identifier", ""),
         })
 
     n = len(mutable_lines)
@@ -397,7 +400,8 @@ def intersect_and_clean_lines(
                 line_type=ml["type"],
                 pitch_rise=ml["pitch"],
                 overhang=ml["overhang"],
-                is_auto_generated=ml["auto"]
+                is_auto_generated=ml["auto"],
+                wall_identifier=ml.get("wall_identifier", ""),
             ))
 
     # Final clustering pass
@@ -405,7 +409,7 @@ def intersect_and_clean_lines(
     return final_lines
 
 
-def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None) -> Roof:
+def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None, canvas: Optional[Any] = None) -> Roof:
     """
     Main entry point for the Roof Topology & Clean-Up Engine.
     """
@@ -439,12 +443,10 @@ def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None) -> Roof:
             (roof.eave_lines, "eave"),
             (roof.tie_in_lines, "tie_in"),
         ]
-        line_idx = 1
         for line_list, ltype in legacy_sources:
             if line_list:
                 for p1, p2 in line_list:
                     rl = RoofLine(
-                        identifier=f"legacy_{ltype}_{line_idx}",
                         start=p1,
                         end=p2,
                         line_type=ltype,
@@ -452,7 +454,6 @@ def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None) -> Roof:
                         is_auto_generated=True
                     )
                     sketched.append(rl)
-                    line_idx += 1
 
     # If marked walls/edges exist, ensure perimeter RoofLines and ridge/hip lines exist
     if walls and roof.edges:
@@ -474,12 +475,26 @@ def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None) -> Roof:
         # Sync edge pitch_rise and overhang to existing sketched lines (for custom/edited lines)
         for wall, p_rise, oh in marked_eaves:
             for line in sketched:
-                if line.identifier == f"auto_eave_{wall.identifier}" or (line.line_type == "eave" and getattr(line, "is_auto_generated", False)):
+                if (
+                    getattr(line, "wall_identifier", "") == wall.identifier
+                    or line.identifier == f"auto_eave_{wall.identifier}"
+                    or (
+                        line.line_type == "eave"
+                        and getattr(line, "is_auto_generated", False)
+                    )
+                ):
                     line.pitch_rise = p_rise
                     line.overhang = oh
         for wall, p_rise, oh in marked_gables:
             for line in sketched:
-                if line.identifier == f"auto_rake_{wall.identifier}" or (line.line_type == "rake" and getattr(line, "is_auto_generated", False)):
+                if (
+                    getattr(line, "wall_identifier", "") == wall.identifier
+                    or line.identifier == f"auto_rake_{wall.identifier}"
+                    or (
+                        line.line_type == "rake"
+                        and getattr(line, "is_auto_generated", False)
+                    )
+                ):
                     line.pitch_rise = p_rise
                     line.overhang = oh
 
@@ -487,41 +502,40 @@ def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None) -> Roof:
         if not any(l.line_type == "eave" for l in sketched):
             for wall, p_rise, oh in marked_eaves:
                 sketched.append(RoofLine(
-                    identifier=f"auto_eave_{wall.identifier}",
                     start=wall.start,
                     end=wall.end,
                     line_type="eave",
                     pitch_rise=p_rise,
                     overhang=oh,
-                    is_auto_generated=True
+                    is_auto_generated=True,
+                    wall_identifier=wall.identifier,
                 ))
         if not any(l.line_type == "rake" for l in sketched):
             for wall, p_rise, oh in marked_gables:
                 sketched.append(RoofLine(
-                    identifier=f"auto_rake_{wall.identifier}",
                     start=wall.start,
                     end=wall.end,
                     line_type="rake",
                     pitch_rise=p_rise,
                     overhang=oh,
-                    is_auto_generated=True
+                    is_auto_generated=True,
+                    wall_identifier=wall.identifier,
                 ))
         if not any(l.line_type == "tie_in" for l in sketched):
             for wall, p_rise, oh in marked_tie_ins:
                 sketched.append(RoofLine(
-                    identifier=f"auto_tie_in_{wall.identifier}",
                     start=wall.start,
                     end=wall.end,
                     line_type="tie_in",
                     pitch_rise=p_rise,
-                    is_auto_generated=True
+                    is_auto_generated=True,
+                    wall_identifier=wall.identifier,
                 ))
 
         # Populate ridge, hip, and valley lines from roof geometry or complex roof solver
         if roof.ridge_lines and not any(l.line_type == "ridge" for l in sketched):
-            for idx, (r_start, r_end) in enumerate(roof.ridge_lines):
+            for r_start, r_end in roof.ridge_lines:
                 sketched.append(RoofLine(
-                    identifier=f"auto_ridge_{idx}" if idx > 0 else "auto_ridge",
                     start=r_start,
                     end=r_end,
                     line_type="ridge",
@@ -530,9 +544,8 @@ def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None) -> Roof:
                     is_auto_generated=True
                 ))
         if roof.hip_lines and not any(l.line_type == "hip" for l in sketched):
-            for idx, (h_start, h_end) in enumerate(roof.hip_lines):
+            for h_start, h_end in roof.hip_lines:
                 sketched.append(RoofLine(
-                    identifier=f"auto_hip_{idx}",
                     start=h_start,
                     end=h_end,
                     line_type="hip",
@@ -541,9 +554,8 @@ def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None) -> Roof:
                     is_auto_generated=True
                 ))
         if roof.valley_lines and not any(l.line_type == "valley" for l in sketched):
-            for idx, (v_start, v_end) in enumerate(roof.valley_lines):
+            for v_start, v_end in roof.valley_lines:
                 sketched.append(RoofLine(
-                    identifier=f"auto_valley_{idx}",
                     start=v_start,
                     end=v_end,
                     line_type="valley",
@@ -552,9 +564,8 @@ def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None) -> Roof:
                     is_auto_generated=True
                 ))
         if roof.rake_lines and not any(l.line_type == "rake" for l in sketched):
-            for idx, (rk_start, rk_end) in enumerate(roof.rake_lines):
+            for rk_start, rk_end in roof.rake_lines:
                 sketched.append(RoofLine(
-                    identifier=f"auto_rake_{idx}",
                     start=rk_start,
                     end=rk_end,
                     line_type="rake",
@@ -573,31 +584,44 @@ def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None) -> Roof:
                 if len(marked_eaves) >= 2:
                     p1 = marked_eaves[0][1]
                     p2 = marked_eaves[1][1]
-                    if p1 + p2 > 0:
-                        ratio = p2 / (p1 + p2)
+                    s1 = p1 / 12.0
+                    s2 = p2 / 12.0
+                    w1 = marked_eaves[0][0]
+                    w2 = marked_eaves[1][0]
+                    if canvas and hasattr(canvas, 'get_wall_top_elevations'):
+                        z1_s, z1_e = canvas.get_wall_top_elevations(w1)
+                        z2_s, z2_e = canvas.get_wall_top_elevations(w2)
+                    else:
+                        z1_s = float(getattr(w1, 'height', 96.0) or 96.0)
+                        z1_e = float(getattr(w1, 'height_at_end', z1_s) or z1_s)
+                        z2_s = float(getattr(w2, 'height', 96.0) or 96.0)
+                        z2_e = float(getattr(w2, 'height_at_end', z2_s) or z2_s)
+                    z1 = (z1_s + z1_e) / 2.0
+                    z2 = (z2_s + z2_e) / 2.0
+                    mid1 = ((w1.start[0] + w1.end[0]) / 2.0, (w1.start[1] + w1.end[1]) / 2.0)
+                    span = distance_point_to_segment(mid1, w2.start, w2.end)[0] or 1.0
+                    if s1 + s2 > 0:
+                        raw_ratio = (s2 + (z2 - z1) / span) / (s1 + s2)
+                        ratio = max(0.05, min(0.95, raw_ratio))
                 r_lines, h_lines, v_lines, rk_lines, ev_lines, outline = \
                     calculate_complex_roof_geometry(marked_walls, markings, roof.overhang, roof.pitch_rise, roof.pitch_run, ratio=ratio)
-                for idx, (s, e) in enumerate(r_lines):
+                for s, e in r_lines:
                     sketched.append(RoofLine(
-                        identifier=f"auto_ridge_{idx}" if idx > 0 else "auto_ridge",
                         start=s, end=e, line_type="ridge",
                         pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
                     ))
-                for idx, (s, e) in enumerate(h_lines):
+                for s, e in h_lines:
                     sketched.append(RoofLine(
-                        identifier=f"auto_hip_{idx}",
                         start=s, end=e, line_type="hip",
                         pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
                     ))
-                for idx, (s, e) in enumerate(v_lines):
+                for s, e in v_lines:
                     sketched.append(RoofLine(
-                        identifier=f"auto_valley_{idx}",
                         start=s, end=e, line_type="valley",
                         pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
                     ))
-                for idx, (s, e) in enumerate(rk_lines):
+                for s, e in rk_lines:
                     sketched.append(RoofLine(
-                        identifier=f"auto_rake_{idx}",
                         start=s, end=e, line_type="rake",
                         pitch_rise=roof.pitch_rise, overhang=roof.overhang, is_auto_generated=True
                     ))
@@ -613,7 +637,8 @@ def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None) -> Roof:
             line_type=l.line_type,
             pitch_rise=l.pitch_rise or roof.pitch_rise,
             overhang=l.overhang or roof.overhang,
-            is_auto_generated=l.is_auto_generated
+            is_auto_generated=l.is_auto_generated,
+            wall_identifier=getattr(l, "wall_identifier", ""),
         ) for l in sketched]
     elif not roof.manual_lines and sketched:
         roof.manual_lines = [RoofLine(
@@ -623,7 +648,8 @@ def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None) -> Roof:
             line_type=l.line_type,
             pitch_rise=l.pitch_rise or roof.pitch_rise,
             overhang=l.overhang or roof.overhang,
-            is_auto_generated=l.is_auto_generated
+            is_auto_generated=l.is_auto_generated,
+            wall_identifier=getattr(l, "wall_identifier", ""),
         ) for l in sketched]
 
     # Clean & cluster line endpoints + solve line intersections & straighten angles

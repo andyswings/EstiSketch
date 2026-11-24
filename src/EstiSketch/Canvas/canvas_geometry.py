@@ -2,7 +2,7 @@ import math
 
 
 class CanvasGeometryMixin:
-    def _apply_alignment_snapping(self, x, y):
+    def _apply_alignment_snapping(self, x, y, exclude_points=None):
         candidates = []
         for wall_set in self.wall_sets:
             for wall in wall_set:
@@ -15,6 +15,8 @@ class CanvasGeometryMixin:
             candidates.append(self.current_wall.start)
         if self.tool_mode == "draw_rooms":
             candidates.extend(self.current_room_points)
+        if exclude_points:
+            candidates = [pt for pt in candidates if pt not in exclude_points]
         tolerance = 10 / self.zoom
         aligned_x = x
         aligned_y = y
@@ -56,16 +58,123 @@ class CanvasGeometryMixin:
         return inside
 
     def _is_closed_polygon(self, wall_set):
-        if not wall_set or len(wall_set) < 3:
+        if not wall_set or len(wall_set) < 2:
+            return False
+        if len(wall_set) == 2 and not any(getattr(w, 'is_curved', False) for w in wall_set):
             return False
         first = wall_set[0].start
         last = wall_set[-1].end
-        tolerance = 5 / self.zoom
-        return abs(
-            first[0] -
-            last[0]) < tolerance and abs(
-            first[1] -
-            last[1]) < tolerance
+        zoom = getattr(self, 'zoom', 1.0) or 1.0
+        tolerance = 5.0 / zoom
+        return abs(first[0] - last[0]) < tolerance and abs(first[1] - last[1]) < tolerance
+
+    def _get_wall_set_polygon(self, wall_set):
+        """
+        Extract the centerline polygon boundary for a wall set.
+        For curved walls, intermediate points along the arc are sampled
+        so that auto-generated rooms follow wall curves accurately.
+        """
+        return self._get_wall_set_polygon_with_widths(wall_set)[0]
+
+    def _get_wall_set_inner_polygon(self, wall_set):
+        """Polygon of the room enclosed by a closed wall set, drawn to the
+        inside faces of the walls instead of the centerlines."""
+        poly, widths = self._get_wall_set_polygon_with_widths(wall_set)
+        return self._inset_polygon(poly, [w / 2.0 for w in widths])
+
+    @staticmethod
+    def _inset_polygon(poly, offsets):
+        """Offset each edge i (poly[i] -> poly[i+1]) inward by offsets[i] and
+        intersect consecutive offset edges. Orientation independent."""
+        n = len(poly)
+        if n < 3 or not any(o > 0 for o in offsets):
+            return list(poly)
+        area = 0.0
+        for i in range(n):
+            x1, y1 = poly[i]
+            x2, y2 = poly[(i + 1) % n]
+            area += x1 * y2 - x2 * y1
+        sign = 1.0 if area > 0 else -1.0  # +1: counter-clockwise (y-up math)
+        lines = []  # (point, direction) of each offset edge
+        for i in range(n):
+            x1, y1 = poly[i]
+            x2, y2 = poly[(i + 1) % n]
+            dx, dy = x2 - x1, y2 - y1
+            length = math.hypot(dx, dy)
+            if length < 1e-9:
+                lines.append(None)
+                continue
+            # Inward normal: left of the direction for CCW, right for CW.
+            nx, ny = -dy / length * sign, dx / length * sign
+            o = offsets[i]
+            lines.append(((x1 + nx * o, y1 + ny * o), (dx / length, dy / length)))
+        result = []
+        for i in range(n):
+            prev = lines[(i - 1) % n]
+            cur = lines[i]
+            if prev is None or cur is None:
+                result.append(poly[i])
+                continue
+            (px, py), (pdx, pdy) = prev
+            (cx, cy), (cdx, cdy) = cur
+            det = pdx * cdy - pdy * cdx
+            if abs(det) < 1e-6:
+                result.append((cx, cy))  # collinear: just the shifted vertex
+                continue
+            t = ((cx - px) * cdy - (cy - py) * cdx) / det
+            result.append((px + pdx * t, py + pdy * t))
+        return result
+
+    def _get_wall_set_polygon_with_widths(self, wall_set):
+        """Returns (points, widths) where widths[i] is the thickness of the
+        wall whose edge starts at points[i]."""
+        if not wall_set:
+            return [], []
+
+        poly = []
+        widths = []
+        n = len(wall_set)
+
+        for i, wall in enumerate(wall_set):
+            next_wall = wall_set[(i + 1) % n]
+            d_end_to_next = min(
+                math.hypot(wall.end[0] - next_wall.start[0], wall.end[1] - next_wall.start[1]),
+                math.hypot(wall.end[0] - next_wall.end[0], wall.end[1] - next_wall.end[1])
+            )
+            d_start_to_next = min(
+                math.hypot(wall.start[0] - next_wall.start[0], wall.start[1] - next_wall.start[1]),
+                math.hypot(wall.start[0] - next_wall.end[0], wall.start[1] - next_wall.end[1])
+            )
+            is_reversed = (d_start_to_next < d_end_to_next) and (n > 1)
+            p_start = wall.end if is_reversed else wall.start
+            p_end = wall.start if is_reversed else wall.end
+
+            if getattr(wall, 'is_curved', False) and getattr(wall, 'arc_center', None) and getattr(wall, 'arc_radius', None):
+                cx, cy = wall.arc_center
+                radius = wall.arc_radius
+
+                start_angle = math.atan2(p_start[1] - cy, p_start[0] - cx)
+                end_angle = math.atan2(p_end[1] - cy, p_end[0] - cx)
+
+                angle_diff = end_angle - start_angle
+                while angle_diff > math.pi:
+                    angle_diff -= 2 * math.pi
+                while angle_diff < -math.pi:
+                    angle_diff += 2 * math.pi
+
+                span_deg = math.degrees(abs(angle_diff))
+                num_segs = max(8, min(32, math.ceil(span_deg / 5.0)))
+
+                for seg in range(num_segs):
+                    t = seg / float(num_segs)
+                    ang = start_angle + t * angle_diff
+                    poly.append((cx + radius * math.cos(ang), cy + radius * math.sin(ang)))
+                    widths.append(wall.width)
+            else:
+                poly.append(p_start)
+                widths.append(wall.width)
+
+        return poly, widths
 
     def _get_corner_point_for_dimension(self, wall, nominal_point, simple_offset_point, offset_vec):
         """

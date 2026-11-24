@@ -1,7 +1,38 @@
 import math
 
+from .geometry.wall_joins import face_flush_offsets
+from .geometry.arc_wall import (
+    arc_arc_intersections,
+    arc_wall_point,
+    arc_wall_project,
+    arc_wall_tangent,
+    is_curved_wall,
+    line_arc_intersections,
+    tangent_continuation_snap,
+    tangent_points_from_point,
+)
+
 
 class SnappingManager:
+    # Lower number means higher priority.
+    SNAP_PRIORITY = {
+        "endpoint": 1,
+        "midpoint": 2,
+        "tangent": 2.2,         # Tangent point or tangent continuation off arc wall
+        "wall_centerline": 2.5,  # Snap to wall centerline
+        "face_flush": 3,        # Parallel wall face/center alignment
+        "wall_edge": 3.5,       # Wall outer/inner face edge
+        "alignment_cross": 4,   # Snapped to both H and V alignment with points
+        "alignment_vertical": 5,
+        "alignment_horizontal": 5,
+        "angle": 6,
+        "axis": 7,
+        "perpendicular": 8,
+        "grid": 9,
+        "distance": 10,
+        "none": 100,
+    }
+
     def __init__(
             self,
             snap_enabled=True,
@@ -30,6 +61,31 @@ class SnappingManager:
             315,
             337.5]
         self.angle_tolerance = 10  # Increased from 5 to 10
+        # Guide for the face-flush snap chosen by the last snap_point call:
+        # (line_start, line_end, kind) or None.
+        self.face_flush_guide = None
+        self._face_guides = {}
+        # Guide for the tangent snap chosen by the last snap_point call:
+        # (guide_start, guide_end, kind) or None.
+        self.tangent_guide = None
+        self._tangent_guides = {}
+
+    @staticmethod
+    def _curved_endpoint_and_mid_edge_points(wall):
+        """Return ``(mid_pt, radial_edge_pts)`` along a curved wall at start, mid, end."""
+        mid_pt = arc_wall_point(wall, 0.5)
+        edge_pts = []
+        hw = float(getattr(wall, "width", 0.0) or 0.0) / 2.0
+        if hw > 1e-6:
+            cx, cy = wall.arc_center
+            for pt in (wall.start, wall.end, mid_pt):
+                rx, ry = pt[0] - cx, pt[1] - cy
+                r = math.hypot(rx, ry)
+                if r > 1e-9:
+                    ux, uy = rx / r, ry / r
+                    edge_pts.append((pt[0] + ux * hw, pt[1] + uy * hw))
+                    edge_pts.append((pt[0] - ux * hw, pt[1] - uy * hw))
+        return mid_pt, edge_pts
 
     def collect_points_of_interest(
             self,
@@ -42,36 +98,37 @@ class SnappingManager:
         for wall in walls:
             # Add centerline endpoints
             points.extend([wall.start, wall.end])
-            
-            # Add edge points at endpoints for edge-aligned connections
-            # This allows walls of different thicknesses to snap edge-to-edge
-            if not getattr(wall, 'is_curved', False):  # Skip curved walls
+
+            if is_curved_wall(wall):
+                mid_pt, edge_pts = self._curved_endpoint_and_mid_edge_points(wall)
+                points.extend(edge_pts)
+                points.append(mid_pt)
+            else:
                 dx = wall.end[0] - wall.start[0]
                 dy = wall.end[1] - wall.start[1]
                 length = math.sqrt(dx * dx + dy * dy)
-                
+
                 if length > 0:
-                    # Unit perpendicular vector
                     perp_x = -dy / length
                     perp_y = dx / length
                     offset = wall.width / 2.0
-                    
+
                     # Add edge points at start
-                    points.append((wall.start[0] + perp_x * offset, 
+                    points.append((wall.start[0] + perp_x * offset,
                                   wall.start[1] + perp_y * offset))
-                    points.append((wall.start[0] - perp_x * offset, 
+                    points.append((wall.start[0] - perp_x * offset,
                                   wall.start[1] - perp_y * offset))
-                    
+
                     # Add edge points at end
-                    points.append((wall.end[0] + perp_x * offset, 
+                    points.append((wall.end[0] + perp_x * offset,
                                   wall.end[1] + perp_y * offset))
-                    points.append((wall.end[0] - perp_x * offset, 
+                    points.append((wall.end[0] - perp_x * offset,
                                   wall.end[1] - perp_y * offset))
-            
-            # Add midpoint
-            mid_x = (wall.start[0] + wall.end[0]) / 2
-            mid_y = (wall.start[1] + wall.end[1]) / 2
-            points.append((mid_x, mid_y))
+
+                # Add straight midpoint
+                mid_x = (wall.start[0] + wall.end[0]) / 2
+                mid_y = (wall.start[1] + wall.end[1]) / 2
+                points.append((mid_x, mid_y))
             
         for room in rooms:
             points.extend(room.points)
@@ -88,19 +145,72 @@ class SnappingManager:
         # print(f"Collected points: {points}")
         return points
 
+    def collect_alignment_points(
+            self,
+            walls,
+            rooms,
+            in_progress_points=None,
+            polylines=None,
+            exclude_point=None):
+        """Collect centerline vertices for H/V alignment (excluding wall edge thickness offsets)."""
+        points = []
+        for wall in walls:
+            points.extend([wall.start, wall.end])
+        for room in rooms:
+            points.extend(room.points)
+        if in_progress_points:
+            points.extend(in_progress_points)
+        if polylines:
+            for poly in polylines:
+                points.extend([poly.start, poly.end])
+        if exclude_point is not None:
+            ex, ey = exclude_point
+            points = [
+                (px, py) for (px, py) in points
+                if math.hypot(px - ex, py - ey) > 1e-4
+            ]
+        return points
+
     def snap_to_points(self, x, y, points, walls):
         best_candidate = (x, y)
         best_dist_sq = self.snap_threshold ** 2
         best_type = "none"
+
+        wall_endpoints = {w.start for w in walls} | {w.end for w in walls}
+        wall_midpoints = set()
+        edge_points = set()
+        for w in walls:
+            if is_curved_wall(w):
+                mid_pt, curved_edges = self._curved_endpoint_and_mid_edge_points(w)
+                wall_midpoints.add(mid_pt)
+                edge_points.update(curved_edges)
+            elif not getattr(w, 'is_curved', False):
+                wall_midpoints.add(((w.start[0] + w.end[0]) / 2.0, (w.start[1] + w.end[1]) / 2.0))
+                dx = w.end[0] - w.start[0]
+                dy = w.end[1] - w.start[1]
+                length = math.hypot(dx, dy)
+                if length > 0:
+                    perp_x = -dy / length
+                    perp_y = dx / length
+                    offset = w.width / 2.0
+                    edge_points.add((w.start[0] + perp_x * offset, w.start[1] + perp_y * offset))
+                    edge_points.add((w.start[0] - perp_x * offset, w.start[1] - perp_y * offset))
+                    edge_points.add((w.end[0] + perp_x * offset, w.end[1] + perp_y * offset))
+                    edge_points.add((w.end[0] - perp_x * offset, w.end[1] - perp_y * offset))
+
         for px, py in points:
             d_sq = (x - px) ** 2 + (y - py) ** 2
-            # print(f"Checking point ({px}, {py}), distance squared: {d_sq}, threshold squared: {best_dist_sq}")
             if d_sq < best_dist_sq:
                 best_candidate = (px, py)
                 best_dist_sq = d_sq
-                best_type = "endpoint" if (px, py) in [
-                    w.start for w in walls] + [w.end for w in walls] else "midpoint"
-        # print(f\"Best point snap: {best_candidate}, type: {best_type}")
+                if (px, py) in wall_endpoints:
+                    best_type = "endpoint"
+                elif (px, py) in wall_midpoints:
+                    best_type = "midpoint"
+                elif (px, py) in edge_points:
+                    best_type = "wall_edge"
+                else:
+                    best_type = "endpoint"
         return best_candidate, best_type
 
     def get_wall_edge_lines(self, wall):
@@ -165,14 +275,24 @@ class SnappingManager:
         return (x1 + t * dx, y1 + t * dy)
 
     def snap_to_wall_edge(self, x, y, walls):
-        """Snap to nearby wall edges (faces).
+        """Snap to nearby wall edges (faces), including concentric arcs of curved walls.
         
-        Finds the closest point on any wall edge line and snaps if within threshold.
+        Finds the closest point on any wall edge line or arc and snaps if within threshold.
         """
         best_point = (x, y)
         best_dist_sq = self.snap_threshold ** 2
         
         for wall in walls:
+            if is_curved_wall(wall):
+                hw = float(getattr(wall, "width", 0.0) or 0.0) / 2.0
+                if hw > 1e-6:
+                    for off in (hw, -hw):
+                        _, dist, closest = arc_wall_project(wall, (x, y), radial_offset=off)
+                        dist_sq = dist * dist
+                        if dist_sq < best_dist_sq:
+                            best_point = closest
+                            best_dist_sq = dist_sq
+                continue
             edges = self.get_wall_edge_lines(wall)
             for edge_start, edge_end in edges:
                 # Find closest point on this edge line
@@ -186,6 +306,106 @@ class SnappingManager:
         if best_dist_sq < self.snap_threshold ** 2:
             return best_point, "wall_edge"
         return (x, y), "none"
+
+    def snap_to_wall_centerline(self, x, y, walls):
+        """Snap to nearby wall centerlines.
+
+        Finds the closest point on any wall centerline segment (or arc centerline for curved walls)
+        and snaps if within threshold.
+        """
+        best_point = (x, y)
+        best_dist_sq = self.snap_threshold ** 2
+
+        for wall in walls:
+            if is_curved_wall(wall):
+                _, dist, pt_arc = arc_wall_project(wall, (x, y), radial_offset=0.0)
+                dist_sq = dist * dist
+                if dist_sq < best_dist_sq:
+                    best_point = pt_arc
+                    best_dist_sq = dist_sq
+            else:
+                closest = self.closest_point_on_line(x, y, wall.start, wall.end)
+                dist_sq = (x - closest[0]) ** 2 + (y - closest[1]) ** 2
+                if dist_sq < best_dist_sq:
+                    best_point = closest
+                    best_dist_sq = dist_sq
+
+        if best_dist_sq < self.snap_threshold ** 2:
+            return best_point, "wall_centerline"
+        return (x, y), "none"
+
+    def snap_to_face_flush(self, x, y, base_x, base_y, walls, new_width,
+                           max_extension=240.0, direction=None):
+        """Snap so a new wall of ``new_width`` sits face-flush with an existing wall.
+
+        For each straight wall parallel to the new wall's direction (or any
+        wall when no direction is known yet), the new centerline is offset so
+        one of its faces is coplanar with a face of the existing wall, either
+        overlapping on the same side ("flush") or touching alongside ("abut").
+
+        ``direction`` (unit vector) overrides the base->cursor direction; use it
+        when the wall's orientation is already known (e.g. moving a wall).
+        """
+        self._face_guides = {}
+        best = None
+        best_d = self.snap_threshold
+
+        if direction is None:
+            bdx, bdy = x - base_x, y - base_y
+            blen = math.hypot(bdx, bdy)
+            if blen > self.snap_threshold * 2:
+                direction = (bdx / blen, bdy / blen)
+
+        for wall in walls:
+            if getattr(wall, 'is_curved', False):
+                continue
+            dx = wall.end[0] - wall.start[0]
+            dy = wall.end[1] - wall.start[1]
+            length = math.hypot(dx, dy)
+            if length < 1e-9:
+                continue
+            ux, uy = dx / length, dy / length
+            if direction is not None:
+                # Require the new wall to run (nearly) parallel to this wall.
+                if abs(ux * direction[1] - uy * direction[0]) > 0.0872:
+                    continue
+            nx, ny = -uy, ux
+
+            # Position of the cursor relative to this wall's frame.
+            rx, ry = x - wall.start[0], y - wall.start[1]
+            along = rx * ux + ry * uy
+            if along < -max_extension or along > length + max_extension:
+                continue
+            across = rx * nx + ry * ny
+
+            for offset, side, kind in face_flush_offsets(wall.width, new_width):
+                d = abs(across - offset)
+                if d < best_d:
+                    best_d = d
+                    px = x - (across - offset) * nx
+                    py = y - (across - offset) * ny
+                    face = side * wall.width / 2.0
+                    g0 = (wall.start[0] + nx * face - ux * max_extension,
+                          wall.start[1] + ny * face - uy * max_extension)
+                    g1 = (wall.end[0] + nx * face + ux * max_extension,
+                          wall.end[1] + ny * face + uy * max_extension)
+                    best = ((px, py), (g0, g1, kind))
+
+        if best is None:
+            return (x, y), "none"
+        point, guide = best
+        self._face_guides[point] = guide
+        return point, "face_flush"
+
+    def snap_face_flush_for_edit(self, x, y, base_x, base_y, walls, width,
+                                 direction=None):
+        """snap_to_face_flush for editing existing walls; also publishes the
+        guide in ``face_flush_guide`` (None when nothing snapped)."""
+        pt, kind = self.snap_to_face_flush(
+            x, y, base_x, base_y, walls, width, direction=direction)
+        self.face_flush_guide = (
+            self._face_guides.get(pt) if kind == "face_flush" else None)
+        return pt, kind
 
     def snap_to_axis(self, x, y, base_x, base_y):
         if abs(x - base_x) < self.snap_threshold:
@@ -255,31 +475,45 @@ class SnappingManager:
         if not (
                 self.config and self.config.ENABLE_PERPENDICULAR_SNAPPING and last_wall):
             return (x, y), "none"
-        dx = last_wall.end[0] - last_wall.start[0]
-        dy = last_wall.end[1] - last_wall.start[1]
+        if is_curved_wall(last_wall):
+            dx, dy = arc_wall_tangent(last_wall, 1.0)
+        else:
+            dx = last_wall.end[0] - last_wall.start[0]
+            dy = last_wall.end[1] - last_wall.start[1]
         if dx == 0 and dy == 0:
             return (x, y), "none"
         angle = math.degrees(math.atan2(dy, dx)) % 360
-        perp_angle = (angle + 90) % 360
-        rad = math.radians(perp_angle)
         dist = math.sqrt((x - base_x) ** 2 + (y - base_y) ** 2)
-        perp_x = base_x + dist * math.cos(rad)
-        perp_y = base_y + dist * math.sin(rad)
-        if math.sqrt((x - perp_x) ** 2 + (y - perp_y)
-                     ** 2) < self.snap_threshold:
-            # print(f"Snapped to perpendicular: ({perp_x}, {perp_y})")
-            return (perp_x, perp_y), "perpendicular"
+        best_pt = None
+        best_d = self.snap_threshold
+        for offset_deg in (90.0, -90.0):
+            rad = math.radians((angle + offset_deg) % 360)
+            cand = (base_x + dist * math.cos(rad), base_y + dist * math.sin(rad))
+            d = math.hypot(x - cand[0], y - cand[1])
+            if d < best_d:
+                best_d = d
+                best_pt = cand
+        if best_pt is not None:
+            return best_pt, "perpendicular"
         return (x, y), "none"
 
     def find_intersections(self, walls):
         intersections = []
         for i, wall1 in enumerate(walls):
+            c1 = is_curved_wall(wall1)
             for wall2 in walls[i + 1:]:
-                intersect = self.line_intersection(
-                    wall1.start, wall1.end, wall2.start, wall2.end)
-                if intersect:
-                    intersections.append(intersect)
-        # print(f"Intersections found: {intersections}")
+                c2 = is_curved_wall(wall2)
+                if not c1 and not c2:
+                    intersect = self.line_intersection(
+                        wall1.start, wall1.end, wall2.start, wall2.end)
+                    if intersect:
+                        intersections.append(intersect)
+                elif c1 and not c2:
+                    intersections.extend(line_arc_intersections(wall2.start, wall2.end, wall1))
+                elif not c1 and c2:
+                    intersections.extend(line_arc_intersections(wall1.start, wall1.end, wall2))
+                else:
+                    intersections.extend(arc_arc_intersections(wall1, wall2))
         return intersections
 
     def line_intersection(self, p1, p2, p3, p4):
@@ -313,10 +547,17 @@ class SnappingManager:
         return (x, y), "none"
 
     def snap_to_distance(self, x, y, base_x, base_y,
-                         distance_increment=1 / 12):
+                         distance_increment=None):
+        if distance_increment is None:
+            distance_increment = (
+                float(getattr(self.config, "WALL_LENGTH_SNAP_INCREMENT", 0.25) or 0.25)
+                if self.config else 0.25
+            )
         dx = x - base_x
         dy = y - base_y
         current_dist = math.sqrt(dx ** 2 + dy ** 2)
+        if distance_increment <= 0:
+            return (x, y), "none"
         target_dist = round(
             current_dist / distance_increment) * distance_increment
         if abs(current_dist - target_dist) < self.snap_threshold:
@@ -331,6 +572,76 @@ class SnappingManager:
             # print(f"Snapped to distance {target_dist}: {snapped}")
             return snapped, "distance"
         return (x, y), "none"
+
+    def quantize_wall_length(
+            self,
+            base_x: float,
+            base_y: float,
+            target_x: float,
+            target_y: float,
+            apply_near_foot_auto: bool = True):
+        """Quantize the distance from (base_x, base_y) to (target_x, target_y) along its angle.
+
+        Applies ``WALL_LENGTH_SNAP_INCREMENT`` (default 0.25") when snapping is enabled,
+        and checks ``WALL_NEAR_FOOT_TOLERANCE`` (default 0.5") for proximity to a whole foot.
+        When ``WALL_NEAR_FOOT_BEHAVIOR == "auto"`` and ``apply_near_foot_auto`` is True,
+        lengths within the tolerance of a whole foot (>= 12") automatically snap to that foot.
+
+        Returns:
+            tuple: ((qx, qy), final_length, near_foot_info)
+            where ``near_foot_info`` is ``None`` or a dict
+            ``{"nearest_foot": float, "raw_length": float, "snapped_length": float, "auto_applied": bool}``.
+        """
+        dx = target_x - base_x
+        dy = target_y - base_y
+        raw_len = math.hypot(dx, dy)
+        if raw_len <= 1e-6:
+            return (target_x, target_y), 0.0, None
+
+        angle = math.atan2(dy, dx)
+        inc = float(getattr(self.config, "WALL_LENGTH_SNAP_INCREMENT", 0.25) or 0.0) if self.config else 0.25
+        if self.snap_enabled and inc > 0:
+            snapped_len = round(raw_len / inc) * inc
+            if snapped_len <= 0 and raw_len > 0:
+                snapped_len = inc
+        else:
+            snapped_len = raw_len
+
+        tol = float(getattr(self.config, "WALL_NEAR_FOOT_TOLERANCE", 0.5) or 0.0) if self.config else 0.5
+        behavior = getattr(self.config, "WALL_NEAR_FOOT_BEHAVIOR", "auto") if self.config else "auto"
+
+        nearest_foot = round(raw_len / 12.0) * 12.0
+        is_near_foot = (
+            nearest_foot >= 12.0
+            and tol > 0
+            and (abs(raw_len - nearest_foot) <= tol or abs(snapped_len - nearest_foot) <= tol)
+        )
+
+        near_foot_info = None
+        if is_near_foot and behavior in ("auto", "prompt"):
+            if behavior == "auto" and apply_near_foot_auto:
+                final_len = nearest_foot
+                near_foot_info = {
+                    "nearest_foot": nearest_foot,
+                    "raw_length": raw_len,
+                    "snapped_length": snapped_len,
+                    "auto_applied": abs(snapped_len - nearest_foot) > 1e-4 or abs(raw_len - nearest_foot) > 1e-4,
+                }
+            else:
+                final_len = snapped_len
+                if abs(final_len - nearest_foot) > 1e-4:
+                    near_foot_info = {
+                        "nearest_foot": nearest_foot,
+                        "raw_length": raw_len,
+                        "snapped_length": snapped_len,
+                        "auto_applied": False,
+                    }
+        else:
+            final_len = snapped_len
+
+        qx = base_x + final_len * math.cos(angle)
+        qy = base_y + final_len * math.sin(angle)
+        return (qx, qy), final_len, near_foot_info
 
     def snap_to_tangent(self, x, y, curve_center, radius):
         if not (self.config and self.config.ALLOW_CURVED_WALLS):
@@ -351,6 +662,45 @@ class SnappingManager:
             return snapped, "tangent"
         return (x, y), "none"
 
+    def snap_to_arc_tangent(self, x, y, base_x, base_y, walls, last_wall=None):
+        """Snap to true tangent points on curved walls from ``(base_x, base_y)`` or tangent continuations off curved wall ends."""
+        self._tangent_guides = {}
+        if math.hypot(base_x - x, base_y - y) < 1e-6:
+            return (x, y), "none"
+
+        base = (base_x, base_y)
+        best_pt = None
+        best_guide = None
+        best_dist = self.snap_threshold
+
+        wall_pool = list(walls or [])
+        if last_wall is not None and last_wall not in wall_pool:
+            wall_pool.append(last_wall)
+
+        for wall in wall_pool:
+            if not is_curved_wall(wall):
+                continue
+            for pt, _kind in tangent_points_from_point(base, wall, include_faces=True):
+                d = math.hypot(x - pt[0], y - pt[1])
+                if d < best_dist:
+                    best_dist = d
+                    best_pt = pt
+                    best_guide = (base, pt, "tangent_point")
+
+            cont = tangent_continuation_snap((x, y), base, wall, best_dist)
+            if cont is not None:
+                c_pt, c_seg = cont
+                d = math.hypot(x - c_pt[0], y - c_pt[1])
+                if d < best_dist:
+                    best_dist = d
+                    best_pt = c_pt
+                    best_guide = (c_seg[0], c_seg[1], "tangent_continue")
+
+        if best_pt is not None:
+            self._tangent_guides[best_pt] = best_guide
+            return best_pt, "tangent"
+        return (x, y), "none"
+
     def snap_point(
             self,
             x,
@@ -364,7 +714,11 @@ class SnappingManager:
             last_wall=None,
             canvas_width=1024,
             zoom=1.0,
-            polylines=None):
+            polylines=None,
+            new_wall_width=None,
+            wall_direction=None):
+        self.face_flush_guide = None
+        self.tangent_guide = None
         if not self.snap_enabled:
             print("Snapping disabled")
             return (x, y), "none"
@@ -372,11 +726,18 @@ class SnappingManager:
         # print(f"Snapping point ({x}, {y}) from base ({base_x}, {base_y}), zoom: {zoom}, canvas_width: {canvas_width}")
         points = self.collect_points_of_interest(
             walls, rooms, current_wall, in_progress_points, polylines)
+        alignment_points = self.collect_alignment_points(
+            walls, rooms, in_progress_points, polylines,
+            exclude_point=(base_x, base_y) if current_wall is not None else None)
         candidates = [
             self.snap_to_points(x, y, points, walls),  # Endpoint/midpoint
-            self.snap_to_wall_edge(x, y, walls),  # Wall edge (face) snapping
-            # Multi-direction alignment with any point
-            self.snap_to_alignment(x, y, points),
+            self.snap_to_wall_centerline(x, y, walls),  # Snap to wall centerline
+            (self.snap_to_face_flush(x, y, base_x, base_y, walls, new_wall_width,
+                                     direction=wall_direction)
+             if new_wall_width else self.snap_to_wall_edge(x, y, walls)),
+            self.snap_to_wall_edge(x, y, walls),  # Wall outer/inner face edge
+            # Multi-direction alignment with any centerline point
+            self.snap_to_alignment(x, y, alignment_points),
             self.snap_to_angle(x, y, base_x, base_y),    # Angle
             self.snap_to_axis(x, y, base_x, base_y),
             self.snap_to_perpendicular(x, y, base_x, base_y, last_wall),
@@ -387,25 +748,11 @@ class SnappingManager:
                 canvas_width,
                 zoom),
             self.snap_to_distance(x, y, base_x, base_y),
-            self.snap_to_tangent(x, y, (base_x, base_y), 50)
+            self.snap_to_arc_tangent(x, y, base_x, base_y, walls, last_wall=last_wall),
         ]
 
         # Define priority: lower number means higher priority.
-        priority_map = {
-            "endpoint": 1,
-            "wall_edge": 2,  # Wall edge (face) - high priority for aligning walls
-            "midpoint": 3,
-            "alignment_cross": 4,  # Snapped to both H and V alignment with points
-            "alignment_vertical": 5,
-            "alignment_horizontal": 5,
-            "angle": 6,
-            "axis": 7,
-            "perpendicular": 8,
-            "grid": 9,
-            "distance": 10,
-            "tangent": 11,
-            "none": 100
-        }
+        priority_map = self.SNAP_PRIORITY
         valid_candidates = []
         for (snap_candidate, snap_type) in candidates:
             dist = math.sqrt(
@@ -426,6 +773,11 @@ class SnappingManager:
             best_candidate, best_type, best_dist, _ = valid_candidates[0]
         else:
             best_candidate, best_type = (x, y), "none"
+
+        if best_type == "face_flush":
+            self.face_flush_guide = self._face_guides.get(best_candidate)
+        elif best_type == "tangent":
+            self.tangent_guide = self._tangent_guides.get(best_candidate)
 
         # print(f"Final snap: {best_candidate}, type: {best_type}")
         return best_candidate, best_type

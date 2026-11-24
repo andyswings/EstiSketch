@@ -4,6 +4,9 @@ from typing import Any, Optional, Tuple, List, Dict, Union
 from gi.repository import Gtk, Pango, PangoCairo
 from . import door_window_renderer as dwr
 from . import wall_room_renderer as wr
+from . import render_fixtures as rf
+from .label_utils import upright_angle
+from .compass import draw_north_arrow
 
 
 class CanvasDrawMixin:
@@ -127,16 +130,164 @@ class CanvasDrawMixin:
         cr.translate(self.offset_x, self.offset_y)
         cr.scale(zoom_transform, zoom_transform)
 
+        self.draw_scene(cr, zoom_transform, pixels_per_inch)
+
+        cr.restore()  # Return to device coordinates.
+
+        # Draw rulers in device coordinates.
+        if self.config.SHOW_RULERS:
+            self.draw_rulers(cr, width, height, pixels_per_inch)
+
+        # Draw interactive compass rose overlay in device coordinates.
+        self.draw_compass_rose(cr, width, height)
+
+    def _compass_geometry(
+            self,
+            width: Optional[float] = None,
+            height: Optional[float] = None) -> Tuple[float, float, float]:
+        """Return ``(cx, cy, radius)`` for the canvas compass widget in device coordinates."""
+        radius = 28.0
+        margin_right = 20.0
+        margin_top = 36.0 if getattr(self.config, "SHOW_RULERS", True) else 20.0
+        w = float(width) if width is not None else float(self.get_width())
+        cx = w - margin_right - radius
+        cy = margin_top + radius
+        return cx, cy, radius
+
+    def _hit_test_compass(self, x: float, y: float) -> bool:
+        """Return True if device point ``(x, y)`` is inside the compass rose hit target."""
+        if self.get_width() <= 0:
+            return False
+        cx, cy, radius = self._compass_geometry()
+        return math.hypot(x - cx, y - cy) <= radius + 6.0
+
+    def draw_compass_rose(self, cr, width: float, height: float) -> None:
+        """Render the interactive North arrow overlay in the top-right corner."""
+        if width < 120 or height < 120:
+            return
+        cx, cy, radius = self._compass_geometry(width, height)
+        highlight = bool(
+            getattr(self, "dragging_compass", False)
+            or getattr(self, "_compass_hover", False)
+        )
+        draw_north_arrow(
+            cr,
+            cx,
+            cy,
+            radius,
+            float(getattr(self, "north_angle", 0.0)),
+            show_degree_label=True,
+            highlight=highlight,
+        )
+
+    def draw_ghost_level(self, cr, zoom_transform, pixels_per_inch) -> None:
+        """Render an adjacent or chosen level as a muted background trace."""
+        ghost_id = (
+            self.resolve_ghost_level_id()
+            if hasattr(self, "resolve_ghost_level_id")
+            else None
+        )
+        if not ghost_id:
+            return
+
+        opacity = max(0.05, min(0.80, float(getattr(self, "ghost_opacity", 0.25))))
+        saved_focus = getattr(self.config, "LAYER_FOCUS_MODE", None)
+        saved_current_wall = getattr(self, "current_wall", None)
+        saved_walls = getattr(self, "walls", [])
+        saved_room_pts = getattr(self, "current_room_points", [])
+        saved_opening_pts = getattr(self, "current_opening_points", [])
+        saved_fix_ghost = getattr(self, "fixture_ghost", None)
+        saved_layout_ghost = getattr(self, "layout_ghost_fixtures", [])
+        saved_cab_start = getattr(self, "cabinet_run_start", None)
+        saved_temp_obj = getattr(self, "temp_object", None)
+        saved_selected = getattr(self, "selected_items", [])
+
+        cr.save()
+        cr.push_group()
+        try:
+            self._rendering_ghost_level = ghost_id
+            if saved_focus is not None:
+                self.config.LAYER_FOCUS_MODE = False
+            self.current_wall = None
+            self.walls = []
+            self.current_room_points = []
+            self.current_opening_points = []
+            self.fixture_ghost = None
+            self.layout_ghost_fixtures = []
+            self.cabinet_run_start = None
+            self.temp_object = None
+            self.selected_items = []
+
+            wr.draw_rooms(self, cr, zoom_transform)
+            wr.draw_floor_openings(self, cr, zoom_transform, printing=True)
+            rf.draw_fixtures(self, cr, zoom_transform, printing=True)
+            wr.draw_footers(self, cr)
+            wr.draw_walls(self, cr)
+            dwr.draw_doors(self, cr, pixels_per_inch)
+            dwr.draw_windows(self, cr, pixels_per_inch)
+            self.draw_roofs(cr)
+            self.draw_stairs(cr)
+
+            for circle in getattr(self, "circles", []):
+                if self.is_object_on_visible_layer(circle):
+                    self._draw_circle(cr, circle)
+            for arc in getattr(self, "arcs", []):
+                if self.is_object_on_visible_layer(arc):
+                    self._draw_arc(cr, arc)
+
+            # Tint all painted ghost-level pixels into a muted cyan/slate trace
+            cr.save()
+            cr.set_operator(cairo.OPERATOR_ATOP)
+            cr.set_source_rgba(0.15, 0.55, 0.72, 0.55)
+            cr.paint()
+            cr.restore()
+        finally:
+            self._rendering_ghost_level = None
+            if saved_focus is not None:
+                self.config.LAYER_FOCUS_MODE = saved_focus
+            self.current_wall = saved_current_wall
+            self.walls = saved_walls
+            self.current_room_points = saved_room_pts
+            self.current_opening_points = saved_opening_pts
+            self.fixture_ghost = saved_fix_ghost
+            self.layout_ghost_fixtures = saved_layout_ghost
+            self.cabinet_run_start = saved_cab_start
+            self.temp_object = saved_temp_obj
+            self.selected_items = saved_selected
+
+        cr.pop_group_to_source()
+        cr.paint_with_alpha(opacity)
+        cr.restore()
+
+
+    def draw_scene(self, cr, zoom_transform, pixels_per_inch, printing=False):
+        """
+        Draw the drawing content in model coordinates (cr must already be
+        transformed). With printing=True only committed content is drawn:
+        no grid, previews, selection handles, snap guides or other editing
+        overlays.
+        """
         # Get visible layer IDs for filtering - objects with no layer_id are
         # always visible
         visible_layer_ids = self.get_visible_layer_ids() if hasattr(
             self, 'get_visible_layer_ids') else set()
 
+        # Blueprint underlays are painted first so everything draws over them
+        self.draw_blueprints(cr)
+
         # Draw grid, walls, rooms, etc. in model coordinates.
-        self.draw_grid(cr)
+        if not printing:
+            self.draw_grid(cr)
+            self.draw_ghost_level(cr, zoom_transform, pixels_per_inch)
 
         # Draw rooms first (under walls)
         wr.draw_rooms(self, cr, zoom_transform)
+
+        # Draw manual floor openings and cutouts
+        wr.draw_floor_openings(self, cr, zoom_transform, printing=printing)
+
+        # Draw fixtures, cabinetry, countertops, and appliances (masks floor patterns)
+        rf.draw_fixtures(self, cr, zoom_transform, printing=printing)
 
         # Draw footers (before walls to appear underneath)
         wr.draw_footers(self, cr)
@@ -150,11 +301,26 @@ class CanvasDrawMixin:
         # Draw windows
         dwr.draw_windows(self, cr, pixels_per_inch)
 
+        # Door/window placement ghost (translucent preview of the click result)
+        ghost = None if printing else getattr(self, "opening_ghost", None)
+        if ghost is not None:
+            kind, item = ghost
+            if kind == "door":
+                dwr.draw_doors(self, cr, pixels_per_inch, items=[item], opacity_override=0.4)
+            else:
+                dwr.draw_windows(self, cr, pixels_per_inch, items=[item], opacity_override=0.4)
+
         # Draw texts
         self.draw_texts(cr)
 
         # Draw dimensions
         self.draw_dimensions(cr)
+
+        # Draw dimension chains
+        self.draw_dimension_chains(cr)
+
+        # Draw leader callouts
+        self.draw_leader_callouts(cr)
 
         # Draw roofs
         self.draw_roofs(cr)
@@ -191,6 +357,47 @@ class CanvasDrawMixin:
             if hasattr(self, '_draw_stair'):
                 self._draw_stair(cr, stair, zoom_transform)
                 
+        # Draw Circles
+        for circle in self.circles:
+            if not self.is_object_on_visible_layer(circle):
+                continue
+            self._draw_circle(cr, circle)
+
+        # Draw Arcs
+        for arc in self.arcs:
+            if not self.is_object_on_visible_layer(arc):
+                continue
+            self._draw_arc(cr, arc)
+        
+        # Draw finished polylines
+        cr.save()
+        cr.set_line_width(1.0 / self.zoom)
+        for poly_list in self.polyline_sets:
+            for pl in poly_list:
+                # Skip if polyline is on hidden layer
+                if not self.is_object_on_visible_layer(pl):
+                    continue
+
+                opacity = 1.0
+                if hasattr(self, 'get_object_opacity'):
+                    opacity = self.get_object_opacity(pl)
+
+                # Use polyline color if available, default to black
+                color = getattr(pl, 'color', (0.0, 0.0, 0.0))
+                cr.set_source_rgba(color[0], color[1], color[2], opacity)
+
+                if pl.style == "dashed":
+                    cr.set_dash([4 / self.zoom, 4 / self.zoom])
+                else:
+                    cr.set_dash([])
+                cr.move_to(pl.start[0], pl.start[1])
+                cr.line_to(pl.end[0], pl.end[1])
+                cr.stroke()
+        cr.restore()
+
+        if printing:
+            return
+
         # Draw temporary stair preview
         if getattr(self, 'tool_mode', None) == "add_stair" and getattr(self, 'temp_object', None):
              if hasattr(self, '_draw_stair') and hasattr(self.temp_object, 'stair_type'):
@@ -208,18 +415,6 @@ class CanvasDrawMixin:
             cr.set_line_width(1.0 / zoom_transform)
             cr.stroke()
 
-        # Draw Circles
-        for circle in self.circles:
-            if not self.is_object_on_visible_layer(circle):
-                continue
-            self._draw_circle(cr, circle)
-
-        # Draw Arcs
-        for arc in self.arcs:
-            if not self.is_object_on_visible_layer(arc):
-                continue
-            self._draw_arc(cr, arc)
-        
         # Circle Preview
         if self.tool_mode == "add_circle" and self.drawing_circle and self.circle_center and self.circle_radius_preview is not None:
             temp_circle = self.Circle(
@@ -298,32 +493,6 @@ class CanvasDrawMixin:
                  cr.line_to(last_pos[0], last_pos[1])
                  cr.stroke()
                  cr.restore()
-
-        # Draw finished polylines
-        cr.save()
-        cr.set_line_width(1.0 / self.zoom)
-        for poly_list in self.polyline_sets:
-            for pl in poly_list:
-                # Skip if polyline is on hidden layer
-                if not self.is_object_on_visible_layer(pl):
-                    continue
-
-                opacity = 1.0
-                if hasattr(self, 'get_object_opacity'):
-                    opacity = self.get_object_opacity(pl)
-
-                # Use polyline color if available, default to black
-                color = getattr(pl, 'color', (0.0, 0.0, 0.0))
-                cr.set_source_rgba(color[0], color[1], color[2], opacity)
-
-                if pl.style == "dashed":
-                    cr.set_dash([4 / self.zoom, 4 / self.zoom])
-                else:
-                    cr.set_dash([])
-                cr.move_to(pl.start[0], pl.start[1])
-                cr.line_to(pl.end[0], pl.end[1])
-                cr.stroke()
-        cr.restore()
 
         # Draw in-progress (fixed) segments
         if self.polylines:
@@ -676,17 +845,95 @@ class CanvasDrawMixin:
                             cr.arc(pt[0], pt[1], handle_radius, 0, 2 * 3.14159)
                             cr.set_line_width(1.0 / self.zoom)
                             cr.stroke()
+
+                elif item["type"] == "floor_opening":
+                    opening = item["object"]
+                    if opening and getattr(opening, "points", None):
+                        cr.set_source_rgba(0.95, 0.35, 0.1, 0.18)
+                        p0 = opening.points[0]
+                        cr.move_to(p0[0], p0[1])
+                        for p in opening.points[1:]:
+                            cr.line_to(p[0], p[1])
+                        cr.close_path()
+                        cr.fill_preserve()
+
+                        cr.set_source_rgba(0.95, 0.25, 0.05, 0.9)
+                        cr.set_line_width(2.0 / self.zoom)
+                        cr.stroke()
+
+                        for pt in opening.points:
+                            cr.set_source_rgba(1, 1, 0, 1.0)
+                            cr.arc(pt[0], pt[1], handle_radius, 0, 2 * 3.14159)
+                            cr.fill()
+                            cr.set_source_rgba(0, 0, 0, 1.0)
+                            cr.arc(pt[0], pt[1], handle_radius, 0, 2 * 3.14159)
+                            cr.set_line_width(1.0 / self.zoom)
+                            cr.stroke()
+
+                elif item["type"] == "opening_vertex":
+                    opening, idx = item["object"]
+                    if opening and 0 <= idx < len(getattr(opening, "points", [])):
+                        pt = opening.points[idx]
+                        cr.set_source_rgba(0.95, 0.25, 0.05, 0.85)
+                        cr.set_line_width(1.5 / self.zoom)
+                        p0 = opening.points[0]
+                        cr.move_to(p0[0], p0[1])
+                        for p in opening.points[1:]:
+                            cr.line_to(p[0], p[1])
+                        cr.close_path()
+                        cr.stroke()
+
+                        cr.set_source_rgba(1.0, 0.3, 0.05, 1.0)
+                        cr.arc(pt[0], pt[1], handle_radius * 1.2, 0, 2 * 3.14159)
+                        cr.fill()
+                        cr.set_source_rgba(0, 0, 0, 1.0)
+                        cr.arc(pt[0], pt[1], handle_radius * 1.2, 0, 2 * 3.14159)
+                        cr.set_line_width(1.0 / self.zoom)
+                        cr.stroke()
+
+                elif item["type"] == "fixture":
+                    fix = item["object"]
+                    if fix and hasattr(fix, "world_corners"):
+                        corners = fix.world_corners(include_overhang=True)
+                        cr.set_source_rgba(0.10, 0.55, 0.78, 0.22)
+                        cr.move_to(corners[0][0], corners[0][1])
+                        for p in corners[1:]:
+                            cr.line_to(p[0], p[1])
+                        cr.close_path()
+                        cr.fill_preserve()
+
+                        cr.set_source_rgba(0.05, 0.45, 0.75, 0.95)
+                        cr.set_line_width(2.0 / self.zoom)
+                        cr.stroke()
+
+                        # Rotation handle in front (+Y local) when single unlocked fixture is selected
+                        if len(self.selected_items) == 1 and not self.is_object_on_locked_layer(fix):
+                            front_mid = (
+                                (corners[2][0] + corners[3][0]) / 2.0,
+                                (corners[2][1] + corners[3][1]) / 2.0,
+                            )
+                            rad = math.radians(fix.rotation)
+                            hx = front_mid[0] - math.sin(rad) * (12.0 / self.zoom)
+                            hy = front_mid[1] + math.cos(rad) * (12.0 / self.zoom)
+                            cr.set_source_rgba(0.05, 0.45, 0.75, 0.9)
+                            cr.set_line_width(1.5 / self.zoom)
+                            cr.move_to(front_mid[0], front_mid[1])
+                            cr.line_to(hx, hy)
+                            cr.stroke()
+                            cr.set_source_rgba(0.2, 0.75, 0.95, 1.0)
+                            cr.arc(hx, hy, handle_radius * 1.05, 0, 2 * math.pi)
+                            cr.fill_preserve()
+                            cr.set_source_rgba(0, 0, 0, 1.0)
+                            cr.set_line_width(1.0 / self.zoom)
+                            cr.stroke()
             cr.restore()
 
+        self.draw_group_overlays(cr, pixels_per_inch)
         self.draw_live_measurements(cr, pixels_per_inch)
         self.draw_alignment_guide(cr, pixels_per_inch)
         self.draw_snap_indicator(cr, pixels_per_inch)
-
-        cr.restore()  # Return to device coordinates.
-
-        # Draw rulers in device coordinates.
-        if self.config.SHOW_RULERS:
-            self.draw_rulers(cr, width, height, pixels_per_inch)
+        self.draw_edit_face_guide(cr, pixels_per_inch)
+        self.draw_blueprint_overlays(cr)
 
     def draw_grid(self, cr):
         if not self.config.SHOW_GRID:
@@ -725,6 +972,84 @@ class CanvasDrawMixin:
             cr.line_to(grid_max, y)
             y += major_spacing
         cr.stroke()
+
+    def draw_group_overlays(self, cr, pixels_per_inch):
+        """Draw dashed bounding boxes and rotation handles for selected ObjectGroups."""
+        if not hasattr(self, "get_selected_groups"):
+            return
+        selected_groups = self.get_selected_groups()
+        if not selected_groups:
+            return
+
+        T = self.zoom * pixels_per_inch
+        if T <= 0:
+            return
+
+        pad = 6.0 / T
+        dash = 6.0 / T
+        stem_len = 24.0 / T
+        handle_r = 6.0 / T
+
+        cr.save()
+        for group in selected_groups:
+            bounds = self.get_group_bounds(group)
+            if not bounds:
+                continue
+            min_x, min_y, max_x, max_y = bounds
+            rx = min_x - pad
+            ry = min_y - pad
+            rw = (max_x - min_x) + 2 * pad
+            rh = (max_y - min_y) + 2 * pad
+
+            # Dashed bounding box
+            cr.set_source_rgba(0.15, 0.45, 0.85, 0.85)
+            cr.set_line_width(1.5 / T)
+            cr.set_dash([dash, dash * 0.7])
+            cr.rectangle(rx, ry, rw, rh)
+            cr.stroke()
+
+            # Group name label
+            cr.set_dash([])
+            label = getattr(group, "custom_name", "") or getattr(group, "name", "") or "Group"
+            if group.locked:
+                label = f"🔒 {label}"
+            cr.select_font_face("Sans", 0, 0)
+            cr.set_font_size(11.0 / T)
+            cr.set_source_rgba(0.15, 0.45, 0.85, 0.95)
+            cr.move_to(rx, ry - 4.0 / T)
+            cr.show_text(label)
+
+            # Rotation handle (only when unlocked and a single group is selected)
+            if not group.locked and len(selected_groups) == 1:
+                cx = (min_x + max_x) / 2.0
+                top_y = min_y
+                hx = cx
+                hy = top_y - stem_len
+
+                # Stem line
+                cr.set_source_rgba(0.15, 0.45, 0.85, 0.85)
+                cr.set_line_width(1.5 / T)
+                cr.move_to(cx, ry)
+                cr.line_to(hx, hy)
+                cr.stroke()
+
+                # Circular rotation handle
+                cr.set_source_rgba(0.2, 0.75, 0.35, 1.0)
+                cr.arc(hx, hy, handle_r, 0, 2 * math.pi)
+                cr.fill()
+                cr.set_source_rgba(0.0, 0.0, 0.0, 0.9)
+                cr.set_line_width(1.2 / T)
+                cr.arc(hx, hy, handle_r, 0, 2 * math.pi)
+                cr.stroke()
+
+                # Live rotation angle readout if actively rotating this group
+                if getattr(self, "rotating_group", None) is group:
+                    deg = getattr(self, "_rotating_group_current_deg", 0.0)
+                    cr.set_source_rgba(0.1, 0.5, 0.2, 1.0)
+                    cr.set_font_size(12.0 / T)
+                    cr.move_to(hx + 10.0 / T, hy + 4.0 / T)
+                    cr.show_text(f"{deg:.1f}°")
+        cr.restore()
 
     def draw_live_measurements(self, cr, pixels_per_inch):
         walls_to_label = []
@@ -791,13 +1116,9 @@ class CanvasDrawMixin:
             text = f'{measurement_str} @ {deg:.1f}°'
             cr.save()
             cr.translate(mid_x, mid_y)
-            cr.rotate(angle)
+            cr.rotate(upright_angle(angle))
             offset = 20 / (self.zoom * pixels_per_inch)
-            if -90 < deg < 90:
-                cr.move_to(0, offset)
-            else:
-                cr.rotate(math.radians(180))
-                cr.move_to(0, offset)
+            cr.move_to(0, offset)
             cr.set_source_rgb(0, 0, 0)
             cr.select_font_face("Sans", 0, 0)
             cr.set_font_size(12 / (self.zoom * pixels_per_inch))
@@ -922,12 +1243,7 @@ class CanvasDrawMixin:
              cr.translate(mid_x, mid_y)
              # Rotate text to align with radius line? Or keep horizontal?
              # Let's align
-             cr.rotate(angle)
-             
-             # Ensure text is upright
-             deg = math.degrees(angle) % 360
-             if 90 < deg < 270:
-                  cr.rotate(math.pi)
+             cr.rotate(upright_angle(angle))
              
              cr.move_to(0, -5 / (self.zoom * pixels_per_inch))
              
@@ -959,13 +1275,9 @@ class CanvasDrawMixin:
 
                   cr.save()
                   cr.translate(mid_x, mid_y)
-                  cr.rotate(angle)
+                  cr.rotate(upright_angle(angle))
                   offset = 20 / (self.zoom * pixels_per_inch)
-                  if -90 < deg < 90:
-                       cr.move_to(0, offset)
-                  else:
-                       cr.rotate(math.radians(180))
-                       cr.move_to(0, offset)
+                  cr.move_to(0, offset)
                   cr.set_source_rgb(0, 0, 0)
                   cr.select_font_face("Sans", 0, 0)
                   cr.set_font_size(12 / (self.zoom * pixels_per_inch))
@@ -974,84 +1286,235 @@ class CanvasDrawMixin:
 
 
     def draw_alignment_guide(self, cr, pixels_per_inch):
-        if not (
-                self.drawing_wall and self.current_wall and self.alignment_candidate and self.raw_current_end):
+        if not (self.alignment_candidate and self.raw_current_end):
             return
-        raw_end: Any = self.raw_current_end
+        is_active = (
+            (getattr(self, "drawing_wall", False) and getattr(self, "current_wall", None)) or
+            (getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None)) or
+            getattr(self, "dragging_wall", None)
+        )
+        if not is_active:
+            return
+        if getattr(self, "drawing_wall", False) and getattr(self, "current_wall", None):
+            end_pt: Any = self.current_wall.end
+        elif getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None):
+            end_pt = self.editing_wall.start if self.editing_handle == "start" else self.editing_wall.end
+        else:
+            end_pt = self.raw_current_end
         cand: Any = self.alignment_candidate
-        dx = raw_end[0] - cand[0]
-        dy = raw_end[1] - cand[1]
+        dx = end_pt[0] - cand[0]
+        dy = end_pt[1] - cand[1]
         if math.hypot(dx, dy) < 1:
             return
         cr.save()
-        cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
-        dash = 2.0 / (self.zoom * pixels_per_inch)
+        scale = self.zoom * pixels_per_inch
+        cr.set_line_width(1.0 / scale)
+        dash = 4.0 / scale
         cr.set_dash([dash, dash])
-        cr.set_source_rgb(0.7, 0.7, 0.7)
-        cr.move_to(raw_end[0], raw_end[1])
+        cr.set_source_rgb(0.3, 0.6, 1.0)
+        cr.move_to(end_pt[0], end_pt[1])
         cr.line_to(cand[0], cand[1])
         cr.stroke()
         cr.restore()
 
-    def draw_snap_indicator(self, cr, pixels_per_inch):
-        if self.snap_type == "none" or not self.drawing_wall or not self.current_wall:
+    def _stroke_face_guide(self, cr, guide, pixels_per_inch):
+        """Stroke a face-flush or centerline guide.
+
+        Returns the label text for the guide's kind."""
+        g0, g1, kind = guide
+        scale = self.zoom * pixels_per_inch
+        if kind == "flush":
+            cr.set_source_rgb(0.0, 0.7, 0.8)
+            label = "Faces flush"
+        elif kind == "center":
+            cr.set_source_rgb(0.7, 0.2, 0.9)
+            label = "Centerline aligned"
+        else:
+            cr.set_source_rgb(0.95, 0.5, 0.1)
+            label = "Faces abutting"
+        cr.set_line_width(1.5 / scale)
+        cr.set_dash([6.0 / scale, 4.0 / scale])
+        cr.move_to(g0[0], g0[1])
+        cr.line_to(g1[0], g1[1])
+        cr.stroke()
+        cr.set_dash([])
+        return label
+
+    def draw_edit_face_guide(self, cr, pixels_per_inch):
+        """Face guide shown while dragging a wall or wall endpoint if not drawn by snap_indicator."""
+        if getattr(self, "snap_type", "none") == "face_flush":
+            return  # Already drawn by draw_snap_indicator
+        guide = getattr(self, "edit_face_guide", None)
+        if not guide:
             return
         cr.save()
-        snap_x, snap_y = self.current_wall.end
-        cr.set_line_width(2.0 / (self.zoom * pixels_per_inch))
-        cr.set_font_size(12 / (self.zoom * pixels_per_inch))
+        label = self._stroke_face_guide(cr, guide, pixels_per_inch)
+        target = getattr(self, "dragging_wall", None) or getattr(
+            self, "editing_wall", None)
+        if target is not None:
+            if getattr(self, "dragging_wall", None):
+                lx = (target.start[0] + target.end[0]) / 2.0
+                ly = (target.start[1] + target.end[1]) / 2.0
+            else:
+                handle = getattr(self, "editing_handle", "end")
+                lx, ly = target.start if handle == "start" else target.end
+            scale = self.zoom * pixels_per_inch
+            cr.set_font_size(12 / scale)
+            cr.select_font_face("Sans", 0, 0)
+            cr.move_to(lx + 15 / scale, ly - 10 / scale)
+            cr.show_text(label)
+        cr.restore()
+
+    def draw_snap_indicator(self, cr, pixels_per_inch):
+        if getattr(self, "snap_type", "none") == "none":
+            return
+        is_active = (
+            (getattr(self, "drawing_wall", False) and getattr(self, "current_wall", None)) or
+            (getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None)) or
+            getattr(self, "dragging_wall", None) or
+            (getattr(self, "tool_mode", None) in ("draw_walls", "draw_rooms", "add_floor_opening")
+             and getattr(self, "snap_pos", None) is not None)
+        )
+        if not is_active:
+            return
+
+        snap_x = None
+        snap_y = None
+        base_x = None
+        base_y = None
+
+        if getattr(self, "snap_pos", None) is not None:
+            snap_x, snap_y = self.snap_pos
+        elif getattr(self, "drawing_wall", False) and getattr(self, "current_wall", None):
+            snap_x, snap_y = self.current_wall.end
+            base_x, base_y = self.current_wall.start
+        elif getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None):
+            wall = self.editing_wall
+            snap_x, snap_y = wall.start if self.editing_handle == "start" else wall.end
+            base_x, base_y = wall.end if self.editing_handle == "start" else wall.start
+        elif getattr(self, "dragging_wall", None):
+            wall = self.dragging_wall
+            snap_x, snap_y = (wall.start[0] + wall.end[0]) / 2.0, (wall.start[1] + wall.end[1]) / 2.0
+            base_x, base_y = snap_x, snap_y
+
+        if snap_x is None or snap_y is None:
+            return
+        if (base_x is None or base_y is None) and self.tool_mode == "draw_rooms" \
+                and self.current_room_points:
+            base_x, base_y = self.current_room_points[-1]
+        if base_x is None or base_y is None:
+            if getattr(self, "current_wall", None):
+                base_x, base_y = self.current_wall.start
+            elif getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None):
+                base_x, base_y = self.editing_wall.end if self.editing_handle == "start" else self.editing_wall.start
+            else:
+                base_x, base_y = snap_x, snap_y
+
+        cr.save()
+        scale = self.zoom * pixels_per_inch
+        cr.set_line_width(2.0 / scale)
+        cr.set_font_size(12 / scale)
         cr.select_font_face("Sans", 0, 0)
         if self.snap_type == "endpoint":
             cr.set_source_rgb(1, 0, 0)
-            cr.arc(snap_x, snap_y, 10 / (self.zoom *
-                   pixels_per_inch), 0, 2 * math.pi)
+            cr.arc(snap_x, snap_y, 10 / scale, 0, 2 * math.pi)
             cr.fill()
-            cr.move_to(snap_x + 15 / (self.zoom * pixels_per_inch), snap_y)
+            cr.move_to(snap_x + 15 / scale, snap_y)
             cr.show_text("Endpoint")
         elif self.snap_type == "midpoint":
             cr.set_source_rgb(0, 0, 1)
-            cr.arc(snap_x, snap_y, 10 / (self.zoom *
-                   pixels_per_inch), 0, 2 * math.pi)
+            cr.arc(snap_x, snap_y, 10 / scale, 0, 2 * math.pi)
             cr.stroke()
-            cr.move_to(snap_x + 15 / (self.zoom * pixels_per_inch), snap_y)
+            cr.move_to(snap_x + 15 / scale, snap_y)
             cr.show_text("Midpoint")
+        elif self.snap_type == "wall_centerline":
+            cr.set_source_rgb(0.7, 0.2, 0.9)
+            cr.arc(snap_x, snap_y, 8 / scale, 0, 2 * math.pi)
+            cr.stroke()
+            cr.arc(snap_x, snap_y, 3 / scale, 0, 2 * math.pi)
+            cr.fill()
+            cr.move_to(snap_x + 15 / scale, snap_y)
+            cr.show_text("Centerline")
+        elif self.snap_type == "face_flush":
+            guide = getattr(self.snap_manager, "face_flush_guide", None) or getattr(self, "edit_face_guide", None)
+            if guide:
+                label = self._stroke_face_guide(cr, guide, pixels_per_inch)
+                if guide[2] == "flush":
+                    cr.set_source_rgb(0.0, 0.7, 0.8)
+                elif guide[2] == "center":
+                    cr.set_source_rgb(0.7, 0.2, 0.9)
+                else:
+                    cr.set_source_rgb(0.95, 0.5, 0.1)
+            else:
+                cr.set_source_rgb(0.0, 0.7, 0.8)
+                label = "Faces flush"
+            cr.arc(snap_x, snap_y, 5 / scale, 0, 2 * math.pi)
+            cr.fill()
+            cr.move_to(snap_x + 15 / scale, snap_y)
+            cr.show_text(label)
+        elif self.snap_type == "wall_edge":
+            cr.set_source_rgb(0.0, 0.7, 0.8)
+            cr.arc(snap_x, snap_y, 5 / scale, 0, 2 * math.pi)
+            cr.fill()
+            cr.move_to(snap_x + 15 / scale, snap_y)
+            cr.show_text("Wall Edge")
         elif self.snap_type == "axis":
             cr.set_source_rgb(0, 1, 0)
-            cr.move_to(snap_x - 20 / (self.zoom * pixels_per_inch), snap_y)
-            cr.line_to(snap_x + 20 / (self.zoom * pixels_per_inch), snap_y)
-            cr.move_to(snap_x, snap_y - 20 / (self.zoom * pixels_per_inch))
-            cr.line_to(snap_x, snap_y + 20 / (self.zoom * pixels_per_inch))
+            cr.move_to(snap_x - 20 / scale, snap_y)
+            cr.line_to(snap_x + 20 / scale, snap_y)
+            cr.move_to(snap_x, snap_y - 20 / scale)
+            cr.line_to(snap_x, snap_y + 20 / scale)
             cr.stroke()
-            cr.move_to(snap_x + 15 / (self.zoom * pixels_per_inch), snap_y)
+            cr.move_to(snap_x + 15 / scale, snap_y)
             cr.show_text("Axis")
         elif self.snap_type in ["angle", "perpendicular"]:
             cr.set_source_rgb(1, 0, 1)
-            cr.move_to(self.current_wall.start[0], self.current_wall.start[1])
+            cr.move_to(base_x, base_y)
             cr.line_to(snap_x, snap_y)
             cr.stroke()
             if self.snap_type == "perpendicular":
-                cr.move_to(snap_x + 15 / (self.zoom * pixels_per_inch), snap_y)
+                cr.move_to(snap_x + 15 / scale, snap_y)
                 cr.show_text("Perpendicular")
+            else:
+                cr.move_to(snap_x + 15 / scale, snap_y)
+                cr.show_text("Angle")
         elif self.snap_type == "grid":
             cr.set_source_rgb(0.5, 0.5, 0.5)
-            cr.rectangle(snap_x - 10 / (self.zoom * pixels_per_inch),
-                         snap_y - 10 / (self.zoom * pixels_per_inch),
-                         20 / (self.zoom * pixels_per_inch),
-                         20 / (self.zoom * pixels_per_inch))
+            cr.rectangle(snap_x - 10 / scale,
+                         snap_y - 10 / scale,
+                         20 / scale,
+                         20 / scale)
             cr.stroke()
-            cr.move_to(snap_x + 15 / (self.zoom * pixels_per_inch), snap_y)
+            cr.move_to(snap_x + 15 / scale, snap_y)
             cr.show_text("Grid")
         elif self.snap_type == "distance":
             cr.set_source_rgb(1, 0.5, 0)
-            cr.move_to(snap_x + 15 / (self.zoom * pixels_per_inch), snap_y)
+            cr.move_to(snap_x + 15 / scale, snap_y)
             cr.show_text("Distance")
         elif self.snap_type == "tangent":
+            guide = getattr(self.snap_manager, "tangent_guide", None)
+            if guide:
+                g0, g1 = guide[0], guide[1]
+                cr.save()
+                cr.set_source_rgba(0.0, 0.85, 0.9, 0.85)
+                cr.set_line_width(1.2 / scale)
+                cr.set_dash([5.0 / scale, 3.0 / scale])
+                cr.move_to(g0[0], g0[1])
+                cr.line_to(g1[0], g1[1])
+                cr.stroke()
+                cr.restore()
             cr.set_source_rgb(0, 1, 1)
-            cr.arc(snap_x, snap_y, 10 / (self.zoom *
-                   pixels_per_inch), 0, 2 * math.pi)
+            cr.arc(snap_x, snap_y, 7 / scale, 0, 2 * math.pi)
             cr.fill()
-            cr.move_to(snap_x + 15 / (self.zoom * pixels_per_inch), snap_y)
-            cr.show_text("Tangent")
+            cr.move_to(snap_x + 15 / scale, snap_y)
+            tlabel = "Tangent Continue" if (guide and len(guide) >= 3 and guide[2] == "tangent_continue") else "Tangent"
+            cr.show_text(tlabel)
+        elif self.snap_type in ["alignment", "alignment_cross", "alignment_vertical", "alignment_horizontal"]:
+            cr.set_source_rgb(0.3, 0.6, 1.0)
+            cr.arc(snap_x, snap_y, 6 / scale, 0, 2 * math.pi)
+            cr.stroke()
+            cr.move_to(snap_x + 15 / scale, snap_y)
+            cr.show_text("Aligned")
         cr.restore()
 
     def draw_rulers(self, cr, width, height, pixels_per_inch):
@@ -1418,6 +1881,543 @@ class CanvasDrawMixin:
         cr.show_text(measurement_str)
         cr.restore()
         
+        cr.restore()
+
+    def draw_dimension_chains(self, cr):
+        """Draw all continuous dimension chains and any in-progress creation preview."""
+        pixels_per_inch = self.config.PIXELS_PER_INCH
+
+        def is_visible(obj):
+            if hasattr(self, 'is_object_on_visible_layer'):
+                return self.is_object_on_visible_layer(obj)
+            return True
+
+        for chain in getattr(self, 'dimension_chains', []):
+            if not is_visible(chain):
+                continue
+            self._draw_single_dimension_chain(cr, chain, pixels_per_inch)
+
+        # Draw in-progress preview
+        if getattr(self, 'drawing_dimension_chain', False) and getattr(self, 'dimension_chain_points', None):
+            pts = list(self.dimension_chain_points)
+            mouse_pos = getattr(self, '_last_mouse_pos', None)
+
+            # Draw handle dots at all clicked points
+            cr.save()
+            for pt in pts:
+                cr.arc(pt[0], pt[1], 4.0 / (self.zoom * pixels_per_inch), 0, 2 * math.pi)
+                cr.set_source_rgba(0.15, 0.45, 0.9, 0.9)
+                cr.fill_preserve()
+                cr.set_source_rgba(1.0, 1.0, 1.0, 0.95)
+                cr.set_line_width(1.5 / (self.zoom * pixels_per_inch))
+                cr.stroke()
+            cr.restore()
+
+            hover = getattr(self, 'dimension_chain_hover', None)
+            if len(pts) == 1 and hover and math.hypot(hover[0] - pts[0][0], hover[1] - pts[0][1]) > 0.5:
+                # Live length of the baseline segment
+                self._draw_chain_live_label(cr, pts[0], hover, pixels_per_inch)
+            if len(pts) == 1 and mouse_pos:
+                # 1st point clicked: draw dashed line to cursor
+                cr.save()
+                cr.set_source_rgba(0.2, 0.5, 0.9, 0.8)
+                cr.set_line_width(1.5 / (self.zoom * pixels_per_inch))
+                cr.set_dash([4.0 / (self.zoom * pixels_per_inch), 4.0 / (self.zoom * pixels_per_inch)])
+                cr.move_to(pts[0][0], pts[0][1])
+                cr.line_to(mouse_pos[0], mouse_pos[1])
+                cr.stroke()
+                cr.restore()
+            elif len(pts) >= 2:
+                # 2+ points: preview chain
+                offset = self.dimension_chain_offset
+                if offset is None and mouse_pos:
+                    # Calculate preview offset from baseline
+                    offset = self._calculate_dimension_offset(pts[0], pts[1], mouse_pos)
+                if offset is None or abs(offset) < 1.0:
+                    offset = 18.0
+                preview_pts = list(pts)
+                if hover and offset is not None and self.dimension_chain_offset is None \
+                        and math.hypot(hover[0] - pts[-1][0], hover[1] - pts[-1][1]) > 0.5:
+                    preview_pts.append(hover)
+                preview_chain = self.DimensionChain(
+                    points=preview_pts,
+                    offset=offset,
+                    summary_dimension=True,
+                    summary_offset=16.0,
+                    text_size=12.0
+                )
+                self._draw_single_dimension_chain(cr, preview_chain, pixels_per_inch, is_preview=True)
+
+    def _draw_chain_live_label(self, cr, a, b, pixels_per_inch):
+        """Draw a live length label at the midpoint of a→b while placing a chain."""
+        length = math.hypot(b[0] - a[0], b[1] - a[1])
+        ang = math.atan2(b[1] - a[1], b[0] - a[0])
+        deg = math.degrees(ang) % 360
+        if 90 < deg < 270:
+            ang += math.pi
+        text = self.converter.format_measurement(length, use_fraction=False)
+        cr.save()
+        cr.translate((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+        cr.rotate(ang)
+        cr.select_font_face("Sans", 0, 0)
+        cr.set_font_size(12.0 / (self.zoom * pixels_per_inch))
+        ext = cr.text_extents(text)
+        pad = 2.0 / (self.zoom * pixels_per_inch)
+        cr.set_source_rgba(1.0, 1.0, 1.0, 0.85)
+        cr.rectangle(-ext.width / 2.0 - pad, -ext.height - pad * 3, ext.width + 2 * pad, ext.height + 2 * pad)
+        cr.fill()
+        cr.set_source_rgb(0.1, 0.35, 0.8)
+        cr.move_to(-ext.width / 2.0, -pad * 2)
+        cr.show_text(text)
+        cr.restore()
+
+    def _draw_single_dimension_chain(self, cr, chain, pixels_per_inch, is_preview=False):
+        """Draw a single continuous dimension chain with witness lines, ticks/arrows, and summary dimension."""
+        points = getattr(chain, 'points', [])
+        if len(points) < 2:
+            return
+
+        p0 = points[0]
+        p1 = points[1]
+        dx = p1[0] - p0[0]
+        dy = p1[1] - p0[1]
+        baseline_len = math.hypot(dx, dy)
+        if baseline_len < 1e-4:
+            return
+
+        ux = dx / baseline_len
+        uy = dy / baseline_len
+        px = -uy
+        py = ux
+
+        # Project points onto baseline
+        projected = []
+        for pt in points:
+            t = (pt[0] - p0[0]) * ux + (pt[1] - p0[1]) * uy
+            projected.append((t, pt))
+
+        # Sort by t
+        projected.sort(key=lambda item: item[0])
+
+        # Remove duplicate projections
+        unique_proj = []
+        for t, pt in projected:
+            if not unique_proj or abs(t - unique_proj[-1][0]) > 0.01:
+                unique_proj.append((t, pt))
+
+        if len(unique_proj) < 2:
+            return
+
+        offset = getattr(chain, 'offset', 18.0)
+        s_off = 1.0 if offset >= 0 else -1.0
+        witness_gap = getattr(chain, 'witness_gap', 4.0)
+        witness_overhang = getattr(chain, 'witness_overhang', 6.0)
+        text_size = getattr(chain, 'text_size', 12.0)
+        show_arrows = getattr(chain, 'show_arrows', True)
+        arrow_style = getattr(chain, 'arrow_style', 'architectural_tick')
+        summary_dimension = getattr(chain, 'summary_dimension', True)
+        summary_offset = getattr(chain, 'summary_offset', 16.0)
+
+        is_selected = False
+        if not is_preview:
+            is_selected = any(
+                item.get("type") == "dimension_chain" and item.get("object") is chain
+                for item in self.selected_items
+            )
+
+        color = getattr(chain, 'color', (0.0, 0.0, 0.0))
+        cr.save()
+
+        if is_preview:
+            cr.set_source_rgba(color[0], color[1], color[2], 0.5)
+        elif is_selected:
+            cr.set_source_rgb(0.0, 0.4, 0.8)
+        else:
+            opacity = 1.0
+            if hasattr(self, 'get_object_opacity'):
+                opacity = self.get_object_opacity(chain)
+            cr.set_source_rgba(color[0], color[1], color[2], opacity)
+
+        line_width = 1.0 / (self.zoom * pixels_per_inch)
+        if is_selected:
+            line_width *= 2.0
+        cr.set_line_width(line_width)
+
+        line_style = getattr(chain, 'line_style', 'solid')
+        if line_style == 'dashed':
+            cr.set_dash([4.0 / (self.zoom * pixels_per_inch), 4.0 / (self.zoom * pixels_per_inch)])
+        else:
+            cr.set_dash([])
+
+        def dim_pt(t, off=offset):
+            return (p0[0] + t * ux + off * px, p0[1] + t * uy + off * py)
+
+        t_min = unique_proj[0][0]
+        t_max = unique_proj[-1][0]
+        start_dim = dim_pt(t_min)
+        end_dim = dim_pt(t_max)
+
+        # 1. Continuous Dimension Line
+        cr.move_to(start_dim[0], start_dim[1])
+        cr.line_to(end_dim[0], end_dim[1])
+        cr.stroke()
+
+        # 2. Witness Lines
+        cr.set_line_width(0.5 / (self.zoom * pixels_per_inch))
+        summary_active = summary_dimension and len(unique_proj) >= 2
+        sum_off = offset + s_off * summary_offset
+
+        for i, (t, pt) in enumerate(unique_proj):
+            d_pt = dim_pt(t)
+            w_start = (pt[0] + witness_gap * s_off * px, pt[1] + witness_gap * s_off * py)
+            
+            # The two extreme points extend out to the summary dimension line if enabled
+            if summary_active and (i == 0 or i == len(unique_proj) - 1):
+                w_end = (p0[0] + t * ux + (sum_off + witness_overhang * s_off) * px,
+                         p0[1] + t * uy + (sum_off + witness_overhang * s_off) * py)
+            else:
+                w_end = (d_pt[0] + witness_overhang * s_off * px, d_pt[1] + witness_overhang * s_off * py)
+
+            cr.move_to(w_start[0], w_start[1])
+            cr.line_to(w_end[0], w_end[1])
+            cr.stroke()
+
+        # 3. Ticks or Arrows at each witness intersection
+        if show_arrows:
+            slash_len = 6.0 / (self.zoom * pixels_per_inch)
+            slash_vec_x = (ux + px) * 0.7071 * slash_len
+            slash_vec_y = (uy + py) * 0.7071 * slash_len
+
+            if arrow_style == 'architectural_tick':
+                cr.set_line_width(1.8 / (self.zoom * pixels_per_inch))
+                for t, _ in unique_proj:
+                    d_pt = dim_pt(t)
+                    cr.move_to(d_pt[0] - slash_vec_x, d_pt[1] - slash_vec_y)
+                    cr.line_to(d_pt[0] + slash_vec_x, d_pt[1] + slash_vec_y)
+                    cr.stroke()
+            else:
+                # Standard arrows along segments
+                arrow_size = 8.0 / (self.zoom * pixels_per_inch)
+                arrow_angle = 25.0 * math.pi / 180.0
+                for i in range(len(unique_proj) - 1):
+                    t_a = unique_proj[i][0]
+                    t_b = unique_proj[i+1][0]
+                    pa = dim_pt(t_a)
+                    pb = dim_pt(t_b)
+                    seg_len = math.hypot(pb[0] - pa[0], pb[1] - pa[1])
+                    if seg_len > arrow_size * 2:
+                        ang = math.atan2(pb[1] - pa[1], pb[0] - pa[0])
+                        # Arrow at pa pointing to pb
+                        cr.move_to(pa[0], pa[1])
+                        cr.line_to(pa[0] + arrow_size * math.cos(ang + arrow_angle),
+                                   pa[1] + arrow_size * math.sin(ang + arrow_angle))
+                        cr.move_to(pa[0], pa[1])
+                        cr.line_to(pa[0] + arrow_size * math.cos(ang - arrow_angle),
+                                   pa[1] + arrow_size * math.sin(ang - arrow_angle))
+                        # Arrow at pb pointing to pa
+                        cr.move_to(pb[0], pb[1])
+                        cr.line_to(pb[0] - arrow_size * math.cos(ang + arrow_angle),
+                                   pb[1] - arrow_size * math.sin(ang + arrow_angle))
+                        cr.move_to(pb[0], pb[1])
+                        cr.line_to(pb[0] - arrow_size * math.cos(ang - arrow_angle),
+                                   pb[1] - arrow_size * math.sin(ang - arrow_angle))
+                        cr.stroke()
+
+        # 4. Segment Measurement Texts
+        dim_angle = math.atan2(uy, ux)
+        deg = math.degrees(dim_angle) % 360
+        flip = (90 < deg < 270)
+        text_rot = dim_angle + (math.pi if flip else 0.0)
+
+        for i in range(len(unique_proj) - 1):
+            t_a = unique_proj[i][0]
+            t_b = unique_proj[i+1][0]
+            seg_len = t_b - t_a
+            if seg_len < 0.05:
+                continue
+            mid_t = (t_a + t_b) / 2.0
+            mid_pt = dim_pt(mid_t)
+            measurement_str = self.converter.format_measurement(seg_len, use_fraction=False)
+
+            cr.save()
+            cr.translate(mid_pt[0], mid_pt[1])
+            cr.rotate(text_rot)
+            cr.select_font_face("Sans", 0, 0)
+            cr.set_font_size(text_size / (self.zoom * pixels_per_inch))
+            extents = cr.text_extents(measurement_str)
+
+            # Mask background behind text
+            cr.save()
+            pad = 2.0 / (self.zoom * pixels_per_inch)
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.85)
+            cr.rectangle(-extents.width / 2.0 - pad, -extents.height - pad, extents.width + 2 * pad, extents.height + 2 * pad)
+            cr.fill()
+            cr.restore()
+
+            if is_selected:
+                cr.set_source_rgb(0.0, 0.4, 0.8)
+            else:
+                cr.set_source_rgba(color[0], color[1], color[2], 1.0)
+            cr.move_to(-extents.width / 2.0, -extents.height * 0.1)
+            cr.show_text(measurement_str)
+            cr.restore()
+
+        # 5. Summary Dimension
+        if summary_active:
+            sum_start = dim_pt(t_min, off=sum_off)
+            sum_end = dim_pt(t_max, off=sum_off)
+
+            cr.set_line_width(line_width)
+            cr.move_to(sum_start[0], sum_start[1])
+            cr.line_to(sum_end[0], sum_end[1])
+            cr.stroke()
+
+            # Summary ticks or arrows
+            if show_arrows:
+                if arrow_style == 'architectural_tick':
+                    cr.set_line_width(2.0 / (self.zoom * pixels_per_inch))
+                    for pt_ in (sum_start, sum_end):
+                        cr.move_to(pt_[0] - slash_vec_x, pt_[1] - slash_vec_y)
+                        cr.line_to(pt_[0] + slash_vec_x, pt_[1] + slash_vec_y)
+                        cr.stroke()
+
+            # Summary Text
+            tot_len = t_max - t_min
+            sum_mid = dim_pt((t_min + t_max) / 2.0, off=sum_off)
+            sum_text = self.converter.format_measurement(tot_len, use_fraction=False)
+
+            cr.save()
+            cr.translate(sum_mid[0], sum_mid[1])
+            cr.rotate(text_rot)
+            cr.select_font_face("Sans", 0, 0)
+            cr.set_font_size((text_size + 1.0) / (self.zoom * pixels_per_inch))
+            extents = cr.text_extents(sum_text)
+
+            pad = 2.0 / (self.zoom * pixels_per_inch)
+            cr.save()
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.85)
+            cr.rectangle(-extents.width / 2.0 - pad, -extents.height - pad, extents.width + 2 * pad, extents.height + 2 * pad)
+            cr.fill()
+            cr.restore()
+
+            if is_selected:
+                cr.set_source_rgb(0.0, 0.4, 0.8)
+            else:
+                cr.set_source_rgba(color[0], color[1], color[2], 1.0)
+            cr.move_to(-extents.width / 2.0, -extents.height * 0.1)
+            cr.show_text(sum_text)
+            cr.restore()
+
+        # 6. Selected handles
+        if is_selected:
+            handle_r = 4.0 / (self.zoom * pixels_per_inch)
+            # Offset handle at center of chain
+            mid_t = (t_min + t_max) / 2.0
+            h_offset = dim_pt(mid_t)
+            cr.arc(h_offset[0], h_offset[1], handle_r, 0, 2 * math.pi)
+            cr.set_source_rgb(0.0, 0.6, 1.0)
+            cr.fill_preserve()
+            cr.set_source_rgb(1.0, 1.0, 1.0)
+            cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+            cr.stroke()
+
+            # Handles at each measured anchor point
+            for _, pt in unique_proj:
+                cr.arc(pt[0], pt[1], handle_r, 0, 2 * math.pi)
+                cr.set_source_rgb(0.0, 0.4, 0.8)
+                cr.fill_preserve()
+                cr.set_source_rgb(1.0, 1.0, 1.0)
+                cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+                cr.stroke()
+
+        cr.restore()
+
+    def draw_leader_callouts(self, cr):
+        """Draw all leader callout annotations and in-progress creation preview."""
+        pixels_per_inch = self.config.PIXELS_PER_INCH
+
+        def is_visible(obj):
+            if hasattr(self, 'is_object_on_visible_layer'):
+                return self.is_object_on_visible_layer(obj)
+            return True
+
+        for callout in getattr(self, 'leader_callouts', []):
+            if not is_visible(callout):
+                continue
+            self._draw_single_leader_callout(cr, callout, pixels_per_inch)
+
+        # In-progress preview
+        if getattr(self, 'drawing_leader', False) and getattr(self, 'leader_tip', None):
+            tip = self.leader_tip
+            elbow = getattr(self, 'leader_elbow', None)
+            mouse_pos = getattr(self, '_last_mouse_pos', None)
+            if elbow is None and mouse_pos:
+                # 1st point clicked: draw line from tip to cursor
+                cr.save()
+                cr.set_source_rgba(0.2, 0.5, 0.9, 0.7)
+                cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+                cr.set_dash([4.0 / (self.zoom * pixels_per_inch), 4.0 / (self.zoom * pixels_per_inch)])
+                cr.move_to(tip[0], tip[1])
+                cr.line_to(mouse_pos[0], mouse_pos[1])
+                cr.stroke()
+                cr.restore()
+            elif elbow is not None and mouse_pos:
+                # Tip and elbow set: preview leader to cursor
+                preview_callout = self.LeaderCallout(
+                    tip=tip,
+                    elbow=elbow,
+                    shoulder=mouse_pos,
+                    text="Note",
+                    text_size=12.0
+                )
+                self._draw_single_leader_callout(cr, preview_callout, pixels_per_inch, is_preview=True)
+
+    def _draw_single_leader_callout(self, cr, callout, pixels_per_inch, is_preview=False):
+        """Draw a single leader callout with arrowhead, elbow, landing shoulder, and multiline text."""
+        tip = getattr(callout, 'tip', (0.0, 0.0))
+        elbow = getattr(callout, 'elbow', tip)
+        shoulder = getattr(callout, 'shoulder', elbow)
+        text = getattr(callout, 'text', '')
+        text_size = getattr(callout, 'text_size', 12.0)
+        box_border = getattr(callout, 'box_border', False)
+        arrow_type = getattr(callout, 'arrow_type', 'arrow')
+        color = getattr(callout, 'color', (0.0, 0.0, 0.0))
+
+        is_selected = False
+        if not is_preview:
+            is_selected = any(
+                item.get("type") == "leader_callout" and item.get("object") is callout
+                for item in self.selected_items
+            )
+
+        cr.save()
+
+        if is_preview:
+            cr.set_source_rgba(color[0], color[1], color[2], 0.5)
+        elif is_selected:
+            cr.set_source_rgb(0.0, 0.4, 0.8)
+        else:
+            opacity = 1.0
+            if hasattr(self, 'get_object_opacity'):
+                opacity = self.get_object_opacity(callout)
+            cr.set_source_rgba(color[0], color[1], color[2], opacity)
+
+        line_width = 1.0 / (self.zoom * pixels_per_inch)
+        if is_selected:
+            line_width *= 2.0
+        cr.set_line_width(line_width)
+
+        line_style = getattr(callout, 'line_style', 'solid')
+        if line_style == 'dashed':
+            cr.set_dash([4.0 / (self.zoom * pixels_per_inch), 4.0 / (self.zoom * pixels_per_inch)])
+        else:
+            cr.set_dash([])
+
+        # Draw leader lines
+        cr.move_to(tip[0], tip[1])
+        cr.line_to(elbow[0], elbow[1])
+        cr.line_to(shoulder[0], shoulder[1])
+        cr.stroke()
+
+        # Arrowhead / Tip marker
+        dx = elbow[0] - tip[0]
+        dy = elbow[1] - tip[1]
+        dist = math.hypot(dx, dy)
+        if dist > 1e-4:
+            ang = math.atan2(dy, dx)
+            if arrow_type == "arrow":
+                arrow_len = 10.0 / (self.zoom * pixels_per_inch)
+                arrow_w = 25.0 * math.pi / 180.0
+                cr.move_to(tip[0], tip[1])
+                cr.line_to(tip[0] + arrow_len * math.cos(ang + arrow_w),
+                           tip[1] + arrow_len * math.sin(ang + arrow_w))
+                cr.line_to(tip[0] + arrow_len * math.cos(ang - arrow_w),
+                           tip[1] + arrow_len * math.sin(ang - arrow_w))
+                cr.close_path()
+                cr.fill()
+            elif arrow_type == "dot":
+                dot_r = 3.5 / (self.zoom * pixels_per_inch)
+                cr.arc(tip[0], tip[1], dot_r, 0, 2 * math.pi)
+                cr.fill()
+            elif arrow_type == "slash":
+                tick_len = 6.0 / (self.zoom * pixels_per_inch)
+                slash_ang = ang + math.pi / 4.0
+                cr.move_to(tip[0] - tick_len * math.cos(slash_ang), tip[1] - tick_len * math.sin(slash_ang))
+                cr.line_to(tip[0] + tick_len * math.cos(slash_ang), tip[1] + tick_len * math.sin(slash_ang))
+                cr.stroke()
+            elif arrow_type == "open_arrow":
+                arrow_len = 8.0 / (self.zoom * pixels_per_inch)
+                arrow_w = 25.0 * math.pi / 180.0
+                cr.move_to(tip[0] + arrow_len * math.cos(ang + arrow_w),
+                           tip[1] + arrow_len * math.sin(ang + arrow_w))
+                cr.line_to(tip[0], tip[1])
+                cr.line_to(tip[0] + arrow_len * math.cos(ang - arrow_w),
+                           tip[1] + arrow_len * math.sin(ang - arrow_w))
+                cr.stroke()
+
+        # Multiline text at shoulder
+        lines = text.split("\n") if text else ["Note"]
+        cr.select_font_face("Sans", 0, 0)
+        cr.set_font_size(text_size / (self.zoom * pixels_per_inch))
+
+        line_height = (text_size * 1.3) / (self.zoom * pixels_per_inch)
+        max_w = 0.0
+        for l in lines:
+            ext = cr.text_extents(l)
+            if ext.width > max_w:
+                max_w = ext.width
+
+        total_h = len(lines) * line_height
+        pad = 4.0 / (self.zoom * pixels_per_inch)
+
+        # Right-facing vs left-facing shoulder
+        is_right = (shoulder[0] >= elbow[0])
+        if is_right:
+            box_x = shoulder[0] + pad
+        else:
+            box_x = shoulder[0] - max_w - pad * 3
+
+        box_y = shoulder[1] - total_h / 2.0 - pad
+        box_w = max_w + pad * 2
+        box_h = total_h + pad * 2
+
+        # White background backing
+        cr.save()
+        cr.set_source_rgba(1.0, 1.0, 1.0, 0.9)
+        cr.rectangle(box_x, box_y, box_w, box_h)
+        cr.fill()
+        if box_border:
+            if is_selected:
+                cr.set_source_rgb(0.0, 0.4, 0.8)
+            else:
+                cr.set_source_rgba(color[0], color[1], color[2], 1.0)
+            cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+            cr.rectangle(box_x, box_y, box_w, box_h)
+            cr.stroke()
+        cr.restore()
+
+        # Render text lines
+        if is_selected:
+            cr.set_source_rgb(0.0, 0.4, 0.8)
+        else:
+            cr.set_source_rgba(color[0], color[1], color[2], 1.0)
+
+        for idx, line_str in enumerate(lines):
+            ty = box_y + pad + (idx + 0.85) * line_height
+            cr.move_to(box_x + pad, ty)
+            cr.show_text(line_str)
+
+        # Selection handles
+        if is_selected:
+            handle_r = 4.0 / (self.zoom * pixels_per_inch)
+            for h_pt in (tip, elbow, shoulder):
+                cr.arc(h_pt[0], h_pt[1], handle_r, 0, 2 * math.pi)
+                cr.set_source_rgb(0.0, 0.4, 0.8)
+                cr.fill_preserve()
+                cr.set_source_rgb(1.0, 1.0, 1.0)
+                cr.set_line_width(1.0 / (self.zoom * pixels_per_inch))
+                cr.stroke()
+
         cr.restore()
 
     def _draw_circle(self, cr, circle, is_preview=False):

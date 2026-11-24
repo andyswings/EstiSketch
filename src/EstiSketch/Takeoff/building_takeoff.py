@@ -21,6 +21,7 @@ from collections import defaultdict
 from typing import List, Dict, Tuple, Optional
 
 from .roof_takeoff import RoofSection, CombinedRoofTakeoff, format_takeoff_report
+from ..components import EXTERIOR_WALL_FINISHES
 
 # Unit Conversion Constants
 CM_PER_INCH = 2.54
@@ -229,6 +230,8 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
 
         if room_polygons:
             is_ext = not (side1_in and side2_in)
+            left_is_ext = not side1_in
+            right_is_ext = not side2_in
         else:
             tol_in = 12.0
             is_ext = (
@@ -238,6 +241,18 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
                 abs(max(y1, y2) - max_y) < tol_in or
                 width_in >= 5.0
             )
+            lf = getattr(w, "left_finish", "Drywall")
+            rf = getattr(w, "right_finish", "Drywall")
+            if is_ext or getattr(w, "exterior_wall", False):
+                if (lf in EXTERIOR_WALL_FINISHES) != (rf in EXTERIOR_WALL_FINISHES):
+                    left_is_ext = lf in EXTERIOR_WALL_FINISHES
+                    right_is_ext = rf in EXTERIOR_WALL_FINISHES
+                else:
+                    left_is_ext = True
+                    right_is_ext = False
+            else:
+                left_is_ext = False
+                right_is_ext = False
 
         walls.append({
             'id': wall_id,
@@ -269,6 +284,14 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
             'tri_height_ft_in': format_ft_in(tri_height_in),
             'is_exterior': is_ext,
             'type': 'Exterior' if is_ext else 'Interior',
+            'left_finish': getattr(w, "left_finish", "Drywall") or "Drywall",
+            'right_finish': getattr(w, "right_finish", "Drywall") or "Drywall",
+            'left_color': getattr(w, "left_color", None),
+            'right_color': getattr(w, "right_color", None),
+            'left_baseboard': bool(getattr(w, "left_baseboard", False)),
+            'right_baseboard': bool(getattr(w, "right_baseboard", False)),
+            'left_is_exterior': left_is_ext,
+            'right_is_exterior': right_is_ext,
             'doors': [],
             'windows': []
         })
@@ -662,6 +685,99 @@ def generate_housewrap_report(walls: List[Dict], roll_width_ft: float = 9.0, rol
     return "\n".join(lines)
 
 
+def generate_stair_takeoff(canvas) -> Dict:
+    """Calculate stair and railing material takeoff from canvas stair objects."""
+    stairs = getattr(canvas, 'stairs', []) or []
+    from ..Canvas.stair_rail_geometry import stair_rail_length_3d
+
+    total_rail_lf = 0.0
+    total_steps = 0
+    stair_details = []
+
+    for idx, stair in enumerate(stairs, 1):
+        lens = stair_rail_length_3d(stair)
+        left_lf = lens["left"] / 12.0
+        right_lf = lens["right"] / 12.0
+        stair_lf = (lens["left"] + lens["right"]) / 12.0
+        total_rail_lf += stair_lf
+        num_steps = int(getattr(stair, 'num_steps', 14) or 14)
+        total_steps += num_steps
+
+        has_l = bool(getattr(stair, 'has_left_rail', True))
+        has_r = bool(getattr(stair, 'has_right_rail', True))
+        posts = 0
+        st_type = getattr(stair, 'stair_type', 'straight')
+        active_sides = (1 if has_l else 0) + (1 if has_r else 0)
+        if st_type == 'straight':
+            posts = active_sides * 2
+        elif st_type == 'L-shaped':
+            posts = active_sides * 2 + (1 if (has_l or has_r) else 0)
+        elif st_type == 'U-shaped':
+            posts = active_sides * 2 + (2 if (has_l or has_r) else 0)
+        elif st_type == 'spiral':
+            posts = active_sides * 2
+
+        stair_details.append({
+            "id": getattr(stair, 'identifier', f"STAIR-{idx:02d}"),
+            "type": st_type,
+            "width_in": getattr(stair, 'width', 36.0),
+            "num_steps": num_steps,
+            "total_rise_in": getattr(stair, 'total_rise', 106.0),
+            "has_left_rail": has_l,
+            "has_right_rail": has_r,
+            "rail_height_in": getattr(stair, 'rail_height', 36.0),
+            "left_rail_lf": left_lf,
+            "right_rail_lf": right_lf,
+            "total_rail_lf": stair_lf,
+            "posts": posts,
+        })
+
+    balusters = int(math.ceil(total_rail_lf * 3.0))
+    handrail_12ft_sticks = int(math.ceil((total_rail_lf * 1.10) / 12.0)) if total_rail_lf > 0 else 0
+    total_newel_posts = sum(d["posts"] for d in stair_details)
+
+    return {
+        "stair_count": len(stairs),
+        "total_steps": total_steps,
+        "total_rail_lf": total_rail_lf,
+        "balusters": balusters,
+        "newel_posts": total_newel_posts,
+        "handrail_12ft_sticks": handrail_12ft_sticks,
+        "stairs": stair_details
+    }
+
+
+def generate_stair_takeoff_report(canvas) -> str:
+    """Generate formatted text report for stair & railing takeoff."""
+    data = generate_stair_takeoff(canvas)
+    lines = []
+    lines.append("=" * 80)
+    lines.append("ESTISKETCH STAIR & RAILING MATERIAL TAKEOFF REPORT")
+    lines.append("=" * 80)
+    lines.append(f"Total Staircases: {data['stair_count']}")
+    lines.append(f"Total Steps / Risers: {data['total_steps']}")
+    lines.append(f"Total Railing Linear Footage: {data['total_rail_lf']:.1f} LF")
+    lines.append("-" * 80)
+    lines.append(f"{'Stair ID':<12} {'Type':<12} {'Width':<8} {'Steps':<8} {'Left Rail':<12} {'Right Rail':<12} {'Total LF':<10}")
+    lines.append("-" * 80)
+
+    for st in data["stairs"]:
+        l_str = f"{st['left_rail_lf']:.1f} LF" if st['has_left_rail'] else "None"
+        r_str = f"{st['right_rail_lf']:.1f} LF" if st['has_right_rail'] else "None"
+        lines.append(
+            f"{st['id']:<12} {st['type']:<12} {st['width_in']:.0f}\"      {st['num_steps']:<8} "
+            f"{l_str:<12} {r_str:<12} {st['total_rail_lf']:.1f} LF"
+        )
+
+    lines.append("-" * 80)
+    lines.append("PROCUREMENT & MATERIAL QUANTITIES:")
+    lines.append(f"  Handrail Sticks (12' standard): {data['handrail_12ft_sticks']} Stick(s)")
+    lines.append(f"  Balusters (code 4\" spacing):   {data['balusters']} Pc(s)")
+    lines.append(f"  Newel / Corner Posts:         {data['newel_posts']} Post(s)")
+    lines.append("=" * 80)
+    return "\n".join(lines)
+
+
 def generate_roof_takeoff(canvas, config) -> Dict:
     """Calculate roof material takeoff from canvas roof polylines and solved topology planes."""
     roof_sections = []
@@ -1036,6 +1152,197 @@ def get_supplier_quote_items(canvas, config, custom_items: Optional[List[Dict]] 
             })
             item_counter += 1
 
+    # Include stair & railing materials if stairs exist
+    stair_data = generate_stair_takeoff(canvas)
+    if stair_data.get('total_rail_lf', 0.0) > 0.0:
+        if stair_data['handrail_12ft_sticks'] > 0:
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': "Molded Handrail (12' Clear Wood / Primed Stick)",
+                'qty': stair_data['handrail_12ft_sticks'],
+                'unit': 'Sticks',
+                'notes': f"Stair railing ({stair_data['total_rail_lf']:.1f}' linear footage)",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+
+        if stair_data['newel_posts'] > 0:
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': "Starting & Landing Newel Posts (3\" x 3\" x 48\")",
+                'qty': stair_data['newel_posts'],
+                'unit': 'Posts',
+                'notes': "Stair rail support newel posts",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+
+        if stair_data['balusters'] > 0:
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': "Square / Turned Stair Balusters (1-1/4\" x 36\")",
+                'qty': stair_data['balusters'],
+                'unit': 'Pieces',
+                'notes': "Balusters (max 4\" on-center code spacing)",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+
+    # Room finishes: flooring, ceiling finish and slab concrete (net of openings)
+    room_areas = extract_room_areas(canvas)
+    if room_areas:
+        floor_waste = float(getattr(config, "FLOORING_WASTE_PCT", 10.0))
+        ceil_waste = float(getattr(config, "CEILING_WASTE_PCT", 10.0))
+        conc_waste = float(getattr(config, "CONCRETE_WASTE_PCT", 5.0))
+
+        by_type = defaultdict(float)
+        for r in room_areas:
+            if r["flooring_area_sqft"] > 0:
+                by_type[r.get("floor_type") or "default"] += r["flooring_area_sqft"]
+        for ftype, area in sorted(by_type.items()):
+            label = "Unspecified" if ftype == "default" else ftype.replace("_", " ").title()
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': f"{label} Flooring",
+                'qty': math.ceil(area * (1.0 + floor_waste / 100.0) - 1e-9),
+                'unit': 'Sq Ft',
+                'notes': f"Room floor area net of openings ({area:.1f} sq ft + {floor_waste:.0f}% waste)",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+
+        ceiling_sqft = sum(r["ceiling_area_sqft"] for r in room_areas)
+        if ceiling_sqft > 0:
+            sheet_sqft_c = 32.0
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': "4' x 8' x 1/2\" Ceiling Drywall Sheets",
+                'qty': math.ceil(ceiling_sqft * (1.0 + ceil_waste / 100.0) / sheet_sqft_c - 1e-9),
+                'unit': 'Sheets',
+                'notes': f"Ceiling finish net of openings ({ceiling_sqft:.1f} sq ft + {ceil_waste:.0f}% waste)",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+
+        slab_cuft = sum(r["slab_volume_cuft"] or 0.0 for r in room_areas)
+        if slab_cuft > 0:
+            cuyd = slab_cuft / 27.0
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': "Ready-Mix Concrete (Slab)",
+                'qty': round(cuyd * (1.0 + conc_waste / 100.0), 2),
+                'unit': 'Cu Yd',
+                'notes': f"Slab volume net of openings ({slab_cuft:.1f} cu ft + {conc_waste:.0f}% waste)",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+
+    # Per-side wall finishes & baseboards (10% waste)
+    wall_finishes = extract_wall_finishes(canvas)
+    for finish, area in sorted(wall_finishes["interior_by_finish"].items()):
+        if area > 0:
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': f"Interior Wall Finish ({finish})",
+                'qty': math.ceil(area * 1.10 - 1e-9),
+                'unit': 'Sq Ft',
+                'notes': f"Interior wall surface net of openings ({area:.1f} sq ft + 10% waste)",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+    for finish, area in sorted(wall_finishes["exterior_by_finish"].items()):
+        if area > 0:
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': f"Exterior Wall Finish ({finish})",
+                'qty': math.ceil(area * 1.10 - 1e-9),
+                'unit': 'Sq Ft',
+                'notes': f"Exterior wall surface net of openings ({area:.1f} sq ft + 10% waste)",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+    if wall_finishes["baseboard_linear_ft"] > 0:
+        bb_lf = wall_finishes["baseboard_linear_ft"]
+        items.append({
+            'id': f"ITEM-{item_counter:03d}",
+            'description': "Baseboard Molding (16' Sticks)",
+            'qty': math.ceil((bb_lf * 1.10) / 16.0 - 1e-9),
+            'unit': 'Sticks',
+            'notes': f"Wall baseboards net of door widths ({bb_lf:.1f} LF + 10% waste)",
+            'is_auto': True,
+            'is_excluded': False
+        })
+        item_counter += 1
+
+    # Cabinets, countertops, plumbing & appliances
+    fx_takeoff = extract_fixtures_takeoff(canvas)
+    if fx_takeoff["base_cabinet_lf"] > 0:
+        lf = fx_takeoff["base_cabinet_lf"]
+        items.append({
+            'id': f"ITEM-{item_counter:03d}",
+            'description': "Base Cabinets / Vanities",
+            'qty': round(lf, 1),
+            'unit': 'Lin Ft',
+            'notes': f"Total base & vanity run ({lf:.1f} LF)",
+            'is_auto': True,
+            'is_excluded': False,
+        })
+        item_counter += 1
+    if fx_takeoff["upper_cabinet_lf"] > 0:
+        ulf = fx_takeoff["upper_cabinet_lf"]
+        items.append({
+            'id': f"ITEM-{item_counter:03d}",
+            'description': "Upper Wall Cabinets",
+            'qty': round(ulf, 1),
+            'unit': 'Lin Ft',
+            'notes': f"Total upper cabinet run ({ulf:.1f} LF)",
+            'is_auto': True,
+            'is_excluded': False,
+        })
+        item_counter += 1
+    if fx_takeoff["tall_cabinet_count"] > 0:
+        items.append({
+            'id': f"ITEM-{item_counter:03d}",
+            'description': "Tall Pantry Cabinets",
+            'qty': fx_takeoff["tall_cabinet_count"],
+            'unit': 'Ea',
+            'notes': "Full-height pantry units",
+            'is_auto': True,
+            'is_excluded': False,
+        })
+        item_counter += 1
+    for mat, area in sorted(fx_takeoff["countertop_sqft_by_material"].items()):
+        if area > 0:
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': f"Countertop ({mat.replace('_', ' ').title()})",
+                'qty': math.ceil(area * 1.10 - 1e-9),
+                'unit': 'Sq Ft',
+                'notes': f"Net countertop surface ({area:.1f} sq ft + 10% waste)",
+                'is_auto': True,
+                'is_excluded': False,
+            })
+            item_counter += 1
+    for label, count in sorted(fx_takeoff["fixture_counts_by_label"].items()):
+        items.append({
+            'id': f"ITEM-{item_counter:03d}",
+            'description': label,
+            'qty': count,
+            'unit': 'Ea',
+            'notes': "Architectural fixture / appliance schedule item",
+            'is_auto': True,
+            'is_excluded': False,
+        })
+        item_counter += 1
+
     # Include custom line items
     if custom_items:
         for c in custom_items:
@@ -1048,7 +1355,7 @@ def get_supplier_quote_items(canvas, config, custom_items: Optional[List[Dict]] 
     return items
 
 
-def export_supplier_quote_txt(items: List[Dict], config, project_name: str = "EstiSketch Project", output_path: str = "supplier_quote.txt") -> str:
+def export_supplier_quote_txt(items: List[Dict], config, project_name: str = "EstiSketch Project", output_path: str = "supplier_quote.txt", room_areas: Optional[List[Dict]] = None) -> str:
     """Export formatted supplier quote to Plain Text file."""
     lines = []
     lines.append("=" * 80)
@@ -1072,6 +1379,18 @@ def export_supplier_quote_txt(items: List[Dict], config, project_name: str = "Es
     lines.append("=" * 80)
     lines.append(f"Total Active Items: {len(active_items)}")
     lines.append("=" * 80)
+    if room_areas:
+        lines.append("")
+        lines.append("ROOM AREAS & FLOOR OPENINGS (sq ft; slab in cu ft)")
+        lines.append(f"{'Room':<18} {'Gross':>8} {'Openings':>9} {'Floor':>8} {'Ceiling':>8} {'Slab':>8}")
+        lines.append("-" * 80)
+        for r in room_areas:
+            label = (r.get("name") or r.get("id") or "Room")[:17]
+            slab = r.get("slab_volume_cuft")
+            lines.append(f"{label:<18} {r['gross_area_sqft']:>8.1f} {r['opening_area_sqft']:>9.1f} "
+                         f"{r['floor_area_sqft']:>8.1f} {r['ceiling_area_sqft']:>8.1f} "
+                         f"{('%.1f' % slab) if slab is not None else '-':>8}")
+        lines.append("=" * 80)
 
     content = "\n".join(lines)
     with open(output_path, "w", encoding="utf-8") as f:
@@ -1079,7 +1398,7 @@ def export_supplier_quote_txt(items: List[Dict], config, project_name: str = "Es
     return content
 
 
-def export_supplier_quote_csv(items: List[Dict], config, project_name: str = "EstiSketch Project", output_path: str = "supplier_quote.csv") -> None:
+def export_supplier_quote_csv(items: List[Dict], config, project_name: str = "EstiSketch Project", output_path: str = "supplier_quote.csv", room_areas: Optional[List[Dict]] = None) -> None:
     """Export supplier quote to CSV spreadsheet file."""
     active_items = [it for it in items if not it.get('is_excluded', False)]
     with open(output_path, "w", newline="", encoding="utf-8") as f:
@@ -1095,9 +1414,22 @@ def export_supplier_quote_csv(items: List[Dict], config, project_name: str = "Es
                 item.get('unit', 'Pcs'),
                 item.get('notes', '')
             ])
+        if room_areas:
+            writer.writerow([])
+            writer.writerow(["Room Areas & Floor Openings"])
+            writer.writerow(["Room", "Floor Type", "Gross Area (sq ft)", "Openings (sq ft)",
+                             "Floor Area (sq ft)", "Ceiling Area (sq ft)", "Slab Volume (cu ft)"])
+            for r in room_areas:
+                slab = r.get("slab_volume_cuft")
+                writer.writerow([
+                    r.get("name") or r.get("id") or "Room",
+                    r.get("floor_type", ""),
+                    round(r["gross_area_sqft"], 2), round(r["opening_area_sqft"], 2),
+                    round(r["floor_area_sqft"], 2), round(r["ceiling_area_sqft"], 2),
+                    "" if slab is None else round(slab, 2)])
 
 
-def export_supplier_quote_pdf(items: List[Dict], config, project_name: str = "EstiSketch Project", output_path: str = "supplier_quote.pdf") -> None:
+def export_supplier_quote_pdf(items: List[Dict], config, project_name: str = "EstiSketch Project", output_path: str = "supplier_quote.pdf", room_areas: Optional[List[Dict]] = None) -> None:
     """Export supplier quote to PDF file (using ReportLab if available or fallback generator)."""
     active_items = [it for it in items if not it.get('is_excluded', False)]
 
@@ -1156,4 +1488,271 @@ def export_supplier_quote_pdf(items: List[Dict], config, project_name: str = "Es
     else:
         # Fallback text file export if ReportLab is missing
         txt_path = output_path.replace(".pdf", ".txt")
-        export_supplier_quote_txt(items, config, project_name, txt_path)
+        export_supplier_quote_txt(items, config, project_name, txt_path, room_areas)
+
+
+def extract_room_areas(canvas) -> List[Dict]:
+    """Per-room floor/ceiling areas and slab volume, net of floor openings.
+
+    Holes (e.g. stairwell openings) are deducted from floor area, slab
+    concrete volume and ceiling area. Perimeter wall finish and baseboard are
+    deliberately not deducted. Lower-level ceilings are only cut under stairs
+    when ``canvas.cut_lower_ceiling_under_stairs`` is set.
+    """
+    from ..geometry.room_holes import (
+        sync_stair_holes, room_gross_area_sqft, room_floor_area_sqft,
+        room_ceiling_area_sqft, room_slab_volume_cuft)
+
+    sync_stair_holes(canvas)
+    results = []
+    for room in getattr(canvas, "rooms", []):
+        if len(room.points) < 3:
+            continue
+        gross = room_gross_area_sqft(room)
+        floor = room_floor_area_sqft(room)
+        results.append({
+            "id": getattr(room, "identifier", ""),
+            "name": getattr(room, "name", ""),
+            "gross_area_sqft": gross,
+            "floor_area_sqft": floor,
+            "ceiling_area_sqft": room_ceiling_area_sqft(room),
+            "flooring_area_sqft": floor,
+            "floor_type": getattr(room, "floor_type", "default"),
+            "opening_area_sqft": gross - floor,
+            "slab_volume_cuft": room_slab_volume_cuft(room),
+        })
+    return results
+
+
+def generate_room_area_report(canvas) -> str:
+    """Formatted floor / ceiling / slab report, net of floor openings."""
+    rooms = extract_room_areas(canvas)
+    lines = ["=" * 90,
+             "ESTISKETCH ROOM AREA & FLOOR OPENING TAKEOFF REPORT",
+             "=" * 90]
+    if not rooms:
+        lines.append("No rooms found.")
+        return "\n".join(lines)
+    lines.append(f"{'Room':<16} {'Gross':>9} {'Openings':>9} {'Floor':>9} {'Ceiling':>9} {'Slab':>10}")
+    lines.append(f"{'':<16} {'sq ft':>9} {'sq ft':>9} {'sq ft':>9} {'sq ft':>9} {'cu ft':>10}")
+    lines.append("-" * 90)
+    tot = dict(gross=0.0, opening=0.0, floor=0.0, ceiling=0.0, slab=0.0)
+    for r in rooms:
+        label = (r["name"] or r["id"] or "Room")[:15]
+        slab = r["slab_volume_cuft"]
+        lines.append(
+            f"{label:<16} {r['gross_area_sqft']:>9.1f} {r['opening_area_sqft']:>9.1f} "
+            f"{r['floor_area_sqft']:>9.1f} {r['ceiling_area_sqft']:>9.1f} "
+            f"{('%.1f' % slab) if slab is not None else '-':>10}")
+        tot["gross"] += r["gross_area_sqft"]
+        tot["opening"] += r["opening_area_sqft"]
+        tot["floor"] += r["floor_area_sqft"]
+        tot["ceiling"] += r["ceiling_area_sqft"]
+        tot["slab"] += slab or 0.0
+    lines.append("-" * 90)
+    lines.append(f"{'TOTAL':<16} {tot['gross']:>9.1f} {tot['opening']:>9.1f} "
+                 f"{tot['floor']:>9.1f} {tot['ceiling']:>9.1f} {tot['slab']:>10.1f}")
+    lines.append("")
+    lines.append("Floor openings (stairwells) are deducted from floor, flooring, ceiling and slab")
+    lines.append("quantities; overlapping openings are counted once. Perimeter wall finish and")
+    lines.append("baseboard are not deducted.")
+    if getattr(canvas, "cut_lower_ceiling_under_stairs", False):
+        lines.append("Lower-level ceilings are also cut under stairs (project setting).")
+    lines.append("=" * 90)
+    return "\n".join(lines)
+
+
+def extract_wall_finishes(canvas) -> Dict:
+    """Compute per-side interior/exterior wall finish surface areas and baseboard LF."""
+    walls = extract_walls_from_canvas(canvas)
+    interior_sqft = 0.0
+    exterior_sqft = 0.0
+    interior_by_finish: Dict[str, float] = defaultdict(float)
+    exterior_by_finish: Dict[str, float] = defaultdict(float)
+    baseboard_lf = 0.0
+    per_wall = []
+
+    for w in walls:
+        raw_len_ft = float(w.get("raw_length_ft", w["length_ft"]))
+        ext_len_ft = float(w["length_ft"])
+        openings_sqft = sum(
+            (op["width_in"] * op["height_in"]) / 144.0
+            for op in (w["doors"] + w["windows"])
+        )
+        int_net_face = max(0.0, raw_len_ft * w["height_ft"] - openings_sqft)
+        ext_net_face = max(0.0, ext_len_ft * w["height_ft"] - openings_sqft)
+        door_width_ft = sum(d["width_in"] / 12.0 for d in w["doors"])
+        face_bb = max(0.0, raw_len_ft - door_width_ft)
+
+        wall_bb = 0.0
+        for side_key, ext_key, bb_key in (
+            ("left_finish", "left_is_exterior", "left_baseboard"),
+            ("right_finish", "right_is_exterior", "right_baseboard"),
+        ):
+            finish = (w.get(side_key) or "").strip()
+            is_ext_side = bool(w.get(ext_key, False))
+            if finish and finish.lower() != "none":
+                if is_ext_side:
+                    exterior_sqft += ext_net_face
+                    exterior_by_finish[finish] += ext_net_face
+                else:
+                    interior_sqft += int_net_face
+                    interior_by_finish[finish] += int_net_face
+            if w.get(bb_key, False):
+                baseboard_lf += face_bb
+                wall_bb += face_bb
+
+        per_wall.append({
+            "id": w["id"],
+            "length_ft": raw_len_ft,
+            "net_face_sqft": int_net_face,
+            "left_finish": w["left_finish"],
+            "left_is_exterior": w["left_is_exterior"],
+            "left_baseboard": w["left_baseboard"],
+            "right_finish": w["right_finish"],
+            "right_is_exterior": w["right_is_exterior"],
+            "right_baseboard": w["right_baseboard"],
+            "baseboard_lf": wall_bb,
+        })
+
+    return {
+        "interior_surface_sqft": interior_sqft,
+        "exterior_surface_sqft": exterior_sqft,
+        "interior_by_finish": dict(interior_by_finish),
+        "exterior_by_finish": dict(exterior_by_finish),
+        "baseboard_linear_ft": baseboard_lf,
+        "per_wall": per_wall,
+    }
+
+
+def generate_wall_finish_report(canvas) -> str:
+    """Formatted per-side wall finish surface area and baseboard linear footage report."""
+    data = extract_wall_finishes(canvas)
+    lines = [
+        "=" * 90,
+        "ESTISKETCH PER-SIDE WALL FINISHES & BASEBOARDS REPORT",
+        "=" * 90,
+    ]
+    if not data["per_wall"]:
+        lines.append("No walls found.")
+        return "\n".join(lines)
+
+    lines.append(
+        f"{'Wall':<12} {'Net Face':>10} {'Left Finish (Side)':<24} "
+        f"{'Right Finish (Side)':<24} {'Baseboard':>10}"
+    )
+    lines.append("-" * 90)
+    for row in data["per_wall"]:
+        l_tag = "Ext" if row["left_is_exterior"] else "Int"
+        r_tag = "Ext" if row["right_is_exterior"] else "Int"
+        l_str = f"{row['left_finish']} ({l_tag})"[:23]
+        r_str = f"{row['right_finish']} ({r_tag})"[:23]
+        lines.append(
+            f"{row['id'][:11]:<12} {row['net_face_sqft']:>7.1f} sf "
+            f"{l_str:<24} {r_str:<24} {row['baseboard_lf']:>7.1f} lf"
+        )
+    lines.append("-" * 90)
+    lines.append(f"Total Interior Surface Area: {data['interior_surface_sqft']:.1f} sq ft")
+    for fin, area in sorted(data["interior_by_finish"].items()):
+        lines.append(f"  - {fin}: {area:.1f} sq ft")
+    lines.append(f"Total Exterior Surface Area: {data['exterior_surface_sqft']:.1f} sq ft")
+    for fin, area in sorted(data["exterior_by_finish"].items()):
+        lines.append(f"  - {fin}: {area:.1f} sq ft")
+    lines.append(f"Total Baseboard Linear Footage: {data['baseboard_linear_ft']:.1f} LF")
+    lines.append("=" * 90)
+    return "\n".join(lines)
+
+
+def extract_fixtures_takeoff(canvas) -> Dict:
+    """Summarize cabinets, countertops, vanities, plumbing fixtures, appliances, and mechanical units."""
+    from ..fixtures_catalog import get_fixture_spec
+
+    base_cabinet_in = 0.0
+    upper_cabinet_in = 0.0
+    tall_cabinet_count = 0
+    countertop_by_mat: Dict[str, float] = {}
+    fixture_counts: Dict[str, int] = {}
+    rows = []
+
+    for fx in getattr(canvas, "fixtures", []):
+        if getattr(fx, "visible", True) is False:
+            continue
+        sym = getattr(fx, "symbol_type", "base_cabinet")
+        spec = get_fixture_spec(sym)
+        cat = getattr(fx, "category", spec["category"])
+        w = float(getattr(fx, "width", spec["width"]))
+        d = float(getattr(fx, "depth", spec["depth"]))
+        h = float(getattr(fx, "height", spec["height"]))
+        base_z = float(getattr(fx, "base_elevation", 0.0) or 0.0)
+
+        is_upper = getattr(fx, "is_upper", False)
+        if sym == "tall_pantry":
+            tall_cabinet_count += 1
+        elif sym in ("upper_cabinet", "corner_upper_cabinet"):
+            upper_cabinet_in += (w + d - 12.0) if sym == "corner_upper_cabinet" else w
+        elif cat in ("kitchen_cabinet", "bathroom_vanity") and not is_upper:
+            base_cabinet_in += (w + d - 24.0) if sym == "corner_base_cabinet" else w
+
+        if getattr(fx, "has_countertop", False) and not is_upper:
+            oh = max(0.0, float(getattr(fx, "countertop_overhang", 0.0) or 0.0))
+            if sym == "corner_base_cabinet":
+                arm = min(24.0 + oh, w, d)
+                area_sqin = w * arm + (d - arm) * arm
+            else:
+                area_sqin = w * (d + oh)
+            mat = getattr(fx, "countertop_material", "quartz") or "quartz"
+            countertop_by_mat[mat] = countertop_by_mat.get(mat, 0.0) + area_sqin / 144.0
+
+        if cat in ("bathroom_fixture", "kitchen_appliance", "laundry_appliance", "mechanical_utility") or sym in ("vanity_single", "vanity_double", "island_cabinet"):
+            lbl = spec["label"]
+            fixture_counts[lbl] = fixture_counts.get(lbl, 0) + 1
+
+        rows.append({
+            "id": getattr(fx, "identifier", ""),
+            "label": spec["label"],
+            "category": cat,
+            "width_in": w,
+            "depth_in": d,
+            "height_in": h,
+            "base_elevation_in": base_z,
+        })
+
+    return {
+        "total_fixtures": len(rows),
+        "base_cabinet_lf": round(base_cabinet_in / 12.0, 2),
+        "upper_cabinet_lf": round(upper_cabinet_in / 12.0, 2),
+        "tall_cabinet_count": tall_cabinet_count,
+        "countertop_sqft_by_material": {k: round(v, 2) for k, v in countertop_by_mat.items()},
+        "total_countertop_sqft": round(sum(countertop_by_mat.values()), 2),
+        "fixture_counts_by_label": fixture_counts,
+        "rows": rows,
+    }
+
+
+def generate_fixtures_report(canvas) -> str:
+    """Return formatted architectural cabinetry, countertop, fixture & appliance schedule."""
+    data = extract_fixtures_takeoff(canvas)
+    lines = [
+        "=" * 90,
+        "ESTISKETCH ARCHITECTURAL FIXTURES, CABINETRY & APPLIANCE SCHEDULE",
+        "=" * 90,
+    ]
+    if data["total_fixtures"] == 0:
+        lines.append("No fixtures, cabinets, or appliances found.")
+        return "\n".join(lines)
+
+    lines.append(f"Base Cabinets & Vanities:   {data['base_cabinet_lf']:.1f} Lin Ft")
+    lines.append(f"Upper Wall Cabinets:        {data['upper_cabinet_lf']:.1f} Lin Ft")
+    if data["tall_cabinet_count"] > 0:
+        lines.append(f"Tall Pantry Units:          {data['tall_cabinet_count']} Ea")
+    lines.append(f"Total Countertop Area:      {data['total_countertop_sqft']:.1f} Sq Ft")
+    for mat, sqft in sorted(data["countertop_sqft_by_material"].items()):
+        lines.append(f"  - {mat.replace('_', ' ').title()}: {sqft:.1f} sq ft")
+    lines.append("-" * 90)
+    if data["fixture_counts_by_label"]:
+        lines.append("Plumbing Fixtures, Appliances & Mechanical Schedule:")
+        for lbl, cnt in sorted(data["fixture_counts_by_label"].items()):
+            lines.append(f"  - {lbl:<40} {cnt:>4} Ea")
+        lines.append("-" * 90)
+    lines.append("=" * 90)
+    return "\n".join(lines)

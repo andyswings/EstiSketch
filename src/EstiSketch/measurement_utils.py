@@ -41,10 +41,42 @@ class MeasurementConverter:
             if rounded_frac >= 1.0:
                 whole_inches += 1
                 rounded_frac = 0.0
+            if whole_inches >= 12:
+                feet += whole_inches // 12
+                whole_inches %= 12
             frac_str = ""
             if rounded_frac > 0:
                 num = int(round(rounded_frac * frac_den))
                 frac_str = f" {num}/{frac_den}"
             return f"{feet}' {whole_inches}{frac_str}\""
         else:
-            return f"{feet}' {round(remaining_inches, 2)}\""
+            rounded_inches = round(remaining_inches, 2)
+            if rounded_inches >= 12.0:
+                feet += 1
+                rounded_inches = 0.0
+            return f"{feet}' {rounded_inches}\""
+
+
+_METRIC_UNITS = {"mm": 1 / 25.4, "cm": 1 / 2.54, "m": 100 / 2.54}
+
+
+def parse_distance(text: str) -> float:
+    """Parse a user-typed distance into inches.
+
+    Accepts imperial (``24' 0"``, ``24'``, ``288``, ``288"``) and metric
+    (``7500 mm``, ``750 cm``, ``7.5 m``) input. Plain numbers are inches.
+    Raises ``ValueError`` for empty, malformed or non-positive values.
+    """
+    if text is None or not str(text).strip():
+        raise ValueError("Enter a distance.")
+    s = str(text).strip().lower()
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(mm|cm|m)", s)
+    if m:
+        value = float(m.group(1)) * _METRIC_UNITS[m.group(2)]
+    else:
+        if s.endswith('"') and "'" not in s:
+            s = s[:-1].strip()
+        value = MeasurementConverter.parse_measurement(s)
+    if value <= 0:
+        raise ValueError("Distance must be greater than zero.")
+    return value

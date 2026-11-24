@@ -14,8 +14,13 @@ from ..Takeoff.building_takeoff import (
     generate_sheathing_report,
     generate_housewrap_report,
     generate_roof_takeoff,
+    generate_stair_takeoff_report,
+    generate_room_area_report,
+    generate_wall_finish_report,
+    generate_fixtures_report,
     get_supplier_quote_items,
     export_supplier_quote_txt,
+    extract_room_areas,
     export_supplier_quote_csv,
     export_supplier_quote_pdf
 )
@@ -83,7 +88,11 @@ def create_estimate_materials_dialog(parent, canvas):
         ("detailed_walls", "Detailed Wall Listing"),
         ("sheathing", "Exterior Sheathing (OSB / Plywood)"),
         ("housewrap", "Exterior House Wrap (Weather Barrier)"),
-        ("roof", "Roof Material Takeoff")
+        ("roof", "Roof Material Takeoff"),
+        ("stairs", "Stair & Railing Material Takeoff"),
+        ("rooms", "Room Areas & Floor Openings"),
+        ("wall_finishes", "Wall Finishes & Baseboards"),
+        ("fixtures", "Cabinets, Countertops & Fixtures"),
     ]
     for key, name in report_types:
         report_combo.append(key, name)
@@ -147,6 +156,14 @@ def create_estimate_materials_dialog(parent, canvas):
         elif active_id == "roof":
             roof_data = generate_roof_takeoff(canvas, config_object)
             text = format_takeoff_report(roof_data) if roof_data else "No roof polyline data."
+        elif active_id == "stairs":
+            text = generate_stair_takeoff_report(canvas)
+        elif active_id == "rooms":
+            text = generate_room_area_report(canvas)
+        elif active_id == "wall_finishes":
+            text = generate_wall_finish_report(canvas)
+        elif active_id == "fixtures":
+            text = generate_fixtures_report(canvas)
         else:
             text = "Select a report."
 
@@ -385,14 +402,15 @@ def create_estimate_materials_dialog(parent, canvas):
             path = gfile.get_path()
             proj_name = getattr(canvas, "project_name", "EstiSketch Building Project")
 
+            room_areas = extract_room_areas(canvas)
             if path.lower().endswith(".csv"):
-                export_supplier_quote_csv(quote_items, config_object, proj_name, path)
+                export_supplier_quote_csv(quote_items, config_object, proj_name, path, room_areas)
             elif path.lower().endswith(".pdf"):
-                export_supplier_quote_pdf(quote_items, config_object, proj_name, path)
+                export_supplier_quote_pdf(quote_items, config_object, proj_name, path, room_areas)
             else:
                 if not path.lower().endswith(".txt"):
                     path += ".txt"
-                export_supplier_quote_txt(quote_items, config_object, proj_name, path)
+                export_supplier_quote_txt(quote_items, config_object, proj_name, path, room_areas)
 
         dlg_save.save(dialog, None, _on_export_done)
 

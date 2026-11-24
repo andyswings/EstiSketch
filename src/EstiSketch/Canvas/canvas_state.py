@@ -10,6 +10,9 @@ class CanvasStateMixin:
             "drawing_wall": self.drawing_wall,
             "rooms": copy.deepcopy(self.rooms),
             "current_room_points": copy.deepcopy(self.current_room_points),
+            "floor_openings": copy.deepcopy(getattr(self, "floor_openings", [])),
+            "current_opening_points": copy.deepcopy(getattr(self, "current_opening_points", [])),
+            "fixtures": copy.deepcopy(getattr(self, "fixtures", [])),
             "polylines": copy.deepcopy(self.polylines),
             "polyline_sets": copy.deepcopy(self.polyline_sets),
             "doors": copy.deepcopy(self.doors),
@@ -19,7 +22,12 @@ class CanvasStateMixin:
             "circles": copy.deepcopy(self.circles),
             "arcs": copy.deepcopy(self.arcs),
             "roofs": copy.deepcopy(getattr(self, "roofs", [])),
-            "stairs": copy.deepcopy(getattr(self, "stairs", []))
+            "stairs": copy.deepcopy(getattr(self, "stairs", [])),
+            "blueprints": copy.deepcopy(getattr(self, "blueprints", [])),
+            "dimension_chains": copy.deepcopy(getattr(self, "dimension_chains", [])),
+            "leader_callouts": copy.deepcopy(getattr(self, "leader_callouts", [])),
+            "groups": copy.deepcopy(getattr(self, "groups", [])),
+            "north_angle": float(getattr(self, "north_angle", 0.0)),
         }
         self.undo_stack.append(state)
         if len(self.undo_stack) > self.config.UNDO_REDO_LIMIT:
@@ -39,6 +47,10 @@ class CanvasStateMixin:
         self.drawing_wall = state["drawing_wall"]
         self.rooms = copy.deepcopy(state["rooms"])
         self.current_room_points = copy.deepcopy(state["current_room_points"])
+        self.floor_openings = copy.deepcopy(state.get("floor_openings", []))
+        self.current_opening_points = copy.deepcopy(state.get("current_opening_points", []))
+        self.current_opening_preview = None
+        self.fixtures = copy.deepcopy(state.get("fixtures", []))
         self.polylines = copy.deepcopy(state.get("polylines", []))
         self.polyline_sets = copy.deepcopy(state.get("polyline_sets", []))
         self.doors = copy.deepcopy(state.get("doors", []))
@@ -49,8 +61,17 @@ class CanvasStateMixin:
         self.arcs = copy.deepcopy(state.get("arcs", []))
         self.roofs = copy.deepcopy(state.get("roofs", []))
         self.stairs = copy.deepcopy(state.get("stairs", []))
+        self.blueprints = copy.deepcopy(state.get("blueprints", []))
+        self.dimension_chains = copy.deepcopy(state.get("dimension_chains", []))
+        self.leader_callouts = copy.deepcopy(state.get("leader_callouts", []))
+        self.groups = copy.deepcopy(state.get("groups", []))
+        self.north_angle = float(state.get("north_angle", 0.0))
+        from ..geometry.room_holes import sync_stair_holes
+        sync_stair_holes(self)
         self.snap_type = "none"
         self.queue_draw()
+        if hasattr(self, "emit"):
+            self.emit('content-changed')
         print(
             f"restore_state: {len(self.wall_sets)} wall sets, {len(self.walls)} walls, {len(self.rooms)} rooms")
 

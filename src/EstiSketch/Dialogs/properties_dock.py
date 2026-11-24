@@ -3,10 +3,20 @@ import os
 import json
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GObject
+from gi.repository import Gtk, Gdk, GObject, GLib
 from .layers_panel import LayersPanel
 from .properties_stair import StairPropertiesWidget
-from ui.properties_panel import bind_roof_overhang, bind_plane_pitch
+from ..ui.properties_panel import bind_roof_overhang, bind_plane_pitch
+from ..Canvas.floor_patterns import FLOOR_PATTERNS
+from ..components import WALL_FINISH_OPTIONS, FLOOR_OPENING_TYPES, FLOOR_OPENING_DEFAULT_LABELS
+from ..fixtures_catalog import (
+    COUNTERTOP_MATERIALS,
+    FIXTURE_CATALOG,
+    MOUNT_SURFACES,
+    get_fixture_spec,
+    resolve_fixture_surface,
+)
+from ..geometry.room_holes import polygon_area, sync_stair_holes
 
 # Stub widgets—you can flesh these out with real controls
 
@@ -135,8 +145,13 @@ class RoofLinePropertiesWidget(Gtk.Box):
                             sl.pitch_rise = val
                             sl.is_auto_generated = False
                     # Sync to roof edge if applicable
+                    selected_wall_id = getattr(selected, "wall_identifier", "")
                     for edge in getattr(roof, 'edges', []):
-                        if f"auto_{edge.edge_type}_{edge.wall_identifier}" == line_id or line_id.endswith(edge.wall_identifier):
+                        if (
+                            (selected_wall_id and selected_wall_id == edge.wall_identifier)
+                            or f"auto_{edge.edge_type}_{edge.wall_identifier}" == line_id
+                            or (edge.wall_identifier and line_id.endswith(edge.wall_identifier))
+                        ):
                             edge.pitch_rise = val
 
             if roof.roof_type == "gable" and hasattr(self.canvas, "recalculate_roof"):
@@ -592,7 +607,7 @@ class WallPropertiesWidget(Gtk.Box):
         # Height dropdown (Start Height / Uniform Height)
         self.available_heights = [8, 9, 10, 12, 14, 16]
         height_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self.height_label = Gtk.Label(label="Start Height:")
+        self.height_label = Gtk.Label(label="Height:")
         height_row.append(self.height_label)
         self.height_combo = Gtk.ComboBoxText()
         self.height_handler_id = self.height_combo.connect(
@@ -602,6 +617,19 @@ class WallPropertiesWidget(Gtk.Box):
         self.height_combo.set_active(0)  # default 8'
         height_row.append(self.height_combo)
         geo_box.append(height_row)
+
+        # Custom Height spin button (Visible when height_combo is "Custom")
+        self.custom_height_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.custom_height_row.append(Gtk.Label(label="Custom Height:"))
+        self.custom_height_spin = Gtk.SpinButton.new_with_range(1.0, 1200.0, 1.0)
+        self.custom_height_spin.set_digits(2)
+        self.custom_height_spin.set_value(96.0)
+        self.custom_height_handler_id = self.custom_height_spin.connect(
+            "value-changed", self.on_custom_height_changed)
+        self.custom_height_row.append(self.custom_height_spin)
+        self.custom_height_row.append(Gtk.Label(label="in"))
+        self.custom_height_row.set_visible(False)
+        geo_box.append(self.custom_height_row)
 
         # Variable Height Toggle
         self.sloped_check = Gtk.CheckButton(label="Variable Height (Sloped Wall)")
@@ -620,6 +648,19 @@ class WallPropertiesWidget(Gtk.Box):
         self.height_end_row.append(self.height_end_combo)
         self.height_end_row.set_visible(False)
         geo_box.append(self.height_end_row)
+
+        # Custom End Height spin button (Visible when sloped_check is active and height_end_combo is "Custom")
+        self.custom_height_end_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.custom_height_end_row.append(Gtk.Label(label="Custom End Height:"))
+        self.custom_height_end_spin = Gtk.SpinButton.new_with_range(1.0, 1200.0, 1.0)
+        self.custom_height_end_spin.set_digits(2)
+        self.custom_height_end_spin.set_value(96.0)
+        self.custom_height_end_handler_id = self.custom_height_end_spin.connect(
+            "value-changed", self.on_custom_height_end_changed)
+        self.custom_height_end_row.append(self.custom_height_end_spin)
+        self.custom_height_end_row.append(Gtk.Label(label="in"))
+        self.custom_height_end_row.set_visible(False)
+        geo_box.append(self.custom_height_end_row)
 
         # ─────────── Wall Type ───────────
         type_frame = Gtk.Frame(label="Wall Type")
@@ -728,6 +769,60 @@ class WallPropertiesWidget(Gtk.Box):
         ext_row.append(self.exterior_combo)
         mat_box.append(ext_row)
 
+        # ─────────── Per-Side Finishes & Baseboards ───────────
+        side_frame = Gtk.Frame(label="Per-Side Finishes & Baseboards")
+        side_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        side_box.set_margin_top(6)
+        side_box.set_margin_bottom(6)
+        side_box.set_margin_start(6)
+        side_box.set_margin_end(6)
+        side_frame.set_child(side_box)
+        self.append(side_frame)
+
+        # Left side
+        left_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        left_row.append(Gtk.Label(label="Left:"))
+        self.left_finish_combo = Gtk.ComboBoxText()
+        for val in WALL_FINISH_OPTIONS:
+            self.left_finish_combo.append_text(val)
+        self.left_finish_combo.set_active(0)
+        self.left_finish_combo.set_hexpand(True)
+        left_row.append(self.left_finish_combo)
+        self.left_color_btn = Gtk.ColorButton()
+        self.left_color_btn.set_tooltip_text("Left side accent color")
+        left_row.append(self.left_color_btn)
+        self.left_color_clear_btn = Gtk.Button(label="×")
+        self.left_color_clear_btn.set_tooltip_text("Clear left side color")
+        left_row.append(self.left_color_clear_btn)
+        side_box.append(left_row)
+
+        self.left_baseboard_check = Gtk.CheckButton(label="Left Baseboard")
+        side_box.append(self.left_baseboard_check)
+
+        # Right side
+        right_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        right_row.append(Gtk.Label(label="Right:"))
+        self.right_finish_combo = Gtk.ComboBoxText()
+        for val in WALL_FINISH_OPTIONS:
+            self.right_finish_combo.append_text(val)
+        self.right_finish_combo.set_active(0)
+        self.right_finish_combo.set_hexpand(True)
+        right_row.append(self.right_finish_combo)
+        self.right_color_btn = Gtk.ColorButton()
+        self.right_color_btn.set_tooltip_text("Right side accent color")
+        right_row.append(self.right_color_btn)
+        self.right_color_clear_btn = Gtk.Button(label="×")
+        self.right_color_clear_btn.set_tooltip_text("Clear right side color")
+        right_row.append(self.right_color_clear_btn)
+        side_box.append(right_row)
+
+        self.right_baseboard_check = Gtk.CheckButton(label="Right Baseboard")
+        side_box.append(self.right_baseboard_check)
+
+        self.swap_sides_btn = Gtk.Button(label="⇄ Swap Left / Right")
+        self.swap_sides_btn.set_tooltip_text("Swap left and right wall finishes, colors, and baseboards")
+        side_box.append(self.swap_sides_btn)
+
         # ─────────── Structural Details ───────────
         struct_frame = Gtk.Frame(label="Structural Details")
         struct_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -814,7 +909,6 @@ class WallPropertiesWidget(Gtk.Box):
         curve_box.append(sagitta_row)
 
         # ───── wire signals ─────
-        self.height_combo.connect("changed", self.on_height_changed)
         self.exterior_switch.connect("state-set", self.on_exterior_toggled)
         self.footer_check.connect("toggled", self.on_footer_toggled)
         self.symbolic_check.connect("toggled", self.on_symbolic_toggled)
@@ -826,6 +920,15 @@ class WallPropertiesWidget(Gtk.Box):
         self.material_combo.connect("changed", self.on_material_changed)
         self.interior_combo.connect("changed", self.on_interior_changed)
         self.exterior_combo.connect("changed", self.on_ext_finish_changed)
+        self.left_finish_combo.connect("changed", self.on_left_finish_changed)
+        self.right_finish_combo.connect("changed", self.on_right_finish_changed)
+        self.left_color_btn.connect("color-set", self.on_left_color_changed)
+        self.right_color_btn.connect("color-set", self.on_right_color_changed)
+        self.left_color_clear_btn.connect("clicked", self.on_clear_left_color)
+        self.right_color_clear_btn.connect("clicked", self.on_clear_right_color)
+        self.left_baseboard_check.connect("toggled", self.on_left_baseboard_toggled)
+        self.right_baseboard_check.connect("toggled", self.on_right_baseboard_toggled)
+        self.swap_sides_btn.connect("clicked", self.on_swap_wall_sides)
         self.stud_combo.connect("changed", self.on_stud_spacing_changed)
         self.insulation_combo.connect("changed", self.on_insulation_changed)
         self.fire_combo.connect("changed", self.on_fire_rating_changed)
@@ -868,14 +971,24 @@ class WallPropertiesWidget(Gtk.Box):
             wall.width = value
         self.emit_property_changed()
 
+    def _recalculate_attached_roofs(self):
+        if hasattr(self, "canvas") and self.canvas and hasattr(self.canvas, "recalculate_roofs_for_wall"):
+            for wall in self.current_walls:
+                if getattr(wall, "identifier", None):
+                    self.canvas.recalculate_roofs_for_wall(wall.identifier)
+
     def on_sloped_toggled(self, check):
         if self._block_updates or not self.current_walls:
             return
         is_sloped = check.get_active()
+        self.height_label.set_label("Start Height:" if is_sloped else "Height:")
         self.height_end_row.set_visible(is_sloped)
+        end_txt = (self.height_end_combo.get_active_text() or "").strip().lower()
+        self.custom_height_end_row.set_visible(is_sloped and end_txt.startswith("custom"))
         for wall in self.current_walls:
             if not is_sloped:
                 wall.height_at_end = wall.height
+        self._recalculate_attached_roofs()
         self.emit_property_changed()
 
     def on_height_changed(self, combo):
@@ -886,14 +999,37 @@ class WallPropertiesWidget(Gtk.Box):
             txt = txt.split()[0]
         else:
             return
-        if txt.lower() != "custom":
-            height_feet = float(txt.split("'")[0])
-            # Wall.height is stored in inches, UI shows feet, so convert
-            height_inches = height_feet * 12.0
+        if txt.lower() == "custom":
+            self.custom_height_row.set_visible(True)
+            height_inches = float(self.custom_height_spin.get_value())
             for wall in self.current_walls:
                 wall.height = height_inches
                 if not self.sloped_check.get_active():
                     wall.height_at_end = height_inches
+        else:
+            self.custom_height_row.set_visible(False)
+            height_feet = float(txt.split("'")[0])
+            # Wall.height is stored in inches, UI shows feet, so convert
+            height_inches = height_feet * 12.0
+            self.custom_height_spin.handler_block(self.custom_height_handler_id)
+            self.custom_height_spin.set_value(height_inches)
+            self.custom_height_spin.handler_unblock(self.custom_height_handler_id)
+            for wall in self.current_walls:
+                wall.height = height_inches
+                if not self.sloped_check.get_active():
+                    wall.height_at_end = height_inches
+        self._recalculate_attached_roofs()
+        self.emit_property_changed()
+
+    def on_custom_height_changed(self, spin):
+        if self._block_updates or not self.current_walls:
+            return
+        height_inches = float(spin.get_value())
+        for wall in self.current_walls:
+            wall.height = height_inches
+            if not self.sloped_check.get_active():
+                wall.height_at_end = height_inches
+        self._recalculate_attached_roofs()
         self.emit_property_changed()
 
     def on_height_end_changed(self, combo):
@@ -904,11 +1040,30 @@ class WallPropertiesWidget(Gtk.Box):
             txt = txt.split()[0]
         else:
             return
-        if txt.lower() != "custom":
-            height_feet = float(txt.split("'")[0])
-            height_inches = height_feet * 12.0
+        if txt.lower() == "custom":
+            self.custom_height_end_row.set_visible(self.sloped_check.get_active())
+            height_inches = float(self.custom_height_end_spin.get_value())
             for wall in self.current_walls:
                 wall.height_at_end = height_inches
+        else:
+            self.custom_height_end_row.set_visible(False)
+            height_feet = float(txt.split("'")[0])
+            height_inches = height_feet * 12.0
+            self.custom_height_end_spin.handler_block(self.custom_height_end_handler_id)
+            self.custom_height_end_spin.set_value(height_inches)
+            self.custom_height_end_spin.handler_unblock(self.custom_height_end_handler_id)
+            for wall in self.current_walls:
+                wall.height_at_end = height_inches
+        self._recalculate_attached_roofs()
+        self.emit_property_changed()
+
+    def on_custom_height_end_changed(self, spin):
+        if self._block_updates or not self.current_walls:
+            return
+        height_inches = float(spin.get_value())
+        for wall in self.current_walls:
+            wall.height_at_end = height_inches
+        self._recalculate_attached_roofs()
         self.emit_property_changed()
 
     def on_exterior_toggled(self, switch, gparam):
@@ -997,6 +1152,104 @@ class WallPropertiesWidget(Gtk.Box):
             for wall in self.current_walls:
                 wall.exterior_finish = text
         self.emit_property_changed()
+
+    def on_left_finish_changed(self, combo):
+        if self._block_updates or not self.current_walls:
+            return
+        text = combo.get_active_text()
+        if text:
+            for wall in self.current_walls:
+                wall.left_finish = text
+        self.emit_property_changed()
+
+    def on_right_finish_changed(self, combo):
+        if self._block_updates or not self.current_walls:
+            return
+        text = combo.get_active_text()
+        if text:
+            for wall in self.current_walls:
+                wall.right_finish = text
+        self.emit_property_changed()
+
+    def on_left_color_changed(self, btn):
+        if self._block_updates or not self.current_walls:
+            return
+        rgba = btn.get_rgba()
+        rgb = (float(rgba.red), float(rgba.green), float(rgba.blue))
+        for wall in self.current_walls:
+            wall.left_color = rgb
+        self.emit_property_changed()
+
+    def on_right_color_changed(self, btn):
+        if self._block_updates or not self.current_walls:
+            return
+        rgba = btn.get_rgba()
+        rgb = (float(rgba.red), float(rgba.green), float(rgba.blue))
+        for wall in self.current_walls:
+            wall.right_color = rgb
+        self.emit_property_changed()
+
+    def on_clear_left_color(self, btn):
+        if not self.current_walls:
+            return
+        for wall in self.current_walls:
+            wall.left_color = None
+        self._set_color_button(self.left_color_btn, None)
+        self.emit_property_changed()
+
+    def on_clear_right_color(self, btn):
+        if not self.current_walls:
+            return
+        for wall in self.current_walls:
+            wall.right_color = None
+        self._set_color_button(self.right_color_btn, None)
+        self.emit_property_changed()
+
+    def on_left_baseboard_toggled(self, check):
+        if self._block_updates or not self.current_walls:
+            return
+        active = bool(check.get_active())
+        for wall in self.current_walls:
+            wall.left_baseboard = active
+        self.emit_property_changed()
+
+    def on_right_baseboard_toggled(self, check):
+        if self._block_updates or not self.current_walls:
+            return
+        active = bool(check.get_active())
+        for wall in self.current_walls:
+            wall.right_baseboard = active
+        self.emit_property_changed()
+
+    def on_swap_wall_sides(self, btn):
+        if not self.current_walls:
+            return
+        for wall in self.current_walls:
+            wall.left_finish, wall.right_finish = (
+                getattr(wall, "right_finish", "Drywall"),
+                getattr(wall, "left_finish", "Drywall"),
+            )
+            wall.left_color, wall.right_color = (
+                getattr(wall, "right_color", None),
+                getattr(wall, "left_color", None),
+            )
+            wall.left_baseboard, wall.right_baseboard = (
+                bool(getattr(wall, "right_baseboard", False)),
+                bool(getattr(wall, "left_baseboard", False)),
+            )
+        self.set_wall(self.current_walls)
+        self.emit_property_changed()
+
+    @staticmethod
+    def _set_color_button(btn, color):
+        rgba = Gdk.RGBA()
+        if isinstance(color, (tuple, list)) and len(color) >= 3:
+            rgba.red, rgba.green, rgba.blue, rgba.alpha = (
+                float(color[0]), float(color[1]), float(color[2]), 1.0
+            )
+        else:
+            rgba.red, rgba.green, rgba.blue, rgba.alpha = (0.85, 0.85, 0.85, 1.0)
+        btn.set_rgba(rgba)
 
     def on_stud_spacing_changed(self, combo):
         if self._block_updates or not self.current_walls:
@@ -1338,31 +1591,42 @@ class WallPropertiesWidget(Gtk.Box):
         self.sloped_check.handler_block(self.sloped_handler_id)
         self.sloped_check.set_active(is_sloped)
         self.sloped_check.handler_unblock(self.sloped_handler_id)
+        self.height_label.set_label("Start Height:" if is_sloped else "Height:")
         self.height_end_row.set_visible(is_sloped)
 
         # Height / Start Height (wall.height is in inches, UI matches self.available_heights in feet)
-        height_feet = float(first_wall.height) / 12.0 if first_wall.height is not None else 8.0
-        height_index = 0
+        raw_height = float(first_wall.height) if first_wall.height is not None else 96.0
+        height_feet = raw_height / 12.0
+        height_index = len(self.available_heights)  # Default to "Custom" if not a preset
         for i, ft in enumerate(self.available_heights):
-            if abs(ft - height_feet) < 1e-6:
+            if abs(ft - height_feet) < 1e-4:
                 height_index = i
                 break
 
         self.height_combo.handler_block(self.height_handler_id)
         self.height_combo.set_active(height_index)
         self.height_combo.handler_unblock(self.height_handler_id)
+        self.custom_height_spin.handler_block(self.custom_height_handler_id)
+        self.custom_height_spin.set_value(raw_height)
+        self.custom_height_spin.handler_unblock(self.custom_height_handler_id)
+        self.custom_height_row.set_visible(height_index == len(self.available_heights))
 
         # End Height
-        height_end_feet = float(first_wall.height_at_end) / 12.0 if first_wall.height_at_end is not None else height_feet
-        height_end_index = 0
+        raw_height_end = float(first_wall.height_at_end) if first_wall.height_at_end is not None else raw_height
+        height_end_feet = raw_height_end / 12.0
+        height_end_index = len(self.available_heights)  # Default to "Custom" if not a preset
         for i, ft in enumerate(self.available_heights):
-            if abs(ft - height_end_feet) < 1e-6:
+            if abs(ft - height_end_feet) < 1e-4:
                 height_end_index = i
                 break
 
         self.height_end_combo.handler_block(self.height_end_handler_id)
         self.height_end_combo.set_active(height_end_index)
         self.height_end_combo.handler_unblock(self.height_end_handler_id)
+        self.custom_height_end_spin.handler_block(self.custom_height_end_handler_id)
+        self.custom_height_end_spin.set_value(raw_height_end)
+        self.custom_height_end_spin.handler_unblock(self.custom_height_end_handler_id)
+        self.custom_height_end_row.set_visible(is_sloped and height_end_index == len(self.available_heights))
 
         #
         # Exterior
@@ -1392,6 +1656,24 @@ class WallPropertiesWidget(Gtk.Box):
             self._find_combo_index(
                 self.exterior_combo,
                 first_wall.exterior_finish))
+
+        # Per-side finishes & baseboards
+        self.left_finish_combo.set_active(
+            self._find_combo_index(
+                self.left_finish_combo,
+                getattr(first_wall, "left_finish", "Drywall"),
+            )
+        )
+        self.right_finish_combo.set_active(
+            self._find_combo_index(
+                self.right_finish_combo,
+                getattr(first_wall, "right_finish", "Drywall"),
+            )
+        )
+        self._set_color_button(self.left_color_btn, getattr(first_wall, "left_color", None))
+        self._set_color_button(self.right_color_btn, getattr(first_wall, "right_color", None))
+        self.left_baseboard_check.set_active(bool(getattr(first_wall, "left_baseboard", False)))
+        self.right_baseboard_check.set_active(bool(getattr(first_wall, "right_baseboard", False)))
 
         #
         # Structural details
@@ -1794,6 +2076,314 @@ class DimensionPropertiesWidget(Gtk.Box):
 
         # Show arrows
         self.show_arrows_check.set_active(dimension.show_arrows)
+
+        self._block_updates = False
+
+
+class DimensionChainPropertiesWidget(Gtk.Box):
+    def __init__(self, canvas=None):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.canvas = canvas
+        self.current_chain = None
+        self._block_updates = False
+
+        frame = Gtk.Frame(label="Dimension Chain Properties")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        frame.set_child(box)
+        self.append(frame)
+
+        # Segments & Measurement display
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Segments:"))
+        self.segments_label = Gtk.Label(label="0 segments")
+        self.segments_label.set_halign(Gtk.Align.START)
+        row.append(self.segments_label)
+        box.append(row)
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Total Length:"))
+        self.measurement_label = Gtk.Label(label="0' 0\"")
+        self.measurement_label.set_halign(Gtk.Align.START)
+        row.append(self.measurement_label)
+        box.append(row)
+
+        # Text Size
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Text Size:"))
+        self.text_size_spin = Gtk.SpinButton.new_with_range(6, 72, 1)
+        self.text_size_spin.connect("value-changed", self.on_text_size_changed)
+        row.append(self.text_size_spin)
+        box.append(row)
+
+        # Arrow / Tick Style
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Mark Style:"))
+        self.arrow_style_combo = Gtk.ComboBoxText()
+        self.arrow_style_combo.append("architectural_tick", "Architectural Tick (45°)")
+        self.arrow_style_combo.append("arrow", "Arrows")
+        self.arrow_style_combo.connect("changed", self.on_arrow_style_changed)
+        row.append(self.arrow_style_combo)
+        box.append(row)
+
+        # Line Style
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Line Style:"))
+        self.line_style_combo = Gtk.ComboBoxText()
+        self.line_style_combo.append("solid", "Solid")
+        self.line_style_combo.append("dashed", "Dashed")
+        self.line_style_combo.connect("changed", self.on_line_style_changed)
+        row.append(self.line_style_combo)
+        box.append(row)
+
+        # Summary Dimension toggle
+        self.summary_check = Gtk.CheckButton(label="Summary Dimension")
+        self.summary_check.connect("toggled", self.on_summary_toggled)
+        box.append(self.summary_check)
+
+        # Summary Offset
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Summary Offset:"))
+        self.summary_offset_spin = Gtk.SpinButton.new_with_range(6, 120, 1)
+        self.summary_offset_spin.connect("value-changed", self.on_summary_offset_changed)
+        row.append(self.summary_offset_spin)
+        box.append(row)
+
+        # Offset
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Offset:"))
+        self.offset_spin = Gtk.SpinButton.new_with_range(-240, 240, 1)
+        self.offset_spin.connect("value-changed", self.on_offset_changed)
+        row.append(self.offset_spin)
+        box.append(row)
+
+        # Color
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Color:"))
+        self.color_button = Gtk.ColorButton()
+        self.color_button.connect("color-set", self.on_color_changed)
+        row.append(self.color_button)
+        box.append(row)
+
+    def on_offset_changed(self, spin):
+        if self._block_updates or not self.current_chain:
+            return
+        self.current_chain.offset = spin.get_value()
+        self.emit_property_changed()
+
+    def on_text_size_changed(self, spin):
+        if self._block_updates or not self.current_chain:
+            return
+        self.current_chain.text_size = spin.get_value()
+        self.emit_property_changed()
+
+    def on_arrow_style_changed(self, combo):
+        if self._block_updates or not self.current_chain:
+            return
+        self.current_chain.arrow_style = combo.get_active_id() or "architectural_tick"
+        self.emit_property_changed()
+
+    def on_line_style_changed(self, combo):
+        if self._block_updates or not self.current_chain:
+            return
+        self.current_chain.line_style = combo.get_active_id() or "solid"
+        self.emit_property_changed()
+
+    def on_summary_toggled(self, check):
+        if self._block_updates or not self.current_chain:
+            return
+        self.current_chain.summary_dimension = check.get_active()
+        self.emit_property_changed()
+
+    def on_summary_offset_changed(self, spin):
+        if self._block_updates or not self.current_chain:
+            return
+        self.current_chain.summary_offset = spin.get_value()
+        self.emit_property_changed()
+
+    def on_color_changed(self, color_button):
+        if self._block_updates or not self.current_chain:
+            return
+        rgba = color_button.get_rgba()
+        self.current_chain.color = (rgba.red, rgba.green, rgba.blue)
+        self.emit_property_changed()
+
+    def emit_property_changed(self):
+        if hasattr(self, "canvas") and self.canvas:
+            self.canvas.save_state()
+            self.canvas.queue_draw()
+
+    def set_chain(self, chain):
+        self._block_updates = True
+        self.current_chain = chain
+        if not chain:
+            self._block_updates = False
+            return
+
+        pts = getattr(chain, "points", [])
+        seg_count = max(0, len(pts) - 1)
+        self.segments_label.set_text(f"{seg_count} segment{'s' if seg_count != 1 else ''}")
+
+        total_l = getattr(chain, "total_length", 0.0)
+        if hasattr(self, "canvas") and hasattr(self.canvas, "converter"):
+            measurement_str = self.canvas.converter.format_measurement(total_l, use_fraction=False)
+        else:
+            measurement_str = f"{total_l:.2f}\""
+        self.measurement_label.set_text(measurement_str)
+
+        self.offset_spin.set_value(getattr(chain, "offset", 18.0))
+        self.text_size_spin.set_value(getattr(chain, "text_size", 12.0))
+        self.arrow_style_combo.set_active_id(getattr(chain, "arrow_style", "architectural_tick"))
+        self.line_style_combo.set_active_id(getattr(chain, "line_style", "solid"))
+        self.summary_check.set_active(getattr(chain, "summary_dimension", True))
+        self.summary_offset_spin.set_value(getattr(chain, "summary_offset", 16.0))
+
+        color = getattr(chain, "color", (0.0, 0.0, 0.0))
+        from gi.repository import Gdk
+        rgba = Gdk.RGBA()
+        rgba.red, rgba.green, rgba.blue, rgba.alpha = color[0], color[1], color[2], 1.0
+        self.color_button.set_rgba(rgba)
+
+        self._block_updates = False
+
+
+class LeaderCalloutPropertiesWidget(Gtk.Box):
+    def __init__(self, canvas=None):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.canvas = canvas
+        self.current_leader = None
+        self._block_updates = False
+
+        frame = Gtk.Frame(label="Leader Callout Properties")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        frame.set_child(box)
+        self.append(frame)
+
+        # Note Text
+        lbl = Gtk.Label(label="Note Text:")
+        lbl.set_halign(Gtk.Align.START)
+        box.append(lbl)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_min_content_height(80)
+        self.text_view = Gtk.TextView()
+        self.text_view.set_wrap_mode(Gtk.WrapMode.WORD)
+        self.text_buffer = self.text_view.get_buffer()
+        self.text_buffer.connect("changed", self.on_text_changed)
+        scrolled.set_child(self.text_view)
+        box.append(scrolled)
+
+        # Text Size
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Text Size:"))
+        self.text_size_spin = Gtk.SpinButton.new_with_range(6, 72, 1)
+        self.text_size_spin.connect("value-changed", self.on_text_size_changed)
+        row.append(self.text_size_spin)
+        box.append(row)
+
+        # Arrow Type
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Arrow Type:"))
+        self.arrow_type_combo = Gtk.ComboBoxText()
+        self.arrow_type_combo.append("arrow", "Filled Arrow")
+        self.arrow_type_combo.append("dot", "Dot")
+        self.arrow_type_combo.append("slash", "45° Slash")
+        self.arrow_type_combo.append("open_arrow", "Open Arrow")
+        self.arrow_type_combo.connect("changed", self.on_arrow_type_changed)
+        row.append(self.arrow_type_combo)
+        box.append(row)
+
+        # Border Box
+        self.border_box_check = Gtk.CheckButton(label="Enclose in Border Box")
+        self.border_box_check.connect("toggled", self.on_border_box_toggled)
+        box.append(self.border_box_check)
+
+        # Line Style
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Line Style:"))
+        self.line_style_combo = Gtk.ComboBoxText()
+        self.line_style_combo.append("solid", "Solid")
+        self.line_style_combo.append("dashed", "Dashed")
+        self.line_style_combo.connect("changed", self.on_line_style_changed)
+        row.append(self.line_style_combo)
+        box.append(row)
+
+        # Color
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Color:"))
+        self.color_button = Gtk.ColorButton()
+        self.color_button.connect("color-set", self.on_color_changed)
+        row.append(self.color_button)
+        box.append(row)
+
+    def on_text_changed(self, buffer):
+        if self._block_updates or not self.current_leader:
+            return
+        start = buffer.get_start_iter()
+        end = buffer.get_end_iter()
+        self.current_leader.text = buffer.get_text(start, end, False)
+        self.emit_property_changed()
+
+    def on_text_size_changed(self, spin):
+        if self._block_updates or not self.current_leader:
+            return
+        self.current_leader.text_size = spin.get_value()
+        self.emit_property_changed()
+
+    def on_arrow_type_changed(self, combo):
+        if self._block_updates or not self.current_leader:
+            return
+        self.current_leader.arrow_type = combo.get_active_id() or "arrow"
+        self.emit_property_changed()
+
+    def on_border_box_toggled(self, check):
+        if self._block_updates or not self.current_leader:
+            return
+        self.current_leader.box_border = check.get_active()
+        self.emit_property_changed()
+
+    def on_line_style_changed(self, combo):
+        if self._block_updates or not self.current_leader:
+            return
+        self.current_leader.line_style = combo.get_active_id() or "solid"
+        self.emit_property_changed()
+
+    def on_color_changed(self, color_button):
+        if self._block_updates or not self.current_leader:
+            return
+        rgba = color_button.get_rgba()
+        self.current_leader.color = (rgba.red, rgba.green, rgba.blue)
+        self.emit_property_changed()
+
+    def emit_property_changed(self):
+        if hasattr(self, "canvas") and self.canvas:
+            self.canvas.queue_draw()
+
+    def set_leader(self, leader):
+        self._block_updates = True
+        self.current_leader = leader
+        if not leader:
+            self._block_updates = False
+            return
+
+        self.text_buffer.set_text(getattr(leader, "text", ""))
+        self.text_size_spin.set_value(getattr(leader, "text_size", 12.0))
+        self.arrow_type_combo.set_active_id(getattr(leader, "arrow_type", "arrow"))
+        self.border_box_check.set_active(getattr(leader, "box_border", False))
+        self.line_style_combo.set_active_id(getattr(leader, "line_style", "solid"))
+
+        color = getattr(leader, "color", (0.0, 0.0, 0.0))
+        from gi.repository import Gdk
+        rgba = Gdk.RGBA()
+        rgba.red, rgba.green, rgba.blue, rgba.alpha = color[0], color[1], color[2], 1.0
+        self.color_button.set_rgba(rgba)
 
         self._block_updates = False
 
@@ -2557,6 +3147,36 @@ class RoomPropertiesWidget(Gtk.Box):
         floor_row.append(self.floor_combo)
         basic_box.append(floor_row)
 
+        # Floor Pattern
+        pattern_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        pattern_row.append(Gtk.Label(label="Pattern:"))
+        self.pattern_combo = Gtk.ComboBoxText()
+        for pid, plabel in FLOOR_PATTERNS:
+            self.pattern_combo.append(pid, plabel)
+        self.pattern_combo.set_active_id("none")
+        pattern_row.append(self.pattern_combo)
+        basic_box.append(pattern_row)
+
+        # Pattern Angle (degrees)
+        rot_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        rot_row.append(Gtk.Label(label="Pattern Angle (°):"))
+        self.pattern_rotation_spin = Gtk.SpinButton.new_with_range(0.0, 360.0, 15.0)
+        self.pattern_rotation_spin.set_digits(0)
+        self.pattern_rotation_spin.set_value(0.0)
+        self.pattern_rotation_spin.set_sensitive(False)
+        rot_row.append(self.pattern_rotation_spin)
+        basic_box.append(rot_row)
+
+        # Pattern Scale
+        scale_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        scale_row.append(Gtk.Label(label="Pattern Scale:"))
+        self.pattern_scale_spin = Gtk.SpinButton.new_with_range(0.25, 4.0, 0.1)
+        self.pattern_scale_spin.set_digits(2)
+        self.pattern_scale_spin.set_value(1.0)
+        self.pattern_scale_spin.set_sensitive(False)
+        scale_row.append(self.pattern_scale_spin)
+        basic_box.append(scale_row)
+
         # Frame - Foundation/Slab Properties
         slab_frame = Gtk.Frame(label="Foundation (Slab)")
         slab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -2605,6 +3225,9 @@ class RoomPropertiesWidget(Gtk.Box):
         self.name_entry.connect("changed", self.on_name_changed)
         self.type_combo.connect("changed", self.on_type_changed)
         self.floor_combo.connect("changed", self.on_floor_changed)
+        self.pattern_combo.connect("changed", self.on_pattern_changed)
+        self.pattern_rotation_spin.connect("value-changed", self.on_pattern_rotation_changed)
+        self.pattern_scale_spin.connect("value-changed", self.on_pattern_scale_changed)
         self.slab_check.connect("toggled", self.on_slab_toggled)
         self.thickness_combo.connect("changed", self.on_thickness_changed)
         self.reinforce_combo.connect("changed", self.on_reinforce_changed)
@@ -2639,6 +3262,33 @@ class RoomPropertiesWidget(Gtk.Box):
         floor_type = combo.get_active_text()
         for room in self.current_rooms:
             room.floor_type = floor_type
+        self.emit_property_changed()
+
+    def on_pattern_changed(self, combo):
+        pattern = combo.get_active_id() or "none"
+        has_pattern = (pattern != "none")
+        self.pattern_rotation_spin.set_sensitive(has_pattern)
+        self.pattern_scale_spin.set_sensitive(has_pattern)
+        if self._block_updates or not self.current_rooms:
+            return
+        for room in self.current_rooms:
+            room.floor_pattern = pattern
+        self.emit_property_changed()
+
+    def on_pattern_rotation_changed(self, spin):
+        if self._block_updates or not self.current_rooms:
+            return
+        val = float(spin.get_value()) % 360.0
+        for room in self.current_rooms:
+            room.pattern_rotation = val
+        self.emit_property_changed()
+
+    def on_pattern_scale_changed(self, spin):
+        if self._block_updates or not self.current_rooms:
+            return
+        val = max(0.25, min(4.0, float(spin.get_value())))
+        for room in self.current_rooms:
+            room.pattern_scale = val
         self.emit_property_changed()
 
     def on_slab_toggled(self, button):
@@ -2699,6 +3349,14 @@ class RoomPropertiesWidget(Gtk.Box):
         self.name_entry.set_text(first_room.name or "")
         self.type_combo.set_active(self._find_combo_index(self.type_combo, first_room.room_type or "undefined"))
         self.floor_combo.set_active(self._find_combo_index(self.floor_combo, first_room.floor_type or "default"))
+        pat = getattr(first_room, "floor_pattern", "none") or "none"
+        if not self.pattern_combo.set_active_id(pat):
+            self.pattern_combo.set_active_id("none")
+            pat = "none"
+        self.pattern_rotation_spin.set_value(float(getattr(first_room, "pattern_rotation", 0.0)))
+        self.pattern_scale_spin.set_value(float(getattr(first_room, "pattern_scale", 1.0)))
+        self.pattern_rotation_spin.set_sensitive(pat != "none")
+        self.pattern_scale_spin.set_sensitive(pat != "none")
 
         # Slab properties
         self.slab_check.set_active(getattr(first_room, 'is_slab', False))
@@ -2712,6 +3370,435 @@ class RoomPropertiesWidget(Gtk.Box):
         self.edge_combo.set_active(self._find_combo_index(
             self.edge_combo, getattr(first_room, 'slab_edge_type', 'thickened')))
 
+        self._block_updates = False
+
+
+class FloorOpeningPropertiesWidget(Gtk.Box):
+    """Widget for viewing and editing selected manual FloorOpening properties."""
+
+    __gsignals__ = {
+        'property-changed': (GObject.SignalFlags.RUN_FIRST, None, ()),
+    }
+
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.current_openings = []
+        self.canvas = None
+        self._block_updates = False
+
+        frame = Gtk.Frame(label="Floor Opening Properties")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_top(8)
+        box.set_margin_bottom(8)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
+        frame.set_child(box)
+        self.append(frame)
+
+        # Opening Type
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Type:"))
+        self.type_combo = Gtk.ComboBoxText()
+        self._type_keys = [key for key, _ in FLOOR_OPENING_TYPES]
+        for key, display in FLOOR_OPENING_TYPES:
+            self.type_combo.append(key, display)
+        self.type_combo.set_hexpand(True)
+        self.type_combo.connect("changed", self.on_type_changed)
+        row.append(self.type_combo)
+        box.append(row)
+
+        # Custom Label
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        row.append(Gtk.Label(label="Label:"))
+        self.label_entry = Gtk.Entry()
+        self.label_entry.set_hexpand(True)
+        self.label_entry.set_placeholder_text("OPEN TO BELOW")
+        self.label_entry.connect("changed", self.on_label_changed)
+        row.append(self.label_entry)
+        box.append(row)
+
+        # Architectural X-cross
+        self.show_cross_check = Gtk.CheckButton(label="Show architectural X-cross")
+        self.show_cross_check.set_active(True)
+        self.show_cross_check.connect("toggled", self.on_show_cross_toggled)
+        box.append(self.show_cross_check)
+
+        # Show label
+        self.show_label_check = Gtk.CheckButton(label="Show label")
+        self.show_label_check.set_active(True)
+        self.show_label_check.connect("toggled", self.on_show_label_toggled)
+        box.append(self.show_label_check)
+
+        # Ceiling-only cutout toggle
+        self.ceiling_only_check = Gtk.CheckButton(
+            label="Ceiling-only opening (keep floor & slab)"
+        )
+        self.ceiling_only_check.set_active(False)
+        self.ceiling_only_check.connect("toggled", self.on_ceiling_only_toggled)
+        box.append(self.ceiling_only_check)
+
+        # Read-only area readout
+        self.area_label = Gtk.Label(label="Area: 0.0 sq ft", xalign=0)
+        self.area_label.add_css_class("dim-label")
+        box.append(self.area_label)
+
+    def _commit_changes(self, save_undo=True):
+        if self.canvas:
+            sync_stair_holes(self.canvas)
+            if save_undo and hasattr(self.canvas, "save_state"):
+                self.canvas.save_state()
+            if hasattr(self.canvas, "emit"):
+                self.canvas.emit("content-changed")
+            self.canvas.queue_draw()
+        self.emit("property-changed")
+
+    def on_type_changed(self, combo):
+        if self._block_updates or not self.current_openings:
+            return
+        otype = combo.get_active_id() or "opening"
+        for op in self.current_openings:
+            op.opening_type = otype
+        self.label_entry.set_placeholder_text(
+            FLOOR_OPENING_DEFAULT_LABELS.get(otype, "OPEN TO BELOW")
+        )
+        self._commit_changes()
+
+    def on_label_changed(self, entry):
+        if self._block_updates or not self.current_openings:
+            return
+        text = entry.get_text()
+        for op in self.current_openings:
+            op.label = text
+        self._commit_changes(save_undo=False)
+
+    def on_show_cross_toggled(self, check):
+        if self._block_updates or not self.current_openings:
+            return
+        val = check.get_active()
+        for op in self.current_openings:
+            op.show_cross = val
+        self._commit_changes()
+
+    def on_show_label_toggled(self, check):
+        if self._block_updates or not self.current_openings:
+            return
+        val = check.get_active()
+        for op in self.current_openings:
+            op.show_label = val
+        self._commit_changes()
+
+    def on_ceiling_only_toggled(self, check):
+        if self._block_updates or not self.current_openings:
+            return
+        val = check.get_active()
+        for op in self.current_openings:
+            op.ceiling_only = val
+        self._commit_changes()
+
+    def set_opening(self, openings):
+        """Populate UI widgets from one or more FloorOpening objects."""
+        self._block_updates = True
+        if not isinstance(openings, list):
+            openings = [openings]
+        self.current_openings = openings
+        if not openings:
+            self._block_updates = False
+            return
+        first = openings[0]
+        otype = getattr(first, "opening_type", "opening") or "opening"
+        if not self.type_combo.set_active_id(otype):
+            self.type_combo.set_active_id("opening")
+            otype = "opening"
+        self.label_entry.set_placeholder_text(
+            FLOOR_OPENING_DEFAULT_LABELS.get(otype, "OPEN TO BELOW")
+        )
+        self.label_entry.set_text(getattr(first, "label", "") or "")
+        self.show_cross_check.set_active(bool(getattr(first, "show_cross", True)))
+        self.show_label_check.set_active(bool(getattr(first, "show_label", True)))
+        self.ceiling_only_check.set_active(bool(getattr(first, "ceiling_only", False)))
+        total_sqin = sum(polygon_area(getattr(op, "points", [])) for op in openings)
+        self.area_label.set_label(f"Area: {total_sqin / 144.0:.1f} sq ft")
+        self._block_updates = False
+
+
+class FixturePropertiesWidget(Gtk.Box):
+    """Widget for viewing and editing selected architectural Fixture(s), cabinetry & countertops."""
+
+    __gsignals__ = {
+        "property-changed": (GObject.SignalFlags.RUN_FIRST, None, ()),
+    }
+
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.current_fixtures = []
+        self.canvas = None
+        self._block_updates = False
+
+        # Symbol & Geometry frame
+        frame = Gtk.Frame(label="Fixture / Cabinet Geometry")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        frame.set_child(box)
+        self.append(frame)
+
+        def add_row(parent_box, label_text, widget, extra=None):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            lbl = Gtk.Label(label=label_text, xalign=0)
+            lbl.set_hexpand(True)
+            row.append(lbl)
+            row.append(widget)
+            if extra is not None:
+                row.append(extra)
+            parent_box.append(row)
+
+        self.symbol_combo = Gtk.ComboBoxText()
+        for sym, spec in FIXTURE_CATALOG.items():
+            self.symbol_combo.append(sym, spec["label"])
+        self.symbol_combo.connect("changed", self.on_symbol_changed)
+        add_row(box, "Symbol:", self.symbol_combo)
+
+        def _bind_spin(spin, handler):
+            spin.connect("value-changed", handler)
+            spin.connect("activate", lambda s: s.update())
+            fc = Gtk.EventControllerFocus()
+            fc.connect("leave", lambda _c, s=spin: s.update())
+            spin.add_controller(fc)
+
+        self.width_spin = Gtk.SpinButton.new_with_range(4.0, 240.0, 1.0)
+        _bind_spin(self.width_spin, self.on_width_changed)
+        add_row(box, "Width (in):", self.width_spin)
+
+        self.depth_spin = Gtk.SpinButton.new_with_range(4.0, 120.0, 1.0)
+        _bind_spin(self.depth_spin, self.on_depth_changed)
+        add_row(box, "Depth (in):", self.depth_spin)
+
+        self.height_spin = Gtk.SpinButton.new_with_range(2.0, 120.0, 0.5)
+        _bind_spin(self.height_spin, self.on_height_changed)
+        add_row(box, "Height (in):", self.height_spin)
+
+        self.elev_spin = Gtk.SpinButton.new_with_range(0.0, 120.0, 1.0)
+        _bind_spin(self.elev_spin, self.on_elev_changed)
+        add_row(box, "Elevation (in):", self.elev_spin)
+
+        rot_btn = Gtk.Button(label="↻ 90°")
+        rot_btn.connect("clicked", self.on_rotate_90_clicked)
+        self.rot_spin = Gtk.SpinButton.new_with_range(0.0, 359.0, 15.0)
+        self.rot_spin.set_wrap(True)
+        _bind_spin(self.rot_spin, self.on_rot_changed)
+        add_row(box, "Rotation (°):", self.rot_spin, extra=rot_btn)
+
+        self.mount_combo = Gtk.ComboBoxText()
+        for ms in MOUNT_SURFACES:
+            self.mount_combo.append(ms, ms.title())
+        self.mount_combo.connect("changed", self.on_mount_changed)
+        add_row(box, "Mount Surface:", self.mount_combo)
+
+        self.surface_status_lbl = Gtk.Label(label="Surface: Floor (0.0\")", xalign=0)
+        self.surface_status_lbl.add_css_class("dim-label")
+        box.append(self.surface_status_lbl)
+
+        self.swing_combo = Gtk.ComboBoxText()
+        for sw in ("left", "right", "double"):
+            self.swing_combo.append(sw, sw.title())
+        self.swing_combo.connect("changed", self.on_swing_changed)
+        add_row(box, "Cabinet Swing:", self.swing_combo)
+
+        # Countertop frame
+        ct_frame = Gtk.Frame(label="Countertop")
+        ct_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        ct_box.set_margin_top(6)
+        ct_box.set_margin_bottom(6)
+        ct_box.set_margin_start(6)
+        ct_box.set_margin_end(6)
+        ct_frame.set_child(ct_box)
+        self.append(ct_frame)
+
+        self.has_ct_check = Gtk.CheckButton(label="Has Countertop")
+        self.has_ct_check.connect("toggled", self.on_ct_changed)
+        ct_box.append(self.has_ct_check)
+
+        self.ct_mat_combo = Gtk.ComboBoxText()
+        for mat in COUNTERTOP_MATERIALS:
+            self.ct_mat_combo.append(mat, mat.replace("_", " ").title())
+        self.ct_mat_combo.connect("changed", self.on_ct_changed)
+        add_row(ct_box, "Material:", self.ct_mat_combo)
+
+        self.ct_overhang_spin = Gtk.SpinButton.new_with_range(0.0, 24.0, 0.5)
+        self.ct_overhang_spin.connect("value-changed", self.on_ct_changed)
+        add_row(ct_box, "Overhang (in):", self.ct_overhang_spin)
+
+        self.ct_thick_spin = Gtk.SpinButton.new_with_range(0.5, 6.0, 0.25)
+        self.ct_thick_spin.connect("value-changed", self.on_ct_changed)
+        add_row(ct_box, "Thickness (in):", self.ct_thick_spin)
+
+        self.backsplash_check = Gtk.CheckButton(label="Include 4\" Backsplash")
+        self.backsplash_check.connect("toggled", self.on_ct_changed)
+        ct_box.append(self.backsplash_check)
+
+    def _commit(self):
+        if self.canvas:
+            rooms = getattr(self.canvas, "rooms", [])
+            for f in self.current_fixtures:
+                resolve_fixture_surface(f, rooms)
+            self._refresh_surface_label()
+            if hasattr(self.canvas, "save_state"):
+                self.canvas.save_state()
+            if hasattr(self.canvas, "emit"):
+                self.canvas.emit("content-changed")
+            self.canvas.queue_draw()
+        self.emit("property-changed")
+
+    def _refresh_surface_label(self):
+        if not self.current_fixtures:
+            return
+        first = self.current_fixtures[0]
+        base_z = float(getattr(first, "base_elevation", 0.0) or 0.0)
+        if base_z > 0.0:
+            self.surface_status_lbl.set_label(
+                f"Surface: Concrete Slab (+{base_z:.1f}\") | Top: {first.total_top_elevation:.1f}\""
+            )
+        else:
+            self.surface_status_lbl.set_label(
+                f"Surface: Floor (0.0\") | Top: {first.total_top_elevation:.1f}\""
+            )
+
+    def on_symbol_changed(self, combo):
+        if self._block_updates or not self.current_fixtures:
+            return
+        sym = combo.get_active_id()
+        if not sym:
+            return
+        spec = get_fixture_spec(sym)
+        for f in self.current_fixtures:
+            f.symbol_type = sym
+            f.category = spec["category"]
+        self._commit()
+
+    def on_width_changed(self, _spin):
+        if self._block_updates or not self.current_fixtures:
+            return
+        w = float(self.width_spin.get_value())
+        for f in self.current_fixtures:
+            f.width = w
+        self._commit()
+
+    def on_depth_changed(self, _spin):
+        if self._block_updates or not self.current_fixtures:
+            return
+        d = float(self.depth_spin.get_value())
+        for f in self.current_fixtures:
+            f.depth = d
+        self._commit()
+
+    def on_height_changed(self, _spin):
+        if self._block_updates or not self.current_fixtures:
+            return
+        h = float(self.height_spin.get_value())
+        for f in self.current_fixtures:
+            f.height = h
+        self._commit()
+
+    def on_elev_changed(self, _spin):
+        if self._block_updates or not self.current_fixtures:
+            return
+        el = float(self.elev_spin.get_value())
+        for f in self.current_fixtures:
+            f.elevation = el
+        self._commit()
+
+    def on_rot_changed(self, _spin):
+        if self._block_updates or not self.current_fixtures:
+            return
+        rot = float(self.rot_spin.get_value()) % 360.0
+        for f in self.current_fixtures:
+            f.rotation = rot
+        self._commit()
+
+    def on_dim_changed(self, _spin):
+        if self._block_updates or not self.current_fixtures:
+            return
+        w = float(self.width_spin.get_value())
+        d = float(self.depth_spin.get_value())
+        h = float(self.height_spin.get_value())
+        el = float(self.elev_spin.get_value())
+        rot = float(self.rot_spin.get_value()) % 360.0
+        for f in self.current_fixtures:
+            f.width = w
+            f.depth = d
+            f.height = h
+            f.elevation = el
+            f.rotation = rot
+        self._commit()
+
+    def on_rotate_90_clicked(self, _btn):
+        if self._block_updates or not self.current_fixtures:
+            return
+        new_rot = (float(self.rot_spin.get_value()) + 90.0) % 360.0
+        self.rot_spin.set_value(new_rot)
+
+    def on_mount_changed(self, combo):
+        if self._block_updates or not self.current_fixtures:
+            return
+        ms = combo.get_active_id() or "auto"
+        for f in self.current_fixtures:
+            f.mount_surface = ms
+        self._commit()
+
+    def on_swing_changed(self, combo):
+        if self._block_updates or not self.current_fixtures:
+            return
+        sw = combo.get_active_id() or "left"
+        for f in self.current_fixtures:
+            f.door_swing = sw
+        self._commit()
+
+    def on_ct_changed(self, _widget):
+        if self._block_updates or not self.current_fixtures:
+            return
+        has_ct = bool(self.has_ct_check.get_active())
+        mat = self.ct_mat_combo.get_active_id() or "quartz"
+        oh = float(self.ct_overhang_spin.get_value())
+        th = float(self.ct_thick_spin.get_value())
+        bs = bool(self.backsplash_check.get_active())
+        for f in self.current_fixtures:
+            f.has_countertop = has_ct
+            f.countertop_material = mat
+            f.countertop_overhang = oh
+            f.countertop_thickness = th
+            f.has_backsplash = bs
+        self._commit()
+
+    def set_fixtures(self, fixtures):
+        """Populate UI widgets from one or more Fixture objects."""
+        self._block_updates = True
+        if not isinstance(fixtures, list):
+            fixtures = [fixtures]
+        self.current_fixtures = fixtures
+        if not fixtures:
+            self._block_updates = False
+            return
+        first = fixtures[0]
+        if not self.symbol_combo.set_active_id(first.symbol_type):
+            self.symbol_combo.set_active_id("base_cabinet")
+        self.width_spin.set_value(float(first.width))
+        self.depth_spin.set_value(float(first.depth))
+        self.height_spin.set_value(float(first.height))
+        self.elev_spin.set_value(float(first.elevation))
+        self.rot_spin.set_value(float(first.rotation) % 360.0)
+        if not self.mount_combo.set_active_id(first.mount_surface or "auto"):
+            self.mount_combo.set_active_id("auto")
+        if not self.swing_combo.set_active_id(getattr(first, "door_swing", "left") or "left"):
+            self.swing_combo.set_active_id("left")
+        self.has_ct_check.set_active(bool(first.has_countertop))
+        if not self.ct_mat_combo.set_active_id(first.countertop_material or "quartz"):
+            self.ct_mat_combo.set_active_id("quartz")
+        self.ct_overhang_spin.set_value(float(first.countertop_overhang))
+        self.ct_thick_spin.set_value(float(first.countertop_thickness))
+        self.backsplash_check.set_active(bool(getattr(first, "has_backsplash", True)))
+        self._refresh_surface_label()
         self._block_updates = False
 
 
@@ -2758,8 +3845,8 @@ class PropertiesDock(Gtk.Box):
         self.content_paned.set_wide_handle(True)
         self.append(self.content_paned)
 
-        # ─── Layers Section (Top) ───
-        layers_frame = Gtk.Frame(label="Layers")
+        # ─── Layers & Objects Section (Top) ───
+        layers_frame = Gtk.Frame(label="Layers & Objects")
         layers_frame.set_vexpand(True)
         self.layers_page = LayersPanel(canvas)
         
@@ -2795,16 +3882,20 @@ class PropertiesDock(Gtk.Box):
         # Spacer to position tabs next to Properties section
         # Height is dynamically synced with paned split position
         self.icon_bar_spacer = Gtk.Box()
-        split_height = 200  # Default split position
-        if self.config:
-            split_height = getattr(self.config, 'LAYERS_PROPERTIES_SPLIT', 200)
-        self.icon_bar_spacer.set_size_request(-1, split_height)
         self.icon_bar.append(self.icon_bar_spacer)
         
-        # Vertical tab button bar in icon_bar (aligned with Properties section)
+        # Scrollable vertical tab button bar in icon_bar (aligned with Properties section)
+        self.tab_scroll = Gtk.ScrolledWindow()
+        self.tab_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.tab_scroll.set_propagate_natural_height(False)
+        self.tab_scroll.set_propagate_natural_width(True)
+        self.tab_scroll.set_vexpand(True)
+        self.tab_scroll.set_min_content_height(100)
+        self.tab_scroll.set_margin_top(4)
+
         self.tab_bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        self.tab_bar.set_margin_top(8)
-        self.icon_bar.append(self.tab_bar)
+        self.tab_scroll.set_child(self.tab_bar)
+        self.icon_bar.append(self.tab_scroll)
         
         # Properties content stack (takes remaining space)
         self.stack = Gtk.Stack(
@@ -2824,14 +3915,16 @@ class PropertiesDock(Gtk.Box):
         self.content_paned.set_resize_end_child(True)
         self.content_paned.set_shrink_end_child(False)
         
-        # Set initial split position from config or default
-        split_pos = 200  # Default
-        if self.config:
-            split_pos = getattr(self.config, 'LAYERS_PROPERTIES_SPLIT', 200)
-        self.content_paned.set_position(split_pos)
+        # Set initial split position from config or default, clamped so the
+        # Properties section and tab buttons are never pushed off-screen.
+        raw_split = int(getattr(self.config, 'LAYERS_PROPERTIES_SPLIT', 200)) if self.config else 200
+        initial_split = max(120, min(raw_split, 450))
+        self.content_paned.set_position(initial_split)
+        self._sync_tab_spacer(initial_split)
         
-        # Sync tab spacer height when paned is resized
+        # Sync tab spacer height when paned is resized or first mapped
         self.content_paned.connect('notify::position', self._on_paned_position_changed)
+        self.content_paned.connect('map', self._on_paned_mapped)
 
         # Track tabs
         self.tabs = {}
@@ -2874,6 +3967,22 @@ class PropertiesDock(Gtk.Box):
         self.tab_bar.append(room_btn)
         self.tabs["room"] = room_btn
 
+        self.floor_opening_page = FloorOpeningPropertiesWidget()
+        self.floor_opening_page.canvas = canvas
+        self.stack.add_titled(self.floor_opening_page, "floor_opening", "Floor Opening Properties")
+        opening_btn = self._make_tab_button("floor_opening", icon_dir, "add_floor_opening")
+        opening_btn.set_tooltip_text("Floor Opening")
+        self.tab_bar.append(opening_btn)
+        self.tabs["floor_opening"] = opening_btn
+
+        self.fixture_page = FixturePropertiesWidget()
+        self.fixture_page.canvas = canvas
+        self.stack.add_titled(self.fixture_page, "fixture", "Fixture & Cabinet Properties")
+        fixture_btn = self._make_tab_button("fixture", icon_dir, "add_fixture")
+        fixture_btn.set_tooltip_text("Fixtures & Cabinets")
+        self.tab_bar.append(fixture_btn)
+        self.tabs["fixture"] = fixture_btn
+
         self.text_page = TextPropertiesWidget()
         self.text_page.canvas = canvas
         self.stack.add_titled(self.text_page, "text", "Text Properties")
@@ -2887,6 +3996,20 @@ class PropertiesDock(Gtk.Box):
         dimension_btn = self._make_tab_button("dimension", icon_dir, "add_dimension")
         self.tab_bar.append(dimension_btn)
         self.tabs["dimension"] = dimension_btn
+
+        self.dimension_chain_page = DimensionChainPropertiesWidget()
+        self.dimension_chain_page.canvas = canvas
+        self.stack.add_titled(self.dimension_chain_page, "dimension_chain", "Dimension Chain Properties")
+        dim_chain_btn = self._make_tab_button("dimension_chain", icon_dir, "add_dimension_chain")
+        self.tab_bar.append(dim_chain_btn)
+        self.tabs["dimension_chain"] = dim_chain_btn
+
+        self.leader_page = LeaderCalloutPropertiesWidget()
+        self.leader_page.canvas = canvas
+        self.stack.add_titled(self.leader_page, "leader", "Leader Callout Properties")
+        leader_btn = self._make_tab_button("leader", icon_dir, "add_leader")
+        self.tab_bar.append(leader_btn)
+        self.tabs["leader"] = leader_btn
 
         self.window_page = WindowPropertiesWidget()
         self.window_page.canvas = canvas
@@ -2961,6 +4084,8 @@ class PropertiesDock(Gtk.Box):
         wall_items = []
         text_items = []
         dimension_items = []
+        dimension_chain_items = []
+        leader_items = []
         window_items = []
         door_items = []
         circle_items = []
@@ -2971,6 +4096,8 @@ class PropertiesDock(Gtk.Box):
         roof_line_items = []
         stair_items = []
         room_items = []
+        opening_items = []
+        fixture_items = []
 
         for item in selected_items:
             item_type = item["type"]
@@ -2980,6 +4107,10 @@ class PropertiesDock(Gtk.Box):
                 text_items.append(item)
             elif item_type == "dimension":
                 dimension_items.append(item)
+            elif item_type == "dimension_chain":
+                dimension_chain_items.append(item)
+            elif item_type == "leader_callout":
+                leader_items.append(item)
             elif item_type == "door":
                 door_items.append(item)
             elif item_type == "window":
@@ -3000,6 +4131,16 @@ class PropertiesDock(Gtk.Box):
                 stair_items.append(item)
             elif item_type == "room":
                 room_items.append(item)
+            elif item_type == "floor_opening":
+                opening_items.append(item)
+            elif item_type == "fixture":
+                fixture_items.append(item)
+            elif item_type == "opening_vertex":
+                obj = item["object"]
+                if isinstance(obj, tuple) and len(obj) == 2:
+                    op, idx = obj
+                    if hasattr(op, 'points'):
+                        opening_items.append({"type": "floor_opening", "object": op})
             elif item_type == "vertex":
                 # Only if it's a room vertex
                 obj = item["object"]
@@ -3011,6 +4152,8 @@ class PropertiesDock(Gtk.Box):
         wants_wall = len(wall_items) > 0
         wants_text = len(text_items) > 0
         wants_dimension = len(dimension_items) > 0
+        wants_dimension_chain = len(dimension_chain_items) > 0
+        wants_leader = len(leader_items) > 0
         wants_window = len(window_items) > 0
         wants_door = len(door_items) > 0
         wants_circle = len(circle_items) > 0
@@ -3020,11 +4163,15 @@ class PropertiesDock(Gtk.Box):
         wants_roof = len(roof_items) > 0 or wants_roof_line
         wants_stair = len(stair_items) > 0
         wants_room = len(room_items) > 0
+        wants_opening = len(opening_items) > 0
+        wants_fixture = len(fixture_items) > 0
 
         # Enable/disable tabs based on selection
         self.tabs["wall"].set_sensitive(wants_wall)
         self.tabs["text"].set_sensitive(wants_text)
         self.tabs["dimension"].set_sensitive(wants_dimension)
+        self.tabs["dimension_chain"].set_sensitive(wants_dimension_chain)
+        self.tabs["leader"].set_sensitive(wants_leader)
         self.tabs["window"].set_sensitive(wants_window)
         self.tabs["door"].set_sensitive(wants_door)
         self.tabs["circle"].set_sensitive(wants_circle)
@@ -3033,6 +4180,8 @@ class PropertiesDock(Gtk.Box):
         self.tabs["roof"].set_sensitive(wants_roof)
         self.tabs["stair"].set_sensitive(wants_stair)
         self.tabs["room"].set_sensitive(wants_room)
+        self.tabs["floor_opening"].set_sensitive(wants_opening)
+        self.tabs["fixture"].set_sensitive(wants_fixture)
 
         # Update content for each type
         if wants_wall:
@@ -3046,6 +4195,14 @@ class PropertiesDock(Gtk.Box):
         if wants_dimension:
             selected_dimensions = [item["object"] for item in dimension_items]
             self.dimension_page.set_dimension(selected_dimensions[0])
+
+        if wants_dimension_chain:
+            selected_chains = [item["object"] for item in dimension_chain_items]
+            self.dimension_chain_page.set_chain(selected_chains[0])
+
+        if wants_leader:
+            selected_leaders = [item["object"] for item in leader_items]
+            self.leader_page.set_leader(selected_leaders[0])
 
         if wants_window:
             self.window_page.set_window(window_items[0]["object"])
@@ -3085,6 +4242,26 @@ class PropertiesDock(Gtk.Box):
                     idx_seen.add(id(room))
             self.room_page.set_room(unique_rooms)
 
+        if wants_opening:
+            idx_seen = set()
+            unique_openings = []
+            for item in opening_items:
+                op = item["object"]
+                if id(op) not in idx_seen:
+                    unique_openings.append(op)
+                    idx_seen.add(id(op))
+            self.floor_opening_page.set_opening(unique_openings)
+
+        if wants_fixture:
+            idx_seen = set()
+            unique_fixtures = []
+            for item in fixture_items:
+                fx = item["object"]
+                if id(fx) not in idx_seen:
+                    unique_fixtures.append(fx)
+                    idx_seen.add(id(fx))
+            self.fixture_page.set_fixtures(unique_fixtures)
+
         # Tab Switching Logic
         # Skip if selection came from layers panel (don't steal focus)
         from_layers_panel = getattr(self.canvas, '_selection_from_layers_panel', False)
@@ -3092,8 +4269,9 @@ class PropertiesDock(Gtk.Box):
             return
 
         has_selection = (wants_wall or wants_text or wants_dimension or 
+                        wants_dimension_chain or wants_leader or
                         wants_window or wants_door or wants_circle or 
-                        wants_arc or wants_polyline or wants_roof or wants_stair or wants_room)
+                        wants_arc or wants_polyline or wants_roof or wants_stair or wants_room or wants_opening or wants_fixture)
 
         if has_selection:
             # Decide which tab to show
@@ -3104,6 +4282,8 @@ class PropertiesDock(Gtk.Box):
             if current_tab == "wall" and wants_wall: keep_current = True
             elif current_tab == "text" and wants_text: keep_current = True
             elif current_tab == "dimension" and wants_dimension: keep_current = True
+            elif current_tab == "dimension_chain" and wants_dimension_chain: keep_current = True
+            elif current_tab == "leader" and wants_leader: keep_current = True
             elif current_tab == "window" and wants_window: keep_current = True
             elif current_tab == "door" and wants_door: keep_current = True
             elif current_tab == "circle" and wants_circle: keep_current = True
@@ -3112,11 +4292,15 @@ class PropertiesDock(Gtk.Box):
             elif current_tab == "roof" and wants_roof: keep_current = True
             elif current_tab == "stair" and wants_stair: keep_current = True
             elif current_tab == "room" and wants_room: keep_current = True
+            elif current_tab == "floor_opening" and wants_opening: keep_current = True
+            elif current_tab == "fixture" and wants_fixture: keep_current = True
             
             if not keep_current:
                 # Switch to first available type
                 if wants_wall: self._set_active_tab("wall"); self.stack.set_visible_child_name("wall")
                 elif wants_text: self._set_active_tab("text"); self.stack.set_visible_child_name("text")
+                elif wants_dimension_chain: self._set_active_tab("dimension_chain"); self.stack.set_visible_child_name("dimension_chain")
+                elif wants_leader: self._set_active_tab("leader"); self.stack.set_visible_child_name("leader")
                 elif wants_dimension: self._set_active_tab("dimension"); self.stack.set_visible_child_name("dimension")
                 elif wants_window: self._set_active_tab("window"); self.stack.set_visible_child_name("window")
                 elif wants_door: self._set_active_tab("door"); self.stack.set_visible_child_name("door")
@@ -3125,6 +4309,8 @@ class PropertiesDock(Gtk.Box):
                 elif wants_polyline: self._set_active_tab("polyline"); self.stack.set_visible_child_name("polyline")
                 elif wants_roof: self._set_active_tab("roof"); self.stack.set_visible_child_name("roof")
                 elif wants_stair: self._set_active_tab("stair"); self.stack.set_visible_child_name("stair")
+                elif wants_fixture: self._set_active_tab("fixture"); self.stack.set_visible_child_name("fixture")
+                elif wants_opening: self._set_active_tab("floor_opening"); self.stack.set_visible_child_name("floor_opening")
                 elif wants_room: self._set_active_tab("room"); self.stack.set_visible_child_name("room")
             else:
                 # Ensure tab button is visually active
@@ -3176,13 +4362,38 @@ class PropertiesDock(Gtk.Box):
 
         self.emit('sidebar-toggled', not is_visible)
 
-    def _on_paned_position_changed(self, paned, pspec):
+    def _sync_tab_spacer(self, position=None):
         """Sync the tab spacer height with the paned split position."""
-        position = paned.get_position()
-        
-        # Clamp position to reasonable bounds to prevent layout issues
-        min_height = 50   # Minimum spacer height
-        max_height = 550  # Maximum spacer height
-        clamped_position = max(min_height, min(position, max_height))
-        
-        self.icon_bar_spacer.set_size_request(-1, clamped_position)
+        if position is None:
+            position = self.content_paned.get_position()
+        toggle_h = self.toggle_button.get_height() or 34
+        header_offset = self.icon_bar.get_margin_top() + toggle_h + 16
+        desired = max(0, int(position) - header_offset)
+        paned_h = self.content_paned.get_height()
+        if paned_h > 0:
+            min_tab_area = min(220, max(120, paned_h // 3))
+            max_spacer = max(0, paned_h - header_offset - min_tab_area)
+            clamped = max(0, min(desired, max_spacer))
+        else:
+            clamped = max(0, min(desired, 360))
+        self.icon_bar_spacer.set_size_request(-1, clamped)
+
+    def _on_paned_position_changed(self, paned, pspec):
+        """Sync the tab spacer height when the paned divider moves."""
+        self._sync_tab_spacer(paned.get_position())
+
+    def _on_paned_mapped(self, paned):
+        """Re-clamp paned position and spacer once actual widget height is known."""
+        def _clamp():
+            paned_h = self.content_paned.get_height()
+            if paned_h > 0:
+                max_pos = max(120, paned_h - 220)
+                pos = self.content_paned.get_position()
+                if pos > max_pos:
+                    self.content_paned.set_position(max_pos)
+                elif pos < 120:
+                    self.content_paned.set_position(120)
+                self._sync_tab_spacer()
+            return False
+
+        GLib.idle_add(_clamp)

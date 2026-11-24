@@ -11,8 +11,10 @@ from .Dialogs.properties_dock import PropertiesDock
 from .Dialogs import help_dialog
 from .Dialogs import estimate_cost
 from .Dialogs import estimate_materials
+from .Dialogs import takeoff_dialog
 from .Dialogs import manage_materials
 from .Dialogs import settings_ui
+from .Printing import print_dialog
 from .Canvas import canvas_area
 from . import toolbar
 from . import config
@@ -60,6 +62,11 @@ class EstimatorApp(Gtk.Application):
         new_action.connect("activate", self.on_new)
         self.add_action(new_action)
 
+        # Print / export PDF
+        print_action = Gio.SimpleAction.new("print", None)
+        print_action.connect("activate", lambda a, p: self.on_print())
+        self.add_action(print_action)
+
         # Open project
         open_action = Gio.SimpleAction.new("open", None)
         open_action.connect("activate", lambda a, p: self.show_open_dialog())
@@ -84,6 +91,11 @@ class EstimatorApp(Gtk.Application):
         import_action = Gio.SimpleAction.new("import_sh3d", None)
         import_action.connect("activate", self.on_import_sh3d)
         self.add_action(import_action)
+
+        # Import a blueprint image as a drawing underlay.
+        import_bp_action = Gio.SimpleAction.new("import_blueprint", None)
+        import_bp_action.connect("activate", self.on_import_blueprint)
+        self.add_action(import_bp_action)
 
         # Save project
         save_action = Gio.SimpleAction.new("save", None)
@@ -194,281 +206,172 @@ class EstimatorApp(Gtk.Application):
                 self.properties_dock.refresh_tabs(selected)))
 
         # Define toggle callbacks.
-        def on_pointer_toggled(toggle_button):
+
+        TOGGLE_BTNS = ["pointer", "draw_walls", "draw_rooms", "add_floor_opening", "add_doors", "add_windows", 
+        "add_polyline", "add_dimension", "add_text", "add_stair", "add_fixture", "add_kitchen_layout", "draw_cabinet_run", "panning", "add_dimension_chain", 
+        "add_leader", "design_roof", "add_roof_line", "add_arc", "add_circle"]
+
+
+        def on_btn_toggled(btn_to_toggle: str, toggle_button: Gtk.Button, toggle_btn_list: list):
+            """
+            Handle toolbar button toggling.
+
+            This method is called when a toolbar button is clicked, selecting the clicked button 
+            and deselecting all the others. Sets tool mode which tells the canvas which tool to draw or select with.
+
+            Args:
+                btn_to_toggle (str): name of button we want to select.
+                toggle_button (Gtk.button): Gtk button
+                toggle_btn_list (list): List of all the names of the toggle buttons available.
+            
+            Returns:
+                None
+            """
             if toggle_button.get_active():
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                self.canvas.set_tool_mode("pointer")
-                print("Pointer mode activated")
+                for btn in toggle_btn_list:
+                    if btn == btn_to_toggle:
+                        self.tool_buttons[btn].set_active(True)
+                        self.canvas.set_tool_mode(btn)
+                    else:
+                        self.tool_buttons[btn].set_active(False)
+                    if btn == "panning":
+                        cursor = Gdk.Cursor.new_from_name("grab", None)
+                        self.canvas.set_cursor(cursor)
+                    else:
+                        self.canvas.set_cursor(None)
+                    if self.config.DEBUG:
+                        print(f"{btn} mode activated")
             else:
                 self.canvas.set_tool_mode(None)
+        
+
+        def on_pointer_toggled(toggle_button):
+            on_btn_toggled("pointer", toggle_button, TOGGLE_BTNS)
 
         def on_panning_toggled(toggle_button):
-            if toggle_button.get_active():
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                self.canvas.set_tool_mode("panning")
-                cursor = Gdk.Cursor.new_from_name("grab", None)
-                self.canvas.set_cursor(cursor)
-                print("Panning mode activated")
-            else:
-                self.canvas.set_cursor(None)
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("panning", toggle_button, TOGGLE_BTNS)
 
         def on_draw_walls_toggled(toggle_button):
-            if toggle_button.get_active():
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                self.canvas.set_tool_mode("draw_walls")
-                print("Draw walls mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("draw_walls", toggle_button, TOGGLE_BTNS)
 
         def on_add_windows_toggled(toggle_button):
-            if toggle_button.get_active():
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                self.canvas.set_tool_mode("add_windows")
-                print("Add windows mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_windows", toggle_button, TOGGLE_BTNS)
 
         def on_draw_rooms_toggled(toggle_button):
-            if toggle_button.get_active():
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                self.canvas.set_tool_mode("draw_rooms")
-                print("Draw rooms mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("draw_rooms", toggle_button, TOGGLE_BTNS)
+
+        def on_add_floor_opening_toggled(toggle_button):
+            on_btn_toggled("add_floor_opening", toggle_button, TOGGLE_BTNS)
 
         def on_add_doors_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools.
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                # Activate add_doors mode.
-                self.canvas.set_tool_mode("add_doors")
-                print("Add doors mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_doors", toggle_button, TOGGLE_BTNS)
 
         def on_add_polyline_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools.
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                # Activate add_polyline mode.
-                self.canvas.set_tool_mode("add_polyline")
-                print("Add polyline mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_polyline", toggle_button, TOGGLE_BTNS)
 
         def on_add_dimension_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools.
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                # Activate add_dimension mode.
-                self.canvas.set_tool_mode("add_dimension")
-                print("Add dimension mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_dimension", toggle_button, TOGGLE_BTNS)
 
         def on_add_text_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools.
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_stair"].set_active(False)
-                # Activate add_text mode.
-                self.canvas.set_tool_mode("add_text")
-                print("Add text mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_text", toggle_button, TOGGLE_BTNS)
 
         def on_add_circle_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                # Activate add_circle mode
-                self.canvas.set_tool_mode("add_circle")
-                print("Add circle mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_circle", toggle_button, TOGGLE_BTNS)
 
         def on_add_arc_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                # Activate add_arc mode
-                self.canvas.set_tool_mode("add_arc")
-                print("Add arc mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_arc", toggle_button, TOGGLE_BTNS)
 
         def on_design_roof_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                # Activate design_roof mode
-                self.canvas.set_tool_mode("design_roof")
-                print("Design roof mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("design_roof", toggle_button, TOGGLE_BTNS)
 
         def on_add_stair_toggled(toggle_button):
+            on_btn_toggled("add_stair", toggle_button, TOGGLE_BTNS)
+
+        def open_fixture_browser():
+            from EstiSketch.Dialogs.fixture_browser import FixtureBrowserDialog
+            if not getattr(self, "_fixture_browser_win", None):
+                self._fixture_browser_win = FixtureBrowserDialog(self.window, self.canvas)
+                self._fixture_browser_win.connect(
+                    "close-request",
+                    lambda _w: (setattr(self, "_fixture_browser_win", None), False)[1],
+                )
+            self._fixture_browser_win.present()
+
+        def open_kitchen_layout_dialog():
+            from EstiSketch.Dialogs.fixture_browser import KitchenLayoutDialog
+            if not getattr(self, "_kitchen_layout_win", None):
+                self._kitchen_layout_win = KitchenLayoutDialog(self.window, self.canvas)
+                self._kitchen_layout_win.connect(
+                    "close-request",
+                    lambda _w: (setattr(self, "_kitchen_layout_win", None), False)[1],
+                )
+            self._kitchen_layout_win.present()
+
+        def on_add_fixture_toggled(toggle_button):
+            on_btn_toggled("add_fixture", toggle_button, TOGGLE_BTNS)
             if toggle_button.get_active():
-                # Deactivate other tools
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                # Activate add_stair mode
-                self.canvas.set_tool_mode("add_stair")
-                print("Add stair mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+                open_fixture_browser()
+
+        def on_add_kitchen_layout_toggled(toggle_button):
+            on_btn_toggled("add_kitchen_layout", toggle_button, TOGGLE_BTNS)
+            if toggle_button.get_active():
+                open_kitchen_layout_dialog()
+
+        def on_draw_cabinet_run_toggled(toggle_button):
+            on_btn_toggled("draw_cabinet_run", toggle_button, TOGGLE_BTNS)
 
         def on_add_roof_line_toggled(toggle_button):
-            if toggle_button.get_active():
-                # Deactivate other tools
-                self.tool_buttons["pointer"].set_active(False)
-                self.tool_buttons["panning"].set_active(False)
-                self.tool_buttons["draw_walls"].set_active(False)
-                self.tool_buttons["draw_rooms"].set_active(False)
-                self.tool_buttons["add_doors"].set_active(False)
-                self.tool_buttons["add_windows"].set_active(False)
-                self.tool_buttons["add_polyline"].set_active(False)
-                self.tool_buttons["add_dimension"].set_active(False)
-                self.tool_buttons["add_text"].set_active(False)
-                self.tool_buttons["design_roof"].set_active(False)
-                # Activate add_roof_line mode
-                self.canvas.set_tool_mode("add_roof_line")
-                print("Draw roof line mode activated")
-            else:
-                self.canvas.set_tool_mode(None)
+            on_btn_toggled("add_roof_line", toggle_button, TOGGLE_BTNS)
+
+        def on_add_dimension_chain_toggled(toggle_button):
+            on_btn_toggled("add_dimension_chain", toggle_button, TOGGLE_BTNS)
+
+        def on_add_leader_toggled(toggle_button):
+            on_btn_toggled("add_leader", toggle_button, TOGGLE_BTNS)
 
         callbacks = {
             "pointer": on_pointer_toggled,
             "panning": on_panning_toggled,
             "draw_walls": on_draw_walls_toggled,
             "draw_rooms": on_draw_rooms_toggled,
+            "add_floor_opening": on_add_floor_opening_toggled,
             "add_doors": on_add_doors_toggled,
             "add_windows": on_add_windows_toggled,
             "add_polyline": on_add_polyline_toggled,
             "add_dimension": on_add_dimension_toggled,
+            "add_dimension_chain": on_add_dimension_chain_toggled,
+            "add_leader": on_add_leader_toggled,
             "add_text": on_add_text_toggled,
             "add_circle": on_add_circle_toggled,
             "add_arc": on_add_arc_toggled,
             "design_roof": on_design_roof_toggled,
             "add_stair": on_add_stair_toggled,
+            "add_fixture": on_add_fixture_toggled,
+            "add_kitchen_layout": on_add_kitchen_layout_toggled,
+            "draw_cabinet_run": on_draw_cabinet_run_toggled,
             "add_roof_line": on_add_roof_line_toggled
         }
 
         toolbar_box, self.tool_buttons, extra_buttons, self.toolset_info = toolbar.create_toolbar(
             self.config, callbacks, self.canvas)
         vbox.append(toolbar_box)
+
+        # Clicking an already-active fixture or layout button re-presents its palette/dialog
+        for btn_key, opener in (
+            ("add_fixture", open_fixture_browser),
+            ("add_kitchen_layout", open_kitchen_layout_dialog),
+        ):
+            btn = self.tool_buttons.get(btn_key)
+            if btn is not None:
+                reopen_click = Gtk.GestureClick()
+                reopen_click.connect(
+                    "pressed",
+                    lambda _g, _n, _x, _y, b=btn, fn=opener: fn() if b.get_active() else None,
+                )
+                btn.add_controller(reopen_click)
+
+        self._open_fixture_browser = open_fixture_browser
+        self._open_kitchen_layout_dialog = open_kitchen_layout_dialog
 
         # Connect toolset dropdown to switch handler
         self.toolset_info["dropdown"].connect(
@@ -516,7 +419,7 @@ class EstimatorApp(Gtk.Application):
         self.tool_buttons["open"].connect(
             "clicked", lambda btn: self.show_open_dialog())
         self.tool_buttons["export"].connect(
-            "clicked", lambda btn: print("Export as PDF triggered"))
+            "clicked", lambda btn: self.on_print())
         self.tool_buttons["undo"].connect(
             "clicked", lambda btn: self.canvas.undo())
         self.tool_buttons["redo"].connect(
@@ -668,7 +571,30 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["draw_walls"].set_active(True)
                 return True
             elif keyname == "r":
+                if self.canvas.tool_mode in ("add_fixture", "add_kitchen_layout"):
+                    self.canvas.rotate_active_fixture_preview(90.0)
+                    return True
+                elif self.canvas.tool_mode == "draw_cabinet_run":
+                    self.canvas.cabinet_run_side = -1.0 if getattr(self.canvas, "cabinet_run_side", 1.0) >= 0.0 else 1.0
+                    self.canvas._cabinet_run_manual_side = True
+                    self.canvas.queue_draw()
+                    return True
                 self.tool_buttons["draw_rooms"].set_active(True)
+                return True
+            elif keyname == "f":
+                if self.tool_buttons["add_fixture"].get_active():
+                    open_fixture_browser()
+                else:
+                    self.tool_buttons["add_fixture"].set_active(True)
+                return True
+            elif keyname == "k":
+                if self.tool_buttons["add_kitchen_layout"].get_active():
+                    open_kitchen_layout_dialog()
+                else:
+                    self.tool_buttons["add_kitchen_layout"].set_active(True)
+                return True
+            elif keyname == "o":
+                self.tool_buttons["add_floor_opening"].set_active(True)
                 return True
             elif keyname == "d":
                 self.tool_buttons["add_doors"].set_active(True)
@@ -689,11 +615,18 @@ class EstimatorApp(Gtk.Application):
                 self.tool_buttons["add_stair"].set_active(True)
                 return True
             elif keyname == "escape":
+                if self.canvas.tool_mode in ("calibrate_blueprint", "move_blueprint", "straighten_blueprint"):
+                    self.canvas.cancel_blueprint_tool()
+                    return True
                 if self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall:
                     self.canvas.wall_sets.append(self.canvas.walls.copy())
                     self.canvas.walls = []
                     self.canvas.current_wall = None
                     self.canvas.drawing_wall = False
+                    self.canvas.wall_curve_mode = False
+                    self.canvas.wall_curve_point = None
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS["draw_walls"])
                     self.canvas.save_state()
                     self.canvas.queue_draw()
                     return True
@@ -706,6 +639,8 @@ class EstimatorApp(Gtk.Application):
                     self.canvas.current_polyline_start = None
                     self.canvas.current_polyline_preview = None
                     self.canvas.polylines = []
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS["add_polyline"])
                     self.canvas.save_state()
                     self.canvas.queue_draw()
                     return True
@@ -715,12 +650,72 @@ class EstimatorApp(Gtk.Application):
                     self.canvas.save_state()
                     self.canvas.queue_draw()
                     return True
+                elif self.canvas.tool_mode == "add_floor_opening" and getattr(self.canvas, "current_opening_points", None):
+                    self.canvas.finalize_floor_opening()
+                    return True
+                elif self.canvas.tool_mode in ("add_fixture", "add_kitchen_layout", "draw_cabinet_run"):
+                    if hasattr(self.canvas, "_reset_fixture_interaction_state"):
+                        self.canvas._reset_fixture_interaction_state()
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS.get(self.canvas.tool_mode, ""))
+                    self.canvas.queue_draw()
+                    return True
+                elif self.canvas.tool_mode == "add_stair" and getattr(self.canvas, "action_state", "idle") != "idle":
+                    self.canvas.temp_object = None
+                    self.canvas.temp_start_point = None
+                    self.canvas.action_state = "idle"
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS["add_stair"])
+                    self.canvas.queue_draw()
+                    return True
+                elif self.canvas.tool_mode == "add_dimension" and getattr(self.canvas, "drawing_dimension", False):
+                    self.canvas.drawing_dimension = False
+                    self.canvas.dimension_start = None
+                    self.canvas.dimension_end = None
+                    self.canvas.dimension_offset_preview = None
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS["add_dimension"])
+                    self.canvas.queue_draw()
+                    return True
+                elif self.canvas.tool_mode == "add_circle" and getattr(self.canvas, "drawing_circle", False):
+                    self.canvas.drawing_circle = False
+                    self.canvas.circle_center = None
+                    self.canvas.circle_radius_preview = None
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS["add_circle"])
+                    self.canvas.queue_draw()
+                    return True
+                elif self.canvas.tool_mode == "add_arc" and getattr(self.canvas, "drawing_arc", False):
+                    self.canvas.drawing_arc = False
+                    self.canvas.arc_start = None
+                    self.canvas.arc_end = None
+                    self.canvas.arc_preview_point = None
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS["add_arc"])
+                    self.canvas.queue_draw()
+                    return True
                 elif self.canvas.tool_mode == "add_roof_line" and getattr(self.canvas, 'drawing_roof_line', False):
                     self.canvas.drawing_roof_line = False
                     self.canvas.roof_line_start = None
                     self.canvas.roof_line_preview = None
                     from EstiSketch.Resources.tool_hints import TOOL_HINTS
                     self.canvas.update_hint(TOOL_HINTS.get("add_roof_line", "Click to start drawing roof line (ridge/hip/valley/eave)"))
+                    self.canvas.queue_draw()
+                    return True
+                elif self.canvas.tool_mode == "add_dimension_chain" and getattr(self.canvas, 'drawing_dimension_chain', False):
+                    self.canvas.drawing_dimension_chain = False
+                    self.canvas.dimension_chain_points = []
+                    self.canvas.dimension_chain_offset = None
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS.get("add_dimension_chain", ""))
+                    self.canvas.queue_draw()
+                    return True
+                elif self.canvas.tool_mode == "add_leader" and getattr(self.canvas, 'drawing_leader', False):
+                    self.canvas.drawing_leader = False
+                    self.canvas.leader_tip = None
+                    self.canvas.leader_elbow = None
+                    from EstiSketch.Resources.tool_hints import TOOL_HINTS
+                    self.canvas.update_hint(TOOL_HINTS.get("add_leader", ""))
                     self.canvas.queue_draw()
                     return True
             elif keyname == "f1":
@@ -733,6 +728,15 @@ class EstimatorApp(Gtk.Application):
                     self.canvas.queue_draw()
                     return True
             elif keyname == "return":
+                if self.canvas.tool_mode == "straighten_blueprint":
+                    self.canvas.apply_straighten()
+                    return True
+                elif self.canvas.tool_mode == "add_dimension_chain" and getattr(self.canvas, 'drawing_dimension_chain', False):
+                    self.canvas.finalize_dimension_chain()
+                    return True
+                elif self.canvas.tool_mode == "add_leader" and getattr(self.canvas, 'drawing_leader', False):
+                    self.canvas.finalize_leader()
+                    return True
                 self.canvas.enter_wall_length()
                 return True
             elif keyname == "c":
@@ -750,8 +754,17 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "r":
                  self.tool_buttons["design_roof"].set_active(True)
                  return True
+            elif keyname == "k":
+                 self.tool_buttons["draw_cabinet_run"].set_active(True)
+                 return True
             elif keyname == "l":
                  self.tool_buttons["add_roof_line"].set_active(True)
+                 return True
+            elif keyname == "m":
+                 self.tool_buttons["add_dimension_chain"].set_active(True)
+                 return True
+            elif keyname == "t":
+                 self.tool_buttons["add_leader"].set_active(True)
                  return True
             elif keyname == "c":
                 if self.canvas.tool_mode == "draw_walls" and self.canvas.drawing_wall and self.canvas.walls:
@@ -760,6 +773,9 @@ class EstimatorApp(Gtk.Application):
 
 
         if ctrl_pressed and not shift_pressed:
+            if keyname in ("p", "e"):
+                self.on_print()
+                return True
             if keyname == "z":
                 self.canvas.undo()
                 return True
@@ -782,7 +798,7 @@ class EstimatorApp(Gtk.Application):
                 self.on_new(None, None)
                 return True
             elif keyname == "j":
-                self.canvas.join_selected_walls()
+                self.canvas.join_selected_walls(None)
                 return True
             elif keyname == "s":
                  self.show_save_dialog()
@@ -808,10 +824,18 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "a":
                 self.canvas.select_all()
                 return True
+            elif keyname == "g":
+                if hasattr(self.canvas, "group_selected"):
+                    self.canvas.group_selected()
+                return True
 
         if ctrl_pressed and shift_pressed:
             if keyname == "m":
                 self.on_estimate_materials_clicked(None)
+                return True
+            elif keyname == "g":
+                if hasattr(self.canvas, "ungroup_selected"):
+                    self.canvas.ungroup_selected()
                 return True
             elif keyname == "c":
                 self.on_estimate_cost_clicked(None)
@@ -851,6 +875,18 @@ class EstimatorApp(Gtk.Application):
         Sets the canvas zoom level to 1.0 (100%), centered on the current view.
         """
         self.canvas.reset_zoom()
+
+    def on_print(self) -> None:
+        """Open the print / PDF export dialog with live preview."""
+        name = ""
+        if self.current_filepath:
+            name = os.path.splitext(os.path.basename(self.current_filepath))[0]
+        print_dialog.show_print_dialog(
+            self.window,
+            self.canvas,
+            name,
+            on_settings_changed=lambda: self.update_dirty_state(True),
+        )
 
     def on_settings_clicked(self, button: Gtk.Button, *args) -> None:
         """
@@ -901,12 +937,12 @@ class EstimatorApp(Gtk.Application):
 
     def on_estimate_materials_clicked(self, button: Gtk.Button, *args) -> None:
         """
-        Open the material estimation dialog.
+        Open the material estimation dialog backed by TakeoffEngine.
 
-        Presents a dialog that calculates and displays estimated material
-        quantities based on the current canvas contents.
+        Presents an interactive window displaying computed quantities,
+        editable overrides, project assumptions, sanity checks, and exports.
         """
-        dialog = estimate_materials.create_estimate_materials_dialog(
+        dialog = takeoff_dialog.create_takeoff_dialog(
             self.window, self.canvas)
         dialog.present()
 
@@ -978,10 +1014,41 @@ class EstimatorApp(Gtk.Application):
                 self.canvas.existing_ids.extend(imported["identifiers"])
                 # Mark the canvas as dirty since it has new content.
                 self.update_dirty_state(True)
+                self._refresh_sidebar_layers()
                 # Request redraw of canvas
                 self.canvas.queue_draw()
             except Exception as e:
                 print(f"Error importing SH3D file: {e}")
+        dialog.destroy()
+
+    def on_import_blueprint(self, action: Gio.SimpleAction, parameter) -> None:
+        """Choose an image to use as a blueprint underlay, then calibrate it."""
+        dialog = Gtk.FileChooserDialog(
+            title="Import Blueprint Image",
+            transient_for=self.window,
+            action=Gtk.FileChooserAction.OPEN
+        )
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Open", Gtk.ResponseType.OK)
+
+        image_filter = Gtk.FileFilter()
+        image_filter.set_name("Images (PNG, JPG, BMP, GIF, TIFF)")
+        for mime in ("image/png", "image/jpeg", "image/bmp", "image/gif", "image/tiff"):
+            image_filter.add_mime_type(mime)
+        dialog.add_filter(image_filter)
+
+        dialog.connect("response", self.on_import_blueprint_response)
+        dialog.show()
+
+    def on_import_blueprint_response(self, dialog: Gtk.FileChooserDialog, response: Gtk.ResponseType) -> None:
+        """Import the chosen image and start the two-click calibration."""
+        if response == Gtk.ResponseType.OK:
+            path = dialog.get_file().get_path()
+            try:
+                self.canvas.import_blueprint(path)
+            except Exception as e:
+                print(f"Error importing blueprint: {e}")
+                self.canvas.update_hint(f"Could not import blueprint: {e}")
         dialog.destroy()
 
     def on_new(self, action: Gio.SimpleAction, parameter) -> None:
@@ -1045,6 +1112,7 @@ class EstimatorApp(Gtk.Application):
         self.current_filepath = None
         # Reset the dirty state
         self.update_dirty_state(False)
+        self._refresh_sidebar_layers()
         # Redraw the canvas
         self.canvas.queue_draw()
 
@@ -1224,10 +1292,17 @@ class EstimatorApp(Gtk.Application):
         self.add_to_recent(path)
         self.current_filepath = path
         open_project(self.canvas, path)
-        if hasattr(self, 'layers_panel'):
-            self.layers_panel.refresh_layers()
+        self._refresh_sidebar_layers()
         self.canvas.queue_draw()
         self.update_dirty_state(False)
+
+    def _refresh_sidebar_layers(self) -> None:
+        """Refresh level, ghost, and layer controls in the sidebar after project load/reset."""
+        if hasattr(self, "properties_dock") and self.properties_dock:
+            lp = getattr(self.properties_dock, "layers_page", None)
+            if lp is not None:
+                lp.refresh_level_ui()
+                lp.refresh_layers()
 
     def on_open_recent(self, action: Gio.SimpleAction, parameter) -> None:
         """
@@ -1258,9 +1333,9 @@ class EstimatorApp(Gtk.Application):
                     label=Gio.File.new_for_path(path).get_basename())
 
                 def _on_click(button, p=path):
+                    self.current_filepath = p
                     open_project(self.canvas, p)
-                    if hasattr(self, 'layers_panel'):
-                        self.layers_panel.refresh_layers()
+                    self._refresh_sidebar_layers()
                     self.canvas.queue_draw()
                     self.update_dirty_state(False)
                     popover.popdown()
@@ -1373,6 +1448,11 @@ class EstimatorApp(Gtk.Application):
             if hasattr(self, 'properties_dock') and hasattr(self.properties_dock, 'content_paned'):
                 split_pos = self.properties_dock.content_paned.get_position()
                 if split_pos > 0:
+                    paned_h = self.properties_dock.content_paned.get_height()
+                    if paned_h > 0:
+                        split_pos = max(120, min(split_pos, max(120, paned_h - 220)))
+                    else:
+                        split_pos = max(120, min(split_pos, 450))
                     self.config.LAYERS_PROPERTIES_SPLIT = split_pos
 
             # Save window state

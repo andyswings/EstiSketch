@@ -1,103 +1,83 @@
 import math
+from .label_utils import upright_angle
+from ..geometry.arc_wall import (
+    arc_opening_cutout,
+    arc_wall_point,
+    arc_wall_tangent,
+    is_curved_wall,
+)
 
 
 def get_point_on_wall(wall, ratio):
-    """
-    Calculate a point along a wall (straight or curved) at the given ratio.
-    
-    Args:
-        wall: Wall object
-        ratio: Position along wall (0.0 = start, 1.0 = end)
-    
-    Returns:
-        tuple: (x, y) coordinates of the point
-    """
-    if wall.is_curved and wall.arc_center and wall.arc_radius:
-        # Curved wall - calculate point on arc
-        cx, cy = wall.arc_center
-        start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
-        end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
-        
-        # Use the same arc direction logic as wall rendering
-        # Normalize angle difference to (-π, π]
-        angle_diff = end_angle - start_angle
-        while angle_diff > math.pi:
-            angle_diff -= 2 * math.pi
-        while angle_diff < -math.pi:
-            angle_diff += 2 * math.pi
-        
-        # Interpolate angle using the actual arc span (which may go CW or CCW)
-        angle = start_angle + ratio * angle_diff
-        
-        # Calculate point on arc
-        x = cx + wall.arc_radius * math.cos(angle)
-        y = cy + wall.arc_radius * math.sin(angle)
-        return (x, y)
-    else:
-        # Straight wall - linear interpolation
-        A = wall.start
-        B = wall.end
-        return (A[0] + ratio * (B[0] - A[0]), A[1] + ratio * (B[1] - A[1]))
+    """Calculate a point ``(x, y)`` along a wall (straight or curved) at ``ratio``."""
+    return arc_wall_point(wall, ratio)
 
 
 def get_wall_direction(wall, ratio):
+    """Calculate the unit tangent direction vector at ``ratio`` along a wall."""
+    return arc_wall_tangent(wall, ratio)
+
+
+def _draw_opening_cutout(cr, wall, ratio, opening_width, wall_width, H_start, H_end, p, opacity, zoom_transform):
+    """Erase the wall segment under a door/window and return ``(jamb_start, jamb_end)``.
+
+    On curved walls this carves the exact annular arc sector between the
+    radial jamb cuts at ``opening_width`` chord distance and strokes crisp radial
+    jamb end-caps, preventing black wall crescents from intruding into openings.
     """
-    Calculate the tangent direction vector at a point along a wall.
-    
-    For curved walls, this is the tangent to the arc.
-    For straight walls, this is the wall direction.
-    
-    Args:
-        wall: Wall object
-        ratio: Position along wall (0.0 = start, 1.0 = end)
-    
-    Returns:
-        tuple: (dx, dy) unit direction vector at that point
-    """
-    if wall.is_curved and wall.arc_center and wall.arc_radius:
-        # Curved wall - calculate tangent direction at this point
-        cx, cy = wall.arc_center
-        start_angle = math.atan2(wall.start[1] - cy, wall.start[0] - cx)
-        end_angle = math.atan2(wall.end[1] - cy, wall.end[0] - cx)
-        
-        # Use the same arc direction logic as wall rendering
-        # Normalize angle difference to (-π, π]
-        angle_diff = end_angle - start_angle
-        while angle_diff > math.pi:
-            angle_diff -= 2 * math.pi
-        while angle_diff < -math.pi:
-            angle_diff += 2 * math.pi
-        
-        # Interpolate angle using the actual arc span
-        angle = start_angle + ratio * angle_diff
-        
-        # Tangent is perpendicular to radius
-        # For CW arc (angle_diff < 0), tangent is 90° behind radius (-π/2)
-        # For CCW arc (angle_diff > 0), tangent is 90° ahead of radius (+π/2)
-        if angle_diff >= 0:
-            tangent_angle = angle + math.pi / 2  # CCW: tangent is 90° ahead
-        else:
-            tangent_angle = angle - math.pi / 2  # CW: tangent is 90° behind
-        
-        dx = math.cos(tangent_angle)
-        dy = math.sin(tangent_angle)
-        
-        return (dx, dy)
-    else:
-        # Straight wall - direction is constant
-        A = wall.start
-        B = wall.end
-        dx = B[0] - A[0]
-        dy = B[1] - A[1]
-        length = math.hypot(dx, dy)
-        if length > 0:
-            return (dx / length, dy / length)
-        else:
-            return (1, 0)  # Default horizontal direction
+    if is_curved_wall(wall):
+        cut = arc_opening_cutout(wall, ratio, opening_width)
+        if cut is not None:
+            cx, cy = cut["cx"], cut["cy"]
+            radius = cut["radius"]
+            theta_lo = cut["theta_lo"]
+            theta_hi = cut["theta_hi"]
+            half_w = wall_width / 2.0
+            r_inner = max(0.0, radius - half_w - 0.35)
+            r_outer = radius + half_w + 0.35
+
+            cr.save()
+            cr.set_source_rgba(1, 1, 1, opacity)
+            cr.new_path()
+            cr.arc(cx, cy, r_outer, theta_lo, theta_hi)
+            if r_inner > 0.0:
+                cr.arc_negative(cx, cy, r_inner, theta_hi, theta_lo)
+            else:
+                cr.line_to(cx, cy)
+            cr.close_path()
+            cr.fill()
+
+            # Stroke radial jamb end-caps across the curved wall thickness
+            cr.set_source_rgba(0, 0, 0, opacity)
+            cr.set_line_width(1.0 / zoom_transform)
+            r_cap_in = max(0.0, radius - half_w)
+            r_cap_out = radius + half_w
+            for theta in (theta_lo, theta_hi):
+                c_t, s_t = math.cos(theta), math.sin(theta)
+                cr.move_to(cx + r_cap_in * c_t, cy + r_cap_in * s_t)
+                cr.line_to(cx + r_cap_out * c_t, cy + r_cap_out * s_t)
+                cr.stroke()
+            cr.restore()
+            return cut["jamb_start"], cut["jamb_end"]
+
+    # Straight wall (or fallback): white rectangle cutout
+    P1 = (H_start[0] - (wall_width / 2) * p[0], H_start[1] - (wall_width / 2) * p[1])
+    P2 = (H_start[0] + (wall_width / 2) * p[0], H_start[1] + (wall_width / 2) * p[1])
+    P3 = (H_end[0] + (wall_width / 2) * p[0], H_end[1] + (wall_width / 2) * p[1])
+    P4 = (H_end[0] - (wall_width / 2) * p[0], H_end[1] - (wall_width / 2) * p[1])
+    cr.set_source_rgba(1, 1, 1, opacity)
+    cr.move_to(*P1)
+    cr.line_to(*P2)
+    cr.line_to(*P3)
+    cr.line_to(*P4)
+    cr.close_path()
+    cr.fill()
+    return H_start, H_end
 
 
 
-def draw_doors(self, cr, pixels_per_inch):
+def draw_doors(self, cr, pixels_per_inch, items=None, opacity_override=None):
+    """Draw doors. ``items``/``opacity_override`` let callers draw a ghost."""
     # Draw doors
     cr.save()
     zoom_transform = self.zoom * pixels_per_inch
@@ -113,9 +93,9 @@ def draw_doors(self, cr, pixels_per_inch):
             return self.get_object_opacity(obj)
         return 1.0
 
-    for door_item in self.doors:
+    for door_item in (self.doors if items is None else items):
         wall, door, ratio = door_item
-        opacity = get_opacity(door)
+        opacity = get_opacity(door) if opacity_override is None else opacity_override
 
         # Skip invalid entries or hidden doors
         if wall is None or not is_visible(door):
@@ -142,25 +122,15 @@ def draw_doors(self, cr, pixels_per_inch):
             n = (p[0], p[1])    # p
 
         w = door.width
-        t = self.config.DEFAULT_WALL_WIDTH
+        t = getattr(wall, "width", None) or self.config.DEFAULT_WALL_WIDTH
 
         # Opening endpoints
         H_start = (H[0] - (w / 2) * d[0], H[1] - (w / 2) * d[1])
         H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
 
-        # Opening rectangle
-        P1 = (H_start[0] - (t / 2) * p[0], H_start[1] - (t / 2) * p[1])
-        P2 = (H_start[0] + (t / 2) * p[0], H_start[1] + (t / 2) * p[1])
-        P3 = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])
-        P4 = (H_end[0] - (t / 2) * p[0], H_end[1] - (t / 2) * p[1])
-
-        cr.set_source_rgba(1, 1, 1, opacity)  # White fill for opening
-        cr.move_to(*P1)
-        cr.line_to(*P2)
-        cr.line_to(*P3)
-        cr.line_to(*P4)
-        cr.close_path()
-        cr.fill()
+        H_start, H_end = _draw_opening_cutout(
+            cr, wall, ratio, w, t, H_start, H_end, p, opacity, zoom_transform
+        )
 
         if door.door_type == "single":
 
@@ -835,12 +805,8 @@ def draw_doors(self, cr, pixels_per_inch):
         # Compute the wall's angle
         theta = math.atan2(d[1], d[0])
 
-        # Adjust theta to avoid upside-down text
-        theta_adjusted = theta % (2 * math.pi)
-        if theta_adjusted > math.pi / 2 and theta_adjusted < 3 * math.pi / 2:
-            theta_text = theta + math.pi
-        else:
-            theta_text = theta
+        # Adjust theta to avoid upside-down text (SweetHome3D-style)
+        theta_text = upright_angle(theta)
 
         # Save the Cairo context
         cr.save()
@@ -871,7 +837,8 @@ def draw_doors(self, cr, pixels_per_inch):
     cr.restore()
 
 
-def draw_windows(self, cr, pixels_per_inch):
+def draw_windows(self, cr, pixels_per_inch, items=None, opacity_override=None):
+    """Draw windows. ``items``/``opacity_override`` let callers draw a ghost."""
     cr.save()
     zoom_transform = self.zoom * pixels_per_inch
 
@@ -887,10 +854,10 @@ def draw_windows(self, cr, pixels_per_inch):
         return 1.0
 
     # Draw windows
-    for window_item in self.windows:  # window_item = (wall, window, ratio)
+    for window_item in (self.windows if items is None else items):  # (wall, window, ratio)
         # wall is a Wall object, window is a Window object, ratio is a float
         wall, window, ratio = window_item
-        opacity = get_opacity(window)
+        opacity = get_opacity(window) if opacity_override is None else opacity_override
 
         # Skip invalid entries or hidden windows
         if wall is None or not is_visible(window):
@@ -912,11 +879,15 @@ def draw_windows(self, cr, pixels_per_inch):
         p = (-d[1], d[0])  # Perpendicular vector
 
         w = window.width
-        t = self.config.DEFAULT_WALL_WIDTH
+        t = getattr(wall, "width", None) or self.config.DEFAULT_WALL_WIDTH
 
         # Window opening endpoints along the wall
         H_start = (H[0] - (w / 2) * d[0], H[1] - (w / 2) * d[1])
         H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
+
+        H_start, H_end = _draw_opening_cutout(
+            cr, wall, ratio, w, t, H_start, H_end, p, opacity, zoom_transform
+        )
 
         # Opening rectangle corners
         P1 = (H_start[0] - (t / 2) * p[0], H_start[1] -
@@ -927,15 +898,6 @@ def draw_windows(self, cr, pixels_per_inch):
               (t / 2) * p[1])  # Top-right corner
         P4 = (H_end[0] - (t / 2) * p[0], H_end[1] -
               (t / 2) * p[1])  # Top-left corner
-
-        # Draw the opening as a white rectangle
-        cr.set_source_rgba(1, 1, 1, opacity)  # White fill
-        cr.move_to(*P1)
-        cr.line_to(*P2)
-        cr.line_to(*P3)
-        cr.line_to(*P4)
-        cr.close_path()
-        cr.fill()
 
         if window.window_type == "sliding":
 
@@ -1178,12 +1140,8 @@ def draw_windows(self, cr, pixels_per_inch):
         cr.save()
         cr.translate(label_pos[0], label_pos[1])
         theta = math.atan2(d[1], d[0])  # Angle of the wall
-        # Adjust theta to avoid upside-down text
-        theta_adjusted = theta % (2 * math.pi)
-        if theta_adjusted > math.pi / 2 and theta_adjusted < 3 * math.pi / 2:
-            theta_text = theta + math.pi  # Flip if upside down
-        else:
-            theta_text = theta
+        # Adjust theta to avoid upside-down text (SweetHome3D-style)
+        theta_text = upright_angle(theta)
         cr.rotate(theta_text)
         font_size = 12 / zoom_transform  # Adjust for zoom and DPI
         cr.select_font_face("Sans", 0, 0)

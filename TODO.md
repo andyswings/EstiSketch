@@ -1,46 +1,38 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Mimic SweetHome3D wall labels (while drawing) use this behavior for all labels on walls windows and doors, etc. so that labels are upright when possible or easy to read when not possible.
-- [ ] Add window and door ghosts. When using the relevant tool and mousing over a wall, a window or door ghost appears on the wall where the actual window or door would be if the user made a click.
-- [ ] Add Winder stairs to the Stairs tool. Add property dock controls for the number of winders.
-- [ ] Look into what we are missing to reach feature parity with the 2D part of SweetHome3D.
-- [ ] Make sure roof and overhang tools work with 0 wall thickness.
-- [ ] Make sure roof and overhang tools work with walls on different levels.
-- [ ] Make sure roof and overhang tools work with angled walls.
-- [ ] Clean up the code base. I feel like we have a few things that are redundant, no longer used, or are in other ways unnecessary.
+- [ ] Real printer support: add a "Print..." button to the Print dialog that sends the sheets to a physical printer via `Gtk.PrintOperation` (system print dialog, paper/printer selection), reusing `print_renderer.render_page` so output matches the preview. Needs testing on actual hardware (including large-format plotters and paper-size mapping).
+- [ ] Print line weights: lines currently print at a constant ~2 pt regardless of drawing scale. Add a line-weight setting (per-object-type pen weights / global multiplier) in the Print dialog so plots look right at any scale.
+- [ ] Print tiling: a drawing larger than the sheet at a fixed scale is clipped. Add an option to tile it across multiple pages (with overlap/registration marks and page numbering), and show the tile grid in the preview.
+- [ ] Add all build files for building windows and linux packages to the .gitignore file and remove them from the online repo.
+
 
 ## Ideas to think about
-- [ ] Refine capability to snap new wall's edges to existing wall edges instead of just endpoints to endpoints (should have same capabilities for editing walls as well) (This is useful for aligning walls of different thicknesses end to end)
+- [ ] Clean up the code base. I feel like we have a few things that are redundant, or code that is basically duplicates and needs to be reworked avoid having duplicates.
 
 ## ✨ Core Features (essential functionality)
 
-### Architectural Elements
-- [ ] Columns/Posts
-- [ ] Beams
+### Architectural Elements (all elements should be procedural so that once created they can easily be modified)
+- [ ] Columns/Posts (rectangular, round, square) (Maybe we should be able to select an edge of a room, and specify approximate spacing or number of posts/columns and the app should automatically draw them with the correct spacing. Once drawn though, each post should be able to be independently edited (location, size, etc...). We should be able to place constraints on posts as well, like constraining two posts to be centered on a door for example, so that if you adjust one post the other will move automatically to preserve it's being centered on the door or if the door is moved the posts move with it.)
+- [ ] Beams (load bearing, decorative, cantilever, etc...) (should be able to specify material and dimensions or let it auto calculate dimensions based on load)
 - [ ] Ceiling types (dropped, vaulted, cathedral)
 - [ ] Railings/Guardrails (deck, stair, balcony)
-- [ ] Add Cabinet Tool
-- [ ] Countertops (custom shapes)
-- [ ] Appliances library
 - [ ] Moldings (crown, base, chair rail, casing)
 
 ### Dimensions & Annotations
 - [ ] Add automatic room area calculations
-- [ ] Dimension chains (continuous dimensions)
 - [ ] Radial/diameter dimensions
-- [ ] Angular dimensions
-- [ ] Leaders/Callouts
 - [ ] Text styles (save and reuse formatting)
 - [ ] Area/Perimeter labels
 - [ ] Schedules (door/window/material)
 - [ ] Tags/Labels (room names, numbers)
 
-### 3D Visualization (long term)
+### 3D Visualization (long term) (I wonder if this part might better be done in Rust for speed?)
 - [ ] Basic 3D modeling/view
 - [ ] 3D navigation (orbit, walk through)
 - [ ] Material textures in 3D
-- [ ] Lighting (sun position, artificial lights)
+- [ ] Ceiling texture patterns (deferred from 2D Phase 4)
+- [ ] Lighting (sun position , artificial lights)
 - [ ] Rendering (photorealistic)
 - [ ] Camera views (save perspectives)
 - [ ] Section cuts (slice through building)
@@ -68,7 +60,6 @@
 - [ ] DWG/DXF import (AutoCAD files)
 - [ ] IFC import (BIM standard)
 - [ ] SketchUp (.skp)
-- [ ] PDF/images as underlay
 - [ ] CSV data import
 
 ### Export  
@@ -112,7 +103,6 @@
 
 ### Electrical/Plumbing/HVAC
 - [ ] Electrical symbols (outlets, switches, lights, panels)
-- [ ] Plumbing fixtures (sinks, toilets, showers, tubs)
 - [ ] HVAC (vents, returns, units)
 - [ ] Circuit calculations
 - [ ] Pipe routing
@@ -128,9 +118,7 @@
 - [ ] Grading (elevation changes)
 
 ### Kitchen/Bath Specialized
-- [ ] Create Furniture & Fixture library
-- [ ] Cabinet designer (custom cabinets)
-- [ ] Countertop templates
+- [ ] Living/bedroom furniture library (sofas, beds, dining tables, chairs — architectural kitchen/bath fixtures & appliances done, see Done)
 - [ ] Backsplash patterns
 - [ ] Tile layouts
 
@@ -145,22 +133,60 @@
 ## 🎨 Presentation & Visualization
 - [ ] Line weights/types control
 - [ ] Colors by layer
-- [ ] 2D shadows
 - [ ] Rendering styles (sketch, blueprint, presentation)
 - [ ] Dark mode toggle
 - [ ] Themes
 
-## 🛠️ Tech Debt / Refactoring
-
 ## 🐛 Known Bugs / FIXMEs
-- [ ] Importing from SH3D walls are not mitered correctly
-- [ ] Auto-generated rooms do not correctly draw when room includes curved walls. It just draws straight between wall endpoints instead of following the curve.
-
-## 💡 Takeoffs
-- [ ] Material Estimator
-- [ ] Cost Estimator
+- [ ] Double clicking in a closed loop of walls to create a room, draws a room to the center of the walls instead of drawing to the inside edge of the walls as was intended.
+- [ ] Unable to select objects under a roof.
+- [ ] When selecting "New" from the file menu, not all canvas data is deleted. This is a problem.
+- [ ] Doors and windows are not able to be placed in the center of a wall after a wall is split because a window or door cannot span multiple walls.
+- [ ] If a roof is created after a wall is already split, it messes up the entire roof calculation and ridge and hip lines go every which way.
+- [ ] Asymetrical pitch settings do not seem to affect where the ridge is drawn like it should. Only the labels change.
+- [ ] Unable to select and move a room once created.
+- [ ] Trying to move multiple objects at the same time does not always work properly.
 
 ## Done ✅ (latest first)
+- [x] Architectural Fixtures, Cabinetry, Countertops & Appliances (SH3D parity Phase 5): Added 30-symbol procedural `Fixture` catalog (`fixtures_catalog.py`, `components.py`) covering kitchen base/upper/tall/corner cabinets, bath vanities & plumbing fixtures (toilets, sinks, bathtubs, showers, W/D), major appliances, and HVAC/utility units; 3-pass AIA Cairo renderer (`render_fixtures.py`) with opaque base floor-pattern masking, overhung countertops, drop-in sinks/cooktops, and dashed uppers; surface mounting & elevation (`floor` vs `slab` `slab_thickness` auto-resolve); straight & arc wall snapping and 15°-snapped handle rotation; searchable `FixtureBrowserDialog`, 9-preset `KitchenLayoutDialog` (`one_wall`, `galley`, `l_shaped`, `u_shaped`, `g_shaped`, `peninsula`, `island`, `vanity_single`, `vanity_double`), and 2-click `draw_cabinet_run` tool producing individually-editable `Fixture` items; Properties dock tab, Layers panel filtering/badges, `<Fixtures>` XML save/load, and material takeoff / supplier quotes (`extract_fixtures_takeoff`, countertop sq ft + waste, linear feet of cabinets, fixture counts) (2026-11-23).
+- [x] Arc wall snapping & tangent cuts (SH3D parity Phase 1): added pure-Python [arc_wall.py](file:///home/andrew/Documents/Python_Projects/EstiSketch/src/EstiSketch/geometry/arc_wall.py) geometry helpers; `SnappingManager` support for curved-wall true arc midpoints, concentric face edges, line-arc & arc-arc intersections, tangent-from-point & tangent-continuation snapping (with cyan guide in `draw_snap_indicator`), and radial perpendicular snapping; fixed CW & 0/2π seam placement & dragging in `_locate_on_wall` / `dragging_door_window`; added annular-sector + radial-jamb tangent cutouts in `_draw_opening_cutout` and curved per-side wall finish/baseboard arcs in `_draw_wall_side_accents`; tests in `tests/test_arc_wall_snapping_and_cuts.py` (2026-11-23)
+- [x] Manual Floor Opening tool (Phase 4 Room Cutouts follow-up): added first-class `FloorOpening` component (`opening`, `atrium`, `lightwell`, `courtyard`, `elevator`, `shaft`, `double_height`), ear-clip triangulation & concave/convex clipping in `geometry/room_holes.py` (`compute_opening_holes`, `triangulate_polygon`, `sync_stair_holes`), toolbar button (`O`) + hints + rubber-band polygon tool (`Canvas/events_room.py`), selection/vertex/drag/group/undo-redo integration, architectural X-cross + label rendering (`draw_floor_openings`), `FloorOpeningPropertiesWidget` (including `ceiling_only` toggle), `LayersPanel` Objects explorer integration, `<FloorOpenings>` XML persistence, and tests in `tests/test_floor_openings.py` (2026-11-23)
+- [x] Per-side wall finishes & baseboards (SH3D parity Phase 4): added `left_finish`/`right_finish`, `left_color`/`right_color`, and `left_baseboard`/`right_baseboard` on `Wall`, 2D side color & baseboard trim indicators in `draw_walls`, `WallPropertiesWidget` controls + Swap Left/Right, XML persistence, `extract_wall_finishes` / `generate_wall_finish_report` + supplier quote lines, and tests in `tests/test_wall_finishes.py` (2026-11-23)
+- [x] Floor texture patterns (SH3D parity Phase 4): pure-Cairo procedural fills (`Canvas/floor_patterns.py`) for wood plank, LVP/laminate plank, herringbone, chevron wood, tile grids (12"/18"/24"), 1/2 & 1/3 offset tile, hexagon & basketweave tile, plush & Berber weave carpet, and concrete stipple with per-room pattern rotation & scale, hole-clipped rendering in `draw_rooms`, `RoomPropertiesWidget` controls, XML persistence, and tests in `tests/test_floor_patterns.py` (ceiling patterns deferred to 3D) (2026-11-23)
+- [x] Level onion-skinning ghosting (SH3D parity Phase 6): `ghost_level_id` (`Off` / `Below (N-1)` / `Above (N+1)` / explicit level) & `ghost_opacity` (default 0.25) on `CanvasArea`, muted background render pass (`draw_ghost_level`, excluded from print/PDF/SVG), Ghost dropdown + opacity slider in `LayersPanel`, and XML persistence; tests in `tests/test_level_ghosting.py` (2026-11-23)
+- [x] Compass rose / north azimuth (SH3D parity Phase 6): `canvas.north_angle`, interactive draggable top-right compass overlay in `Canvas/compass.py` & `canvas_draw.py` (double-click resets to 0°), undo/redo & XML persistence, and North cell in the print/SVG title block; tests in `tests/test_compass_rose.py` & `tests/test_printing.py` (2026-11-23)
+- [x] Print settings dirty state: `PrintDialog` now checks for changed settings on close and invokes `on_settings_changed` to mark the project dirty in `main.py`; tested in `tests/test_printing.py` (2026-11-23)
+- [x] Scaled Vector SVG Export (SH3D parity Phase 7): added `export_svg` in `Printing/print_renderer.py` using `cairo.SVGSurface` (point physical units, single-level or per-level named files, reusing `render_page` scales and title blocks), "Export SVG..." button in `PrintDialog`, updated File menu label, and tests in `tests/test_printing.py` (2026-11-23)
+- [x] Room area takeoff follow-ups: added `FLOORING_WASTE_PCT`, `CEILING_WASTE_PCT`, and `CONCRETE_WASTE_PCT` settings (with controls in Manage Materials), flooring by `floor_type`, ceiling drywall sheets, and ready-mix slab concrete lines in `get_supplier_quote_items`, room-area summary rows in CSV/TXT supplier quote exports, and tests in `tests/test_room_holes.py` (2026-11-23)
+- [x] Room hole UI controls: "Opening clearance (in)" spinner in the stair properties panel and a project-level "Cut lower-level ceiling under stairs" switch in Settings (saved in the project file) (2026-11-23)
+- [x] Room tool snapping & hover guides (SH3D parity Phase 1): rooms now snap to wall edges/faces/centerlines/endpoints like walls (shared `_compute_room_snap`; previously the snap result was discarded), snap indicators show while hovering in wall and room modes before the first click, and double-click inside a closed wall loop creates a room on the inside wall faces (`_get_wall_set_inner_polygon`). Tests in `tests/test_room_inner_polygon.py` (2026-11-23)
+- [x] PDF printing / export with live preview (File > Print / Export PDF..., Ctrl+P / Ctrl+E, toolbar Export button). `Printing/` package: `print_settings.py` (paper sizes Letter/Legal/Tabloid/A4-A0/ANSI B-E/Arch C-E, orientation, margins, architectural + metric scales or fit-to-page, saved in the project file as `<PrintSettings>`), `print_renderer.py` (layout, level/layer filtering, editable title block, multi-page cairo PDF output) and `print_dialog.py` (preview with drag-to-reposition, level/layer selection, title block editor). Print all levels = one page per level, or pick levels/layers. `on_draw` refactored so `draw_scene(printing=True)` renders only committed content (no grid, selection, snap guides or previews). Tests in `tests/test_printing.py`. Real-printer support can reuse `render_page` via `Gtk.PrintOperation`.
+- [x] Object grouping & unit manipulation (`ObjectGroup`, `CanvasGroupMixin`, `Ctrl+G` / `Ctrl+Shift+G`, canvas dashed bounding box + interactive rotation handle, unit move/rotate/lock/hide/delete/move-layer-or-level, right-click context menu, undo/redo, and XML project persistence) (2026-11-18)
+- [x] All Objects explorer & enhanced object management in the Layers & Objects sidebar (unified searchable/filterable list of all objects & groups across all layers/levels, per-object selection sync, hide, lock, delete, custom names, multi-line comments with `💬` indicator, move between layers/levels, and XML persistence for `custom_name`, `comment`, `visible`, `locked`) (2026-11-18)
+- [x] It is really hard to draw precise length walls. We need to make walls draw in increments of 0.25" or something like that. Also we need some method to prompt or maybe even automatically fix a wall that is drawn (at 39' 11.95" for example) to the nearest foot if it is really close. (2026-11-07)
+- [x] Only layers assigned to the selected level should be shown / selectable. All other levels should be hidden / unselected / unselectable except when the layer is assigned to Global all layers. (2026-11-07)
+- [x] Unable to copy and paste multiple windows at once... This should be possible not only with windows, but also with any type of object. (2026-11-07)
+- [x] Unable to set custom heights for walls, either with rectangular walls or with sloped walls. (2026-11-07)
+- [x] Instead of being hardcoded in, default window and door sizes should have a setting so that a user can set it easily. (2026-11-07)
+- [x] Not all tools have use hints in the bottom bar. Add them for tools that don't have them. (2026-11-07)
+- [x] Verified that all object types have a unique ID, and if not, then added unique IDs to all object types. We already have a function to do this. Also made sure that all object types use the same ID format. The format generated by the function should be the same as that used by Sweet Home 3d. (2026-11-05)
+- [x] Phase 4 room holes: stair-derived floor openings (`Room.holes`, regenerated from the stair so they follow moves/edits/deletes), even-odd rendering, hole deduction from floor/flooring/ceiling/slab takeoff via new `extract_room_areas`, optional lower-ceiling cut setting, persistence by source link, and tests/test_room_holes.py (2026-11-04)
+- [x] Dimension chain tool: live measurement preview while placing points, double-click a segment (select tool) to type an exact length (later points slide along the baseline), dragging chain points now snaps to features (intermediate points are constrained to the baseline), and a 70+ case test suite in tests/test_dimension_chain_tool.py (2026-11-04)
+- [x] Fixed dimension chains: feature-snapped clicks (endpoint, midpoint, wall centerline/edge, face flush) now add points to the current chain (generic grid/angle/axis snaps and unsnapped clicks off the baseline set the offset), and double-click on a wall or room edge creates a chain for it (2026-11-04)
+- [x] Continuous Dimension Chains partially implemented (Continuous aligned dimension strings with summary dimension) & Leader Callout Arrows (2026-11-01)
+- [x] Blueprint tracing, calibration wizard & straightening transform (SH3D parity Phase 2): File > Import Blueprint… adds a PNG/JPG underlay, two-click calibration with real-distance entry (ft/in, mm, cm, m), interactive 3D perspective homography and paper curvature / edge-bow straightening tool with corner & edge handles, per-blueprint visibility/lock/opacity/rotation/move/remove controls in the Layers panel, undo/redo, and images embedded in saved projects (2026-10-31)
+- [x] Edge-to-Edge Wall Snapping (SH3D parity Phase 1): face-flush/abutting snaps for walls of different thickness with cyan/orange guides, snapping now considers committed walls, and mixed-thickness corner joins are filled (2026-10-13)
+- [x] SweetHome3D 2D feature parity gap analysis and ranked roadmap (deliverable: [docs/sh3d_2d_parity.md](file:///home/andrew/Documents/Python_Projects/EstiSketch/docs/sh3d_2d_parity.md) and updated TODO.md) (2026-10-10)
+- [x] Added 2D & 3D stair railings to all stair types (straight, L-shaped, U-shaped switchback, winders, spiral) with left/right toggles, rail height, 2D plan rendering, and material takeoff & supplier quote itemization (2026-10-10)
+- [x] Roof and overhang tools work with angled walls (sloped-top walls with height != height_at_end): eave planes calculate exact along-eave slope gradient g = (z_end - z_start)/length and sloping ridges (2026-10-10)
+- [x] Roof and overhang tools work with walls on different levels: each eave starts at wall top elevation (level.elevation + wall.height), and asymmetric ridges shift automatically to plane intersection (2026-10-10)
+- [x] Roof and overhang tools work with 0 wall thickness and correctly measure overhang from exterior wall face (centerline + wall.width/2), while strictly degrading to centerline math for 0-thickness walls (2026-10-10)
+- [x] Reorganized roof engine into src/EstiSketch/ (models/roof.py, geometry/roof_solver.py, ui/properties_panel.py) with backwards-compatibility shims at root src/ (2026-10-10)
+- [x] Added SweetHome3D-style upright labels via a shared `upright_angle` helper: wall, live-drawing, radius, arc, door and window labels follow the wall angle and flip when upside down (vertical text reads bottom-to-top) (2026-10-10)
+- [x] Added door and window placement ghosts: a 40% opacity preview of the real symbol follows the cursor along walls, using the same hit-test as the click (shared `_locate_on_wall`), clamped inside the wall and hidden on locked layers (2026-10-10)
+- [x] Added winder stairs for L-shaped stairs: "Winders" control in the stair properties dock (0 = flat landing, 2-5 = pie-shaped treads) with step numbering, hit-testing, and persistence of winder/turn/landing fields in project files (2026-10-10)
+- [x] Fixed importing from SH3D: connected walls are now properly grouped into wall sets with snapped joints and loop closures, enabling Cairo miter joins across all connected walls and loop corners, and added support for curved walls via `arcExtent` (2026-10-10)
+- [x] Fixed auto-generated rooms for curved walls: rooms created from closed loops containing curved walls now sample points along the arc, allowing rooms to follow wall curvature accurately, correctly detecting clicks in curved wall bulges, and supporting 2-wall curved room loops (2026-10-10)
 - [x] Streamlined pitch spinners in Roof Properties Dock (consolidated redundant spinners into a single pitch control with dual-pitch mode and clean read-only slope takeoff rows), updated live 3D surface area and canvas annotations immediately on pitch adjustment, and ensured triangular and equal-sided polygons with hip roofs generate 0 ridge lines with all hips meeting at a single apex. (2026-10-05)
 - [x] Refactored and implemented unified 3D roof geometry engine supporting both auto-generated and manually edited roofs via functional mathematical pipeline, variable eave overhang offsetting, analytical asymmetric pitch solving, algebraic 3-plane junction solving, and Phase 4 headless invariant test suite. (2026-10-05)
 - [x] Complex roof auto-generation for L-shaped, T-shaped, and multisided homes: auto-generates dual/intersecting ridges, valleys from ridge intersection to inside corners/overhang, hips from ridge intersection through outside corner to overhang, rakes/eaves at wing ends (supporting both gable and hip treatments), straight skeleton solver for multisided convex roofs, smart wall marking inference, and dynamic recalculation on overhang adjustment. (2026-10-03)

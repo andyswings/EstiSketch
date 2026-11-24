@@ -1,3 +1,141 @@
+import cairo
+from ..geometry.wall_joins import wall_join_polygon
+from .floor_patterns import draw_floor_pattern, pattern_base_color
+
+
+def _fill_mismatched_wall_joins(cr, wall_set, is_visible, get_opacity):
+    """Fill the outer corner where consecutive walls of different thickness meet.
+
+    Walls are stroked with butt caps, so a joint between walls of different
+    widths (e.g. 8" exterior to 4.5" partition) would otherwise leave a notch
+    at the outer corner. Equal-width joints are already mitered by the stroke.
+    """
+    n = len(wall_set)
+    if n < 2:
+        return
+    pairs = [(wall_set[i], wall_set[i + 1]) for i in range(n - 1)]
+    first, last = wall_set[0], wall_set[-1]
+    if (n > 2 and abs(last.end[0] - first.start[0]) < 1e-6 and
+            abs(last.end[1] - first.start[1]) < 1e-6):
+        pairs.append((last, first))  # closed loop
+
+    for a, b in pairs:
+        if (getattr(a, 'is_curved', False) or getattr(b, 'is_curved', False) or
+                getattr(a, 'symbolic', False) or getattr(b, 'symbolic', False)):
+            continue
+        if not (is_visible(a) and is_visible(b)):
+            continue
+        if abs(a.width - b.width) < 1e-6:
+            continue
+        if abs(a.end[0] - b.start[0]) > 1e-6 or abs(a.end[1] - b.start[1]) > 1e-6:
+            continue
+        poly = wall_join_polygon(a.start, a.end, a.width, b.start, b.end, b.width)
+        if not poly:
+            continue
+        cr.save()
+        cr.set_source_rgba(0, 0, 0, min(get_opacity(a), get_opacity(b)))
+        cr.move_to(*poly[0])
+        for pt in poly[1:]:
+            cr.line_to(*pt)
+        cr.close_path()
+        cr.fill()
+        cr.restore()
+
+
+def _draw_wall_side_accents(cr, wall_set, is_visible, get_opacity):
+    """Draw optional per-side finish colors and baseboard trim indicators on straight and curved walls."""
+    import math
+    from ..geometry.arc_wall import arc_wall_face_radii, arc_wall_params
+
+    for wall in wall_set:
+        if not is_visible(wall) or getattr(wall, "symbolic", False):
+            continue
+        left_color = getattr(wall, "left_color", None)
+        right_color = getattr(wall, "right_color", None)
+        left_bb = bool(getattr(wall, "left_baseboard", False))
+        right_bb = bool(getattr(wall, "right_baseboard", False))
+        if not (left_color or right_color or left_bb or right_bb):
+            continue
+
+        opacity = get_opacity(wall)
+        params = arc_wall_params(wall)
+        if params is not None:
+            cx, cy, _radius, start_angle, angle_diff = params
+            radii = arc_wall_face_radii(wall)
+            if radii is None:
+                continue
+            r_left, r_right = radii
+            end_angle = start_angle + angle_diff
+            strip_w = min(float(wall.width) * 0.28, 1.5)
+            # Inward/outward signs for radial offset of strip and baseboard
+            # left normal radial sign is (-1 if angle_diff >= 0 else +1)
+            l_rad_sign = -1.0 if angle_diff >= 0.0 else 1.0
+            r_rad_sign = -l_rad_sign
+
+            cr.save()
+            cr.set_line_cap(cairo.LINE_CAP_BUTT)
+            for face_r, rad_sign, color, has_bb in (
+                (r_left, l_rad_sign, left_color, left_bb),
+                (r_right, r_rad_sign, right_color, right_bb),
+            ):
+                if isinstance(color, (tuple, list)) and len(color) >= 3:
+                    # Inset slightly into the wall face
+                    r_strip = max(1e-3, face_r - rad_sign * (strip_w / 2.0))
+                    cr.set_line_width(strip_w)
+                    cr.set_source_rgba(float(color[0]), float(color[1]), float(color[2]), opacity)
+                    if angle_diff < 0:
+                        cr.arc_negative(cx, cy, r_strip, start_angle, end_angle)
+                    else:
+                        cr.arc(cx, cy, r_strip, start_angle, end_angle)
+                    cr.stroke()
+                if has_bb:
+                    r_bb = max(1e-3, face_r + rad_sign * 0.5)
+                    cr.set_line_width(0.7)
+                    cr.set_source_rgba(0.55, 0.35, 0.18, opacity * 0.85)
+                    if angle_diff < 0:
+                        cr.arc_negative(cx, cy, r_bb, start_angle, end_angle)
+                    else:
+                        cr.arc(cx, cy, r_bb, start_angle, end_angle)
+                    cr.stroke()
+            cr.restore()
+            continue
+
+        x1, y1 = wall.start
+        x2, y2 = wall.end
+        dx, dy = x2 - x1, y2 - y1
+        length = math.hypot(dx, dy)
+        if length < 1e-6:
+            continue
+        # Unit left normal: +normal is Left side, -normal is Right side
+        nx, ny = -dy / length, dx / length
+        half_w = float(wall.width) / 2.0
+        opacity = get_opacity(wall)
+
+        cr.save()
+        cr.set_line_cap(cairo.LINE_CAP_BUTT)
+
+        for sign, color, has_bb in (
+            (1.0, left_color, left_bb),
+            (-1.0, right_color, right_bb),
+        ):
+            if isinstance(color, (tuple, list)) and len(color) >= 3:
+                strip_w = min(float(wall.width) * 0.28, 1.5)
+                off = sign * (half_w - strip_w / 2.0)
+                cr.set_line_width(strip_w)
+                cr.set_source_rgba(float(color[0]), float(color[1]), float(color[2]), opacity)
+                cr.move_to(x1 + nx * off, y1 + ny * off)
+                cr.line_to(x2 + nx * off, y2 + ny * off)
+                cr.stroke()
+            if has_bb:
+                off = sign * (half_w + 0.5)
+                cr.set_line_width(0.7)
+                cr.set_source_rgba(0.55, 0.35, 0.18, opacity * 0.85)
+                cr.move_to(x1 + nx * off, y1 + ny * off)
+                cr.line_to(x2 + nx * off, y2 + ny * off)
+                cr.stroke()
+
+        cr.restore()
+
 
 def draw_walls(self, cr):
     cr.set_line_join(0)  # 0 = miter join.
@@ -145,6 +283,9 @@ def draw_walls(self, cr):
                abs(cur_pt[1] - path_start_point[1]) < 1e-4:
                 cr.close_path()
             cr.stroke()
+
+        _fill_mismatched_wall_joins(cr, wall_set, is_visible, get_opacity)
+        _draw_wall_side_accents(cr, wall_set, is_visible, get_opacity)
 
     # Draw active drawing chain
     active_chain = []
@@ -425,10 +566,9 @@ def draw_sloped_wall_indicators(self, cr):
         text_x = mid_x + nx * offset_dist
         text_y = mid_y + ny * offset_dist
 
-        # Compute wall alignment angle (keep right-side up)
-        wall_angle = math.atan2(dy, dx)
-        if wall_angle > math.pi / 2 or wall_angle < -math.pi / 2:
-            wall_angle += math.pi
+        # Compute wall alignment angle (SweetHome3D-style upright text)
+        from .label_utils import upright_angle
+        wall_angle = upright_angle(math.atan2(dy, dx))
 
         cr.save()
         cr.translate(text_x, text_y)
@@ -456,7 +596,39 @@ def draw_sloped_wall_indicators(self, cr):
         cr.restore()
 
 
+def _poly_path(cr, pts):
+    cr.move_to(pts[0][0], pts[0][1])
+    for pt in pts[1:]:
+        cr.line_to(pt[0], pt[1])
+    cr.close_path()
+
+
+def _room_floor_holes(room):
+    return [h.points for h in getattr(room, 'holes', [])
+            if not h.ceiling_only and len(h.points) >= 3]
+
+
+def _clip_outside_holes(cr, room, skip=None):
+    """Clip to the area outside every floor hole (optionally except ``skip``).
+
+    Each hole is subtracted with its own even-odd (big rectangle + hole) clip,
+    so overlapping holes combine as a union instead of re-filling their overlap.
+    """
+    big = 1.0e6  # stay inside cairo fixed-point range (~8.3e6)
+    for pts in _room_floor_holes(room):
+        if pts is skip:
+            continue
+        cr.new_path()
+        cr.rectangle(-big, -big, 2 * big, 2 * big)
+        _poly_path(cr, pts)
+        cr.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
+        cr.clip()
+    cr.new_path()
+
+
 def draw_rooms(self, cr, zoom_transform):
+    from ..geometry.room_holes import sync_stair_holes
+    sync_stair_holes(self)  # keep stair-derived holes current
     cr.set_line_width(1.0 / zoom_transform)
 
     def is_visible(obj):
@@ -477,31 +649,61 @@ def draw_rooms(self, cr, zoom_transform):
 
         if room.points:
             cr.save()
-            cr.move_to(room.points[0][0], room.points[0][1])
-            for pt in room.points[1:]:
-                cr.line_to(pt[0], pt[1])
-            cr.close_path()
+            # Fill only outside every floor hole (union of overlapping holes)
+            cr.save()
+            _clip_outside_holes(cr, room)
+            _poly_path(cr, room.points)
 
-            # Check if this is a slab - use different fill style
-            if getattr(room, 'is_slab', False):
-                # Gray fill for concrete slab
-                cr.set_source_rgba(0.85, 0.85, 0.85, opacity)
-            else:
-                # Light blue fill for regular rooms
-                cr.set_source_rgba(0.9, 0.9, 1, opacity)
-            cr.fill_preserve()
+            pattern = getattr(room, "floor_pattern", "none") or "none"
+            is_slab = getattr(room, "is_slab", False)
+            base_r, base_g, base_b = pattern_base_color(pattern, is_slab)
+            cr.set_source_rgba(base_r, base_g, base_b, opacity)
+            cr.fill()
+            cr.restore()
 
+            if pattern != "none":
+                cr.save()
+                _clip_outside_holes(cr, room)
+                _poly_path(cr, room.points)
+                cr.clip()
+                draw_floor_pattern(
+                    cr,
+                    room.points,
+                    pattern,
+                    getattr(room, "pattern_rotation", 0.0),
+                    getattr(room, "pattern_scale", 1.0),
+                    zoom_transform,
+                    opacity=opacity,
+                )
+                cr.restore()
+
+            # Outline: room boundary, then each hole outline outside the others
             cr.set_source_rgba(0, 0, 0, opacity)
+            _poly_path(cr, room.points)
             cr.stroke()
+            # Manual FloorOpenings with >1 parts (concave triangulations) draw their own clean outer boundary
+            opening_part_counts = {}
+            for hole in getattr(room, "holes", []):
+                if not hole.ceiling_only and getattr(hole, "source_id", "").startswith("opening:"):
+                    opening_part_counts[hole.source_id] = opening_part_counts.get(hole.source_id, 0) + 1
+            for hole in getattr(room, "holes", []):
+                if hole.ceiling_only or len(hole.points) < 3:
+                    continue
+                if opening_part_counts.get(getattr(hole, "source_id", ""), 0) > 1:
+                    continue
+                hole_pts = hole.points
+                cr.save()
+                _clip_outside_holes(cr, room, skip=hole_pts)
+                _poly_path(cr, hole_pts)
+                cr.stroke()
+                cr.restore()
             
-            # Draw hatching pattern for slabs
-            if getattr(room, 'is_slab', False) and room.points:
+            # Draw hatching pattern for slabs when no explicit floor pattern is set
+            if is_slab and pattern == "none" and room.points:
                 cr.save()
                 # Create clipping path from room polygon
-                cr.move_to(room.points[0][0], room.points[0][1])
-                for pt in room.points[1:]:
-                    cr.line_to(pt[0], pt[1])
-                cr.close_path()
+                _clip_outside_holes(cr, room)
+                _poly_path(cr, room.points)
                 cr.clip()
                 
                 # Calculate bounding box
@@ -550,6 +752,178 @@ def draw_rooms(self, cr, zoom_transform):
                 self.current_room_preview[0],
                 self.current_room_preview[1])
         cr.stroke()
+        cr.restore()
+
+
+def _polygon_centroid(pts):
+    """Return ``(cx, cy)`` area-weighted centroid of a simple polygon, falling back to vertex mean."""
+    n = len(pts)
+    if n == 0:
+        return (0.0, 0.0)
+    a2 = 0.0
+    cx = 0.0
+    cy = 0.0
+    for i in range(n):
+        x0, y0 = pts[i]
+        x1, y1 = pts[(i + 1) % n]
+        cross = x0 * y1 - x1 * y0
+        a2 += cross
+        cx += (x0 + x1) * cross
+        cy += (y0 + y1) * cross
+    if abs(a2) > 1e-6:
+        return (cx / (3.0 * a2), cy / (3.0 * a2))
+    return (sum(p[0] for p in pts) / n, sum(p[1] for p in pts) / n)
+
+
+def _pt_in_poly(pt, pts) -> bool:
+    x, y = pt
+    inside = False
+    n = len(pts)
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        if ((y1 > y) != (y2 > y)) and (x < (x2 - x1) * (y - y1) / (y2 - y1 + 1e-18) + x1):
+            inside = not inside
+    return inside
+
+
+def draw_floor_openings(self, cr, zoom_transform, printing=False):
+    """Draw manual FloorOpening objects (dashed/solid border, architectural X-cross, label) and tool preview."""
+    def is_visible(obj):
+        if hasattr(self, 'is_object_on_visible_layer'):
+            return self.is_object_on_visible_layer(obj)
+        return True
+
+    def get_opacity(obj):
+        if hasattr(self, 'get_object_opacity'):
+            return self.get_object_opacity(obj)
+        return 1.0
+
+    for opening in getattr(self, "floor_openings", []):
+        pts = getattr(opening, "points", None) or []
+        if len(pts) < 3 or not is_visible(opening):
+            continue
+
+        opacity = get_opacity(opening)
+        ceiling_only = bool(getattr(opening, "ceiling_only", False))
+        min_x = min(p[0] for p in pts)
+        max_x = max(p[0] for p in pts)
+        min_y = min(p[1] for p in pts)
+        max_y = max(p[1] for p in pts)
+        bw = max_x - min_x
+        bh = max_y - min_y
+
+        cr.save()
+        # Subtle fill tint only for ceiling_only dashed openings so users recognize non-floor voids
+        if ceiling_only:
+            _poly_path(cr, pts)
+            cr.set_source_rgba(0.75, 0.86, 0.96, opacity * 0.14)
+            cr.fill()
+
+        # Crisp opening outline (dashed blue-slate for ceiling-only; dashed/charcoal for full floor cutout)
+        cr.set_line_width(1.5 / zoom_transform)
+        if ceiling_only:
+            cr.set_source_rgba(0.22, 0.44, 0.68, opacity * 0.9)
+            cr.set_dash([6.0 / zoom_transform, 4.0 / zoom_transform])
+        else:
+            cr.set_source_rgba(0.18, 0.20, 0.24, opacity)
+            cr.set_dash([])
+        _poly_path(cr, pts)
+        cr.stroke()
+
+        # Architectural X-cross inside the opening
+        if getattr(opening, "show_cross", True):
+            cr.save()
+            _poly_path(cr, pts)
+            cr.clip()
+            cr.set_line_width(0.9 / zoom_transform)
+            if ceiling_only:
+                cr.set_source_rgba(0.28, 0.48, 0.70, opacity * 0.75)
+                cr.set_dash([5.0 / zoom_transform, 4.0 / zoom_transform])
+            else:
+                cr.set_source_rgba(0.35, 0.37, 0.42, opacity * 0.75)
+                cr.set_dash([6.0 / zoom_transform, 3.0 / zoom_transform])
+            if len(pts) == 4:
+                cr.move_to(pts[0][0], pts[0][1])
+                cr.line_to(pts[2][0], pts[2][1])
+                cr.move_to(pts[1][0], pts[1][1])
+                cr.line_to(pts[3][0], pts[3][1])
+            else:
+                cr.move_to(min_x, min_y)
+                cr.line_to(max_x, max_y)
+                cr.move_to(max_x, min_y)
+                cr.line_to(min_x, max_y)
+            cr.stroke()
+            cr.restore()
+
+        # Label centered inside the opening
+        if getattr(opening, "show_label", True):
+            label_text = getattr(opening, "display_label", "") or ""
+            if label_text:
+                cx, cy = _polygon_centroid(pts)
+                if not _pt_in_poly((cx, cy), pts):
+                    cx, cy = (min_x + max_x) / 2.0, (min_y + max_y) / 2.0
+                cr.save()
+                cr.set_dash([])
+                cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+                font_sz = max(3.5, min(9.0, min(bw, bh) * 0.14))
+                cr.set_font_size(font_sz)
+                ext = cr.text_extents(label_text)
+                if ext.width > bw * 0.85 and ext.width > 1e-6:
+                    font_sz = max(2.5, font_sz * (bw * 0.85) / ext.width)
+                    cr.set_font_size(font_sz)
+                    ext = cr.text_extents(label_text)
+                tx = cx - (ext.width / 2.0 + ext.x_bearing)
+                ty = cy - (ext.height / 2.0 + ext.y_bearing)
+                pad = font_sz * 0.25
+                cr.set_source_rgba(1.0, 1.0, 1.0, opacity * 0.85)
+                cr.rectangle(
+                    tx + ext.x_bearing - pad,
+                    ty + ext.y_bearing - pad,
+                    ext.width + 2 * pad,
+                    ext.height + 2 * pad,
+                )
+                cr.fill()
+                if ceiling_only:
+                    cr.set_source_rgba(0.18, 0.38, 0.62, opacity)
+                else:
+                    cr.set_source_rgba(0.15, 0.17, 0.22, opacity)
+                cr.move_to(tx, ty)
+                cr.show_text(label_text)
+                cr.restore()
+
+        cr.restore()
+
+    # In-progress rubber-band preview while drawing
+    cur_pts = getattr(self, "current_opening_points", None)
+    if not printing and getattr(self, "tool_mode", None) == "add_floor_opening" and cur_pts:
+        active_opacity = 1.0
+        if hasattr(self, 'active_layer_id') and hasattr(self, 'get_layer_by_id'):
+            active_layer = self.get_layer_by_id(self.active_layer_id)
+            if active_layer:
+                active_opacity = active_layer.opacity
+
+        cr.save()
+        cr.set_source_rgba(0.85, 0.35, 0.05, active_opacity)
+        cr.set_line_width(2.0 / zoom_transform)
+        cr.set_dash([5.0 / zoom_transform, 3.0 / zoom_transform])
+        cr.move_to(cur_pts[0][0], cur_pts[0][1])
+        for pt in cur_pts[1:]:
+            cr.line_to(pt[0], pt[1])
+        preview = getattr(self, "current_opening_preview", None)
+        if preview:
+            cr.line_to(preview[0], preview[1])
+            if len(cur_pts) >= 2:
+                cr.stroke()
+                cr.set_source_rgba(0.85, 0.35, 0.05, active_opacity * 0.45)
+                cr.move_to(preview[0], preview[1])
+                cr.line_to(cur_pts[0][0], cur_pts[0][1])
+        cr.stroke()
+        cr.set_dash([])
+        r = 3.5 / zoom_transform
+        for pt in cur_pts:
+            cr.arc(pt[0], pt[1], r, 0, 6.283185307179586)
+            cr.fill()
         cr.restore()
 
 
