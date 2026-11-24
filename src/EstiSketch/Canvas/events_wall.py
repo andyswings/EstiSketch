@@ -36,7 +36,7 @@ class CanvasWallMixin:
         if not self.drawing_wall or not self.current_wall or getattr(self, "wall_curve_mode", False):
             candidate = None
             if self.snap_manager.snap_enabled and snap_type not in (
-                "endpoint", "midpoint", "wall_centerline", "face_flush", "wall_edge"
+                "endpoint", "midpoint", "wall_centerline", "face_flush", "wall_edge", "tangent"
             ):
                 aligned_x, aligned_y, candidate = self._apply_alignment_snapping(
                     snapped_x, snapped_y
@@ -50,6 +50,15 @@ class CanvasWallMixin:
         # Active wall segment from (base_x, base_y) -> (canvas_x, canvas_y):
         # 1. Hard geometric feature snaps define the exact point.
         if snap_type in ("endpoint", "midpoint", "wall_centerline", "wall_edge"):
+            return (snapped_x, snapped_y), snap_type, None, None
+
+        if snap_type == "tangent":
+            guide = getattr(self.snap_manager, "tangent_guide", None)
+            if guide and len(guide) >= 3 and guide[2] == "tangent_continue":
+                (qx, qy), _, near_foot_info = self.snap_manager.quantize_wall_length(
+                    base_x, base_y, snapped_x, snapped_y, apply_near_foot_auto=apply_near_foot_auto
+                )
+                return (qx, qy), snap_type, None, near_foot_info
             return (snapped_x, snapped_y), snap_type, None, None
 
         # 2. Face-flush snap fixes perpendicular offset; quantize distance along the wall.

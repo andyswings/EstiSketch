@@ -43,19 +43,61 @@ def _fill_mismatched_wall_joins(cr, wall_set, is_visible, get_opacity):
 
 
 def _draw_wall_side_accents(cr, wall_set, is_visible, get_opacity):
-    """Draw optional per-side finish colors and baseboard trim indicators on straight walls."""
+    """Draw optional per-side finish colors and baseboard trim indicators on straight and curved walls."""
     import math
+    from ..geometry.arc_wall import arc_wall_face_radii, arc_wall_params
 
     for wall in wall_set:
         if not is_visible(wall) or getattr(wall, "symbolic", False):
-            continue
-        if getattr(wall, "is_curved", False):
             continue
         left_color = getattr(wall, "left_color", None)
         right_color = getattr(wall, "right_color", None)
         left_bb = bool(getattr(wall, "left_baseboard", False))
         right_bb = bool(getattr(wall, "right_baseboard", False))
         if not (left_color or right_color or left_bb or right_bb):
+            continue
+
+        opacity = get_opacity(wall)
+        params = arc_wall_params(wall)
+        if params is not None:
+            cx, cy, _radius, start_angle, angle_diff = params
+            radii = arc_wall_face_radii(wall)
+            if radii is None:
+                continue
+            r_left, r_right = radii
+            end_angle = start_angle + angle_diff
+            strip_w = min(float(wall.width) * 0.28, 1.5)
+            # Inward/outward signs for radial offset of strip and baseboard
+            # left normal radial sign is (-1 if angle_diff >= 0 else +1)
+            l_rad_sign = -1.0 if angle_diff >= 0.0 else 1.0
+            r_rad_sign = -l_rad_sign
+
+            cr.save()
+            cr.set_line_cap(cairo.LINE_CAP_BUTT)
+            for face_r, rad_sign, color, has_bb in (
+                (r_left, l_rad_sign, left_color, left_bb),
+                (r_right, r_rad_sign, right_color, right_bb),
+            ):
+                if isinstance(color, (tuple, list)) and len(color) >= 3:
+                    # Inset slightly into the wall face
+                    r_strip = max(1e-3, face_r - rad_sign * (strip_w / 2.0))
+                    cr.set_line_width(strip_w)
+                    cr.set_source_rgba(float(color[0]), float(color[1]), float(color[2]), opacity)
+                    if angle_diff < 0:
+                        cr.arc_negative(cx, cy, r_strip, start_angle, end_angle)
+                    else:
+                        cr.arc(cx, cy, r_strip, start_angle, end_angle)
+                    cr.stroke()
+                if has_bb:
+                    r_bb = max(1e-3, face_r + rad_sign * 0.5)
+                    cr.set_line_width(0.7)
+                    cr.set_source_rgba(0.55, 0.35, 0.18, opacity * 0.85)
+                    if angle_diff < 0:
+                        cr.arc_negative(cx, cy, r_bb, start_angle, end_angle)
+                    else:
+                        cr.arc(cx, cy, r_bb, start_angle, end_angle)
+                    cr.stroke()
+            cr.restore()
             continue
 
         x1, y1 = wall.start

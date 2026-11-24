@@ -1322,7 +1322,7 @@ class CanvasDrawMixin:
             (getattr(self, "drawing_wall", False) and getattr(self, "current_wall", None)) or
             (getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None)) or
             getattr(self, "dragging_wall", None) or
-            (getattr(self, "tool_mode", None) in ("draw_walls", "draw_rooms")
+            (getattr(self, "tool_mode", None) in ("draw_walls", "draw_rooms", "add_floor_opening")
              and getattr(self, "snap_pos", None) is not None)
         )
         if not is_active:
@@ -1442,11 +1442,23 @@ class CanvasDrawMixin:
             cr.move_to(snap_x + 15 / scale, snap_y)
             cr.show_text("Distance")
         elif self.snap_type == "tangent":
+            guide = getattr(self.snap_manager, "tangent_guide", None)
+            if guide:
+                g0, g1 = guide[0], guide[1]
+                cr.save()
+                cr.set_source_rgba(0.0, 0.85, 0.9, 0.85)
+                cr.set_line_width(1.2 / scale)
+                cr.set_dash([5.0 / scale, 3.0 / scale])
+                cr.move_to(g0[0], g0[1])
+                cr.line_to(g1[0], g1[1])
+                cr.stroke()
+                cr.restore()
             cr.set_source_rgb(0, 1, 1)
-            cr.arc(snap_x, snap_y, 10 / scale, 0, 2 * math.pi)
+            cr.arc(snap_x, snap_y, 7 / scale, 0, 2 * math.pi)
             cr.fill()
             cr.move_to(snap_x + 15 / scale, snap_y)
-            cr.show_text("Tangent")
+            tlabel = "Tangent Continue" if (guide and len(guide) >= 3 and guide[2] == "tangent_continue") else "Tangent"
+            cr.show_text(tlabel)
         elif self.snap_type in ["alignment", "alignment_cross", "alignment_vertical", "alignment_horizontal"]:
             cr.set_source_rgb(0.3, 0.6, 1.0)
             cr.arc(snap_x, snap_y, 6 / scale, 0, 2 * math.pi)

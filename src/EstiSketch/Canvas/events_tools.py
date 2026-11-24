@@ -1,6 +1,11 @@
 import math
 from gi.repository import Gtk
 from ..components import Door, Window, Polyline
+from ..geometry.arc_wall import (
+    arc_wall_project,
+    clamp_opening_ratio,
+    is_curved_wall,
+)
 from ..Resources.tool_hints import TOOL_HINTS
 
 
@@ -38,13 +43,9 @@ class CanvasToolsMixin:
                     continue
                 if hasattr(self, "is_object_on_locked_layer") and self.is_object_on_locked_layer(wall):
                     continue
-                curved = bool(wall.is_curved and wall.arc_center and wall.arc_radius)
+                curved = is_curved_wall(wall)
                 if curved:
-                    dist = self.distance_point_to_arc(
-                        click_pt, wall.arc_center, wall.arc_radius,
-                        math.atan2(wall.start[1] - wall.arc_center[1], wall.start[0] - wall.arc_center[0]),
-                        math.atan2(wall.end[1] - wall.arc_center[1], wall.end[0] - wall.arc_center[0])
-                    )
+                    ratio, dist, _ = arc_wall_project(wall, click_pt)
                 else:
                     dist = self.distance_point_to_segment(
                         click_pt, wall.start, wall.end)
@@ -55,36 +56,14 @@ class CanvasToolsMixin:
                 selected_wall = wall
 
                 if curved:
-                    cx, cy = wall.arc_center
-                    angle = normalize(math.atan2(canvas_y - cy, canvas_x - cx))
-                    start_angle = normalize(math.atan2(wall.start[1] - cy, wall.start[0] - cx))
-                    end_angle = normalize(math.atan2(wall.end[1] - cy, wall.end[0] - cx))
-                    if start_angle < end_angle:
-                        arc_span = end_angle - start_angle
-                        if start_angle <= angle <= end_angle:
-                            selected_ratio = (angle - start_angle) / arc_span
-                        else:
-                            selected_ratio = 0.0 if abs(angle - start_angle) < abs(angle - end_angle) else 1.0
-                    else:  # Arc crosses 0
-                        arc_span = (2 * math.pi - start_angle) + end_angle
-                        if angle >= start_angle:
-                            selected_ratio = (angle - start_angle) / arc_span
-                        elif angle <= end_angle:
-                            selected_ratio = (2 * math.pi - start_angle + angle) / arc_span
-                        else:
-                            selected_ratio = 0.5
-                    selected_ratio = max(0.0, min(1.0, selected_ratio))
+                    selected_ratio = clamp_opening_ratio(wall, ratio, opening_width)
                 else:
                     dx = wall.end[0] - wall.start[0]
                     dy = wall.end[1] - wall.start[1]
                     wall_length = math.hypot(dx, dy)
                     if wall_length > 0:
                         t = ((canvas_x - wall.start[0]) * dx + (canvas_y - wall.start[1]) * dy) / (wall_length ** 2)
-                        lo, hi = 0.0, 1.0
-                        if opening_width and opening_width < wall_length:
-                            half = (opening_width / 2.0) / wall_length
-                            lo, hi = half, 1.0 - half
-                        selected_ratio = max(lo, min(hi, t))
+                        selected_ratio = clamp_opening_ratio(wall, t, opening_width)
                     else:
                         selected_ratio = 0.5
 

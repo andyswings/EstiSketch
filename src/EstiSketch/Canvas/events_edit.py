@@ -2,6 +2,11 @@ import math
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
+from ..geometry.arc_wall import (
+    arc_wall_project,
+    clamp_opening_ratio,
+    is_curved_wall,
+)
 
 
 class EditEventsMixin:
@@ -1246,34 +1251,40 @@ class EditEventsMixin:
             snap_threshold = 24.0  # 24 inches for switching to different wall
 
             # Check all walls (iterate through wall_sets)
+            opening_width = getattr(obj, "width", None)
             for i, wall_set in enumerate(self.wall_sets):
                 for j, check_wall in enumerate(wall_set):
-                    dist = self.distance_point_to_segment(
-                        (target_x, target_y), check_wall.start, check_wall.end)
+                    is_current_wall = (check_wall is wall)
+                    if not is_current_wall:
+                        if hasattr(self, "is_object_on_visible_layer") and not self.is_object_on_visible_layer(check_wall):
+                            continue
+                        if hasattr(self, "is_object_on_locked_layer") and self.is_object_on_locked_layer(check_wall):
+                            continue
+
+                    if is_curved_wall(check_wall):
+                        raw_ratio, dist, _ = arc_wall_project(check_wall, (target_x, target_y))
+                    else:
+                        dist = self.distance_point_to_segment(
+                            (target_x, target_y), check_wall.start, check_wall.end)
 
                     # Qualification check: Current wall is always valid, others
                     # must be within threshold
-                    is_current_wall = (check_wall is wall)
                     is_valid_candidate = is_current_wall or (
                         dist < snap_threshold)
 
-                    if is_valid_candidate:
-                        # Optimization check: Is this strictly closer than the
-                        # best we've found so far?
-                        if dist < best_dist:
-                            best_dist = dist
-                            best_wall = check_wall
-
-                            # Calculate ratio on this wall
+                    if is_valid_candidate and dist < best_dist:
+                        best_dist = dist
+                        best_wall = check_wall
+                        if is_curved_wall(check_wall):
+                            best_ratio = clamp_opening_ratio(check_wall, raw_ratio, opening_width)
+                        else:
                             wx = check_wall.end[0] - check_wall.start[0]
                             wy = check_wall.end[1] - check_wall.start[1]
                             wall_len_sq = wx * wx + wy * wy
                             if wall_len_sq > 0:
                                 dot = (
                                     target_x - check_wall.start[0]) * wx + (target_y - check_wall.start[1]) * wy
-                                # Clamp to keep on wall
-                                best_ratio = max(
-                                    0.05, min(0.95, dot / wall_len_sq))
+                                best_ratio = clamp_opening_ratio(check_wall, dot / wall_len_sq, opening_width)
                             else:
                                 best_ratio = 0.5
 
