@@ -179,6 +179,71 @@ class CanvasDrawMixin:
             highlight=highlight,
         )
 
+    def draw_ghost_level(self, cr, zoom_transform, pixels_per_inch) -> None:
+        """Render an adjacent or chosen level as a muted background trace."""
+        ghost_id = (
+            self.resolve_ghost_level_id()
+            if hasattr(self, "resolve_ghost_level_id")
+            else None
+        )
+        if not ghost_id:
+            return
+
+        opacity = max(0.05, min(0.80, float(getattr(self, "ghost_opacity", 0.25))))
+        saved_focus = getattr(self.config, "LAYER_FOCUS_MODE", None)
+        saved_current_wall = getattr(self, "current_wall", None)
+        saved_walls = getattr(self, "walls", [])
+        saved_room_pts = getattr(self, "current_room_points", [])
+        saved_temp_obj = getattr(self, "temp_object", None)
+        saved_selected = getattr(self, "selected_items", [])
+
+        cr.save()
+        cr.push_group()
+        try:
+            self._rendering_ghost_level = ghost_id
+            if saved_focus is not None:
+                self.config.LAYER_FOCUS_MODE = False
+            self.current_wall = None
+            self.walls = []
+            self.current_room_points = []
+            self.temp_object = None
+            self.selected_items = []
+
+            wr.draw_rooms(self, cr, zoom_transform)
+            wr.draw_footers(self, cr)
+            wr.draw_walls(self, cr)
+            dwr.draw_doors(self, cr, pixels_per_inch)
+            dwr.draw_windows(self, cr, pixels_per_inch)
+            self.draw_roofs(cr)
+            self.draw_stairs(cr)
+
+            for circle in getattr(self, "circles", []):
+                if self.is_object_on_visible_layer(circle):
+                    self._draw_circle(cr, circle)
+            for arc in getattr(self, "arcs", []):
+                if self.is_object_on_visible_layer(arc):
+                    self._draw_arc(cr, arc)
+
+            # Tint all painted ghost-level pixels into a muted cyan/slate trace
+            cr.save()
+            cr.set_operator(cairo.OPERATOR_ATOP)
+            cr.set_source_rgba(0.15, 0.55, 0.72, 0.55)
+            cr.paint()
+            cr.restore()
+        finally:
+            self._rendering_ghost_level = None
+            if saved_focus is not None:
+                self.config.LAYER_FOCUS_MODE = saved_focus
+            self.current_wall = saved_current_wall
+            self.walls = saved_walls
+            self.current_room_points = saved_room_pts
+            self.temp_object = saved_temp_obj
+            self.selected_items = saved_selected
+
+        cr.pop_group_to_source()
+        cr.paint_with_alpha(opacity)
+        cr.restore()
+
 
     def draw_scene(self, cr, zoom_transform, pixels_per_inch, printing=False):
         """
@@ -198,6 +263,7 @@ class CanvasDrawMixin:
         # Draw grid, walls, rooms, etc. in model coordinates.
         if not printing:
             self.draw_grid(cr)
+            self.draw_ghost_level(cr, zoom_transform, pixels_per_inch)
 
         # Draw rooms first (under walls)
         wr.draw_rooms(self, cr, zoom_transform)

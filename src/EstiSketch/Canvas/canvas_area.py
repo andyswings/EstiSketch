@@ -92,6 +92,10 @@ class CanvasArea(Gtk.DrawingArea,
         ]
         self.active_level_id = default_level_id
         self.show_all_levels = False
+        # Level onion-skinning ghosting (None = off, "below", "above", or level ID)
+        self.ghost_level_id = None
+        self.ghost_opacity = 0.25
+        self._rendering_ghost_level = None
         # Takeoff setting: also cut the lower level's ceiling under stairs
         self.cut_lower_ceiling_under_stairs = False
         # Compass rose / north azimuth (degrees clockwise from straight up)
@@ -294,11 +298,13 @@ class CanvasArea(Gtk.DrawingArea,
         self.zoom = new_zoom
         self.queue_draw()
 
+
     def reset_zoom(self):
         self.zoom = 1.0
         self.offset_x = 0
         self.offset_y = 0
         self.queue_draw()
+
 
     def update_hint(self, message):
         """Emit status-update signal with message."""
@@ -307,6 +313,9 @@ class CanvasArea(Gtk.DrawingArea,
     def clear(self):
         """Clear all drawing elements from the canvas."""
         self.print_settings = None
+        self.ghost_level_id = None
+        self.ghost_opacity = 0.25
+        self._rendering_ghost_level = None
         self.north_angle = 0.0
         self.dragging_compass = False
         self._compass_hover = False
@@ -366,6 +375,7 @@ class CanvasArea(Gtk.DrawingArea,
         # self._initialize_levels_and_layers()
 
         self.queue_draw()
+
         self.emit('selection-changed', self.selected_items)
 
 
@@ -435,6 +445,7 @@ class CanvasArea(Gtk.DrawingArea,
                 return False
             self.active_layer_id = layer_id
             self.queue_draw()
+
             return True
         return False
 
@@ -455,11 +466,11 @@ class CanvasArea(Gtk.DrawingArea,
         """
         layer_id = getattr(obj, 'layer_id', '')
         if not layer_id:
-            return True
+            return False if getattr(self, '_rendering_ghost_level', None) else True
 
         layer = self.get_layer_by_id(layer_id)
         if not layer:
-            return True  # Legacy/Fallback
+            return False if getattr(self, '_rendering_ghost_level', None) else True  # Legacy/Fallback
 
         if not layer.visible:
             return False
@@ -472,6 +483,11 @@ class CanvasArea(Gtk.DrawingArea,
         group = self.get_group_for_object(obj) if hasattr(self, 'get_group_for_object') else None
         if group is not None and not group.visible:
             return False
+
+        ghost_level = getattr(self, '_rendering_ghost_level', None)
+        if ghost_level:
+            # Ghost pass only renders layers explicitly assigned to the ghost level
+            return bool(layer.level_id) and layer.level_id == ghost_level
 
         # Check level filtering
         if self.show_all_levels:
@@ -642,6 +658,8 @@ class CanvasArea(Gtk.DrawingArea,
         for i, level in enumerate(self.levels):
             if level.id == level_id:
                 self.levels.pop(i)
+                if getattr(self, "ghost_level_id", None) == level_id:
+                    self.ghost_level_id = None
                 # If active level removed, switch to first
                 if self.active_level_id == level_id:
                     self.active_level_id = self.levels[0].id
@@ -668,6 +686,48 @@ class CanvasArea(Gtk.DrawingArea,
         self.deselect_non_visible_items()
 
         self.queue_draw()
+
+    def resolve_ghost_level_id(self):
+        """Return the concrete level ID to render as an onion-skin ghost, or None."""
+        if getattr(self, "show_all_levels", False):
+            return None
+        target = getattr(self, "ghost_level_id", None)
+        if not target:
+            return None
+        levels = list(getattr(self, "levels", []))
+        if not levels:
+            return None
+        if target in ("below", "above"):
+            ordered = [lv for _, lv in sorted(
+                enumerate(levels),
+                key=lambda item: (getattr(item[1], "elevation", 0.0), item[0]),
+            )]
+            active_idx = next(
+                (i for i, lv in enumerate(ordered) if lv.id == self.active_level_id),
+                None,
+            )
+            if active_idx is None:
+                return None
+            adj_idx = active_idx - 1 if target == "below" else active_idx + 1
+            if 0 <= adj_idx < len(ordered):
+                return ordered[adj_idx].id
+            return None
+        if target == self.active_level_id:
+            return None
+        if any(lv.id == target for lv in levels):
+            return target
+        return None
+
+    def set_ghost_level(self, level_id) -> None:
+        """Set the onion-skinning ghost level (None, 'below', 'above', or level ID)."""
+        self.ghost_level_id = level_id or None
+        self.queue_draw()
+
+    def set_ghost_opacity(self, opacity: float) -> None:
+        """Set the onion-skinning ghost opacity (clamped to 0.05..0.80)."""
+        self.ghost_opacity = max(0.05, min(0.80, float(opacity)))
+        self.queue_draw()
+
 
     def _initialize_levels_and_layers(self):
         """Initializes levels and layers, typically called on clear or load."""
@@ -880,6 +940,7 @@ class CanvasArea(Gtk.DrawingArea,
 
         self.selected_items.clear()
         self.queue_draw()
+
         self.emit('selection-changed', self.selected_items)
         self.emit('content-changed')
 
@@ -977,6 +1038,7 @@ class CanvasArea(Gtk.DrawingArea,
                 self.selected_items.append({"type": "stair", "object": stair})
 
         self.queue_draw()
+
         self.emit('selection-changed', self.selected_items)
         print(f"Selected {len(self.selected_items)} objects")
 
@@ -1015,6 +1077,7 @@ class CanvasArea(Gtk.DrawingArea,
         if changed:
             self.selected_items = new_selection
             self.queue_draw()
+
             self.emit('selection-changed', self.selected_items)
 
     def deselect_non_visible_items(self):
@@ -1050,6 +1113,7 @@ class CanvasArea(Gtk.DrawingArea,
         if changed:
             self.selected_items = new_selection
             self.queue_draw()
+
             self.emit('selection-changed', self.selected_items)
 
     def copy_selected(self):
@@ -1444,6 +1508,7 @@ class CanvasArea(Gtk.DrawingArea,
 
         self.save_state()
         self.queue_draw()
+
         self.emit('content-changed')
         self.emit('selection-changed', self.selected_items)
 

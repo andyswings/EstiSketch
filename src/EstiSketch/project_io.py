@@ -65,6 +65,9 @@ def save_project(canvas, window_width, window_height, filepath):
     root.set("cut_lower_ceiling_under_stairs",
              str(bool(getattr(canvas, 'cut_lower_ceiling_under_stairs', False))))
     root.set("north_angle", str(float(getattr(canvas, 'north_angle', 0.0))))
+    if getattr(canvas, 'ghost_level_id', None):
+        root.set("ghost_level_id", str(canvas.ghost_level_id))
+    root.set("ghost_opacity", str(float(getattr(canvas, 'ghost_opacity', 0.25))))
 
     # Save layers
     layers_elem = ET.SubElement(root, "Layers")
@@ -1351,6 +1354,8 @@ def open_project(canvas, filepath):
     canvas.cut_lower_ceiling_under_stairs = (
         root.get("cut_lower_ceiling_under_stairs", "False") == "True")
     canvas.north_angle = _get_attr_float(root, "north_angle", 0.0) % 360.0
+    canvas.ghost_level_id = root.get("ghost_level_id", "") or None
+    canvas.ghost_opacity = max(0.05, min(0.80, _get_attr_float(root, "ghost_opacity", 0.25)))
     for room in canvas.rooms:
         room.holes = []
     sync_stair_holes(canvas)

@@ -5,7 +5,6 @@
 - [ ] Follow-up to Room Cutouts (stair-derived holes done, see Completed): add other hole sources beyond stairs (manual "Floor Opening" tool for atriums/lightwells/courtyards, elevators, shafts, double-height spaces). `Hole.source_id` is generic so these plug in later.
 - [ ] Floor & ceiling texture patterns (SH3D parity Phase 4): procedural Cairo fills for wood plank, tile grid (12"/18"/24"), herringbone and concrete stipple, with pattern rotation and scale per room.
 - [ ] Per-side wall finishes (SH3D parity Phase 4): `Wall.left_finish/right_finish`, `left_color/right_color`, `left_baseboard/right_baseboard`; takeoff computes separate interior/exterior surface areas and baseboard linear footage.
-- [ ] Level onion-skinning ghosting (SH3D parity Phase 6): show adjacent level (N-1/N+1) as a muted background trace (`ghost_level_id`, `ghost_opacity` default 25%).
 - [ ] Arc wall snapping & tangent cuts (SH3D parity Phase 1).
 - [ ] Real printer support: add a "Print..." button to the Print dialog that sends the sheets to a physical printer via `Gtk.PrintOperation` (system print dialog, paper/printer selection), reusing `print_renderer.render_page` so output matches the preview. Needs testing on actual hardware (including large-format plotters and paper-size mapping).
 - [ ] Print line weights: lines currently print at a constant ~2 pt regardless of drawing scale. Add a line-weight setting (per-object-type pen weights / global multiplier) in the Print dialog so plots look right at any scale.
@@ -161,6 +160,7 @@
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Level onion-skinning ghosting (SH3D parity Phase 6): `ghost_level_id` (`Off` / `Below (N-1)` / `Above (N+1)` / explicit level) & `ghost_opacity` (default 0.25) on `CanvasArea`, muted background render pass (`draw_ghost_level`, excluded from print/PDF/SVG), Ghost dropdown + opacity slider in `LayersPanel`, and XML persistence; tests in `tests/test_level_ghosting.py` (2026-11-23)
 - [x] Compass rose / north azimuth (SH3D parity Phase 6): `canvas.north_angle`, interactive draggable top-right compass overlay in `Canvas/compass.py` & `canvas_draw.py` (double-click resets to 0°), undo/redo & XML persistence, and North cell in the print/SVG title block; tests in `tests/test_compass_rose.py` & `tests/test_printing.py` (2026-11-23)
 - [x] Print settings dirty state: `PrintDialog` now checks for changed settings on close and invokes `on_settings_changed` to mark the project dirty in `main.py`; tested in `tests/test_printing.py` (2026-11-23)
 - [x] Scaled Vector SVG Export (SH3D parity Phase 7): added `export_svg` in `Printing/print_renderer.py` using `cairo.SVGSurface` (point physical units, single-level or per-level named files, reusing `render_page` scales and title blocks), "Export SVG..." button in `PrintDialog`, updated File menu label, and tests in `tests/test_printing.py` (2026-11-23)

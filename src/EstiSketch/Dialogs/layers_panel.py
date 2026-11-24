@@ -241,6 +241,36 @@ class LayersPanel(Gtk.Box):
         self.level_list_box.set_margin_end(4)
         self.level_popover.set_child(self.level_list_box)
 
+        # Row 2: Onion-skinning Ghost Level + Opacity
+        ghost_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        ghost_lbl = Gtk.Label(label="Ghost:")
+        ghost_lbl.set_xalign(0)
+        ghost_row.append(ghost_lbl)
+
+        self._updating_ghost_ui = False
+        self._ghost_options = []
+        self.ghost_level_dropdown = Gtk.DropDown()
+        self.ghost_level_dropdown.set_hexpand(True)
+        self.ghost_level_dropdown.set_tooltip_text(
+            "Show another level as a muted background trace"
+        )
+        self.ghost_level_dropdown.connect(
+            "notify::selected", self.on_ghost_level_changed
+        )
+        ghost_row.append(self.ghost_level_dropdown)
+
+        self.ghost_opacity_scale = Gtk.Scale.new_with_range(
+            Gtk.Orientation.HORIZONTAL, 0.05, 0.80, 0.05
+        )
+        self.ghost_opacity_scale.set_draw_value(False)
+        self.ghost_opacity_scale.set_size_request(65, -1)
+        self.ghost_opacity_scale.set_tooltip_text("Ghost trace opacity")
+        self.ghost_opacity_scale.connect(
+            "value-changed", self.on_ghost_opacity_changed
+        )
+        ghost_row.append(self.ghost_opacity_scale)
+        level_box.append(ghost_row)
+
     def refresh_level_ui(self):
         """Update level selector UI."""
         # Update current level label
@@ -282,6 +312,62 @@ class LayersPanel(Gtk.Box):
         manage_btn.connect("clicked", self.on_manage_levels)
         self.level_list_box.append(manage_btn)
 
+        # Refresh Ghost Level dropdown & opacity slider
+        self._ghost_options = [
+            ("Off", None),
+            ("Below (N-1)", "below"),
+            ("Above (N+1)", "above"),
+        ] + [(lv.name, lv.id) for lv in self.canvas.levels]
+
+        self._updating_ghost_ui = True
+        try:
+            self.ghost_level_dropdown.set_model(
+                Gtk.StringList.new([lbl for lbl, _ in self._ghost_options])
+            )
+            current_ghost = getattr(self.canvas, "ghost_level_id", None)
+            sel_idx = 0
+            for idx, (_, val) in enumerate(self._ghost_options):
+                if val == current_ghost:
+                    sel_idx = idx
+                    break
+            self.ghost_level_dropdown.set_selected(sel_idx)
+            self.ghost_opacity_scale.set_value(
+                float(getattr(self.canvas, "ghost_opacity", 0.25))
+            )
+            ghost_enabled = not getattr(self.canvas, "show_all_levels", False)
+            self.ghost_level_dropdown.set_sensitive(ghost_enabled)
+            self.ghost_opacity_scale.set_sensitive(
+                ghost_enabled and bool(current_ghost)
+            )
+        finally:
+            self._updating_ghost_ui = False
+
+    def on_ghost_level_changed(self, dropdown, pspec):
+        if getattr(self, "_updating_ghost_ui", False):
+            return
+        idx = dropdown.get_selected()
+        if 0 <= idx < len(self._ghost_options):
+            _, val = self._ghost_options[idx]
+        else:
+            val = None
+        if hasattr(self.canvas, "set_ghost_level"):
+            self.canvas.set_ghost_level(val)
+        else:
+            self.canvas.ghost_level_id = val
+            self.canvas.queue_draw()
+        ghost_enabled = not getattr(self.canvas, "show_all_levels", False)
+        self.ghost_opacity_scale.set_sensitive(ghost_enabled and bool(val))
+
+    def on_ghost_opacity_changed(self, scale):
+        if getattr(self, "_updating_ghost_ui", False):
+            return
+        val = scale.get_value()
+        if hasattr(self.canvas, "set_ghost_opacity"):
+            self.canvas.set_ghost_opacity(val)
+        else:
+            self.canvas.ghost_opacity = val
+            self.canvas.queue_draw()
+
     def on_level_selected(self, btn, level_id):
         self.canvas.set_active_level(level_id)
         self.level_popover.popdown()
@@ -293,6 +379,7 @@ class LayersPanel(Gtk.Box):
         self.canvas._ensure_valid_active_layer()
         self.canvas.deselect_non_visible_items()
         self.canvas.queue_draw()
+        self.refresh_level_ui()
         self.refresh_layers()
 
     def on_manage_levels(self, btn):
