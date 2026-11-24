@@ -53,6 +53,31 @@ class Layer:
         self.id = value
 
 
+WALL_FINISH_OPTIONS = [
+    "Drywall",
+    "Painted Drywall",
+    "Plaster",
+    "Tile",
+    "T&G Wood",
+    "Wainscoting",
+    "Vinyl Siding",
+    "Hardie Lap Siding",
+    "Stucco",
+    "Brick",
+    "Stone Veneer",
+    "Exposed Concrete",
+    "None",
+]
+
+EXTERIOR_WALL_FINISHES = {
+    "Vinyl Siding",
+    "Hardie Lap Siding",
+    "Stucco",
+    "Brick",
+    "Stone Veneer",
+}
+
+
 @dataclass(eq=False)
 class Wall:
     def __init__(
@@ -107,6 +132,12 @@ class Wall:
         self.material = "wood"
         self.interior_finish = "drywall"
         self.exterior_finish = "stucco"
+        self.left_finish = "Drywall"
+        self.right_finish = "Drywall"
+        self.left_color = None
+        self.right_color = None
+        self.left_baseboard = False
+        self.right_baseboard = False
 
         # Construction details
         self.stud_spacing = 16

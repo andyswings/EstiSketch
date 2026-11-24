@@ -42,6 +42,59 @@ def _fill_mismatched_wall_joins(cr, wall_set, is_visible, get_opacity):
         cr.restore()
 
 
+def _draw_wall_side_accents(cr, wall_set, is_visible, get_opacity):
+    """Draw optional per-side finish colors and baseboard trim indicators on straight walls."""
+    import math
+
+    for wall in wall_set:
+        if not is_visible(wall) or getattr(wall, "symbolic", False):
+            continue
+        if getattr(wall, "is_curved", False):
+            continue
+        left_color = getattr(wall, "left_color", None)
+        right_color = getattr(wall, "right_color", None)
+        left_bb = bool(getattr(wall, "left_baseboard", False))
+        right_bb = bool(getattr(wall, "right_baseboard", False))
+        if not (left_color or right_color or left_bb or right_bb):
+            continue
+
+        x1, y1 = wall.start
+        x2, y2 = wall.end
+        dx, dy = x2 - x1, y2 - y1
+        length = math.hypot(dx, dy)
+        if length < 1e-6:
+            continue
+        # Unit left normal: +normal is Left side, -normal is Right side
+        nx, ny = -dy / length, dx / length
+        half_w = float(wall.width) / 2.0
+        opacity = get_opacity(wall)
+
+        cr.save()
+        cr.set_line_cap(cairo.LINE_CAP_BUTT)
+
+        for sign, color, has_bb in (
+            (1.0, left_color, left_bb),
+            (-1.0, right_color, right_bb),
+        ):
+            if isinstance(color, (tuple, list)) and len(color) >= 3:
+                strip_w = min(float(wall.width) * 0.28, 1.5)
+                off = sign * (half_w - strip_w / 2.0)
+                cr.set_line_width(strip_w)
+                cr.set_source_rgba(float(color[0]), float(color[1]), float(color[2]), opacity)
+                cr.move_to(x1 + nx * off, y1 + ny * off)
+                cr.line_to(x2 + nx * off, y2 + ny * off)
+                cr.stroke()
+            if has_bb:
+                off = sign * (half_w + 0.5)
+                cr.set_line_width(0.7)
+                cr.set_source_rgba(0.55, 0.35, 0.18, opacity * 0.85)
+                cr.move_to(x1 + nx * off, y1 + ny * off)
+                cr.line_to(x2 + nx * off, y2 + ny * off)
+                cr.stroke()
+
+        cr.restore()
+
+
 def draw_walls(self, cr):
     cr.set_line_join(0)  # 0 = miter join.
     cr.set_line_cap(0)  # 0 = butt cap.
@@ -190,6 +243,7 @@ def draw_walls(self, cr):
             cr.stroke()
 
         _fill_mismatched_wall_joins(cr, wall_set, is_visible, get_opacity)
+        _draw_wall_side_accents(cr, wall_set, is_visible, get_opacity)
 
     # Draw active drawing chain
     active_chain = []

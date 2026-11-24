@@ -21,6 +21,7 @@ from collections import defaultdict
 from typing import List, Dict, Tuple, Optional
 
 from .roof_takeoff import RoofSection, CombinedRoofTakeoff, format_takeoff_report
+from ..components import EXTERIOR_WALL_FINISHES
 
 # Unit Conversion Constants
 CM_PER_INCH = 2.54
@@ -229,6 +230,8 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
 
         if room_polygons:
             is_ext = not (side1_in and side2_in)
+            left_is_ext = not side1_in
+            right_is_ext = not side2_in
         else:
             tol_in = 12.0
             is_ext = (
@@ -238,6 +241,18 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
                 abs(max(y1, y2) - max_y) < tol_in or
                 width_in >= 5.0
             )
+            lf = getattr(w, "left_finish", "Drywall")
+            rf = getattr(w, "right_finish", "Drywall")
+            if is_ext or getattr(w, "exterior_wall", False):
+                if (lf in EXTERIOR_WALL_FINISHES) != (rf in EXTERIOR_WALL_FINISHES):
+                    left_is_ext = lf in EXTERIOR_WALL_FINISHES
+                    right_is_ext = rf in EXTERIOR_WALL_FINISHES
+                else:
+                    left_is_ext = True
+                    right_is_ext = False
+            else:
+                left_is_ext = False
+                right_is_ext = False
 
         walls.append({
             'id': wall_id,
@@ -269,6 +284,14 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
             'tri_height_ft_in': format_ft_in(tri_height_in),
             'is_exterior': is_ext,
             'type': 'Exterior' if is_ext else 'Interior',
+            'left_finish': getattr(w, "left_finish", "Drywall") or "Drywall",
+            'right_finish': getattr(w, "right_finish", "Drywall") or "Drywall",
+            'left_color': getattr(w, "left_color", None),
+            'right_color': getattr(w, "right_color", None),
+            'left_baseboard': bool(getattr(w, "left_baseboard", False)),
+            'right_baseboard': bool(getattr(w, "right_baseboard", False)),
+            'left_is_exterior': left_is_ext,
+            'right_is_exterior': right_is_ext,
             'doors': [],
             'windows': []
         })
@@ -1220,6 +1243,45 @@ def get_supplier_quote_items(canvas, config, custom_items: Optional[List[Dict]] 
             })
             item_counter += 1
 
+    # Per-side wall finishes & baseboards (10% waste)
+    wall_finishes = extract_wall_finishes(canvas)
+    for finish, area in sorted(wall_finishes["interior_by_finish"].items()):
+        if area > 0:
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': f"Interior Wall Finish ({finish})",
+                'qty': math.ceil(area * 1.10 - 1e-9),
+                'unit': 'Sq Ft',
+                'notes': f"Interior wall surface net of openings ({area:.1f} sq ft + 10% waste)",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+    for finish, area in sorted(wall_finishes["exterior_by_finish"].items()):
+        if area > 0:
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': f"Exterior Wall Finish ({finish})",
+                'qty': math.ceil(area * 1.10 - 1e-9),
+                'unit': 'Sq Ft',
+                'notes': f"Exterior wall surface net of openings ({area:.1f} sq ft + 10% waste)",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+    if wall_finishes["baseboard_linear_ft"] > 0:
+        bb_lf = wall_finishes["baseboard_linear_ft"]
+        items.append({
+            'id': f"ITEM-{item_counter:03d}",
+            'description': "Baseboard Molding (16' Sticks)",
+            'qty': math.ceil((bb_lf * 1.10) / 16.0 - 1e-9),
+            'unit': 'Sticks',
+            'notes': f"Wall baseboards net of door widths ({bb_lf:.1f} LF + 10% waste)",
+            'is_auto': True,
+            'is_excluded': False
+        })
+        item_counter += 1
+
     # Include custom line items
     if custom_items:
         for c in custom_items:
@@ -1435,5 +1497,106 @@ def generate_room_area_report(canvas) -> str:
     lines.append("baseboard are not deducted.")
     if getattr(canvas, "cut_lower_ceiling_under_stairs", False):
         lines.append("Lower-level ceilings are also cut under stairs (project setting).")
+    lines.append("=" * 90)
+    return "\n".join(lines)
+
+
+def extract_wall_finishes(canvas) -> Dict:
+    """Compute per-side interior/exterior wall finish surface areas and baseboard LF."""
+    walls = extract_walls_from_canvas(canvas)
+    interior_sqft = 0.0
+    exterior_sqft = 0.0
+    interior_by_finish: Dict[str, float] = defaultdict(float)
+    exterior_by_finish: Dict[str, float] = defaultdict(float)
+    baseboard_lf = 0.0
+    per_wall = []
+
+    for w in walls:
+        raw_len_ft = float(w.get("raw_length_ft", w["length_ft"]))
+        ext_len_ft = float(w["length_ft"])
+        openings_sqft = sum(
+            (op["width_in"] * op["height_in"]) / 144.0
+            for op in (w["doors"] + w["windows"])
+        )
+        int_net_face = max(0.0, raw_len_ft * w["height_ft"] - openings_sqft)
+        ext_net_face = max(0.0, ext_len_ft * w["height_ft"] - openings_sqft)
+        door_width_ft = sum(d["width_in"] / 12.0 for d in w["doors"])
+        face_bb = max(0.0, raw_len_ft - door_width_ft)
+
+        wall_bb = 0.0
+        for side_key, ext_key, bb_key in (
+            ("left_finish", "left_is_exterior", "left_baseboard"),
+            ("right_finish", "right_is_exterior", "right_baseboard"),
+        ):
+            finish = (w.get(side_key) or "").strip()
+            is_ext_side = bool(w.get(ext_key, False))
+            if finish and finish.lower() != "none":
+                if is_ext_side:
+                    exterior_sqft += ext_net_face
+                    exterior_by_finish[finish] += ext_net_face
+                else:
+                    interior_sqft += int_net_face
+                    interior_by_finish[finish] += int_net_face
+            if w.get(bb_key, False):
+                baseboard_lf += face_bb
+                wall_bb += face_bb
+
+        per_wall.append({
+            "id": w["id"],
+            "length_ft": raw_len_ft,
+            "net_face_sqft": int_net_face,
+            "left_finish": w["left_finish"],
+            "left_is_exterior": w["left_is_exterior"],
+            "left_baseboard": w["left_baseboard"],
+            "right_finish": w["right_finish"],
+            "right_is_exterior": w["right_is_exterior"],
+            "right_baseboard": w["right_baseboard"],
+            "baseboard_lf": wall_bb,
+        })
+
+    return {
+        "interior_surface_sqft": interior_sqft,
+        "exterior_surface_sqft": exterior_sqft,
+        "interior_by_finish": dict(interior_by_finish),
+        "exterior_by_finish": dict(exterior_by_finish),
+        "baseboard_linear_ft": baseboard_lf,
+        "per_wall": per_wall,
+    }
+
+
+def generate_wall_finish_report(canvas) -> str:
+    """Formatted per-side wall finish surface area and baseboard linear footage report."""
+    data = extract_wall_finishes(canvas)
+    lines = [
+        "=" * 90,
+        "ESTISKETCH PER-SIDE WALL FINISHES & BASEBOARDS REPORT",
+        "=" * 90,
+    ]
+    if not data["per_wall"]:
+        lines.append("No walls found.")
+        return "\n".join(lines)
+
+    lines.append(
+        f"{'Wall':<12} {'Net Face':>10} {'Left Finish (Side)':<24} "
+        f"{'Right Finish (Side)':<24} {'Baseboard':>10}"
+    )
+    lines.append("-" * 90)
+    for row in data["per_wall"]:
+        l_tag = "Ext" if row["left_is_exterior"] else "Int"
+        r_tag = "Ext" if row["right_is_exterior"] else "Int"
+        l_str = f"{row['left_finish']} ({l_tag})"[:23]
+        r_str = f"{row['right_finish']} ({r_tag})"[:23]
+        lines.append(
+            f"{row['id'][:11]:<12} {row['net_face_sqft']:>7.1f} sf "
+            f"{l_str:<24} {r_str:<24} {row['baseboard_lf']:>7.1f} lf"
+        )
+    lines.append("-" * 90)
+    lines.append(f"Total Interior Surface Area: {data['interior_surface_sqft']:.1f} sq ft")
+    for fin, area in sorted(data["interior_by_finish"].items()):
+        lines.append(f"  - {fin}: {area:.1f} sq ft")
+    lines.append(f"Total Exterior Surface Area: {data['exterior_surface_sqft']:.1f} sq ft")
+    for fin, area in sorted(data["exterior_by_finish"].items()):
+        lines.append(f"  - {fin}: {area:.1f} sq ft")
+    lines.append(f"Total Baseboard Linear Footage: {data['baseboard_linear_ft']:.1f} LF")
     lines.append("=" * 90)
     return "\n".join(lines)

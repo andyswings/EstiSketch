@@ -3,11 +3,12 @@ import os
 import json
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GObject, GLib
+from gi.repository import Gtk, Gdk, GObject, GLib
 from .layers_panel import LayersPanel
 from .properties_stair import StairPropertiesWidget
 from ..ui.properties_panel import bind_roof_overhang, bind_plane_pitch
 from ..Canvas.floor_patterns import FLOOR_PATTERNS
+from ..components import WALL_FINISH_OPTIONS
 
 # Stub widgets—you can flesh these out with real controls
 
@@ -760,6 +761,60 @@ class WallPropertiesWidget(Gtk.Box):
         ext_row.append(self.exterior_combo)
         mat_box.append(ext_row)
 
+        # ─────────── Per-Side Finishes & Baseboards ───────────
+        side_frame = Gtk.Frame(label="Per-Side Finishes & Baseboards")
+        side_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        side_box.set_margin_top(6)
+        side_box.set_margin_bottom(6)
+        side_box.set_margin_start(6)
+        side_box.set_margin_end(6)
+        side_frame.set_child(side_box)
+        self.append(side_frame)
+
+        # Left side
+        left_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        left_row.append(Gtk.Label(label="Left:"))
+        self.left_finish_combo = Gtk.ComboBoxText()
+        for val in WALL_FINISH_OPTIONS:
+            self.left_finish_combo.append_text(val)
+        self.left_finish_combo.set_active(0)
+        self.left_finish_combo.set_hexpand(True)
+        left_row.append(self.left_finish_combo)
+        self.left_color_btn = Gtk.ColorButton()
+        self.left_color_btn.set_tooltip_text("Left side accent color")
+        left_row.append(self.left_color_btn)
+        self.left_color_clear_btn = Gtk.Button(label="×")
+        self.left_color_clear_btn.set_tooltip_text("Clear left side color")
+        left_row.append(self.left_color_clear_btn)
+        side_box.append(left_row)
+
+        self.left_baseboard_check = Gtk.CheckButton(label="Left Baseboard")
+        side_box.append(self.left_baseboard_check)
+
+        # Right side
+        right_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        right_row.append(Gtk.Label(label="Right:"))
+        self.right_finish_combo = Gtk.ComboBoxText()
+        for val in WALL_FINISH_OPTIONS:
+            self.right_finish_combo.append_text(val)
+        self.right_finish_combo.set_active(0)
+        self.right_finish_combo.set_hexpand(True)
+        right_row.append(self.right_finish_combo)
+        self.right_color_btn = Gtk.ColorButton()
+        self.right_color_btn.set_tooltip_text("Right side accent color")
+        right_row.append(self.right_color_btn)
+        self.right_color_clear_btn = Gtk.Button(label="×")
+        self.right_color_clear_btn.set_tooltip_text("Clear right side color")
+        right_row.append(self.right_color_clear_btn)
+        side_box.append(right_row)
+
+        self.right_baseboard_check = Gtk.CheckButton(label="Right Baseboard")
+        side_box.append(self.right_baseboard_check)
+
+        self.swap_sides_btn = Gtk.Button(label="⇄ Swap Left / Right")
+        self.swap_sides_btn.set_tooltip_text("Swap left and right wall finishes, colors, and baseboards")
+        side_box.append(self.swap_sides_btn)
+
         # ─────────── Structural Details ───────────
         struct_frame = Gtk.Frame(label="Structural Details")
         struct_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -857,6 +912,15 @@ class WallPropertiesWidget(Gtk.Box):
         self.material_combo.connect("changed", self.on_material_changed)
         self.interior_combo.connect("changed", self.on_interior_changed)
         self.exterior_combo.connect("changed", self.on_ext_finish_changed)
+        self.left_finish_combo.connect("changed", self.on_left_finish_changed)
+        self.right_finish_combo.connect("changed", self.on_right_finish_changed)
+        self.left_color_btn.connect("color-set", self.on_left_color_changed)
+        self.right_color_btn.connect("color-set", self.on_right_color_changed)
+        self.left_color_clear_btn.connect("clicked", self.on_clear_left_color)
+        self.right_color_clear_btn.connect("clicked", self.on_clear_right_color)
+        self.left_baseboard_check.connect("toggled", self.on_left_baseboard_toggled)
+        self.right_baseboard_check.connect("toggled", self.on_right_baseboard_toggled)
+        self.swap_sides_btn.connect("clicked", self.on_swap_wall_sides)
         self.stud_combo.connect("changed", self.on_stud_spacing_changed)
         self.insulation_combo.connect("changed", self.on_insulation_changed)
         self.fire_combo.connect("changed", self.on_fire_rating_changed)
@@ -1080,6 +1144,104 @@ class WallPropertiesWidget(Gtk.Box):
             for wall in self.current_walls:
                 wall.exterior_finish = text
         self.emit_property_changed()
+
+    def on_left_finish_changed(self, combo):
+        if self._block_updates or not self.current_walls:
+            return
+        text = combo.get_active_text()
+        if text:
+            for wall in self.current_walls:
+                wall.left_finish = text
+        self.emit_property_changed()
+
+    def on_right_finish_changed(self, combo):
+        if self._block_updates or not self.current_walls:
+            return
+        text = combo.get_active_text()
+        if text:
+            for wall in self.current_walls:
+                wall.right_finish = text
+        self.emit_property_changed()
+
+    def on_left_color_changed(self, btn):
+        if self._block_updates or not self.current_walls:
+            return
+        rgba = btn.get_rgba()
+        rgb = (float(rgba.red), float(rgba.green), float(rgba.blue))
+        for wall in self.current_walls:
+            wall.left_color = rgb
+        self.emit_property_changed()
+
+    def on_right_color_changed(self, btn):
+        if self._block_updates or not self.current_walls:
+            return
+        rgba = btn.get_rgba()
+        rgb = (float(rgba.red), float(rgba.green), float(rgba.blue))
+        for wall in self.current_walls:
+            wall.right_color = rgb
+        self.emit_property_changed()
+
+    def on_clear_left_color(self, btn):
+        if not self.current_walls:
+            return
+        for wall in self.current_walls:
+            wall.left_color = None
+        self._set_color_button(self.left_color_btn, None)
+        self.emit_property_changed()
+
+    def on_clear_right_color(self, btn):
+        if not self.current_walls:
+            return
+        for wall in self.current_walls:
+            wall.right_color = None
+        self._set_color_button(self.right_color_btn, None)
+        self.emit_property_changed()
+
+    def on_left_baseboard_toggled(self, check):
+        if self._block_updates or not self.current_walls:
+            return
+        active = bool(check.get_active())
+        for wall in self.current_walls:
+            wall.left_baseboard = active
+        self.emit_property_changed()
+
+    def on_right_baseboard_toggled(self, check):
+        if self._block_updates or not self.current_walls:
+            return
+        active = bool(check.get_active())
+        for wall in self.current_walls:
+            wall.right_baseboard = active
+        self.emit_property_changed()
+
+    def on_swap_wall_sides(self, btn):
+        if not self.current_walls:
+            return
+        for wall in self.current_walls:
+            wall.left_finish, wall.right_finish = (
+                getattr(wall, "right_finish", "Drywall"),
+                getattr(wall, "left_finish", "Drywall"),
+            )
+            wall.left_color, wall.right_color = (
+                getattr(wall, "right_color", None),
+                getattr(wall, "left_color", None),
+            )
+            wall.left_baseboard, wall.right_baseboard = (
+                bool(getattr(wall, "right_baseboard", False)),
+                bool(getattr(wall, "left_baseboard", False)),
+            )
+        self.set_wall(self.current_walls)
+        self.emit_property_changed()
+
+    @staticmethod
+    def _set_color_button(btn, color):
+        rgba = Gdk.RGBA()
+        if isinstance(color, (tuple, list)) and len(color) >= 3:
+            rgba.red, rgba.green, rgba.blue, rgba.alpha = (
+                float(color[0]), float(color[1]), float(color[2]), 1.0
+            )
+        else:
+            rgba.red, rgba.green, rgba.blue, rgba.alpha = (0.85, 0.85, 0.85, 1.0)
+        btn.set_rgba(rgba)
 
     def on_stud_spacing_changed(self, combo):
         if self._block_updates or not self.current_walls:
@@ -1486,6 +1648,24 @@ class WallPropertiesWidget(Gtk.Box):
             self._find_combo_index(
                 self.exterior_combo,
                 first_wall.exterior_finish))
+
+        # Per-side finishes & baseboards
+        self.left_finish_combo.set_active(
+            self._find_combo_index(
+                self.left_finish_combo,
+                getattr(first_wall, "left_finish", "Drywall"),
+            )
+        )
+        self.right_finish_combo.set_active(
+            self._find_combo_index(
+                self.right_finish_combo,
+                getattr(first_wall, "right_finish", "Drywall"),
+            )
+        )
+        self._set_color_button(self.left_color_btn, getattr(first_wall, "left_color", None))
+        self._set_color_button(self.right_color_btn, getattr(first_wall, "right_color", None))
+        self.left_baseboard_check.set_active(bool(getattr(first_wall, "left_baseboard", False)))
+        self.right_baseboard_check.set_active(bool(getattr(first_wall, "right_baseboard", False)))
 
         #
         # Structural details

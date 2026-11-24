@@ -31,6 +31,30 @@ def _load_obj_meta(elem, obj):
     obj.comment = elem.get("comment", "") or ""
 
 
+def _rgb_to_hex(color) -> str:
+    """Serialize an optional (r, g, b) float tuple in 0..1 to '#RRGGBB', or ''."""
+    if not isinstance(color, (tuple, list)) or len(color) < 3:
+        return ""
+    r = max(0, min(255, int(round(float(color[0]) * 255.0))))
+    g = max(0, min(255, int(round(float(color[1]) * 255.0))))
+    b = max(0, min(255, int(round(float(color[2]) * 255.0))))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _hex_to_rgb(text: str):
+    """Parse '#RRGGBB' into an (r, g, b) float tuple in 0..1, or None."""
+    s = (text or "").strip().lstrip("#")
+    if len(s) != 6:
+        return None
+    try:
+        r = int(s[0:2], 16) / 255.0
+        g = int(s[2:4], 16) / 255.0
+        b = int(s[4:6], 16) / 255.0
+        return (r, g, b)
+    except ValueError:
+        return None
+
+
 def save_project(canvas, window_width, window_height, filepath):
     """ Save the entire project state to an XML file.
 
@@ -130,6 +154,24 @@ def save_project(canvas, window_width, window_height, filepath):
             ET.SubElement(
                 wall_elem,
                 "ExteriorFinish").text = wall.exterior_finish
+            ET.SubElement(
+                wall_elem,
+                "LeftFinish").text = getattr(wall, "left_finish", "Drywall")
+            ET.SubElement(
+                wall_elem,
+                "RightFinish").text = getattr(wall, "right_finish", "Drywall")
+            ET.SubElement(
+                wall_elem,
+                "LeftColor").text = _rgb_to_hex(getattr(wall, "left_color", None))
+            ET.SubElement(
+                wall_elem,
+                "RightColor").text = _rgb_to_hex(getattr(wall, "right_color", None))
+            ET.SubElement(
+                wall_elem,
+                "LeftBaseboard").text = str(bool(getattr(wall, "left_baseboard", False)))
+            ET.SubElement(
+                wall_elem,
+                "RightBaseboard").text = str(bool(getattr(wall, "right_baseboard", False)))
             ET.SubElement(
                 wall_elem,
                 "StudSpacing").text = str(
@@ -801,6 +843,12 @@ def open_project(canvas, filepath):
                 wall.material = _get_elem_text(wall_elem, "Material", "2x4 Wood Stud")
                 wall.interior_finish = _get_elem_text(wall_elem, "InteriorFinish", "1/2\" Drywall")
                 wall.exterior_finish = _get_elem_text(wall_elem, "ExteriorFinish", "Vinyl Siding")
+                wall.left_finish = _get_elem_text(wall_elem, "LeftFinish", "Drywall") or "Drywall"
+                wall.right_finish = _get_elem_text(wall_elem, "RightFinish", "Drywall") or "Drywall"
+                wall.left_color = _hex_to_rgb(_get_elem_text(wall_elem, "LeftColor", ""))
+                wall.right_color = _hex_to_rgb(_get_elem_text(wall_elem, "RightColor", ""))
+                wall.left_baseboard = _get_elem_bool(wall_elem, "LeftBaseboard", False)
+                wall.right_baseboard = _get_elem_bool(wall_elem, "RightBaseboard", False)
                 wall.stud_spacing = _get_elem_int(wall_elem, "StudSpacing", 16)
                 wall.insulation_type = _get_elem_text(wall_elem, "InsulationType", "Fiberglass Batt")
                 wall.fire_rating = _get_elem_text(wall_elem, "FireRating", "None")
