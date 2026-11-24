@@ -75,3 +75,59 @@ def test_export_pdf(tmp_path):
     assert pages == len(canvas.levels)
     data = out.read_bytes()
     assert data.startswith(b"%PDF") and len(data) > 1000
+
+
+def test_export_svg_single_level(tmp_path):
+    import xml.etree.ElementTree as ET
+
+    canvas = _load_canvas()
+    s = PrintSettings(
+        paper="Arch D (24 x 36 in)",
+        scale_name='1/4" = 1\'-0"',
+        print_all_levels=False,
+        level_ids=[canvas.levels[0].id],
+    )
+    out = tmp_path / "plan.svg"
+    paths = pr.export_svg(canvas, s, str(out))
+    assert paths == [str(out)]
+    raw = out.read_bytes()
+    root = ET.fromstring(raw)
+    assert root.tag.endswith("svg")
+    assert root.attrib.get("width") == "2592pt"
+    assert root.attrib.get("height") == "1728pt"
+    text = raw.decode("utf-8")
+    assert "<path" in text and len(text) > 1000
+
+
+def test_export_svg_multi_level(tmp_path):
+    import xml.etree.ElementTree as ET
+    from EstiSketch.components import Level
+
+    canvas = _load_canvas()
+    canvas.levels.append(Level(id="lvl-2", name="Second Floor", elevation=96.0))
+    s = PrintSettings(paper="Arch D (24 x 36 in)", print_all_levels=True)
+    out = tmp_path / "plan.svg"
+    paths = pr.export_svg(canvas, s, str(out))
+    assert len(paths) == 2
+    assert len(set(paths)) == 2
+    for p in paths:
+        assert p.endswith(".svg")
+        assert os.path.exists(p)
+        root = ET.fromstring(open(p, "rb").read())
+        assert root.tag.endswith("svg")
+
+
+def test_export_svg_no_levels_raises(tmp_path):
+    canvas = _load_canvas()
+    s = PrintSettings()
+    with pytest.raises(ValueError):
+        pr.export_svg(canvas, s, str(tmp_path / "empty.svg"), levels=[])
+
+
+def test_print_dialog_has_export_svg_button():
+    from EstiSketch.Printing.print_dialog import PrintDialog
+
+    canvas = _load_canvas()
+    dlg = PrintDialog(None, canvas, "Test")
+    assert dlg.export_svg_btn.get_label() == "Export SVG..."
+    dlg.destroy()

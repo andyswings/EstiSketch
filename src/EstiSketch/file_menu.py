@@ -16,7 +16,7 @@ def create_file_menu(app):
     menu_model.append_section("", Gio.Menu())
     menu_model.append("Save", "app.save")
     menu_model.append("Save As", "app.save_as")
-    menu_model.append("Print / Export PDF...", "app.print")
+    menu_model.append("Print / Export (PDF / SVG)...", "app.print")
     # Separator
     menu_model.append_section("", Gio.Menu())
     menu_model.append("Settings", "app.settings")

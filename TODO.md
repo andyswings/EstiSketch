@@ -8,7 +8,6 @@
 - [ ] Level onion-skinning ghosting (SH3D parity Phase 6): show adjacent level (N-1/N+1) as a muted background trace (`ghost_level_id`, `ghost_opacity` default 25%).
 - [ ] Compass rose / north azimuth (SH3D parity Phase 6): `canvas.north_angle`, draggable north arrow on canvas, saved in project file, used in the print title block.
 - [ ] Arc wall snapping & tangent cuts (SH3D parity Phase 1).
-- [ ] Scaled Vector Export (Cairo vector SVG export). PDF plotting with scales and title blocks is done, see Done.
 - [ ] Real printer support: add a "Print..." button to the Print dialog that sends the sheets to a physical printer via `Gtk.PrintOperation` (system print dialog, paper/printer selection), reusing `print_renderer.render_page` so output matches the preview. Needs testing on actual hardware (including large-format plotters and paper-size mapping).
 - [ ] Print line weights: lines currently print at a constant ~2 pt regardless of drawing scale. Add a line-weight setting (per-object-type pen weights / global multiplier) in the Print dialog so plots look right at any scale.
 - [ ] Print tiling: a drawing larger than the sheet at a fixed scale is clipped. Add an option to tile it across multiple pages (with overlap/registration marks and page numbering), and show the tile grid in the preview.
@@ -164,6 +163,7 @@
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Scaled Vector SVG Export (SH3D parity Phase 7): added `export_svg` in `Printing/print_renderer.py` using `cairo.SVGSurface` (point physical units, single-level or per-level named files, reusing `render_page` scales and title blocks), "Export SVG..." button in `PrintDialog`, updated File menu label, and tests in `tests/test_printing.py` (2026-11-23)
 - [x] Room area takeoff follow-ups: added `FLOORING_WASTE_PCT`, `CEILING_WASTE_PCT`, and `CONCRETE_WASTE_PCT` settings (with controls in Manage Materials), flooring by `floor_type`, ceiling drywall sheets, and ready-mix slab concrete lines in `get_supplier_quote_items`, room-area summary rows in CSV/TXT supplier quote exports, and tests in `tests/test_room_holes.py` (2026-11-23)
 - [x] Room hole UI controls: "Opening clearance (in)" spinner in the stair properties panel and a project-level "Cut lower-level ceiling under stairs" switch in Settings (saved in the project file) (2026-11-23)
 - [x] Room tool snapping & hover guides (SH3D parity Phase 1): rooms now snap to wall edges/faces/centerlines/endpoints like walls (shared `_compute_room_snap`; previously the snap result was discarded), snap indicators show while hovering in wall and room modes before the first click, and double-click inside a closed wall loop creates a room on the inside wall faces (`_get_wall_set_inner_polygon`). Tests in `tests/test_room_inner_polygon.py` (2026-11-23)

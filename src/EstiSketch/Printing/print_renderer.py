@@ -6,6 +6,8 @@ scale is expressed as "points per model inch".
 from __future__ import annotations
 
 import datetime
+import os
+import re
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
@@ -273,3 +275,49 @@ def export_pdf(canvas, settings: PrintSettings, path: str, levels: Optional[List
     finally:
         surface.finish()
     return len(levels)
+
+
+def _svg_level_slug(name: str, index: int) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", (name or "").strip()).strip("_")
+    return slug or f"level_{index + 1}"
+
+
+def export_svg(canvas, settings: PrintSettings, path: str, levels: Optional[List] = None,
+               bounds_cache: Optional[dict] = None) -> List[str]:
+    """Write the selected levels to scaled vector SVG file(s). Returns output paths."""
+    levels = levels if levels is not None else resolve_levels(canvas, settings)
+    if not levels:
+        raise ValueError("No levels selected to export.")
+    pw, ph = settings.page_size()
+
+    if len(levels) == 1:
+        out_paths = [path]
+    else:
+        root, ext = os.path.splitext(path)
+        ext = ext or ".svg"
+        seen = set()
+        out_paths = []
+        for i, level in enumerate(levels):
+            slug = _svg_level_slug(getattr(level, "name", ""), i)
+            if slug in seen:
+                slug = f"{slug}_{i + 1}"
+            seen.add(slug)
+            out_paths.append(f"{root}_{slug}{ext}")
+
+    for i, (level, out_path) in enumerate(zip(levels, out_paths)):
+        surface = cairo.SVGSurface(out_path, pw, ph)
+        if hasattr(surface, "set_document_unit") and hasattr(cairo, "SVGUnit"):
+            surface.set_document_unit(cairo.SVGUnit.PT)
+        try:
+            cr = cairo.Context(surface)
+            cr.save()
+            cr.set_source_rgb(1, 1, 1)
+            cr.paint()
+            cr.restore()
+            bounds = None
+            if bounds_cache is not None:
+                bounds = bounds_cache.get((level.id, tuple(sorted(settings.hidden_layer_ids))))
+            render_page(cr, canvas, settings, level, i, len(levels), bounds=bounds)
+        finally:
+            surface.finish()
+    return out_paths

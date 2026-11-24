@@ -25,7 +25,7 @@ _TB_FIELDS = [
 
 class PrintDialog(Gtk.Window):
     def __init__(self, parent, canvas, default_name: str = "", on_settings_changed=None):
-        super().__init__(title="Print / Export PDF", transient_for=parent, modal=True)
+        super().__init__(title="Print / Export PDF & SVG", transient_for=parent, modal=True)
         self.set_default_size(1100, 720)
         self.canvas = canvas
         self.default_name = default_name or "drawing"
@@ -62,10 +62,14 @@ class PrintDialog(Gtk.Window):
         bar.append(self.status)
         cancel = Gtk.Button(label="Close")
         cancel.connect("clicked", lambda b: self.close())
+        export_svg = Gtk.Button(label="Export SVG...")
+        export_svg.connect("clicked", self._on_export_svg)
+        self.export_svg_btn = export_svg
         export = Gtk.Button(label="Export PDF...")
         export.add_css_class("suggested-action")
         export.connect("clicked", self._on_export)
         bar.append(cancel)
+        bar.append(export_svg)
         bar.append(export)
         root.append(bar)
 
@@ -344,6 +348,44 @@ class PrintDialog(Gtk.Window):
             self.status.set_text(f"Saved {n} page(s) to {path}")
         except Exception as exc:  # report, don't crash the app
             self.status.set_text(f"Export failed: {exc}")
+
+    def _on_export_svg(self, *args) -> None:
+        self._pull_settings()
+        if not self._levels():
+            self.status.set_text("Select at least one level to export.")
+            return
+        dlg = Gtk.FileDialog()
+        dlg.set_title("Export SVG")
+        base = os.path.splitext(os.path.basename(self.default_name))[0] or "drawing"
+        dlg.set_initial_name(f"{base}.svg")
+        flt = Gtk.FileFilter()
+        flt.set_name("SVG vector files")
+        flt.add_pattern("*.svg")
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        store.append(flt)
+        dlg.set_filters(store)
+        dlg.save(self, None, self._on_export_svg_done)
+
+    def _on_export_svg_done(self, dlg, result) -> None:
+        try:
+            gfile = dlg.save_finish(result)
+        except GLib.Error:
+            return
+        if gfile is None:
+            return
+        path = gfile.get_path()
+        if not path.lower().endswith(".svg"):
+            path += ".svg"
+        try:
+            paths = pr.export_svg(self.canvas, self.settings, path, self._levels(),
+                                  bounds_cache=self._bounds_cache)
+            if len(paths) == 1:
+                self.status.set_text(f"Saved SVG to {paths[0]}")
+            else:
+                self.status.set_text(
+                    f"Saved {len(paths)} SVG files (starting with {os.path.basename(paths[0])})")
+        except Exception as exc:  # report, don't crash the app
+            self.status.set_text(f"SVG export failed: {exc}")
 
     def _on_close(self, *args) -> bool:
         self._pull_settings()
