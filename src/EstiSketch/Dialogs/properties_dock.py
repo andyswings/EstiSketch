@@ -7,6 +7,7 @@ from gi.repository import Gtk, GObject, GLib
 from .layers_panel import LayersPanel
 from .properties_stair import StairPropertiesWidget
 from ..ui.properties_panel import bind_roof_overhang, bind_plane_pitch
+from ..Canvas.floor_patterns import FLOOR_PATTERNS
 
 # Stub widgets—you can flesh these out with real controls
 
@@ -2958,6 +2959,36 @@ class RoomPropertiesWidget(Gtk.Box):
         floor_row.append(self.floor_combo)
         basic_box.append(floor_row)
 
+        # Floor Pattern
+        pattern_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        pattern_row.append(Gtk.Label(label="Pattern:"))
+        self.pattern_combo = Gtk.ComboBoxText()
+        for pid, plabel in FLOOR_PATTERNS:
+            self.pattern_combo.append(pid, plabel)
+        self.pattern_combo.set_active_id("none")
+        pattern_row.append(self.pattern_combo)
+        basic_box.append(pattern_row)
+
+        # Pattern Angle (degrees)
+        rot_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        rot_row.append(Gtk.Label(label="Pattern Angle (°):"))
+        self.pattern_rotation_spin = Gtk.SpinButton.new_with_range(0.0, 360.0, 15.0)
+        self.pattern_rotation_spin.set_digits(0)
+        self.pattern_rotation_spin.set_value(0.0)
+        self.pattern_rotation_spin.set_sensitive(False)
+        rot_row.append(self.pattern_rotation_spin)
+        basic_box.append(rot_row)
+
+        # Pattern Scale
+        scale_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        scale_row.append(Gtk.Label(label="Pattern Scale:"))
+        self.pattern_scale_spin = Gtk.SpinButton.new_with_range(0.25, 4.0, 0.1)
+        self.pattern_scale_spin.set_digits(2)
+        self.pattern_scale_spin.set_value(1.0)
+        self.pattern_scale_spin.set_sensitive(False)
+        scale_row.append(self.pattern_scale_spin)
+        basic_box.append(scale_row)
+
         # Frame - Foundation/Slab Properties
         slab_frame = Gtk.Frame(label="Foundation (Slab)")
         slab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -3006,6 +3037,9 @@ class RoomPropertiesWidget(Gtk.Box):
         self.name_entry.connect("changed", self.on_name_changed)
         self.type_combo.connect("changed", self.on_type_changed)
         self.floor_combo.connect("changed", self.on_floor_changed)
+        self.pattern_combo.connect("changed", self.on_pattern_changed)
+        self.pattern_rotation_spin.connect("value-changed", self.on_pattern_rotation_changed)
+        self.pattern_scale_spin.connect("value-changed", self.on_pattern_scale_changed)
         self.slab_check.connect("toggled", self.on_slab_toggled)
         self.thickness_combo.connect("changed", self.on_thickness_changed)
         self.reinforce_combo.connect("changed", self.on_reinforce_changed)
@@ -3040,6 +3074,33 @@ class RoomPropertiesWidget(Gtk.Box):
         floor_type = combo.get_active_text()
         for room in self.current_rooms:
             room.floor_type = floor_type
+        self.emit_property_changed()
+
+    def on_pattern_changed(self, combo):
+        pattern = combo.get_active_id() or "none"
+        has_pattern = (pattern != "none")
+        self.pattern_rotation_spin.set_sensitive(has_pattern)
+        self.pattern_scale_spin.set_sensitive(has_pattern)
+        if self._block_updates or not self.current_rooms:
+            return
+        for room in self.current_rooms:
+            room.floor_pattern = pattern
+        self.emit_property_changed()
+
+    def on_pattern_rotation_changed(self, spin):
+        if self._block_updates or not self.current_rooms:
+            return
+        val = float(spin.get_value()) % 360.0
+        for room in self.current_rooms:
+            room.pattern_rotation = val
+        self.emit_property_changed()
+
+    def on_pattern_scale_changed(self, spin):
+        if self._block_updates or not self.current_rooms:
+            return
+        val = max(0.25, min(4.0, float(spin.get_value())))
+        for room in self.current_rooms:
+            room.pattern_scale = val
         self.emit_property_changed()
 
     def on_slab_toggled(self, button):
@@ -3100,6 +3161,14 @@ class RoomPropertiesWidget(Gtk.Box):
         self.name_entry.set_text(first_room.name or "")
         self.type_combo.set_active(self._find_combo_index(self.type_combo, first_room.room_type or "undefined"))
         self.floor_combo.set_active(self._find_combo_index(self.floor_combo, first_room.floor_type or "default"))
+        pat = getattr(first_room, "floor_pattern", "none") or "none"
+        if not self.pattern_combo.set_active_id(pat):
+            self.pattern_combo.set_active_id("none")
+            pat = "none"
+        self.pattern_rotation_spin.set_value(float(getattr(first_room, "pattern_rotation", 0.0)))
+        self.pattern_scale_spin.set_value(float(getattr(first_room, "pattern_scale", 1.0)))
+        self.pattern_rotation_spin.set_sensitive(pat != "none")
+        self.pattern_scale_spin.set_sensitive(pat != "none")
 
         # Slab properties
         self.slab_check.set_active(getattr(first_room, 'is_slab', False))

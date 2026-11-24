@@ -160,6 +160,9 @@ def save_project(canvas, window_width, window_height, filepath):
             ET.SubElement(points_elem, "Point", x=str(pt[0]), y=str(pt[1]))
         ET.SubElement(room_elem, "Height").text = str(room.height)
         ET.SubElement(room_elem, "FloorType").text = room.floor_type
+        ET.SubElement(room_elem, "FloorPattern").text = getattr(room, "floor_pattern", "none")
+        ET.SubElement(room_elem, "PatternRotation").text = str(float(getattr(room, "pattern_rotation", 0.0)))
+        ET.SubElement(room_elem, "PatternScale").text = str(float(getattr(room, "pattern_scale", 1.0)))
         ET.SubElement(room_elem, "WallFinish").text = room.wall_finish
         ET.SubElement(room_elem, "RoomType").text = room.room_type
         ET.SubElement(room_elem, "Name").text = room.name
@@ -831,6 +834,9 @@ def open_project(canvas, filepath):
             )
             room = Room(points, height, identifier=room_id)
             room.floor_type = _get_elem_text(room_elem, "FloorType", "Hardwood")
+            room.floor_pattern = _get_elem_text(room_elem, "FloorPattern", "none") or "none"
+            room.pattern_rotation = _get_elem_float(room_elem, "PatternRotation", 0.0) % 360.0
+            room.pattern_scale = max(0.25, min(4.0, _get_elem_float(room_elem, "PatternScale", 1.0)))
             room.wall_finish = _get_elem_text(room_elem, "WallFinish", "Paint")
             room.room_type = _get_elem_text(room_elem, "RoomType", "Living Room")
             room.name = _get_elem_text(room_elem, "Name", "Room")

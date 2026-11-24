@@ -204,6 +204,9 @@ class Room:
         self.points = points
         self.height = height  # Room height in inches
         self.floor_type = "default"
+        self.floor_pattern = "none"
+        self.pattern_rotation = 0.0
+        self.pattern_scale = 1.0
         self.wall_finish = "default"
         self.room_type = "undefined"
         self.name = ""

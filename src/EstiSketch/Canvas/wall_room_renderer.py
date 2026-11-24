@@ -1,5 +1,6 @@
 import cairo
 from ..geometry.wall_joins import wall_join_polygon
+from .floor_patterns import draw_floor_pattern, pattern_base_color
 
 
 def _fill_mismatched_wall_joins(cr, wall_set, is_visible, get_opacity):
@@ -557,15 +558,28 @@ def draw_rooms(self, cr, zoom_transform):
             _clip_outside_holes(cr, room)
             _poly_path(cr, room.points)
 
-            # Check if this is a slab - use different fill style
-            if getattr(room, 'is_slab', False):
-                # Gray fill for concrete slab
-                cr.set_source_rgba(0.85, 0.85, 0.85, opacity)
-            else:
-                # Light blue fill for regular rooms
-                cr.set_source_rgba(0.9, 0.9, 1, opacity)
+            pattern = getattr(room, "floor_pattern", "none") or "none"
+            is_slab = getattr(room, "is_slab", False)
+            base_r, base_g, base_b = pattern_base_color(pattern, is_slab)
+            cr.set_source_rgba(base_r, base_g, base_b, opacity)
             cr.fill()
             cr.restore()
+
+            if pattern != "none":
+                cr.save()
+                _clip_outside_holes(cr, room)
+                _poly_path(cr, room.points)
+                cr.clip()
+                draw_floor_pattern(
+                    cr,
+                    room.points,
+                    pattern,
+                    getattr(room, "pattern_rotation", 0.0),
+                    getattr(room, "pattern_scale", 1.0),
+                    zoom_transform,
+                    opacity=opacity,
+                )
+                cr.restore()
 
             # Outline: room boundary, then each hole outline outside the others
             cr.set_source_rgba(0, 0, 0, opacity)
@@ -578,8 +592,8 @@ def draw_rooms(self, cr, zoom_transform):
                 cr.stroke()
                 cr.restore()
             
-            # Draw hatching pattern for slabs
-            if getattr(room, 'is_slab', False) and room.points:
+            # Draw hatching pattern for slabs when no explicit floor pattern is set
+            if is_slab and pattern == "none" and room.points:
                 cr.save()
                 # Create clipping path from room polygon
                 _clip_outside_holes(cr, room)
