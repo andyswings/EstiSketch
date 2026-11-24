@@ -18,6 +18,7 @@ from ..Takeoff.building_takeoff import (
     generate_room_area_report,
     get_supplier_quote_items,
     export_supplier_quote_txt,
+    extract_room_areas,
     export_supplier_quote_csv,
     export_supplier_quote_pdf
 )
@@ -393,14 +394,15 @@ def create_estimate_materials_dialog(parent, canvas):
             path = gfile.get_path()
             proj_name = getattr(canvas, "project_name", "EstiSketch Building Project")
 
+            room_areas = extract_room_areas(canvas)
             if path.lower().endswith(".csv"):
-                export_supplier_quote_csv(quote_items, config_object, proj_name, path)
+                export_supplier_quote_csv(quote_items, config_object, proj_name, path, room_areas)
             elif path.lower().endswith(".pdf"):
-                export_supplier_quote_pdf(quote_items, config_object, proj_name, path)
+                export_supplier_quote_pdf(quote_items, config_object, proj_name, path, room_areas)
             else:
                 if not path.lower().endswith(".txt"):
                     path += ".txt"
-                export_supplier_quote_txt(quote_items, config_object, proj_name, path)
+                export_supplier_quote_txt(quote_items, config_object, proj_name, path, room_areas)
 
         dlg_save.save(dialog, None, _on_export_done)
 

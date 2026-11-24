@@ -155,6 +155,21 @@ class StairPropertiesWidget(Gtk.Box):
         type_box.append(row_rotation)
         self.row_rotation = row_rotation
         
+        # Opening clearance (extra margin around the floor opening cut in
+        # the upper level's rooms)
+        row_clear = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        lbl_clear = Gtk.Label(label="Opening clearance (in):")
+        lbl_clear.set_xalign(0)
+        self.spin_clearance = Gtk.SpinButton.new_with_range(0.0, 48.0, 0.5)
+        self.spin_clearance.set_tooltip_text(
+            "Extra margin added around the stair footprint when cutting the "
+            "floor opening in the level above.")
+        self.spin_clearance.connect("value-changed", self.on_clearance_changed)
+        row_clear.append(lbl_clear)
+        row_clear.append(self.spin_clearance)
+        type_box.append(row_clear)
+        self.row_clearance = row_clear
+
         # --- Railings Frame ---
         rail_frame = Gtk.Frame(label="Railings")
         rail_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -207,6 +222,7 @@ class StairPropertiesWidget(Gtk.Box):
         
         self.check_left_rail.set_active(stair.has_left_rail)
         self.check_right_rail.set_active(stair.has_right_rail)
+        self.spin_clearance.set_value(getattr(stair, 'opening_clearance', 0.0) or 0.0)
         
         # Set stair type
         stair_type = getattr(stair, 'stair_type', 'straight')
@@ -450,6 +466,16 @@ class StairPropertiesWidget(Gtk.Box):
         for stair in self.current_stairs:
             stair.winder_count = val
 
+        self.emit_property_changed()
+
+    def on_clearance_changed(self, spin):
+        """Handle floor-opening clearance change."""
+        if self._block_updates or not self.current_stairs:
+            return
+        val = spin.get_value()
+        for stair in self.current_stairs:
+            stair.opening_clearance = val
+        # Holes are regenerated from stairs before draw/takeoff.
         self.emit_property_changed()
 
     def on_well_changed(self, spin):

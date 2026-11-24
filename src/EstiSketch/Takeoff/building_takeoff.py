@@ -1168,6 +1168,58 @@ def get_supplier_quote_items(canvas, config, custom_items: Optional[List[Dict]] 
             })
             item_counter += 1
 
+    # Room finishes: flooring, ceiling finish and slab concrete (net of openings)
+    room_areas = extract_room_areas(canvas)
+    if room_areas:
+        floor_waste = float(getattr(config, "FLOORING_WASTE_PCT", 10.0))
+        ceil_waste = float(getattr(config, "CEILING_WASTE_PCT", 10.0))
+        conc_waste = float(getattr(config, "CONCRETE_WASTE_PCT", 5.0))
+
+        by_type = defaultdict(float)
+        for r in room_areas:
+            if r["flooring_area_sqft"] > 0:
+                by_type[r.get("floor_type") or "default"] += r["flooring_area_sqft"]
+        for ftype, area in sorted(by_type.items()):
+            label = "Unspecified" if ftype == "default" else ftype.replace("_", " ").title()
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': f"{label} Flooring",
+                'qty': math.ceil(area * (1.0 + floor_waste / 100.0) - 1e-9),
+                'unit': 'Sq Ft',
+                'notes': f"Room floor area net of openings ({area:.1f} sq ft + {floor_waste:.0f}% waste)",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+
+        ceiling_sqft = sum(r["ceiling_area_sqft"] for r in room_areas)
+        if ceiling_sqft > 0:
+            sheet_sqft_c = 32.0
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': "4' x 8' x 1/2\" Ceiling Drywall Sheets",
+                'qty': math.ceil(ceiling_sqft * (1.0 + ceil_waste / 100.0) / sheet_sqft_c - 1e-9),
+                'unit': 'Sheets',
+                'notes': f"Ceiling finish net of openings ({ceiling_sqft:.1f} sq ft + {ceil_waste:.0f}% waste)",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+
+        slab_cuft = sum(r["slab_volume_cuft"] or 0.0 for r in room_areas)
+        if slab_cuft > 0:
+            cuyd = slab_cuft / 27.0
+            items.append({
+                'id': f"ITEM-{item_counter:03d}",
+                'description': "Ready-Mix Concrete (Slab)",
+                'qty': round(cuyd * (1.0 + conc_waste / 100.0), 2),
+                'unit': 'Cu Yd',
+                'notes': f"Slab volume net of openings ({slab_cuft:.1f} cu ft + {conc_waste:.0f}% waste)",
+                'is_auto': True,
+                'is_excluded': False
+            })
+            item_counter += 1
+
     # Include custom line items
     if custom_items:
         for c in custom_items:
@@ -1180,7 +1232,7 @@ def get_supplier_quote_items(canvas, config, custom_items: Optional[List[Dict]] 
     return items
 
 
-def export_supplier_quote_txt(items: List[Dict], config, project_name: str = "EstiSketch Project", output_path: str = "supplier_quote.txt") -> str:
+def export_supplier_quote_txt(items: List[Dict], config, project_name: str = "EstiSketch Project", output_path: str = "supplier_quote.txt", room_areas: Optional[List[Dict]] = None) -> str:
     """Export formatted supplier quote to Plain Text file."""
     lines = []
     lines.append("=" * 80)
@@ -1204,6 +1256,18 @@ def export_supplier_quote_txt(items: List[Dict], config, project_name: str = "Es
     lines.append("=" * 80)
     lines.append(f"Total Active Items: {len(active_items)}")
     lines.append("=" * 80)
+    if room_areas:
+        lines.append("")
+        lines.append("ROOM AREAS & FLOOR OPENINGS (sq ft; slab in cu ft)")
+        lines.append(f"{'Room':<18} {'Gross':>8} {'Openings':>9} {'Floor':>8} {'Ceiling':>8} {'Slab':>8}")
+        lines.append("-" * 80)
+        for r in room_areas:
+            label = (r.get("name") or r.get("id") or "Room")[:17]
+            slab = r.get("slab_volume_cuft")
+            lines.append(f"{label:<18} {r['gross_area_sqft']:>8.1f} {r['opening_area_sqft']:>9.1f} "
+                         f"{r['floor_area_sqft']:>8.1f} {r['ceiling_area_sqft']:>8.1f} "
+                         f"{('%.1f' % slab) if slab is not None else '-':>8}")
+        lines.append("=" * 80)
 
     content = "\n".join(lines)
     with open(output_path, "w", encoding="utf-8") as f:
@@ -1211,7 +1275,7 @@ def export_supplier_quote_txt(items: List[Dict], config, project_name: str = "Es
     return content
 
 
-def export_supplier_quote_csv(items: List[Dict], config, project_name: str = "EstiSketch Project", output_path: str = "supplier_quote.csv") -> None:
+def export_supplier_quote_csv(items: List[Dict], config, project_name: str = "EstiSketch Project", output_path: str = "supplier_quote.csv", room_areas: Optional[List[Dict]] = None) -> None:
     """Export supplier quote to CSV spreadsheet file."""
     active_items = [it for it in items if not it.get('is_excluded', False)]
     with open(output_path, "w", newline="", encoding="utf-8") as f:
@@ -1227,9 +1291,22 @@ def export_supplier_quote_csv(items: List[Dict], config, project_name: str = "Es
                 item.get('unit', 'Pcs'),
                 item.get('notes', '')
             ])
+        if room_areas:
+            writer.writerow([])
+            writer.writerow(["Room Areas & Floor Openings"])
+            writer.writerow(["Room", "Floor Type", "Gross Area (sq ft)", "Openings (sq ft)",
+                             "Floor Area (sq ft)", "Ceiling Area (sq ft)", "Slab Volume (cu ft)"])
+            for r in room_areas:
+                slab = r.get("slab_volume_cuft")
+                writer.writerow([
+                    r.get("name") or r.get("id") or "Room",
+                    r.get("floor_type", ""),
+                    round(r["gross_area_sqft"], 2), round(r["opening_area_sqft"], 2),
+                    round(r["floor_area_sqft"], 2), round(r["ceiling_area_sqft"], 2),
+                    "" if slab is None else round(slab, 2)])
 
 
-def export_supplier_quote_pdf(items: List[Dict], config, project_name: str = "EstiSketch Project", output_path: str = "supplier_quote.pdf") -> None:
+def export_supplier_quote_pdf(items: List[Dict], config, project_name: str = "EstiSketch Project", output_path: str = "supplier_quote.pdf", room_areas: Optional[List[Dict]] = None) -> None:
     """Export supplier quote to PDF file (using ReportLab if available or fallback generator)."""
     active_items = [it for it in items if not it.get('is_excluded', False)]
 
@@ -1288,7 +1365,7 @@ def export_supplier_quote_pdf(items: List[Dict], config, project_name: str = "Es
     else:
         # Fallback text file export if ReportLab is missing
         txt_path = output_path.replace(".pdf", ".txt")
-        export_supplier_quote_txt(items, config, project_name, txt_path)
+        export_supplier_quote_txt(items, config, project_name, txt_path, room_areas)
 
 
 def extract_room_areas(canvas) -> List[Dict]:
@@ -1317,6 +1394,7 @@ def extract_room_areas(canvas) -> List[Dict]:
             "floor_area_sqft": floor,
             "ceiling_area_sqft": room_ceiling_area_sqft(room),
             "flooring_area_sqft": floor,
+            "floor_type": getattr(room, "floor_type", "default"),
             "opening_area_sqft": gross - floor,
             "slab_volume_cuft": room_slab_volume_cuft(room),
         })

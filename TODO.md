@@ -1,13 +1,13 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Double clicking inside of a closed loop of walls with the room tool creates a new room. But we need to fix it so that the room draws to the inside edge of the walls instead of the center.
-- [ ] Walls can currently snap to edges of other walls, but rooms do not. We need to fix this.
-- [ ] Snapping guides / indicators should appear when in wall or room drawing mode even when not actively drawing, so that the user can see exactly where the wall or room point will be drawn upon clicking.
 - [ ] Architectural Fixtures & Cabinetry 2D Symbols (Kitchen base/wall cabinets, bathroom fixtures, major appliances).
-- [ ] Room hole UI controls: add a "Cut lower-level ceiling under stairs" checkbox (project/takeoff settings, `canvas.cut_lower_ceiling_under_stairs`) and an "Opening clearance" field in the stair properties panel (`Stair.opening_clearance`); both are currently code/file-only.
-- [ ] Room area takeoff follow-ups: add flooring material/waste factor, ceiling finish and slab concrete lines to the supplier quote list (`get_supplier_quote_items`), and room-area rows to CSV/TXT export (a "Room Areas & Floor Openings" report tab now exists in Estimate Materials).
 - [ ] Follow-up to Room Cutouts (stair-derived holes done, see Completed): add other hole sources beyond stairs (manual "Floor Opening" tool for atriums/lightwells/courtyards, elevators, shafts, double-height spaces). `Hole.source_id` is generic so these plug in later.
+- [ ] Floor & ceiling texture patterns (SH3D parity Phase 4): procedural Cairo fills for wood plank, tile grid (12"/18"/24"), herringbone and concrete stipple, with pattern rotation and scale per room.
+- [ ] Per-side wall finishes (SH3D parity Phase 4): `Wall.left_finish/right_finish`, `left_color/right_color`, `left_baseboard/right_baseboard`; takeoff computes separate interior/exterior surface areas and baseboard linear footage.
+- [ ] Level onion-skinning ghosting (SH3D parity Phase 6): show adjacent level (N-1/N+1) as a muted background trace (`ghost_level_id`, `ghost_opacity` default 25%).
+- [ ] Compass rose / north azimuth (SH3D parity Phase 6): `canvas.north_angle`, draggable north arrow on canvas, saved in project file, used in the print title block.
+- [ ] Arc wall snapping & tangent cuts (SH3D parity Phase 1).
 - [ ] Scaled Vector Export (Cairo vector SVG export). PDF plotting with scales and title blocks is done, see Done.
 - [ ] Real printer support: add a "Print..." button to the Print dialog that sends the sheets to a physical printer via `Gtk.PrintOperation` (system print dialog, paper/printer selection), reusing `print_renderer.render_page` so output matches the preview. Needs testing on actual hardware (including large-format plotters and paper-size mapping).
 - [ ] Print line weights: lines currently print at a constant ~2 pt regardless of drawing scale. Add a line-weight setting (per-object-type pen weights / global multiplier) in the Print dialog so plots look right at any scale.
@@ -164,6 +164,9 @@
 - [ ] Cost Estimator
 
 ## Done ✅ (latest first)
+- [x] Room area takeoff follow-ups: added `FLOORING_WASTE_PCT`, `CEILING_WASTE_PCT`, and `CONCRETE_WASTE_PCT` settings (with controls in Manage Materials), flooring by `floor_type`, ceiling drywall sheets, and ready-mix slab concrete lines in `get_supplier_quote_items`, room-area summary rows in CSV/TXT supplier quote exports, and tests in `tests/test_room_holes.py` (2026-11-23)
+- [x] Room hole UI controls: "Opening clearance (in)" spinner in the stair properties panel and a project-level "Cut lower-level ceiling under stairs" switch in Settings (saved in the project file) (2026-11-23)
+- [x] Room tool snapping & hover guides (SH3D parity Phase 1): rooms now snap to wall edges/faces/centerlines/endpoints like walls (shared `_compute_room_snap`; previously the snap result was discarded), snap indicators show while hovering in wall and room modes before the first click, and double-click inside a closed wall loop creates a room on the inside wall faces (`_get_wall_set_inner_polygon`). Tests in `tests/test_room_inner_polygon.py` (2026-11-23)
 - [x] PDF printing / export with live preview (File > Print / Export PDF..., Ctrl+P / Ctrl+E, toolbar Export button). `Printing/` package: `print_settings.py` (paper sizes Letter/Legal/Tabloid/A4-A0/ANSI B-E/Arch C-E, orientation, margins, architectural + metric scales or fit-to-page, saved in the project file as `<PrintSettings>`), `print_renderer.py` (layout, level/layer filtering, editable title block, multi-page cairo PDF output) and `print_dialog.py` (preview with drag-to-reposition, level/layer selection, title block editor). Print all levels = one page per level, or pick levels/layers. `on_draw` refactored so `draw_scene(printing=True)` renders only committed content (no grid, selection, snap guides or previews). Tests in `tests/test_printing.py`. Real-printer support can reuse `render_page` via `Gtk.PrintOperation`.
 - [x] Object grouping & unit manipulation (`ObjectGroup`, `CanvasGroupMixin`, `Ctrl+G` / `Ctrl+Shift+G`, canvas dashed bounding box + interactive rotation handle, unit move/rotate/lock/hide/delete/move-layer-or-level, right-click context menu, undo/redo, and XML project persistence) (2026-11-18)
 - [x] All Objects explorer & enhanced object management in the Layers & Objects sidebar (unified searchable/filterable list of all objects & groups across all layers/levels, per-object selection sync, hide, lock, delete, custom names, multi-line comments with `💬` indicator, move between layers/levels, and XML persistence for `custom_name`, `comment`, `visible`, `locked`) (2026-11-18)

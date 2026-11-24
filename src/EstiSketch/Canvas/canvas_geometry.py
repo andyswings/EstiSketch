@@ -70,14 +70,69 @@ class CanvasGeometryMixin:
 
     def _get_wall_set_polygon(self, wall_set):
         """
-        Extract the polygon boundary for a wall set.
+        Extract the centerline polygon boundary for a wall set.
         For curved walls, intermediate points along the arc are sampled
         so that auto-generated rooms follow wall curves accurately.
         """
+        return self._get_wall_set_polygon_with_widths(wall_set)[0]
+
+    def _get_wall_set_inner_polygon(self, wall_set):
+        """Polygon of the room enclosed by a closed wall set, drawn to the
+        inside faces of the walls instead of the centerlines."""
+        poly, widths = self._get_wall_set_polygon_with_widths(wall_set)
+        return self._inset_polygon(poly, [w / 2.0 for w in widths])
+
+    @staticmethod
+    def _inset_polygon(poly, offsets):
+        """Offset each edge i (poly[i] -> poly[i+1]) inward by offsets[i] and
+        intersect consecutive offset edges. Orientation independent."""
+        n = len(poly)
+        if n < 3 or not any(o > 0 for o in offsets):
+            return list(poly)
+        area = 0.0
+        for i in range(n):
+            x1, y1 = poly[i]
+            x2, y2 = poly[(i + 1) % n]
+            area += x1 * y2 - x2 * y1
+        sign = 1.0 if area > 0 else -1.0  # +1: counter-clockwise (y-up math)
+        lines = []  # (point, direction) of each offset edge
+        for i in range(n):
+            x1, y1 = poly[i]
+            x2, y2 = poly[(i + 1) % n]
+            dx, dy = x2 - x1, y2 - y1
+            length = math.hypot(dx, dy)
+            if length < 1e-9:
+                lines.append(None)
+                continue
+            # Inward normal: left of the direction for CCW, right for CW.
+            nx, ny = -dy / length * sign, dx / length * sign
+            o = offsets[i]
+            lines.append(((x1 + nx * o, y1 + ny * o), (dx / length, dy / length)))
+        result = []
+        for i in range(n):
+            prev = lines[(i - 1) % n]
+            cur = lines[i]
+            if prev is None or cur is None:
+                result.append(poly[i])
+                continue
+            (px, py), (pdx, pdy) = prev
+            (cx, cy), (cdx, cdy) = cur
+            det = pdx * cdy - pdy * cdx
+            if abs(det) < 1e-6:
+                result.append((cx, cy))  # collinear: just the shifted vertex
+                continue
+            t = ((cx - px) * cdy - (cy - py) * cdx) / det
+            result.append((px + pdx * t, py + pdy * t))
+        return result
+
+    def _get_wall_set_polygon_with_widths(self, wall_set):
+        """Returns (points, widths) where widths[i] is the thickness of the
+        wall whose edge starts at points[i]."""
         if not wall_set:
-            return []
+            return [], []
 
         poly = []
+        widths = []
         n = len(wall_set)
 
         for i, wall in enumerate(wall_set):
@@ -114,10 +169,12 @@ class CanvasGeometryMixin:
                     t = seg / float(num_segs)
                     ang = start_angle + t * angle_diff
                     poly.append((cx + radius * math.cos(ang), cy + radius * math.sin(ang)))
+                    widths.append(wall.width)
             else:
                 poly.append(p_start)
+                widths.append(wall.width)
 
-        return poly
+        return poly, widths
 
     def _get_corner_point_for_dimension(self, wall, nominal_point, simple_offset_point, offset_vec):
         """

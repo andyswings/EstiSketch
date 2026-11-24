@@ -3,7 +3,7 @@ import os
 import json
 import gi
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GObject
+from gi.repository import Gtk, GObject, GLib
 from .layers_panel import LayersPanel
 from .properties_stair import StairPropertiesWidget
 from ..ui.properties_panel import bind_roof_overhang, bind_plane_pitch
@@ -3196,16 +3196,20 @@ class PropertiesDock(Gtk.Box):
         # Spacer to position tabs next to Properties section
         # Height is dynamically synced with paned split position
         self.icon_bar_spacer = Gtk.Box()
-        split_height = 200  # Default split position
-        if self.config:
-            split_height = getattr(self.config, 'LAYERS_PROPERTIES_SPLIT', 200)
-        self.icon_bar_spacer.set_size_request(-1, split_height)
         self.icon_bar.append(self.icon_bar_spacer)
         
-        # Vertical tab button bar in icon_bar (aligned with Properties section)
+        # Scrollable vertical tab button bar in icon_bar (aligned with Properties section)
+        self.tab_scroll = Gtk.ScrolledWindow()
+        self.tab_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.tab_scroll.set_propagate_natural_height(False)
+        self.tab_scroll.set_propagate_natural_width(True)
+        self.tab_scroll.set_vexpand(True)
+        self.tab_scroll.set_min_content_height(100)
+        self.tab_scroll.set_margin_top(4)
+
         self.tab_bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        self.tab_bar.set_margin_top(8)
-        self.icon_bar.append(self.tab_bar)
+        self.tab_scroll.set_child(self.tab_bar)
+        self.icon_bar.append(self.tab_scroll)
         
         # Properties content stack (takes remaining space)
         self.stack = Gtk.Stack(
@@ -3225,14 +3229,16 @@ class PropertiesDock(Gtk.Box):
         self.content_paned.set_resize_end_child(True)
         self.content_paned.set_shrink_end_child(False)
         
-        # Set initial split position from config or default
-        split_pos = 200  # Default
-        if self.config:
-            split_pos = getattr(self.config, 'LAYERS_PROPERTIES_SPLIT', 200)
-        self.content_paned.set_position(split_pos)
+        # Set initial split position from config or default, clamped so the
+        # Properties section and tab buttons are never pushed off-screen.
+        raw_split = int(getattr(self.config, 'LAYERS_PROPERTIES_SPLIT', 200)) if self.config else 200
+        initial_split = max(120, min(raw_split, 450))
+        self.content_paned.set_position(initial_split)
+        self._sync_tab_spacer(initial_split)
         
-        # Sync tab spacer height when paned is resized
+        # Sync tab spacer height when paned is resized or first mapped
         self.content_paned.connect('notify::position', self._on_paned_position_changed)
+        self.content_paned.connect('map', self._on_paned_mapped)
 
         # Track tabs
         self.tabs = {}
@@ -3614,13 +3620,38 @@ class PropertiesDock(Gtk.Box):
 
         self.emit('sidebar-toggled', not is_visible)
 
-    def _on_paned_position_changed(self, paned, pspec):
+    def _sync_tab_spacer(self, position=None):
         """Sync the tab spacer height with the paned split position."""
-        position = paned.get_position()
-        
-        # Clamp position to reasonable bounds to prevent layout issues
-        min_height = 50   # Minimum spacer height
-        max_height = 550  # Maximum spacer height
-        clamped_position = max(min_height, min(position, max_height))
-        
-        self.icon_bar_spacer.set_size_request(-1, clamped_position)
+        if position is None:
+            position = self.content_paned.get_position()
+        toggle_h = self.toggle_button.get_height() or 34
+        header_offset = self.icon_bar.get_margin_top() + toggle_h + 16
+        desired = max(0, int(position) - header_offset)
+        paned_h = self.content_paned.get_height()
+        if paned_h > 0:
+            min_tab_area = min(220, max(120, paned_h // 3))
+            max_spacer = max(0, paned_h - header_offset - min_tab_area)
+            clamped = max(0, min(desired, max_spacer))
+        else:
+            clamped = max(0, min(desired, 360))
+        self.icon_bar_spacer.set_size_request(-1, clamped)
+
+    def _on_paned_position_changed(self, paned, pspec):
+        """Sync the tab spacer height when the paned divider moves."""
+        self._sync_tab_spacer(paned.get_position())
+
+    def _on_paned_mapped(self, paned):
+        """Re-clamp paned position and spacer once actual widget height is known."""
+        def _clamp():
+            paned_h = self.content_paned.get_height()
+            if paned_h > 0:
+                max_pos = max(120, paned_h - 220)
+                pos = self.content_paned.get_position()
+                if pos > max_pos:
+                    self.content_paned.set_position(max_pos)
+                elif pos < 120:
+                    self.content_paned.set_position(120)
+                self._sync_tab_spacer()
+            return False
+
+        GLib.idle_add(_clamp)

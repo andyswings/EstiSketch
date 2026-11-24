@@ -1341,6 +1341,11 @@ class EstimatorApp(Gtk.Application):
             if hasattr(self, 'properties_dock') and hasattr(self.properties_dock, 'content_paned'):
                 split_pos = self.properties_dock.content_paned.get_position()
                 if split_pos > 0:
+                    paned_h = self.properties_dock.content_paned.get_height()
+                    if paned_h > 0:
+                        split_pos = max(120, min(split_pos, max(120, paned_h - 220)))
+                    else:
+                        split_pos = max(120, min(split_pos, 450))
                     self.config.LAYERS_PROPERTIES_SPLIT = split_pos
 
             # Save window state

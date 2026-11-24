@@ -1160,7 +1160,9 @@ class CanvasDrawMixin:
         is_active = (
             (getattr(self, "drawing_wall", False) and getattr(self, "current_wall", None)) or
             (getattr(self, "editing_wall", None) and getattr(self, "editing_handle", None)) or
-            getattr(self, "dragging_wall", None)
+            getattr(self, "dragging_wall", None) or
+            (getattr(self, "tool_mode", None) in ("draw_walls", "draw_rooms")
+             and getattr(self, "snap_pos", None) is not None)
         )
         if not is_active:
             return
@@ -1186,6 +1188,9 @@ class CanvasDrawMixin:
 
         if snap_x is None or snap_y is None:
             return
+        if (base_x is None or base_y is None) and self.tool_mode == "draw_rooms" \
+                and self.current_room_points:
+            base_x, base_y = self.current_room_points[-1]
         if base_x is None or base_y is None:
             if getattr(self, "current_wall", None):
                 base_x, base_y = self.current_wall.start

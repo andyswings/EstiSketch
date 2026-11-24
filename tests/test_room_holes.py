@@ -233,5 +233,117 @@ class TestRoomAreaReport(unittest.TestCase):
         self.assertIn("TOTAL", text)
 
 
+class TestRoomAreaSupplierQuoteAndExport(unittest.TestCase):
+    def _canvas_with_rooms(self):
+        c = make()
+        c.wall_sets = []
+        c.walls = []
+        c.roofs = []
+        c.rooms[0].name = "Living"
+        c.rooms[0].floor_type = "hardwood"
+        c.rooms[1].name = "Bath"
+        c.rooms[1].floor_type = "tile"
+        return c
+
+    def test_supplier_quote_includes_flooring_ceiling_slab_with_waste(self):
+        import math
+        from types import SimpleNamespace
+        from EstiSketch.Takeoff.building_takeoff import (
+            extract_room_areas, get_supplier_quote_items)
+
+        c = self._canvas_with_rooms()
+        cfg = SimpleNamespace(
+            FLOORING_WASTE_PCT=15.0,
+            CEILING_WASTE_PCT=20.0,
+            CONCRETE_WASTE_PCT=10.0,
+        )
+        areas = extract_room_areas(c)
+        items = get_supplier_quote_items(c, cfg)
+
+        by_desc = {it["description"]: it for it in items}
+        # Lower room: 240x240 = 400 sq ft (no hole), Upper room: 400 - 30 = 370 sq ft
+        hardwood_net = areas[0]["flooring_area_sqft"]
+        tile_net = areas[1]["flooring_area_sqft"]
+        self.assertAlmostEqual(hardwood_net, 400.0)
+        self.assertAlmostEqual(tile_net, 370.0)
+
+        self.assertIn("Hardwood Flooring", by_desc)
+        self.assertEqual(by_desc["Hardwood Flooring"]["unit"], "Sq Ft")
+        self.assertEqual(
+            by_desc["Hardwood Flooring"]["qty"],
+            math.ceil(hardwood_net * 1.15 - 1e-9),
+        )
+        self.assertIn("Tile Flooring", by_desc)
+        self.assertEqual(
+            by_desc["Tile Flooring"]["qty"],
+            math.ceil(tile_net * 1.15 - 1e-9),
+        )
+
+        ceil_desc = "4' x 8' x 1/2\" Ceiling Drywall Sheets"
+        self.assertIn(ceil_desc, by_desc)
+        self.assertEqual(by_desc[ceil_desc]["unit"], "Sheets")
+        total_ceil = sum(r["ceiling_area_sqft"] for r in areas)
+        self.assertEqual(
+            by_desc[ceil_desc]["qty"],
+            math.ceil(total_ceil * 1.20 / 32.0 - 1e-9),
+        )
+
+        slab_desc = "Ready-Mix Concrete (Slab)"
+        self.assertIn(slab_desc, by_desc)
+        self.assertEqual(by_desc[slab_desc]["unit"], "Cu Yd")
+        slab_cuft = sum(r["slab_volume_cuft"] or 0.0 for r in areas)
+        self.assertEqual(
+            by_desc[slab_desc]["qty"],
+            round((slab_cuft / 27.0) * 1.10, 2),
+        )
+
+    def test_export_csv_and_txt_room_areas(self):
+        import csv
+        from types import SimpleNamespace
+        from EstiSketch.Takeoff.building_takeoff import (
+            extract_room_areas, get_supplier_quote_items,
+            export_supplier_quote_csv, export_supplier_quote_txt)
+
+        c = self._canvas_with_rooms()
+        cfg = SimpleNamespace()
+        areas = extract_room_areas(c)
+        items = get_supplier_quote_items(c, cfg)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = os.path.join(tmp, "quote.csv")
+            txt_path = os.path.join(tmp, "quote.txt")
+            export_supplier_quote_csv(items, cfg, "Test", csv_path, room_areas=areas)
+            content = export_supplier_quote_txt(items, cfg, "Test", txt_path, room_areas=areas)
+
+            with open(csv_path, newline="", encoding="utf-8") as f:
+                rows = list(csv.reader(f))
+            self.assertIn(["Room Areas & Floor Openings"], rows)
+            room_rows = [r for r in rows if r and r[0] in ("Living", "Bath")]
+            self.assertEqual(len(room_rows), 2)
+            living, bath = room_rows
+            self.assertEqual(living[1], "hardwood")
+            self.assertEqual(float(living[2]), 400.0)
+            self.assertEqual(float(living[3]), 0.0)
+            self.assertEqual(living[6], "")
+            self.assertEqual(bath[1], "tile")
+            self.assertEqual(float(bath[3]), 30.0)
+            self.assertEqual(float(bath[4]), 370.0)
+            self.assertEqual(float(bath[6]), 185.0)
+
+            self.assertIn("ROOM AREAS & FLOOR OPENINGS", content)
+            self.assertIn("Living", content)
+            self.assertIn("Bath", content)
+            self.assertIn("370.0", content)
+
+            # Omitted when room_areas=None
+            csv_no = os.path.join(tmp, "quote_no.csv")
+            txt_no = os.path.join(tmp, "quote_no.txt")
+            export_supplier_quote_csv(items, cfg, "Test", csv_no)
+            no_content = export_supplier_quote_txt(items, cfg, "Test", txt_no)
+            with open(csv_no, encoding="utf-8") as f:
+                self.assertNotIn("Room Areas & Floor Openings", f.read())
+            self.assertNotIn("ROOM AREAS & FLOOR OPENINGS", no_content)
+
+
 if __name__ == "__main__":
     unittest.main()

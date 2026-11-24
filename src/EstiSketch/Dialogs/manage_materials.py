@@ -262,7 +262,40 @@ def create_manage_materials_dialog(parent, config_object, canvas=None):
     grid4.attach(lbl_desc, 0, row, 2, 1)
     row += 1
 
+    lbl_conc = Gtk.Label(label="Slab Concrete Waste (%):")
+    lbl_conc.set_xalign(0)
+    grid4.attach(lbl_conc, 0, row, 1, 1)
+    spin_conc = Gtk.SpinButton.new_with_range(0.0, 30.0, 1.0)
+    spin_conc.set_value(float(getattr(config_object, "CONCRETE_WASTE_PCT", 5.0)))
+    fields["CONCRETE_WASTE_PCT"] = ("spin_float", spin_conc)
+    grid4.attach(spin_conc, 1, row, 1, 1)
+    row += 1
+
     notebook.append_page(tab4_scroll, Gtk.Label(label="🔩 Foundation"))
+
+    # ─── TAB 5: Room Finishes ───
+    tab5_scroll, grid5 = create_tab_grid()
+    row = 0
+
+    lbl_room_hdr = Gtk.Label()
+    lbl_room_hdr.set_markup("<b>Room Finish Waste Factors</b>")
+    lbl_room_hdr.set_halign(Gtk.Align.START)
+    grid5.attach(lbl_room_hdr, 0, row, 2, 1)
+    row += 1
+
+    for key, text, default, hi in (
+            ("FLOORING_WASTE_PCT", "Room Flooring Waste (%):", 10.0, 50.0),
+            ("CEILING_WASTE_PCT", "Room Ceiling Finish Waste (%):", 10.0, 50.0)):
+        lbl = Gtk.Label(label=text)
+        lbl.set_xalign(0)
+        grid5.attach(lbl, 0, row, 1, 1)
+        spin = Gtk.SpinButton.new_with_range(0.0, hi, 1.0)
+        spin.set_value(float(getattr(config_object, key, default)))
+        fields[key] = ("spin_float", spin)
+        grid5.attach(spin, 1, row, 1, 1)
+        row += 1
+
+    notebook.append_page(tab5_scroll, Gtk.Label(label="📐 Room Finishes"))
 
     # Apply configuration on OK response
     def apply_changes():

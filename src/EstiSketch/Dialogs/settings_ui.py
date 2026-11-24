@@ -122,6 +122,20 @@ def create_settings_dialog(parent, config_constants, canvas):
         grid.attach(switch, 1, row, 1, 1)
         row += 1
 
+    # Project-level setting (stored on the canvas / project file, not config)
+    lbl = Gtk.Label(label="Cut lower-level ceiling under stairs")
+    lbl.set_xalign(0)
+    lbl.set_tooltip_text(
+        "Also deduct the stair opening from the ceiling takeoff of rooms on "
+        "the level below. Saved with the project.")
+    grid.attach(lbl, 0, row, 1, 1)
+    cut_ceiling_switch = Gtk.Switch()
+    cut_ceiling_switch.set_active(
+        bool(getattr(canvas, "cut_lower_ceiling_under_stairs", False)))
+    cut_ceiling_switch.set_halign(Gtk.Align.END)
+    grid.attach(cut_ceiling_switch, 1, row, 1, 1)
+    row += 1
+
     # Apply changes: update the config and also force a redraw of the canvas
     def update_config():
         for key, entry in numeric_entries.items():
@@ -135,6 +149,11 @@ def create_settings_dialog(parent, config_constants, canvas):
 
         for key, switch in switches.items():
             setattr(config_constants, key, switch.get_active())
+
+        new_cut = cut_ceiling_switch.get_active()
+        if new_cut != bool(getattr(canvas, "cut_lower_ceiling_under_stairs", False)):
+            canvas.cut_lower_ceiling_under_stairs = new_cut
+            canvas.emit('content-changed')
 
         # Sync snap_enabled to the snap_manager so it takes effect immediately
         if hasattr(canvas, 'snap_manager'):

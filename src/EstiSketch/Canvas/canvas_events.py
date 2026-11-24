@@ -386,6 +386,11 @@ class CanvasEventsMixin:
         if getattr(self, "opening_ghost", None) is not None:
             self.opening_ghost = None
             self.queue_draw()
+        if getattr(self, "_hover_snap_shown", False):
+            self.snap_pos = None
+            self.snap_type = "none"
+            self.current_room_preview = None
+            self.queue_draw()
 
     def on_motion(
             self,
@@ -444,6 +449,7 @@ class CanvasEventsMixin:
             )
             self.raw_current_end = raw_point
             self.alignment_candidate = candidate
+            self.snap_pos = None
 
             # Check if we're in curve mode - update curve preview point
             if self.wall_curve_mode:
@@ -451,6 +457,18 @@ class CanvasEventsMixin:
             else:
                 self.current_wall.end = (snapped_x, snapped_y)
             self.queue_draw()
+
+        # Hover snap indicator for the wall tool before the first click
+        if self.tool_mode == "draw_walls" and not self.drawing_wall:
+            (hx, hy), self.snap_type, _, _ = self._compute_wall_draw_snap(
+                canvas_x, canvas_y, apply_near_foot_auto=False)
+            self.snap_pos = (hx, hy)
+            self.queue_draw()
+        elif self.tool_mode not in ("draw_walls", "draw_rooms"):
+            if getattr(self, "_hover_snap_shown", False):
+                self.snap_pos = None
+                self.snap_type = "none"
+        self._hover_snap_shown = self.tool_mode in ("draw_walls", "draw_rooms")
 
         # Live preview for polylines
         if self.tool_mode == "add_polyline" and self.drawing_polyline:
@@ -474,26 +492,9 @@ class CanvasEventsMixin:
             self.queue_draw()
 
         elif self.tool_mode == "draw_rooms":
-            base_x = self.current_room_points[-1][0] if self.current_room_points else canvas_x
-            base_y = self.current_room_points[-1][1] if self.current_room_points else canvas_y
-            candidate_points = self._get_candidate_points()
-            candidate_points.extend(self.current_room_points)
-
-            polylines = [
-                pl for poly_set in self.polyline_sets for pl in poly_set]
-            (snapped_x, snapped_y), _ = self.snap_manager.snap_point(
-                canvas_x, canvas_y, base_x, base_y,
-                self.walls, self.rooms,
-                current_wall=None, last_wall=None,
-                in_progress_points=candidate_points,
-                canvas_width=self.get_allocation().width or self.config.WINDOW_WIDTH,
-                zoom=self.zoom,
-                polylines=polylines
-            )
-            aligned_x, aligned_y, _ = self._apply_alignment_snapping(
+            (snapped_x, snapped_y), self.snap_type, _ = self._compute_room_snap(
                 canvas_x, canvas_y)
-            snapped_x, snapped_y = aligned_x, aligned_y
-
+            self.snap_pos = (snapped_x, snapped_y)
             self.current_room_preview = (snapped_x, snapped_y)
             self.queue_draw()
 

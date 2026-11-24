@@ -247,7 +247,11 @@ def test_auto_generated_room_straight_walls_regression(canvas):
     assert len(canvas.rooms) == 1
     room = canvas.rooms[0]
     assert len(room.points) == 4, f"Straight wall room should have exactly 4 vertices, got {len(room.points)}"
-    assert room.points == [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)]
+    # Room is drawn to the inside faces of the 4.5\" walls (half width = 2.25)
+    expected = [(2.25, 2.25), (97.75, 2.25), (97.75, 97.75), (2.25, 97.75)]
+    assert len(room.points) == 4
+    for got, exp in zip(room.points, expected):
+        assert abs(got[0] - exp[0]) < 1e-6 and abs(got[1] - exp[1]) < 1e-6
 
 
 def test_sh3d_import_multiple_disjoint_rooms(canvas):

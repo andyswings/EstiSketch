@@ -4,6 +4,37 @@ from ..Resources.tool_hints import TOOL_HINTS
 
 
 class CanvasRoomMixin:
+    def _compute_room_snap(self, canvas_x: float, canvas_y: float):
+        """Snap a room point like the wall tool does.
+
+        Considers committed wall sets (edges, faces, centerlines, endpoints),
+        rooms, polylines and in-progress room points. Alignment snapping is
+        only a fallback when no hard geometric feature was hit.
+        Returns ((x, y), snap_type, alignment_candidate)."""
+        base_x, base_y = (self.current_room_points[-1]
+                          if self.current_room_points else (canvas_x, canvas_y))
+        candidate_points = self._get_candidate_points()
+        candidate_points.extend(self.current_room_points)
+        polylines = [pl for poly_set in getattr(self, "polyline_sets", [])
+                     for pl in poly_set]
+        alloc = self.get_allocation() if hasattr(self, "get_allocation") else None
+        canvas_width = (alloc.width if alloc and alloc.width else 0) or self.config.WINDOW_WIDTH
+        (sx, sy), snap_type = self.snap_manager.snap_point(
+            canvas_x, canvas_y, base_x, base_y,
+            self._get_snap_walls(), self.rooms,
+            current_wall=None, last_wall=None,
+            in_progress_points=candidate_points,
+            canvas_width=canvas_width, zoom=self.zoom, polylines=polylines)
+        candidate = None
+        if self.snap_manager.snap_enabled and snap_type not in (
+                "endpoint", "midpoint", "wall_centerline", "face_flush", "wall_edge"):
+            ax, ay, candidate = self._apply_alignment_snapping(sx, sy)
+            if candidate is not None:
+                sx, sy = ax, ay
+                if snap_type in ("none", "grid", "distance"):
+                    snap_type = "alignment"
+        return (sx, sy), snap_type, candidate
+
     def _handle_room_click(self, n_press: int, x: float, y: float) -> None:
         """
         Handle click events for drawing rooms on the canvas.
@@ -26,20 +57,7 @@ class CanvasRoomMixin:
         # raw_point = (canvas_x, canvas_y)
         base_x = self.current_room_points[-1][0] if self.current_room_points else canvas_x
         base_y = self.current_room_points[-1][1] if self.current_room_points else canvas_y
-        candidate_points = self._get_candidate_points()
-        candidate_points.extend(self.current_room_points)
-
-        (snapped_x, snapped_y), _ = self.snap_manager.snap_point(
-            canvas_x, canvas_y, base_x, base_y,
-            self.walls, self.rooms,
-            current_wall=None, last_wall=None,
-            in_progress_points=candidate_points,
-            canvas_width=self.get_allocation().width or self.config.WINDOW_WIDTH,
-            zoom=self.zoom
-        )
-        aligned_x, aligned_y, _ = self._apply_alignment_snapping(
-            canvas_x, canvas_y)
-        snapped_x, snapped_y = aligned_x, aligned_y
+        (snapped_x, snapped_y), _, _ = self._compute_room_snap(canvas_x, canvas_y)
 
         if n_press == 1:
             # Removed save_state here - only save when room is complete
@@ -70,6 +88,8 @@ class CanvasRoomMixin:
                 if self._is_closed_polygon(wall_set):
                     poly = self._get_wall_set_polygon(wall_set)
                     if self._point_in_polygon((snapped_x, snapped_y), poly):
+                        # Draw the room to the inside faces of the walls
+                        poly = self._get_wall_set_inner_polygon(wall_set)
                         room_id = self.generate_identifier(
                             "room", self.existing_ids
                         )
