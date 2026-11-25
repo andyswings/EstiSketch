@@ -73,10 +73,12 @@ def copy_files():
         shutil.rmtree(p)
 
     print("Copying resources...")
+    desktop_dest = BUILD_DIR / "usr/share/applications/estisketch.desktop"
     shutil.copy(
         PROJECT_ROOT / "packaging" / "estisketch.desktop",
-        BUILD_DIR / "usr/share/applications/estisketch.desktop",
+        desktop_dest,
     )
+    desktop_dest.chmod(0o644)
 
     icon_candidates = [
         PROJECT_ROOT / "packaging" / "estisketch_128.png",
@@ -90,7 +92,9 @@ def copy_files():
             print(f"Using fallback icon: {icon_src}")
 
     if icon_src is not None and icon_src.exists():
-        shutil.copy(icon_src, BUILD_DIR / "usr/share/icons/hicolor/128x128/apps/estisketch.png")
+        icon_dest = BUILD_DIR / "usr/share/icons/hicolor/128x128/apps/estisketch.png"
+        shutil.copy(icon_src, icon_dest)
+        icon_dest.chmod(0o644)
     else:
         print("Warning: No PNG icon found for Debian package.")
 
@@ -119,15 +123,39 @@ Maintainer: {AUTHOR} <{EMAIL}>
 Description: {DESCRIPTION}
  EstiSketch is a tool for creating 2D floor plans and material takeoffs.
 """
-    with open(BUILD_DIR / "DEBIAN/control", "w", encoding="utf-8") as f:
+    control_path = BUILD_DIR / "DEBIAN/control"
+    with open(control_path, "w", encoding="utf-8") as f:
         f.write(control_content)
+    control_path.chmod(0o644)
+
+
+def create_maintainer_scripts():
+    """Create postinst and postrm scripts to refresh desktop and icon caches."""
+    print("Creating maintainer scripts...")
+    cache_refresh_script = """#!/bin/sh
+set -e
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database -q /usr/share/applications || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+fi
+"""
+    for script_name in ("postinst", "postrm"):
+        script_path = BUILD_DIR / "DEBIAN" / script_name
+        with open(script_path, "w", encoding="utf-8") as f:
+            f.write(cache_refresh_script)
+        script_path.chmod(0o755)
 
 
 def build_deb():
     """Build the .deb archive into dist/."""
     print("Building .deb package...")
     pkg_name = f"{APP_NAME}_{VERSION}_{ARCH}.deb"
-    subprocess.run(["dpkg-deb", "--build", str(BUILD_DIR), str(DIST_DIR / pkg_name)], check=True)
+    subprocess.run(
+        ["dpkg-deb", "--root-owner-group", "--build", str(BUILD_DIR), str(DIST_DIR / pkg_name)],
+        check=True,
+    )
     print(f"Package created: {DIST_DIR / pkg_name}")
 
 
@@ -137,6 +165,7 @@ def main():
     copy_files()
     create_executable()
     create_control()
+    create_maintainer_scripts()
     build_deb()
 
 
