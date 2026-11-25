@@ -7,7 +7,7 @@ and extract closed 3D roof plane polygons for takeoff estimation.
 """
 
 import math
-from typing import List, Tuple, Dict, Optional, Set
+from typing import Any, List, Tuple, Dict, Optional, Set
 from ..roof_components import Roof, RoofLine, RoofEdge
 from ..geometry.roof_solver import (
     build_plane_equations,
