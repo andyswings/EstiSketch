@@ -67,6 +67,22 @@ def create_settings_dialog(parent, config_constants, canvas):
         grid.attach(entry, 1, row, 1, 1)
         row += 1
 
+    # String path fields
+    string_fields = [
+        ("Blender Executable (blank = auto)", "BLENDER_EXECUTABLE"),
+    ]
+    string_entries = {}
+    for label, key in string_fields:
+        lbl = Gtk.Label(label=label)
+        lbl.set_xalign(0)
+        grid.attach(lbl, 0, row, 1, 1)
+        entry = Gtk.Entry()
+        entry.set_text(str(getattr(config_constants, key, "") or ""))
+        entry.set_width_chars(24)
+        string_entries[key] = entry
+        grid.attach(entry, 1, row, 1, 1)
+        row += 1
+
     # Group 2: Dropdown Menus
     dropdowns = [
         ("Units", "UNITS", ["feet_inches", "metric"]),
@@ -143,6 +159,9 @@ def create_settings_dialog(parent, config_constants, canvas):
                 setattr(config_constants, key, float(entry.get_text()))
             except ValueError:
                 pass
+
+        for key, entry in string_entries.items():
+            setattr(config_constants, key, entry.get_text().strip())
 
         for key, combo in dropdown_widgets.items():
             setattr(config_constants, key, combo.get_active_id())

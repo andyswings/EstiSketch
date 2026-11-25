@@ -20,6 +20,7 @@ from .Printing import print_dialog
 from .Canvas import canvas_area
 from . import toolbar
 from . import config
+from . import blender_bridge
 from types import SimpleNamespace
 
 class EstimatorApp(Gtk.Application):
@@ -68,6 +69,11 @@ class EstimatorApp(Gtk.Application):
         print_action = Gio.SimpleAction.new("print", None)
         print_action.connect("activate", lambda a, p: self.on_print())
         self.add_action(print_action)
+
+        # Open 3D in Blender / Home Builder 5
+        open_blender_action = Gio.SimpleAction.new("open_in_blender", None)
+        open_blender_action.connect("activate", self.on_open_in_blender)
+        self.add_action(open_blender_action)
 
         # Open project
         open_action = Gio.SimpleAction.new("open", None)
@@ -889,6 +895,31 @@ class EstimatorApp(Gtk.Application):
             name,
             on_settings_changed=lambda: self.update_dirty_state(True),
         )
+
+    def on_open_in_blender(self, action: Gio.SimpleAction, parameter) -> None:
+        """Export the current project and launch Blender with Home Builder 5."""
+        ok, msg = blender_bridge.open_in_blender(
+            self.canvas,
+            self.window.get_width() if self.window else 1024,
+            self.window.get_height() if self.window else 900,
+            blender_path=getattr(self.config, "BLENDER_EXECUTABLE", ""),
+            project_filepath=self.current_filepath or "",
+        )
+        if ok:
+            if hasattr(self.canvas, "update_hint"):
+                self.canvas.update_hint(msg)
+            return
+
+        dlg = Gtk.MessageDialog(
+            transient_for=self.window,
+            modal=True,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.OK,
+            text="Unable to Launch Blender",
+            secondary_text=msg,
+        )
+        dlg.connect("response", lambda d, _r: d.destroy())
+        dlg.present()
 
     def on_settings_clicked(self, button: Gtk.Button, *args) -> None:
         """

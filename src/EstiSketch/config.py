@@ -117,6 +117,7 @@ DEFAULT_SETTINGS = {
     "ROOF_SHEATHING_TYPE": "OSB",
     "TAKEOFF_CEILING_TYPE": "vaulted",
     "LAYER_FOCUS_MODE": False,
+    "BLENDER_EXECUTABLE": "",
     "DEBUG": False
 }
 
