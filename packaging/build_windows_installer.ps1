@@ -5,8 +5,12 @@ $ProjectRoot = Split-Path -Parent $ScriptDir
 
 Push-Location $ProjectRoot
 try {
-    $env:CONDA_BLD_PATH = Join-Path $ProjectRoot "conda-bld"
+    # Keep conda-build output outside $ProjectRoot so `source: path: ..` never copies into itself.
+    $env:CONDA_BLD_PATH = Join-Path (Split-Path -Parent $ProjectRoot) "estisketch-conda-bld"
     $DistDir = Join-Path $ProjectRoot "dist"
+    if (Test-Path $env:CONDA_BLD_PATH) {
+        Remove-Item -Recurse -Force $env:CONDA_BLD_PATH
+    }
     New-Item -ItemType Directory -Force -Path $env:CONDA_BLD_PATH | Out-Null
     New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
 

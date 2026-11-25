@@ -118,6 +118,7 @@ jobs:
           miniforge-variant: Miniforge3
           channels: conda-forge
           channel-priority: strict
+          activate-environment: base
           auto-activate: true
 
       - name: Install conda-build and constructor

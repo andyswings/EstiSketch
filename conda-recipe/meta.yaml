@@ -15,11 +15,11 @@ build:
 
 requirements:
   host:
-    - python >=3.10,<3.14
+    - python
     - pip
     - setuptools >=61.0
   run:
-    - python >=3.10,<3.14
+    - python
     - gtk4 >=4.20.3
     - pygobject >=3.54.5
     - gobject-introspection >=1.84.0
