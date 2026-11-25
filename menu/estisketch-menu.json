@@ -6,6 +6,7 @@
             "name": "EstiSketch",
             "description": "2D Floor Plan Sketcher & Building Estimator",
             "icon": "{{ MENU_DIR }}/estisketch.ico",
+            "activate": true,
             "command": [
                 "{{ PREFIX }}/pythonw.exe",
                 "-m",

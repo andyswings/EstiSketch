@@ -31,8 +31,10 @@ requirements:
 test:
   imports:
     - EstiSketch
+    - EstiSketch.main
   commands:
     - python -c "import EstiSketch; print(EstiSketch.__version__)"
+    - python -m EstiSketch.main --version
 
 about:
   home: https://github.com/andyswings/EstiSketch

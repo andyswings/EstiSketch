@@ -90,3 +90,36 @@ def test_main_version_flag(capsys):
     main.main(["--version"])
     captured = capsys.readouterr()
     assert "EstiSketch 0.4.0-beta" in captured.out
+
+
+def test_configure_windows_gtk_runtime(tmp_path, monkeypatch):
+    import sys
+    import EstiSketch
+
+    lib_bin = tmp_path / "Library" / "bin"
+    typelib_dir = tmp_path / "Library" / "lib" / "girepository-1.0"
+    share_dir = tmp_path / "Library" / "share"
+    for d in (lib_bin, typelib_dir, share_dir):
+        d.mkdir(parents=True)
+
+    added_dll_dirs = []
+
+    def fake_add_dll_directory(path):
+        added_dll_dirs.append(path)
+        return object()
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    monkeypatch.setattr(os, "add_dll_directory", fake_add_dll_directory, raising=False)
+    monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.delenv("GI_TYPELIB_PATH", raising=False)
+    monkeypatch.delenv("XDG_DATA_DIRS", raising=False)
+    monkeypatch.setattr(EstiSketch, "_WINDOWS_DLL_DIR_HANDLES", [])
+
+    EstiSketch._configure_windows_gtk_runtime()
+
+    assert added_dll_dirs == [str(lib_bin)]
+    assert len(EstiSketch._WINDOWS_DLL_DIR_HANDLES) == 1
+    assert os.environ["PATH"].split(os.pathsep)[0] == str(lib_bin)
+    assert os.environ["GI_TYPELIB_PATH"].split(os.pathsep)[0] == str(typelib_dir)
+    assert os.environ["XDG_DATA_DIRS"].split(os.pathsep)[0] == str(share_dir)
