@@ -5,11 +5,11 @@ platforms = ["win-64"]
 version = "0.4.0-beta"
 
 [tasks]
-build-conda-pkg = "conda build conda-recipe --no-anaconda-upload -c conda-forge"
+build-conda-pkg = "conda build conda-recipe --python 3.12 --no-anaconda-upload -c conda-forge"
 build-windows-installer = "powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build_windows_installer.ps1"
 
 [dependencies]
-python = "3.10.*"
+python = "3.12.*"
 gtk4 = ">=4.20.3,<5"
 pygobject = ">=3.54.5,<4"
 gobject-introspection = ">=1.84.0,<2"

@@ -1,13 +1,21 @@
 {
+    "$schema": "https://schemas.conda.org/menuinst/menuinst-1-1-0.schema.json",
     "menu_name": "EstiSketch",
     "menu_items": [
         {
             "name": "EstiSketch",
-            "pyscript": "${PREFIX}/Scripts/estisketch-script.py",
-            "icon": "${PREFIX}/Menu/estisketch.ico",
             "description": "2D Floor Plan Sketcher & Building Estimator",
-            "desktop": true,
-            "quicklaunch": false
+            "icon": "{{ MENU_DIR }}/estisketch.ico",
+            "command": [
+                "{{ PREFIX }}/pythonw.exe",
+                "-m",
+                "EstiSketch.main"
+            ],
+            "platforms": {
+                "win": {
+                    "desktop": true
+                }
+            }
         }
     ]
 }

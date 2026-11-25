@@ -111,17 +111,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Set up Miniconda with conda-forge
+      - name: Set up Miniforge with conda-forge
         uses: conda-incubator/setup-miniconda@v4
         with:
-          python-version: "3.10"
+          miniforge-version: latest
+          miniforge-variant: Miniforge3
           channels: conda-forge
           channel-priority: strict
-          activate-environment: build
-          auto-activate: false
+          auto-activate: true
 
       - name: Install conda-build and constructor
-        run: conda install -y conda-build constructor
+        run: conda install -n base -y -c conda-forge conda-build constructor
 
       - name: Build Windows .exe installer
         run: ./packaging/build_windows_installer.ps1

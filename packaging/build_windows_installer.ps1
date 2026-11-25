@@ -11,7 +11,7 @@ try {
     New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
 
     Write-Host "Building EstiSketch conda package into $env:CONDA_BLD_PATH..."
-    conda build conda-recipe --no-anaconda-upload -c conda-forge
+    conda build conda-recipe --python 3.12 --no-anaconda-upload -c conda-forge
     if ($LASTEXITCODE -ne 0) {
         throw "conda build failed with exit code $LASTEXITCODE"
     }
