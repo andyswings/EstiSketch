@@ -1,9 +1,11 @@
 import gi
 import os
+import sys
 import json
 from typing import Optional, Callable
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, Gio, GdkPixbuf, GObject
+from .version import __version__
 from .project_io import save_project, open_project
 from .sh3d_importer import import_sh3d
 from .file_menu import create_file_menu
@@ -1571,12 +1573,18 @@ class EstimatorApp(Gtk.Application):
         Gtk.Application.do_shutdown(self)
 
 
-def main() -> None:
+def main(argv: Optional[list[str]] = None) -> None:
     """
     Entry point for the application.
 
-    Loads configuration, creates the application instance, and runs it.
+    Handles CLI flags like ``--version`` and otherwise loads configuration,
+    creates the application instance, and runs it.
     """
+    args = sys.argv[1:] if argv is None else argv
+    if "--version" in args or "-V" in args:
+        print(f"EstiSketch {__version__}")
+        return
+
     config_dict = config.load_config()
     settings = SimpleNamespace(**config_dict)
     app = EstimatorApp(settings)

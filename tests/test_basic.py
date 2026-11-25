@@ -82,3 +82,11 @@ def test_app_save_settings_uses_user_config_not_package_dir(tmp_path, monkeypatc
     assert saved["SHOW_PROPERTIES_PANEL"] is False
     if pkg_before is not None:
         assert os.path.getmtime(pkg_settings) == pkg_before
+
+
+def test_main_version_flag(capsys):
+    from EstiSketch import main
+
+    main.main(["--version"])
+    captured = capsys.readouterr()
+    assert "EstiSketch 0.4.0-beta" in captured.out

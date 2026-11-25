@@ -80,12 +80,14 @@ jobs:
             python3-venv \
             python3-pip \
             wget \
-            file
+            file \
+            xvfb
 
       - name: Set up PyInstaller build environment
         run: |
           /usr/bin/python3 -m venv --system-site-packages .build_venv
           .build_venv/bin/pip install --upgrade pip pyinstaller
+          .build_venv/bin/pip install --no-deps --no-build-isolation .
 
       - name: Build AppImage
         env:
@@ -93,6 +95,19 @@ jobs:
         run: |
           export PATH="$PWD/.build_venv/bin:$PATH"
           bash packaging/build_pyinstaller_appimage.sh
+
+      - name: Smoke-test AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          GDK_BACKEND: x11
+          GSK_RENDERER: cairo
+          GTK_A11Y: none
+        run: |
+          APPIMAGE="$(ls dist/*.AppImage | head -n 1)"
+          chmod +x "$APPIMAGE"
+          OUT="$(xvfb-run -a "$APPIMAGE" --version)"
+          echo "AppImage output: $OUT"
+          echo "$OUT" | grep -q "EstiSketch 0.4.0-beta"
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v7
