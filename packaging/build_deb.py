@@ -37,6 +37,7 @@ DESCRIPTION = "A lightweight 2-D floor-plan sketcher and building estimator"
 DEPENDENCIES = [
     "python3",
     "python3-gi",
+    "python3-gi-cairo",
     "gir1.2-gtk-4.0",
     "python3-cairo",
     "python3-numpy",

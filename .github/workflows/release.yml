@@ -15,13 +15,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install system dependencies and test tools
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             python3-gi \
+            python3-gi-cairo \
             gir1.2-gtk-4.0 \
             python3-cairo \
             python3-numpy \
@@ -30,14 +31,18 @@ jobs:
             xvfb
 
       - name: Run test suite
-        run: xvfb-run -a pytest -v
+        env:
+          GDK_BACKEND: x11
+          GSK_RENDERER: cairo
+          GTK_A11Y: none
+        run: xvfb-run -a /usr/bin/python3 -m pytest -v
 
   build-deb:
     runs-on: ubuntu-latest
     needs: test
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Build .deb package
         run: python3 packaging/build_deb.py
@@ -49,7 +54,7 @@ jobs:
           dpkg-deb --contents "$DEB_FILE"
 
       - name: Upload .deb artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: deb-package
           path: dist/*.deb
@@ -60,13 +65,14 @@ jobs:
     needs: test
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install GTK4, Python, and AppImage build tools
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             python3-gi \
+            python3-gi-cairo \
             gir1.2-gtk-4.0 \
             python3-cairo \
             python3-numpy \
@@ -78,7 +84,7 @@ jobs:
 
       - name: Set up PyInstaller build environment
         run: |
-          python3 -m venv --system-site-packages .build_venv
+          /usr/bin/python3 -m venv --system-site-packages .build_venv
           .build_venv/bin/pip install --upgrade pip pyinstaller
 
       - name: Build AppImage
@@ -89,7 +95,7 @@ jobs:
           bash packaging/build_pyinstaller_appimage.sh
 
       - name: Upload AppImage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: appimage-package
           path: dist/*.AppImage
@@ -103,16 +109,16 @@ jobs:
         shell: pwsh
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Miniconda with conda-forge
-        uses: conda-incubator/setup-miniconda@v3
+        uses: conda-incubator/setup-miniconda@v4
         with:
           python-version: "3.10"
           channels: conda-forge
           channel-priority: strict
           activate-environment: build
-          auto-activate-base: false
+          auto-activate: false
 
       - name: Install conda-build and constructor
         run: conda install -y conda-build constructor
@@ -121,7 +127,7 @@ jobs:
         run: ./packaging/build_windows_installer.ps1
 
       - name: Upload Windows installer artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-installer
           path: dist/*.exe
@@ -133,10 +139,10 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download release artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release-assets
           merge-multiple: true
@@ -158,7 +164,7 @@ jobs:
           fi
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           prerelease: ${{ steps.tag_meta.outputs.prerelease }}
           generate_release_notes: true
