@@ -2,7 +2,7 @@ name: EstiSketch
 version: 0.4.0-beta
 license_file: LICENSE.txt
 channels:
-  - 'file:///{{ environ.get("CONDA_BLD_PATH", "conda-bld") | replace("\\", "/") }}'
+  - ../estisketch-conda-bld
   - https://conda.anaconda.org/conda-forge
 
 specs:
