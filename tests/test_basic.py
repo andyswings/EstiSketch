@@ -112,8 +112,10 @@ def test_configure_windows_gtk_runtime(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "prefix", str(tmp_path))
     monkeypatch.setattr(os, "add_dll_directory", fake_add_dll_directory, raising=False)
     monkeypatch.setenv("PATH", "/usr/bin")
-    monkeypatch.delenv("GI_TYPELIB_PATH", raising=False)
-    monkeypatch.delenv("XDG_DATA_DIRS", raising=False)
+    monkeypatch.setenv("GI_TYPELIB_PATH", "")
+    monkeypatch.delenv("GI_TYPELIB_PATH")
+    monkeypatch.setenv("XDG_DATA_DIRS", "")
+    monkeypatch.delenv("XDG_DATA_DIRS")
     monkeypatch.setattr(EstiSketch, "_WINDOWS_DLL_DIR_HANDLES", [])
 
     EstiSketch._configure_windows_gtk_runtime()
