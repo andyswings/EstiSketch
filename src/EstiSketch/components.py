@@ -1,6 +1,6 @@
 import math
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from .Canvas.utils import generate_identifier
 
