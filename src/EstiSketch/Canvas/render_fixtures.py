@@ -1,10 +1,11 @@
 """3-pass layered 2D AIA Cairo renderer for architectural fixtures, cabinetry, countertops, and appliances."""
 import math
-from typing import Tuple
+from typing import Optional, Tuple
 
 import cairo
 
 from ..fixtures_catalog import get_fixture_spec, pack_cabinet_run
+from ..Printing.print_settings import resolve_stroke_width
 
 COUNTERTOP_RGB = {
     "quartz": (0.94, 0.94, 0.93),
@@ -141,7 +142,13 @@ def _countertop_fill_color(fixture) -> Tuple[float, float, float]:
     return COUNTERTOP_RGB.get(mat, (0.94, 0.94, 0.93))
 
 
-def _draw_pass_base(cr: cairo.Context, fixture, zoom_transform: float, opacity: float) -> None:
+def _draw_pass_base(
+    cr: cairo.Context,
+    fixture,
+    zoom_transform: float,
+    opacity: float,
+    base_lw: Optional[float] = None,
+) -> None:
     sym = fixture.symbol_type
     if fixture.is_upper or getattr(fixture, "mount_surface", "auto") == "countertop":
         return
@@ -150,8 +157,8 @@ def _draw_pass_base(cr: cairo.Context, fixture, zoom_transform: float, opacity: 
 
     w, d = float(fixture.width), float(fixture.depth)
     hw, hd = w / 2.0, d / 2.0
-    lw = 1.2 / zoom_transform
-    thin_lw = 0.8 / zoom_transform
+    lw = base_lw if base_lw is not None else 1.2 / zoom_transform
+    thin_lw = (base_lw * (0.8 / 1.2)) if base_lw is not None else 0.8 / zoom_transform
     r, g, b = _base_fill_color(fixture)
 
     cr.save()
@@ -355,12 +362,18 @@ def _draw_pass_base(cr: cairo.Context, fixture, zoom_transform: float, opacity: 
     cr.restore()
 
 
-def _draw_pass_countertop(cr: cairo.Context, fixture, zoom_transform: float, opacity: float) -> None:
+def _draw_pass_countertop(
+    cr: cairo.Context,
+    fixture,
+    zoom_transform: float,
+    opacity: float,
+    base_lw: Optional[float] = None,
+) -> None:
     sym = fixture.symbol_type
     w, d = float(fixture.width), float(fixture.depth)
     hw, hd = w / 2.0, d / 2.0
-    lw = 1.2 / zoom_transform
-    thin_lw = 0.85 / zoom_transform
+    lw = base_lw if base_lw is not None else 1.2 / zoom_transform
+    thin_lw = (base_lw * (0.85 / 1.2)) if base_lw is not None else 0.85 / zoom_transform
 
     # Standalone countertop-mounted fixtures (sink / cooktop)
     if sym in ("kitchen_sink_single", "kitchen_sink_double", "cooktop"):
@@ -453,13 +466,19 @@ def _draw_pass_countertop(cr: cairo.Context, fixture, zoom_transform: float, opa
     cr.restore()
 
 
-def _draw_pass_upper(cr: cairo.Context, fixture, zoom_transform: float, opacity: float) -> None:
+def _draw_pass_upper(
+    cr: cairo.Context,
+    fixture,
+    zoom_transform: float,
+    opacity: float,
+    base_lw: Optional[float] = None,
+) -> None:
     if not getattr(fixture, "is_upper", False):
         return
     sym = fixture.symbol_type
     w, d = float(fixture.width), float(fixture.depth)
     hw, hd = w / 2.0, d / 2.0
-    lw = 1.1 / zoom_transform
+    lw = (base_lw * (1.1 / 1.2)) if base_lw is not None else 1.1 / zoom_transform
 
     cr.save()
     cr.translate(fixture.x, fixture.y)
@@ -477,7 +496,7 @@ def _draw_pass_upper(cr: cairo.Context, fixture, zoom_transform: float, opacity:
         cr.stroke()
         if sym == "range_hood":
             cr.set_dash([])
-            cr.set_line_width(0.8 / zoom_transform)
+            cr.set_line_width(lw * (0.8 / 1.1))
             cr.arc(0.0, -hd + d * 0.35, min(w, d) * 0.16, 0.0, 2.0 * math.pi)
             cr.stroke()
             _draw_tag(cr, "HOOD", w, cy=2.5, size=3.8, opacity=opacity, rotation_deg=fixture.rotation)
@@ -487,27 +506,33 @@ def _draw_pass_upper(cr: cairo.Context, fixture, zoom_transform: float, opacity:
     cr.restore()
 
 
-def draw_fixture_list(cr: cairo.Context, fixtures, zoom_transform: float, opacity_fn=None) -> None:
+def draw_fixture_list(
+    cr: cairo.Context,
+    fixtures,
+    zoom_transform: float,
+    opacity_fn=None,
+    base_lw: Optional[float] = None,
+) -> None:
     """Render a sequence of Fixture instances in 3 passes: base -> countertop -> upper."""
     if not fixtures:
         return
     # 1. Base cabinetry / appliances / bath fixtures (masks floor pattern)
     for fix in fixtures:
         op = opacity_fn(fix) if opacity_fn else 1.0
-        _draw_pass_base(cr, fix, zoom_transform, op)
+        _draw_pass_base(cr, fix, zoom_transform, op, base_lw=base_lw)
     # 2. Countertops & drop-in sinks/cooktops
     for fix in fixtures:
         op = opacity_fn(fix) if opacity_fn else 1.0
         if getattr(fix, "mount_surface", "") != "countertop":
-            _draw_pass_countertop(cr, fix, zoom_transform, op)
+            _draw_pass_countertop(cr, fix, zoom_transform, op, base_lw=base_lw)
     for fix in fixtures:
         op = opacity_fn(fix) if opacity_fn else 1.0
         if getattr(fix, "mount_surface", "") == "countertop":
-            _draw_pass_countertop(cr, fix, zoom_transform, op)
+            _draw_pass_countertop(cr, fix, zoom_transform, op, base_lw=base_lw)
     # 3. Upper wall cabinets & hoods (dashed overlays)
     for fix in fixtures:
         op = opacity_fn(fix) if opacity_fn else 1.0
-        _draw_pass_upper(cr, fix, zoom_transform, op)
+        _draw_pass_upper(cr, fix, zoom_transform, op, base_lw=base_lw)
 
 
 def draw_fixtures(canvas, cr: cairo.Context, zoom_transform: float, printing: bool = False) -> None:
@@ -523,7 +548,12 @@ def draw_fixtures(canvas, cr: cairo.Context, zoom_transform: float, printing: bo
         return 1.0
 
     visible = [f for f in getattr(canvas, "fixtures", []) if is_visible(f)]
-    draw_fixture_list(cr, visible, zoom_transform, opacity_fn=get_opacity)
+    base_lw = (
+        resolve_stroke_width(canvas, "fixtures", 1.2, zoom_transform)
+        if getattr(canvas, "_print_line_weights", None) is not None
+        else None
+    )
+    draw_fixture_list(cr, visible, zoom_transform, opacity_fn=get_opacity, base_lw=base_lw)
 
     if printing:
         return

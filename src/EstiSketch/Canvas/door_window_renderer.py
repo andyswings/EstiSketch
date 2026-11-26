@@ -1,5 +1,7 @@
 import math
+from typing import Optional
 from .label_utils import upright_angle
+from ..Printing.print_settings import resolve_stroke_width
 from ..geometry.arc_wall import (
     arc_opening_cutout,
     arc_wall_point,
@@ -18,7 +20,19 @@ def get_wall_direction(wall, ratio):
     return arc_wall_tangent(wall, ratio)
 
 
-def _draw_opening_cutout(cr, wall, ratio, opening_width, wall_width, H_start, H_end, p, opacity, zoom_transform):
+def _draw_opening_cutout(
+    cr,
+    wall,
+    ratio,
+    opening_width,
+    wall_width,
+    H_start,
+    H_end,
+    p,
+    opacity,
+    zoom_transform,
+    jamb_lw: Optional[float] = None,
+):
     """Erase the wall segment under a door/window and return ``(jamb_start, jamb_end)``.
 
     On curved walls this carves the exact annular arc sector between the
@@ -49,7 +63,7 @@ def _draw_opening_cutout(cr, wall, ratio, opening_width, wall_width, H_start, H_
 
             # Stroke radial jamb end-caps across the curved wall thickness
             cr.set_source_rgba(0, 0, 0, opacity)
-            cr.set_line_width(1.0 / zoom_transform)
+            cr.set_line_width(jamb_lw if jamb_lw is not None else 1.0 / zoom_transform)
             r_cap_in = max(0.0, radius - half_w)
             r_cap_out = radius + half_w
             for theta in (theta_lo, theta_hi):
@@ -81,6 +95,8 @@ def draw_doors(self, cr, pixels_per_inch, items=None, opacity_override=None):
     # Draw doors
     cr.save()
     zoom_transform = self.zoom * pixels_per_inch
+    opening_lw = resolve_stroke_width(self, "openings", 1.0, zoom_transform)
+    opening_thin_lw = resolve_stroke_width(self, "openings", 0.8, zoom_transform, factor=0.75)
 
     # Helper to check visibility
     def is_visible(obj):
@@ -129,7 +145,7 @@ def draw_doors(self, cr, pixels_per_inch, items=None, opacity_override=None):
         H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
 
         H_start, H_end = _draw_opening_cutout(
-            cr, wall, ratio, w, t, H_start, H_end, p, opacity, zoom_transform
+            cr, wall, ratio, w, t, H_start, H_end, p, opacity, zoom_transform, jamb_lw=opening_lw
         )
 
         if door.door_type == "single":
@@ -176,7 +192,7 @@ def draw_doors(self, cr, pixels_per_inch, items=None, opacity_override=None):
 
             # Draw the door leaf line
             cr.set_source_rgba(0, 0, 0, opacity)  # Black color
-            cr.set_line_width(1.0 / zoom_transform)
+            cr.set_line_width(opening_lw)
             cr.move_to(*hinge)
             cr.line_to(*F)
             cr.stroke()
@@ -260,7 +276,7 @@ def draw_doors(self, cr, pixels_per_inch, items=None, opacity_override=None):
 
             # Draw door leaves
             cr.set_source_rgba(0, 0, 0, opacity)
-            cr.set_line_width(1.0 / zoom_transform)
+            cr.set_line_width(opening_lw)
             cr.move_to(*hinge1)
             cr.line_to(*F1)
             cr.stroke()
@@ -419,7 +435,7 @@ def draw_doors(self, cr, pixels_per_inch, items=None, opacity_override=None):
                                 n[1])
 
             # Set drawing properties
-            cr.set_line_width(1.0 / T)
+            cr.set_line_width(opening_lw)
 
             # Draw solid black outline of door opening
             cr.set_source_rgba(0, 0, 0, opacity)  # Black
@@ -560,7 +576,7 @@ def draw_doors(self, cr, pixels_per_inch, items=None, opacity_override=None):
                 n[1])      # Bottom right
 
             # Set drawing properties
-            cr.set_line_width(1.0 / T)
+            cr.set_line_width(opening_lw)
 
             # Draw solid black outline of door opening
             cr.set_source_rgba(0, 0, 0, opacity)  # Black
@@ -597,7 +613,7 @@ def draw_doors(self, cr, pixels_per_inch, items=None, opacity_override=None):
                 (pkt_a[0] - pocket_half_t * p[0], pkt_a[1] - pocket_half_t * p[1]),
             ]
             cr.save()
-            cr.set_line_width(0.8 / T)
+            cr.set_line_width(opening_thin_lw)
             cr.set_dash([3.0 / T, 2.0 / T])
             cr.set_source_rgba(0.25, 0.25, 0.25, opacity)
             cr.move_to(*pkt_poly[0])
@@ -681,7 +697,7 @@ def draw_doors(self, cr, pixels_per_inch, items=None, opacity_override=None):
 
             # Draw the door leaf.
             cr.set_source_rgba(0, 0, 0, opacity)           # Black lines.
-            cr.set_line_width(1.0 / zoom_transform)
+            cr.set_line_width(opening_lw)
             cr.move_to(*hinge)
             cr.line_to(*end1)
             cr.line_to(*end2)
@@ -711,7 +727,7 @@ def draw_doors(self, cr, pixels_per_inch, items=None, opacity_override=None):
 
             # Set drawing properties
             cr.set_source_rgba(0, 0, 0, opacity)           # Black lines
-            cr.set_line_width(1.0 / zoom_transform)
+            cr.set_line_width(opening_lw)
 
             # --- Left Leaf Geometry ---
             # For "outswing": left leaf rotates -60° from the closed angle.
@@ -791,7 +807,7 @@ def draw_doors(self, cr, pixels_per_inch, items=None, opacity_override=None):
 
             # Set drawing properties
             cr.set_source_rgba(0, 0, 0, opacity)  # Black lines
-            cr.set_line_width(1.0 / T)
+            cr.set_line_width(opening_lw)
 
             # Draw outer box (solid lines)
             cr.move_to(*start)
@@ -867,6 +883,8 @@ def draw_windows(self, cr, pixels_per_inch, items=None, opacity_override=None):
     """Draw windows. ``items``/``opacity_override`` let callers draw a ghost."""
     cr.save()
     zoom_transform = self.zoom * pixels_per_inch
+    opening_lw = resolve_stroke_width(self, "openings", 1.0, zoom_transform)
+    opening_thin_lw = resolve_stroke_width(self, "openings", 0.8, zoom_transform, factor=0.75)
 
     # Helper to check visibility
     def is_visible(obj):
@@ -912,7 +930,7 @@ def draw_windows(self, cr, pixels_per_inch, items=None, opacity_override=None):
         H_end = (H[0] + (w / 2) * d[0], H[1] + (w / 2) * d[1])
 
         H_start, H_end = _draw_opening_cutout(
-            cr, wall, ratio, w, t, H_start, H_end, p, opacity, zoom_transform
+            cr, wall, ratio, w, t, H_start, H_end, p, opacity, zoom_transform, jamb_lw=opening_lw
         )
 
         # Opening rectangle corners
@@ -1014,7 +1032,7 @@ def draw_windows(self, cr, pixels_per_inch, items=None, opacity_override=None):
                                 p[1])
 
             # Set drawing properties
-            cr.set_line_width(1.0 / zoom_transform)
+            cr.set_line_width(opening_lw)
 
             # Draw solid black outline of window opening
             cr.set_source_rgba(0, 0, 0, opacity)  # Black
@@ -1074,7 +1092,7 @@ def draw_windows(self, cr, pixels_per_inch, items=None, opacity_override=None):
 
             # Draw a single rectangle outline for fixed window
             cr.set_source_rgba(0, 0, 0, opacity)  # Black outline
-            cr.set_line_width(1.0 / zoom_transform)
+            cr.set_line_width(opening_lw)
             cr.move_to(*P1)
             cr.line_to(*P2)
             cr.line_to(*P3)
@@ -1142,7 +1160,7 @@ def draw_windows(self, cr, pixels_per_inch, items=None, opacity_override=None):
 
             # Draw a single rectangle outline for fixed window
             cr.set_source_rgba(0, 0, 0, opacity)  # Black outline
-            cr.set_line_width(1.0 / zoom_transform)
+            cr.set_line_width(opening_lw)
             cr.move_to(*P1)
             cr.line_to(*P2)
             cr.line_to(*P3)
@@ -1157,7 +1175,7 @@ def draw_windows(self, cr, pixels_per_inch, items=None, opacity_override=None):
 
         if window.window_type == "casement":
             cr.set_source_rgba(0, 0, 0, opacity)
-            cr.set_line_width(1.0 / zoom_transform)
+            cr.set_line_width(opening_lw)
             cr.move_to(*P1)
             cr.line_to(*P2)
             cr.line_to(*P3)
@@ -1175,7 +1193,7 @@ def draw_windows(self, cr, pixels_per_inch, items=None, opacity_override=None):
             latch_pt = (H_end[0] + (t / 2) * p[0], H_end[1] + (t / 2) * p[1])
             tip_pt = (latch_pt[0] + ext * p[0], latch_pt[1] + ext * p[1])
             cr.save()
-            cr.set_line_width(0.8 / zoom_transform)
+            cr.set_line_width(opening_thin_lw)
             cr.set_dash([3.0 / zoom_transform, 2.0 / zoom_transform])
             cr.move_to(*hinge_pt)
             cr.line_to(*tip_pt)
@@ -1185,7 +1203,7 @@ def draw_windows(self, cr, pixels_per_inch, items=None, opacity_override=None):
 
         if window.window_type == "awning":
             cr.set_source_rgba(0, 0, 0, opacity)
-            cr.set_line_width(1.0 / zoom_transform)
+            cr.set_line_width(opening_lw)
             cr.move_to(*P1)
             cr.line_to(*P2)
             cr.line_to(*P3)
@@ -1204,7 +1222,7 @@ def draw_windows(self, cr, pixels_per_inch, items=None, opacity_override=None):
             proj_s = (out_s[0] + ext * p[0], out_s[1] + ext * p[1])
             proj_e = (out_e[0] + ext * p[0], out_e[1] + ext * p[1])
             cr.save()
-            cr.set_line_width(0.8 / zoom_transform)
+            cr.set_line_width(opening_thin_lw)
             cr.set_dash([3.0 / zoom_transform, 2.0 / zoom_transform])
             cr.move_to(*out_s)
             cr.line_to(*proj_s)

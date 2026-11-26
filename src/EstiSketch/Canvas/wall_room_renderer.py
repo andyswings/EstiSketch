@@ -1,5 +1,6 @@
 import cairo
 from ..geometry.wall_joins import wall_join_polygon
+from ..Printing.print_settings import resolve_stroke_width
 from .floor_patterns import draw_floor_pattern, pattern_base_color
 
 
@@ -42,7 +43,13 @@ def _fill_mismatched_wall_joins(cr, wall_set, is_visible, get_opacity):
         cr.restore()
 
 
-def _draw_wall_side_accents(cr, wall_set, is_visible, get_opacity):
+def _draw_wall_side_accents(
+    cr,
+    wall_set,
+    is_visible,
+    get_opacity,
+    bb_line_width: float = 0.7,
+):
     """Draw optional per-side finish colors and baseboard trim indicators on straight and curved walls."""
     import math
     from ..geometry.arc_wall import arc_wall_face_radii, arc_wall_params
@@ -90,7 +97,7 @@ def _draw_wall_side_accents(cr, wall_set, is_visible, get_opacity):
                     cr.stroke()
                 if has_bb:
                     r_bb = max(1e-3, face_r + rad_sign * 0.5)
-                    cr.set_line_width(0.7)
+                    cr.set_line_width(bb_line_width)
                     cr.set_source_rgba(0.55, 0.35, 0.18, opacity * 0.85)
                     if angle_diff < 0:
                         cr.arc_negative(cx, cy, r_bb, start_angle, end_angle)
@@ -128,7 +135,7 @@ def _draw_wall_side_accents(cr, wall_set, is_visible, get_opacity):
                 cr.stroke()
             if has_bb:
                 off = sign * (half_w + 0.5)
-                cr.set_line_width(0.7)
+                cr.set_line_width(bb_line_width)
                 cr.set_source_rgba(0.55, 0.35, 0.18, opacity * 0.85)
                 cr.move_to(x1 + nx * off, y1 + ny * off)
                 cr.line_to(x2 + nx * off, y2 + ny * off)
@@ -189,6 +196,9 @@ def draw_walls(self, cr):
                 continue
 
             width_user = wall.width
+            if width_user <= 0 and getattr(self, "_print_line_weights", None) is not None:
+                ppi = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                width_user = resolve_stroke_width(self, "walls_outline", 1.0, self.zoom * ppi)
             opacity = get_opacity(wall)
 
             should_start_new = True
@@ -285,7 +295,11 @@ def draw_walls(self, cr):
             cr.stroke()
 
         _fill_mismatched_wall_joins(cr, wall_set, is_visible, get_opacity)
-        _draw_wall_side_accents(cr, wall_set, is_visible, get_opacity)
+        bb_lw = 0.7
+        if getattr(self, "_print_line_weights", None) is not None:
+            ppi = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+            bb_lw = resolve_stroke_width(self, "walls_outline", 0.7, self.zoom * ppi, factor=0.7)
+        _draw_wall_side_accents(cr, wall_set, is_visible, get_opacity, bb_line_width=bb_lw)
 
     # Draw active drawing chain
     active_chain = []
@@ -313,6 +327,9 @@ def draw_walls(self, cr):
                 continue
 
             width_user = wall.width
+            if width_user <= 0 and getattr(self, "_print_line_weights", None) is not None:
+                ppi = getattr(self.config, "PIXELS_PER_INCH", 2.0)
+                width_user = resolve_stroke_width(self, "walls_outline", 1.0, self.zoom * ppi)
             opacity = get_opacity(wall)
 
             should_start_new = True
@@ -629,7 +646,8 @@ def _clip_outside_holes(cr, room, skip=None):
 def draw_rooms(self, cr, zoom_transform):
     from ..geometry.room_holes import sync_stair_holes
     sync_stair_holes(self)  # keep stair-derived holes current
-    cr.set_line_width(1.0 / zoom_transform)
+    room_lw = resolve_stroke_width(self, "rooms", 1.0, zoom_transform)
+    cr.set_line_width(room_lw)
 
     def is_visible(obj):
         if hasattr(self, 'is_object_on_visible_layer'):
@@ -666,6 +684,11 @@ def draw_rooms(self, cr, zoom_transform):
                 _clip_outside_holes(cr, room)
                 _poly_path(cr, room.points)
                 cr.clip()
+                pattern_lw = (
+                    resolve_stroke_width(self, "floor_patterns", 0.6, zoom_transform)
+                    if getattr(self, "_print_line_weights", None) is not None
+                    else None
+                )
                 draw_floor_pattern(
                     cr,
                     room.points,
@@ -674,6 +697,7 @@ def draw_rooms(self, cr, zoom_transform):
                     getattr(room, "pattern_scale", 1.0),
                     zoom_transform,
                     opacity=opacity,
+                    line_width_override=pattern_lw,
                 )
                 cr.restore()
 
@@ -714,7 +738,9 @@ def draw_rooms(self, cr, zoom_transform):
                 
                 # Draw diagonal hatching lines
                 cr.set_source_rgba(0.6, 0.6, 0.6, opacity * 0.5)
-                cr.set_line_width(0.5 / zoom_transform)
+                cr.set_line_width(
+                    resolve_stroke_width(self, "floor_patterns", 0.5, zoom_transform, factor=0.8)
+                )
                 spacing = 12  # inches between hatch lines
                 
                 # Diagonal lines from bottom-left to top-right
@@ -821,7 +847,7 @@ def draw_floor_openings(self, cr, zoom_transform, printing=False):
             cr.fill()
 
         # Crisp opening outline (dashed blue-slate for ceiling-only; dashed/charcoal for full floor cutout)
-        cr.set_line_width(1.5 / zoom_transform)
+        cr.set_line_width(resolve_stroke_width(self, "rooms", 1.5, zoom_transform))
         if ceiling_only:
             cr.set_source_rgba(0.22, 0.44, 0.68, opacity * 0.9)
             cr.set_dash([6.0 / zoom_transform, 4.0 / zoom_transform])
@@ -836,7 +862,7 @@ def draw_floor_openings(self, cr, zoom_transform, printing=False):
             cr.save()
             _poly_path(cr, pts)
             cr.clip()
-            cr.set_line_width(0.9 / zoom_transform)
+            cr.set_line_width(resolve_stroke_width(self, "rooms", 0.9, zoom_transform, factor=0.6))
             if ceiling_only:
                 cr.set_source_rgba(0.28, 0.48, 0.70, opacity * 0.75)
                 cr.set_dash([5.0 / zoom_transform, 4.0 / zoom_transform])
@@ -980,7 +1006,7 @@ def draw_footers(self, cr):
     cr.save()
     # Earthy brown
     cr.set_source_rgba(0.5, 0.4, 0.3, 0.8)
-    cr.set_line_width(2.0 / zoom_transform) # consistent thin line
+    cr.set_line_width(resolve_stroke_width(self, "footers", 2.0, zoom_transform)) # consistent thin line
     
     # Dashed line
     dash_len = 6.0 / zoom_transform

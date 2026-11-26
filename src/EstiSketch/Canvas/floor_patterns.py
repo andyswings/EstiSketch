@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 import cairo
 
@@ -70,12 +70,14 @@ def _draw_offset_tile(
     offset_denom: int,
     zoom_transform: float,
     stroke_rgba: Tuple[float, float, float, float],
+    line_width_override: Optional[float] = None,
 ) -> None:
     """Draw running-bond / offset rectangular courses with staggered cross joints."""
     course_h = _safe_step(2.0 * r, tile_w)
     course_l = _safe_step(2.0 * r, max(course_h * 1.5, tile_l))
     cr.set_source_rgba(*stroke_rgba)
-    cr.set_line_width(0.6 / max(zoom_transform, 1e-3))
+    lw = line_width_override if line_width_override is not None else 0.6 / max(zoom_transform, 1e-3)
+    cr.set_line_width(lw)
 
     y_start = math.floor(-r / course_h) * course_h
     y = y_start
@@ -97,11 +99,17 @@ def _draw_offset_tile(
 
 
 def _draw_tile_grid(
-    cr: cairo.Context, r: float, pitch: float, zoom_transform: float, opacity: float
+    cr: cairo.Context,
+    r: float,
+    pitch: float,
+    zoom_transform: float,
+    opacity: float,
+    line_width_override: Optional[float] = None,
 ) -> None:
     step = _safe_step(2.0 * r, pitch)
     cr.set_source_rgba(0.45, 0.45, 0.48, opacity * 0.45)
-    cr.set_line_width(0.6 / max(zoom_transform, 1e-3))
+    lw = line_width_override if line_width_override is not None else 0.6 / max(zoom_transform, 1e-3)
+    cr.set_line_width(lw)
 
     v = math.floor(-r / step) * step
     while v <= r + 1e-6:
@@ -114,14 +122,20 @@ def _draw_tile_grid(
 
 
 def _draw_herringbone(
-    cr: cairo.Context, r: float, s: float, zoom_transform: float, opacity: float
+    cr: cairo.Context,
+    r: float,
+    s: float,
+    zoom_transform: float,
+    opacity: float,
+    line_width_override: Optional[float] = None,
 ) -> None:
     k = 4
     w = _safe_step(2.0 * r, 4.0 * s)
     # Extra -45 deg rotation gives classic vertical chevron columns
     cr.rotate(-math.pi / 4.0)
     cr.set_source_rgba(0.55, 0.42, 0.28, opacity * 0.45)
-    cr.set_line_width(0.6 / max(zoom_transform, 1e-3))
+    lw = line_width_override if line_width_override is not None else 0.6 / max(zoom_transform, 1e-3)
+    cr.set_line_width(lw)
 
     limit_t = math.ceil(r / w) + k + 2
     limit_m = math.ceil(r / (k * w)) + 2
@@ -146,12 +160,18 @@ def _draw_herringbone(
 
 
 def _draw_chevron(
-    cr: cairo.Context, r: float, s: float, zoom_transform: float, opacity: float
+    cr: cairo.Context,
+    r: float,
+    s: float,
+    zoom_transform: float,
+    opacity: float,
+    line_width_override: Optional[float] = None,
 ) -> None:
     col_w = _safe_step(2.0 * r, 12.0 * s, max_steps=160)
     dy = _safe_step(2.0 * r, 4.0 * s, max_steps=200)
     cr.set_source_rgba(0.55, 0.42, 0.28, opacity * 0.45)
-    cr.set_line_width(0.6 / max(zoom_transform, 1e-3))
+    lw = line_width_override if line_width_override is not None else 0.6 / max(zoom_transform, 1e-3)
+    cr.set_line_width(lw)
 
     c_min = math.floor(-r / col_w)
     c_max = math.ceil(r / col_w)
@@ -177,7 +197,12 @@ def _draw_chevron(
 
 
 def _draw_hex_tile(
-    cr: cairo.Context, r: float, s: float, zoom_transform: float, opacity: float
+    cr: cairo.Context,
+    r: float,
+    s: float,
+    zoom_transform: float,
+    opacity: float,
+    line_width_override: Optional[float] = None,
 ) -> None:
     a = _safe_step(2.0 * r, 3.5 * s, max_steps=140)
     dx = 1.5 * a
@@ -191,7 +216,8 @@ def _draw_hex_tile(
         half_dy = dy * 0.5
 
     cr.set_source_rgba(0.45, 0.45, 0.48, opacity * 0.45)
-    cr.set_line_width(0.6 / max(zoom_transform, 1e-3))
+    lw = line_width_override if line_width_override is not None else 0.6 / max(zoom_transform, 1e-3)
+    cr.set_line_width(lw)
 
     c_min = math.floor((-r - 2.0 * a) / dx)
     c_max = math.ceil((r + 2.0 * a) / dx)
@@ -211,11 +237,17 @@ def _draw_hex_tile(
 
 
 def _draw_basketweave(
-    cr: cairo.Context, r: float, s: float, zoom_transform: float, opacity: float
+    cr: cairo.Context,
+    r: float,
+    s: float,
+    zoom_transform: float,
+    opacity: float,
+    line_width_override: Optional[float] = None,
 ) -> None:
     block = _safe_step(2.0 * r, 12.0 * s, max_steps=140)
     cr.set_source_rgba(0.45, 0.45, 0.48, opacity * 0.45)
-    cr.set_line_width(0.6 / max(zoom_transform, 1e-3))
+    lw = line_width_override if line_width_override is not None else 0.6 / max(zoom_transform, 1e-3)
+    cr.set_line_width(lw)
 
     v = math.floor(-r / block) * block
     while v <= r + 1e-6:
@@ -270,14 +302,20 @@ def _draw_stipple_cells(
 
 
 def _draw_carpet_weave(
-    cr: cairo.Context, r: float, s: float, zoom_transform: float, opacity: float
+    cr: cairo.Context,
+    r: float,
+    s: float,
+    zoom_transform: float,
+    opacity: float,
+    line_width_override: Optional[float] = None,
 ) -> None:
     row_step = _safe_step(2.0 * r, 3.0 * s, max_steps=200)
     dash_pitch = _safe_step(2.0 * r, max(row_step * 1.5, 4.5 * s), max_steps=200)
     dash_len = 0.62 * dash_pitch
 
     cr.set_source_rgba(0.60, 0.54, 0.46, opacity * 0.42)
-    cr.set_line_width(0.55 / max(zoom_transform, 1e-3))
+    lw = line_width_override if line_width_override is not None else 0.55 / max(zoom_transform, 1e-3)
+    cr.set_line_width(lw)
 
     y_start = math.floor(-r / row_step) * row_step
     y = y_start
@@ -302,6 +340,7 @@ def draw_floor_pattern(
     scale: float = 1.0,
     zoom_transform: float = 1.0,
     opacity: float = 1.0,
+    line_width_override: Optional[float] = None,
 ) -> None:
     """Draw a vector floor pattern over the current clipped region."""
     pts = list(points)
@@ -321,35 +360,35 @@ def draw_floor_pattern(
 
     if pattern == "wood_plank":
         _draw_offset_tile(cr, r, 4.0 * s, 36.0 * s, 3, zoom_transform,
-                          (0.55, 0.42, 0.28, opacity * 0.45))
+                          (0.55, 0.42, 0.28, opacity * 0.45), line_width_override)
     elif pattern == "vinyl_plank":
         _draw_offset_tile(cr, r, 7.0 * s, 48.0 * s, 4, zoom_transform,
-                          (0.52, 0.46, 0.40, opacity * 0.42))
+                          (0.52, 0.46, 0.40, opacity * 0.42), line_width_override)
     elif pattern == "herringbone":
-        _draw_herringbone(cr, r, s, zoom_transform, opacity)
+        _draw_herringbone(cr, r, s, zoom_transform, opacity, line_width_override)
     elif pattern == "chevron":
-        _draw_chevron(cr, r, s, zoom_transform, opacity)
+        _draw_chevron(cr, r, s, zoom_transform, opacity, line_width_override)
     elif pattern == "tile_12":
-        _draw_tile_grid(cr, r, 12.0 * s, zoom_transform, opacity)
+        _draw_tile_grid(cr, r, 12.0 * s, zoom_transform, opacity, line_width_override)
     elif pattern == "tile_18":
-        _draw_tile_grid(cr, r, 18.0 * s, zoom_transform, opacity)
+        _draw_tile_grid(cr, r, 18.0 * s, zoom_transform, opacity, line_width_override)
     elif pattern == "tile_24":
-        _draw_tile_grid(cr, r, 24.0 * s, zoom_transform, opacity)
+        _draw_tile_grid(cr, r, 24.0 * s, zoom_transform, opacity, line_width_override)
     elif pattern == "tile_offset_half":
         _draw_offset_tile(cr, r, 12.0 * s, 24.0 * s, 2, zoom_transform,
-                          (0.45, 0.45, 0.48, opacity * 0.45))
+                          (0.45, 0.45, 0.48, opacity * 0.45), line_width_override)
     elif pattern == "tile_offset_third":
         _draw_offset_tile(cr, r, 12.0 * s, 24.0 * s, 3, zoom_transform,
-                          (0.45, 0.45, 0.48, opacity * 0.45))
+                          (0.45, 0.45, 0.48, opacity * 0.45), line_width_override)
     elif pattern == "tile_hex":
-        _draw_hex_tile(cr, r, s, zoom_transform, opacity)
+        _draw_hex_tile(cr, r, s, zoom_transform, opacity, line_width_override)
     elif pattern == "tile_basketweave":
-        _draw_basketweave(cr, r, s, zoom_transform, opacity)
+        _draw_basketweave(cr, r, s, zoom_transform, opacity, line_width_override)
     elif pattern == "carpet_stipple":
         _draw_stipple_cells(cr, r, 5.0 * s, max(0.2, 0.30 * s), 3,
                             (0.62, 0.56, 0.48, opacity * 0.45))
     elif pattern == "carpet_weave":
-        _draw_carpet_weave(cr, r, s, zoom_transform, opacity)
+        _draw_carpet_weave(cr, r, s, zoom_transform, opacity, line_width_override)
     elif pattern == "concrete_stipple":
         _draw_stipple_cells(cr, r, 6.0 * s, max(0.2, 0.35 * s), 2,
                             (0.38, 0.38, 0.40, opacity * 0.55))

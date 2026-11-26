@@ -7,6 +7,7 @@ from . import wall_room_renderer as wr
 from . import render_fixtures as rf
 from .label_utils import upright_angle
 from .compass import draw_north_arrow
+from ..Printing.print_settings import resolve_stroke_width
 
 
 class CanvasDrawMixin:
@@ -371,7 +372,9 @@ class CanvasDrawMixin:
         
         # Draw finished polylines
         cr.save()
-        cr.set_line_width(1.0 / self.zoom)
+        cr.set_line_width(
+            resolve_stroke_width(self, "drafting", pixels_per_inch, zoom_transform)
+        )
         for poly_list in self.polyline_sets:
             for pl in poly_list:
                 # Skip if polyline is on hidden layer
@@ -1771,7 +1774,9 @@ class CanvasDrawMixin:
                     opacity = self.get_object_opacity(dimension)
                 cr.set_source_rgba(color[0], color[1], color[2], opacity)
 
-        line_width = 1.0 / (self.zoom * pixels_per_inch)
+        line_width = resolve_stroke_width(
+            self, "dimensions", 1.0, self.zoom * pixels_per_inch
+        )
         if is_selected:
             line_width *= 2.5  # Thicker line for selected dimensions
         cr.set_line_width(line_width)
@@ -1806,7 +1811,11 @@ class CanvasDrawMixin:
         ext2_end_pt = (end[0] + (offset + extension_overhang) * px,
                        end[1] + (offset + extension_overhang) * py)
 
-        cr.set_line_width(0.5 / (self.zoom * pixels_per_inch))
+        cr.set_line_width(
+            resolve_stroke_width(
+                self, "dimensions", 0.5, self.zoom * pixels_per_inch, factor=0.5
+            )
+        )
         cr.move_to(ext1_start_pt[0], ext1_start_pt[1])
         cr.line_to(ext1_end_pt[0], ext1_end_pt[1])
         cr.move_to(ext2_start_pt[0], ext2_start_pt[1])
@@ -2038,7 +2047,9 @@ class CanvasDrawMixin:
                 opacity = self.get_object_opacity(chain)
             cr.set_source_rgba(color[0], color[1], color[2], opacity)
 
-        line_width = 1.0 / (self.zoom * pixels_per_inch)
+        line_width = resolve_stroke_width(
+            self, "dimensions", 1.0, self.zoom * pixels_per_inch
+        )
         if is_selected:
             line_width *= 2.0
         cr.set_line_width(line_width)
@@ -2063,7 +2074,11 @@ class CanvasDrawMixin:
         cr.stroke()
 
         # 2. Witness Lines
-        cr.set_line_width(0.5 / (self.zoom * pixels_per_inch))
+        cr.set_line_width(
+            resolve_stroke_width(
+                self, "dimensions", 0.5, self.zoom * pixels_per_inch, factor=0.5
+            )
+        )
         summary_active = summary_dimension and len(unique_proj) >= 2
         sum_off = offset + s_off * summary_offset
 
@@ -2091,7 +2106,11 @@ class CanvasDrawMixin:
             slash_vec_y = (uy + py) * 0.7071 * slash_len
 
             if arrow_style == 'architectural_tick':
-                cr.set_line_width(1.8 / (self.zoom * pixels_per_inch))
+                cr.set_line_width(
+                    resolve_stroke_width(
+                        self, "dimensions", 1.8, self.zoom * pixels_per_inch, factor=1.5
+                    )
+                )
                 for t, _ in unique_proj:
                     d_pt = dim_pt(t)
                     cr.move_to(d_pt[0] - slash_vec_x, d_pt[1] - slash_vec_y)
@@ -2177,7 +2196,11 @@ class CanvasDrawMixin:
             # Summary ticks or arrows
             if show_arrows:
                 if arrow_style == 'architectural_tick':
-                    cr.set_line_width(2.0 / (self.zoom * pixels_per_inch))
+                    cr.set_line_width(
+                        resolve_stroke_width(
+                            self, "dimensions", 2.0, self.zoom * pixels_per_inch, factor=1.5
+                        )
+                    )
                     for pt_ in (sum_start, sum_end):
                         cr.move_to(pt_[0] - slash_vec_x, pt_[1] - slash_vec_y)
                         cr.line_to(pt_[0] + slash_vec_x, pt_[1] + slash_vec_y)
@@ -2304,7 +2327,9 @@ class CanvasDrawMixin:
                 opacity = self.get_object_opacity(callout)
             cr.set_source_rgba(color[0], color[1], color[2], opacity)
 
-        line_width = 1.0 / (self.zoom * pixels_per_inch)
+        line_width = resolve_stroke_width(
+            self, "dimensions", 1.0, self.zoom * pixels_per_inch
+        )
         if is_selected:
             line_width *= 2.0
         cr.set_line_width(line_width)
@@ -2442,7 +2467,9 @@ class CanvasDrawMixin:
             )
 
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
-        line_width = 1.0 / (self.zoom * pixels_per_inch)
+        line_width = resolve_stroke_width(
+            self, "drafting", 1.0, self.zoom * pixels_per_inch
+        )
         
         if is_selected:
             cr.set_source_rgb(1, 0, 0)
@@ -2502,7 +2529,9 @@ class CanvasDrawMixin:
             )
 
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
-        line_width = 1.0 / (self.zoom * pixels_per_inch)
+        line_width = resolve_stroke_width(
+            self, "drafting", 1.0, self.zoom * pixels_per_inch
+        )
         
         if is_selected:
             cr.set_source_rgb(1, 0, 0)
@@ -2671,8 +2700,8 @@ class CanvasDrawMixin:
         if not hasattr(self, 'roofs') or not self.roofs:
             return
         
-        line_width = 3.0 / zoom_transform
-        thin_line_width = 1.2 / zoom_transform
+        line_width = resolve_stroke_width(self, "roofs", 3.0, zoom_transform)
+        thin_line_width = resolve_stroke_width(self, "roofs", 1.2, zoom_transform, factor=0.55)
         dash_pattern = [8.0 / zoom_transform, 4.0 / zoom_transform]
         OUTLINE_COLOR = (0.4, 0.4, 0.4)
         

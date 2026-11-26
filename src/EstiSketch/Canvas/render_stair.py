@@ -4,6 +4,7 @@ Stair rendering logic for EstiSketch canvas.
 import math
 import cairo
 from ..components import Stair
+from ..Printing.print_settings import resolve_stroke_width
 from .winder_geometry import winder_treads, polygon_centroid, l_stair_layout
 
 
@@ -63,7 +64,7 @@ class CanvasStairRendererMixin:
             line_width = 2.0 / scale
         else:
             cr.set_source_rgba(0.0, 0.0, 0.0, opacity)
-            line_width = 1.0 / scale
+            line_width = resolve_stroke_width(self, "stairs", 1.0, scale)
             
         cr.set_line_width(line_width)
         
@@ -95,7 +96,7 @@ class CanvasStairRendererMixin:
         tread_depth = stair.tread_depth
         num_treads = stair.num_steps - 1  # Top riser is at the floor level
         
-        cr.set_line_width(0.5 / scale) # Thinner lines for treads
+        cr.set_line_width(resolve_stroke_width(self, "stairs", 0.5, scale, factor=0.5)) # Thinner lines for treads
         
         for i in range(1, num_treads + 1):
             x_pos = i * tread_depth
@@ -105,7 +106,7 @@ class CanvasStairRendererMixin:
             
         # --- Draw Railings ---
         rail_inset = 2.0  # Inset railing 2 inches from edge
-        rail_width = 1.0 / scale # Visual width
+        rail_width = resolve_stroke_width(self, "stairs", 1.0, scale) # Visual width
         
         if stair.has_left_rail:
             # "Left" is relative to looking UP the stairs
@@ -250,7 +251,7 @@ class CanvasStairRendererMixin:
             line_width = 2.0 / scale
         else:
             cr.set_source_rgba(0.0, 0.0, 0.0, opacity)
-            line_width = 1.0 / scale
+            line_width = resolve_stroke_width(self, "stairs", 1.0, scale)
             
         cr.set_line_width(line_width)
         half_width = width / 2.0
@@ -261,7 +262,7 @@ class CanvasStairRendererMixin:
         cr.stroke()
         
         # Draw treads for first flight
-        cr.set_line_width(0.5 / scale)
+        cr.set_line_width(resolve_stroke_width(self, "stairs", 0.5, scale, factor=0.5))
         for i in range(1, steps_before):
             x_pos = i * tread_depth
             cr.move_to(x_pos, -half_width)
@@ -315,7 +316,7 @@ class CanvasStairRendererMixin:
         cr.stroke()
         
         # Draw treads for second flight
-        cr.set_line_width(0.5 / scale)
+        cr.set_line_width(resolve_stroke_width(self, "stairs", 0.5, scale, factor=0.5))
         for i in range(1, steps_after):
             x_pos = i * tread_depth
             cr.move_to(x_pos, -half_width)
@@ -334,7 +335,7 @@ class CanvasStairRendererMixin:
             end_arrow_x = start_arrow_x + arrow_len
             
             cr.set_source_rgba(0.0, 0.0, 0.0, opacity)
-            cr.set_line_width(1.5 / scale)
+            cr.set_line_width(resolve_stroke_width(self, "stairs", 1.5, scale, factor=1.2))
             
             # Main line
             cr.move_to(start_arrow_x, 0)
@@ -428,7 +429,7 @@ class CanvasStairRendererMixin:
             line_width = 2.0 / scale
         else:
             cr.set_source_rgb(0.0, 0.0, 0.0)
-            line_width = 1.0 / scale
+            line_width = resolve_stroke_width(self, "stairs", 1.0, scale)
             
         cr.set_line_width(line_width)
         half_width = width / 2.0
@@ -446,7 +447,7 @@ class CanvasStairRendererMixin:
         cr.stroke()
         
         # Draw treads for first flight
-        cr.set_line_width(0.5 / scale)
+        cr.set_line_width(resolve_stroke_width(self, "stairs", 0.5, scale, factor=0.5))
         for i in range(1, steps_before):
             x_pos = i * tread_depth
             cr.move_to(x_pos, -half_width)
@@ -531,7 +532,7 @@ class CanvasStairRendererMixin:
         cr.stroke()
         
         # Draw treads for second flight
-        cr.set_line_width(0.5 / scale)
+        cr.set_line_width(resolve_stroke_width(self, "stairs", 0.5, scale, factor=0.5))
         for i in range(1, steps_after):
             x_pos = i * tread_depth
             cr.move_to(x_pos, -half_width)
@@ -547,7 +548,7 @@ class CanvasStairRendererMixin:
             end_arrow_x = start_arrow_x + arrow_len
             
             cr.set_source_rgba(0.0, 0.0, 0.0, opacity)
-            cr.set_line_width(1.5 / scale)
+            cr.set_line_width(resolve_stroke_width(self, "stairs", 1.5, scale, factor=1.2))
             
             # Main line
             cr.move_to(start_arrow_x, 0)
@@ -644,7 +645,7 @@ class CanvasStairRendererMixin:
             line_width = 2.0 / scale
         else:
             cr.set_source_rgba(0.0, 0.0, 0.0, opacity)
-            line_width = 1.0 / scale
+            line_width = resolve_stroke_width(self, "stairs", 1.0, scale)
             
         cr.set_line_width(line_width)
         
@@ -686,7 +687,7 @@ class CanvasStairRendererMixin:
         cr.stroke()
         
         # --- Draw Treads (Radials) ---
-        cr.set_line_width(0.5 / scale)
+        cr.set_line_width(resolve_stroke_width(self, "stairs", 0.5, scale, factor=0.5))
         for i in range(1, total_steps):
             theta = start_angle + (step_angle * i * dir_mult)
             
@@ -743,7 +744,7 @@ class CanvasStairRendererMixin:
         if inner_radius > 0:
              cr.new_sub_path()
              cr.arc(0, 0, inner_radius, 0, 2*math.pi)
-             cr.set_line_width(1.0 / scale)
+             cr.set_line_width(resolve_stroke_width(self, "stairs", 1.0, scale))
              cr.stroke()
              
         # --- Label ---
@@ -787,7 +788,7 @@ class CanvasStairRendererMixin:
 
         cr.save()
         cr.set_source_rgba(0.1, 0.1, 0.1, opacity)
-        cr.set_line_width(2.0 / scale)
+        cr.set_line_width(resolve_stroke_width(self, "stairs", 2.0, scale, factor=1.35))
         cr.set_line_cap(cairo.LINE_CAP_ROUND)
         cr.set_line_join(cairo.LINE_JOIN_ROUND)
 
