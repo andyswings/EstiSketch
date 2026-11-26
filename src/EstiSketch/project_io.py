@@ -650,6 +650,8 @@ def save_project(canvas, window_width, window_height, filepath):
         s_elem.set("steps_before_landing", str(getattr(stair, 'steps_before_landing', 0)))
         s_elem.set("winder_count", str(getattr(stair, 'winder_count', 0)))
         s_elem.set("opening_clearance", str(getattr(stair, 'opening_clearance', 0.0)))
+        s_elem.set("inner_radius", str(getattr(stair, 'inner_radius', 6.0)))
+        s_elem.set("rotation_degrees", str(getattr(stair, 'rotation_degrees', 270.0)))
         _save_obj_meta(s_elem, stair)
 
     # Save ObjectGroups
@@ -1394,6 +1396,8 @@ def open_project(canvas, filepath):
             stair.steps_before_landing = _get_attr_int(s_elem, "steps_before_landing", 0)
             stair.winder_count = _get_attr_int(s_elem, "winder_count", 0)
             stair.opening_clearance = _get_attr_float(s_elem, "opening_clearance", 0.0)
+            stair.inner_radius = _get_attr_float(s_elem, "inner_radius", 6.0)
+            stair.rotation_degrees = _get_attr_float(s_elem, "rotation_degrees", 270.0)
             _load_obj_meta(s_elem, stair)
 
             canvas.stairs.append(stair)

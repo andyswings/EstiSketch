@@ -154,3 +154,82 @@ def test_solve_roof_house3_l_shape_watertight():
                 assert z == pytest.approx(z_by_xy[key], abs=1e-4)
             else:
                 z_by_xy[key] = z
+
+
+def test_house2_stairs_cutouts_transform_and_railings():
+    xml_path = os.path.join(DEMO_DIR, "house2_two_story_3bed_2bath_garage_1800sqft.xml")
+    proj = bridge.parse_estisketch_xml(xml_path)
+    assert len(proj.stairs) == 1
+    st = proj.stairs[0]
+    assert st.stair_type == "straight"
+    assert st.start_point == pytest.approx((252.0, 290.0))
+
+    cutouts = bridge.compute_room_hole_cutouts(proj)
+    upper_hall = next(r for r in proj.rooms if r.name == "Upper Hall")
+    foyer = next(r for r in proj.rooms if r.name == "Foyer & Stair Hall")
+
+    assert any(c.cuts_floor and not c.cuts_ceiling for c in cutouts[upper_hall.identifier])
+    assert any(c.cuts_ceiling and not c.cuts_floor for c in cutouts[foyer.identifier])
+
+    cx, cy = bridge.compute_plan_center(proj)
+    loc, rot_z = bridge.compute_hb5_stair_transform(st, 0.0, cx, cy)
+    sx_m, sy_m = bridge.inches_to_blender_xy(252.0, 290.0, cx, cy)
+    assert loc[0] == pytest.approx(sx_m, abs=1e-5)
+    assert loc[1] == pytest.approx(sy_m + (st.width * bridge.INCH_TO_M) / 2.0, abs=1e-5)
+    assert loc[2] == pytest.approx(0.0)
+    assert rot_z == pytest.approx(-math.pi / 2.0)
+
+    rails = bridge.compute_stair_railing_paths_3d(st, 0.0)
+    assert len(rails) == 2
+    assert rails[0][0][2] == pytest.approx(0.0)
+    assert rails[0][-1][2] == pytest.approx(106.0)
+
+
+def test_synthetic_stairs_and_floor_opening_cutouts(tmp_path):
+    xml_content = """<?xml version='1.0' encoding='utf-8'?>
+<Project window_width="800" window_height="600" cut_lower_ceiling_under_stairs="False">
+  <Levels>
+    <Level id="lvl1" name="Level 1" elevation="0.0" height="96.0" floor_thickness="10.0" />
+    <Level id="lvl2" name="Level 2" elevation="106.0" height="96.0" floor_thickness="10.0" />
+  </Levels>
+  <Layers>
+    <Layer id="lay1" name="L1" visible="True" locked="False" opacity="1.0" level_id="lvl1" />
+    <Layer id="lay2" name="L2" visible="True" locked="False" opacity="1.0" level_id="lvl2" />
+  </Layers>
+  <Rooms>
+    <Room identifier="r1"><Points><Point x="0" y="0"/><Point x="400" y="0"/><Point x="400" y="400"/><Point x="0" y="400"/></Points><Height>96</Height><Name>Lower</Name><LayerId>lay1</LayerId></Room>
+    <Room identifier="r2"><Points><Point x="0" y="0"/><Point x="400" y="0"/><Point x="400" y="400"/><Point x="0" y="400"/></Points><Height>96</Height><Name>Upper</Name><LayerId>lay2</LayerId></Room>
+  </Rooms>
+  <FloorOpenings>
+    <FloorOpening identifier="fo1" opening_type="atrium" ceiling_only="False" layer_id="lay2">
+      <Points><Point x="20" y="20"/><Point x="100" y="20"/><Point x="100" y="100"/><Point x="20" y="100"/></Points>
+    </FloorOpening>
+  </FloorOpenings>
+  <Stairs>
+    <Stair identifier="st_lflat" layer_id="lay1" start_x="150" start_y="60" direction_angle="0.0" start_level_id="lvl1" end_level_id="lvl2" stair_type="L-shaped" width="36" total_rise="106" riser_height="7.57" num_steps="14" tread_depth="10.5" total_run="136.5" has_left_rail="True" has_right_rail="True" rail_height="36" turn_direction="left" landing_depth="36" steps_before_landing="7" winder_count="0" opening_clearance="0" />
+    <Stair identifier="st_lwind" layer_id="lay1" start_x="150" start_y="180" direction_angle="0.0" start_level_id="lvl1" end_level_id="lvl2" stair_type="L-shaped" width="36" total_rise="106" riser_height="7.57" num_steps="14" tread_depth="10.5" total_run="136.5" has_left_rail="True" has_right_rail="True" rail_height="36" turn_direction="right" landing_depth="36" steps_before_landing="5" winder_count="3" opening_clearance="0" />
+    <Stair identifier="st_u" layer_id="lay1" start_x="280" start_y="180" direction_angle="0.0" start_level_id="lvl1" end_level_id="lvl2" stair_type="U-shaped" width="36" total_rise="106" riser_height="7.57" num_steps="14" tread_depth="10.5" total_run="136.5" has_left_rail="True" has_right_rail="True" rail_height="36" turn_direction="left" landing_depth="36" steps_before_landing="7" winder_count="0" opening_clearance="0" />
+    <Stair identifier="st_sp" layer_id="lay1" start_x="320" start_y="320" direction_angle="0.0" start_level_id="lvl1" end_level_id="lvl2" stair_type="spiral" width="32" total_rise="106" riser_height="7.57" num_steps="14" tread_depth="10.5" total_run="100" has_left_rail="True" has_right_rail="True" rail_height="36" turn_direction="left" inner_radius="6" rotation_degrees="270" />
+  </Stairs>
+</Project>
+"""
+    xml_file = tmp_path / "stairs_and_atrium.xml"
+    xml_file.write_text(xml_content, encoding="utf-8")
+
+    proj = bridge.parse_estisketch_xml(str(xml_file))
+    assert len(proj.stairs) == 4
+    assert len(proj.floor_openings) == 1
+    assert proj.stairs[1].winder_count == 3
+    assert proj.stairs[3].inner_radius == pytest.approx(6.0)
+    assert proj.stairs[3].rotation_degrees == pytest.approx(270.0)
+
+    cutouts = bridge.compute_room_hole_cutouts(proj)
+    assert any(c.source_id == "opening:fo1" and c.cuts_floor for c in cutouts["r2"])
+    assert any(c.source_id == "opening:fo1" and c.cuts_ceiling for c in cutouts["r1"])
+    assert any(c.source_id == "stair:st_sp" and c.cuts_floor for c in cutouts["r2"])
+
+    for st in proj.stairs:
+        rails = bridge.compute_stair_railing_paths_3d(st, 0.0)
+        assert len(rails) == 2
+        assert rails[0][0][2] == pytest.approx(0.0)
+        assert rails[0][-1][2] == pytest.approx(106.0)

@@ -162,6 +162,59 @@ class SolvedRoofGeometry:
 
 
 @dataclass
+class ParsedStair:
+    """Staircase parsed from an EstiSketch project."""
+
+    identifier: str
+    layer_id: str
+    level_id: str
+    start_point: Tuple[float, float]
+    direction_angle: float  # radians
+    start_level_id: str
+    end_level_id: str
+    stair_type: str  # straight, l-shaped, u-shaped, spiral
+    width: float  # inches
+    total_rise: float  # inches
+    riser_height: float  # inches
+    num_steps: int
+    tread_depth: float  # inches
+    total_run: float  # inches
+    nosing: float  # inches
+    has_left_rail: bool
+    has_right_rail: bool
+    rail_height: float  # inches
+    turn_direction: str  # left, right
+    landing_depth: float  # inches
+    steps_before_landing: int
+    winder_count: int
+    opening_clearance: float  # inches
+    inner_radius: float  # inches
+    rotation_degrees: float
+
+
+@dataclass
+class ParsedFloorOpening:
+    """Manual floor or ceiling opening parsed from an EstiSketch project."""
+
+    identifier: str
+    level_id: str
+    opening_type: str
+    label: str
+    ceiling_only: bool
+    points: List[Tuple[float, float]] = field(default_factory=list)
+
+
+@dataclass
+class RoomHoleCutout:
+    """Derived floor or ceiling cutout polygon (in EstiSketch inches) for a room."""
+
+    points: List[Tuple[float, float]]
+    cuts_floor: bool
+    cuts_ceiling: bool
+    source_id: str
+
+
+@dataclass
 class ParsedProject:
     """Container for all parsed EstiSketch elements needed for 3D conversion."""
 
@@ -171,6 +224,9 @@ class ParsedProject:
     doors: List[ParsedDoor] = field(default_factory=list)
     windows: List[ParsedWindow] = field(default_factory=list)
     roofs: List[ParsedRoof] = field(default_factory=list)
+    stairs: List[ParsedStair] = field(default_factory=list)
+    floor_openings: List[ParsedFloorOpening] = field(default_factory=list)
+    cut_lower_ceiling_under_stairs: bool = False
 
 
 def _attr_float(elem: ET.Element, name: str, default: float) -> float:
@@ -467,6 +523,77 @@ def parse_estisketch_xml(xml_path: str) -> ParsedProject:
                 )
             )
 
+    stairs: List[ParsedStair] = []
+    stairs_elem = root.find("Stairs")
+    if stairs_elem is not None:
+        for s_idx, s_el in enumerate(stairs_elem.findall("Stair")):
+            if not _is_visible(s_el):
+                continue
+            layer_id = s_el.get("layer_id", "") or ""
+            start_level_id = s_el.get("start_level_id", "") or ""
+            end_level_id = s_el.get("end_level_id", "") or ""
+            level_id = (
+                layer_to_level.get(layer_id, "")
+                or start_level_id
+                or default_level_id
+            )
+            stairs.append(
+                ParsedStair(
+                    identifier=s_el.get("identifier", "") or f"stair_{s_idx}",
+                    layer_id=layer_id,
+                    level_id=level_id,
+                    start_point=(_attr_float(s_el, "start_x", 0.0), _attr_float(s_el, "start_y", 0.0)),
+                    direction_angle=_attr_float(s_el, "direction_angle", 0.0),
+                    start_level_id=start_level_id or level_id,
+                    end_level_id=end_level_id,
+                    stair_type=(s_el.get("stair_type", "straight") or "straight").lower(),
+                    width=_attr_float(s_el, "width", 36.0),
+                    total_rise=_attr_float(s_el, "total_rise", 106.0),
+                    riser_height=_attr_float(s_el, "riser_height", 7.57),
+                    num_steps=max(1, _attr_int(s_el, "num_steps", 14)),
+                    tread_depth=_attr_float(s_el, "tread_depth", 11.0),
+                    total_run=_attr_float(s_el, "total_run", 143.0),
+                    nosing=_attr_float(s_el, "nosing", 1.0),
+                    has_left_rail=(s_el.get("has_left_rail", "True").strip().lower() == "true"),
+                    has_right_rail=(s_el.get("has_right_rail", "True").strip().lower() == "true"),
+                    rail_height=_attr_float(s_el, "rail_height", 36.0),
+                    turn_direction=(s_el.get("turn_direction", "left") or "left").lower(),
+                    landing_depth=_attr_float(s_el, "landing_depth", 36.0),
+                    steps_before_landing=_attr_int(s_el, "steps_before_landing", 0),
+                    winder_count=_attr_int(s_el, "winder_count", 0),
+                    opening_clearance=_attr_float(s_el, "opening_clearance", 0.0),
+                    inner_radius=_attr_float(s_el, "inner_radius", 6.0),
+                    rotation_degrees=_attr_float(s_el, "rotation_degrees", 270.0),
+                )
+            )
+
+    floor_openings: List[ParsedFloorOpening] = []
+    fo_elem = root.find("FloorOpenings")
+    if fo_elem is not None:
+        for fo_idx, f_el in enumerate(fo_elem.findall("FloorOpening")):
+            if not _is_visible(f_el):
+                continue
+            pts_el = f_el.find("Points")
+            pts: List[Tuple[float, float]] = []
+            if pts_el is not None:
+                for pt_el in pts_el.findall("Point"):
+                    pts.append((_attr_float(pt_el, "x", 0.0), _attr_float(pt_el, "y", 0.0)))
+            if len(pts) < 3:
+                continue
+            layer_id = f_el.get("layer_id", "") or ""
+            floor_openings.append(
+                ParsedFloorOpening(
+                    identifier=f_el.get("identifier", "") or f"opening_{fo_idx}",
+                    level_id=_resolve_level_id(layer_id, layer_to_level, default_level_id),
+                    opening_type=(f_el.get("opening_type", "opening") or "opening").lower(),
+                    label=f_el.get("label", "") or "",
+                    ceiling_only=(f_el.get("ceiling_only", "False").strip().lower() == "true"),
+                    points=pts,
+                )
+            )
+
+    cut_lower = root.get("cut_lower_ceiling_under_stairs", "False").strip().lower() == "true"
+
     return ParsedProject(
         levels=levels,
         walls=walls,
@@ -474,6 +601,9 @@ def parse_estisketch_xml(xml_path: str) -> ParsedProject:
         doors=doors,
         windows=windows,
         roofs=roofs,
+        stairs=stairs,
+        floor_openings=floor_openings,
+        cut_lower_ceiling_under_stairs=cut_lower,
     )
 
 
@@ -1089,6 +1219,425 @@ def solve_roof_3d(roof: ParsedRoof, project: ParsedProject) -> SolvedRoofGeometr
     )
 
 
+def _l_stair_layout_in(
+    total_steps: int,
+    steps_before_landing: int,
+    tread_depth: float,
+    landing_depth: float,
+    width: float,
+    winder_count: int = 0,
+) -> Dict[str, float]:
+    """Compute flight step counts and run lengths for an L-shaped stair."""
+    winders = max(0, min(int(winder_count or 0), 5, max(total_steps - 2, 0)))
+    flight_total = max(1, total_steps - winders)
+    if 0 < steps_before_landing < flight_total:
+        steps_before = steps_before_landing
+    else:
+        steps_before = flight_total // 2
+    steps_after = flight_total - steps_before
+    if winders > 0:
+        run_before = steps_before * tread_depth
+        run_after = steps_after * tread_depth
+        actual_ld = width
+    else:
+        run_before = (steps_before - 1) * tread_depth if steps_before > 0 else 0.0
+        run_after = (steps_after - 1) * tread_depth if steps_after > 0 else 0.0
+        actual_ld = landing_depth
+    return {
+        "steps_before": steps_before,
+        "steps_after": steps_after,
+        "run_before": run_before,
+        "run_after": run_after,
+        "landing_depth": actual_ld,
+        "winder_count": winders,
+    }
+
+
+def _winder_tread_polys_local(
+    width: float, count: int, turn: str = "left"
+) -> List[List[Tuple[float, float]]]:
+    """Return wedge polygons tiling a ``width x width`` turn square."""
+    if count < 1:
+        return []
+
+    def _bpt(phi: float) -> Tuple[float, float]:
+        if phi <= math.pi / 4.0 + 1e-12:
+            return (width, width * math.tan(phi))
+        return (width / math.tan(phi), width)
+
+    polys: List[List[Tuple[float, float]]] = []
+    for i in range(count):
+        phi_hi = (math.pi / 2.0) * (1.0 - i / count)
+        phi_lo = (math.pi / 2.0) * (1.0 - (i + 1) / count)
+        pts: List[Tuple[float, float]] = [(0.0, 0.0), _bpt(phi_hi)]
+        if phi_lo < math.pi / 4.0 < phi_hi:
+            pts.append((width, width))
+        pts.append(_bpt(phi_lo))
+        polys.append(pts)
+    if turn == "right":
+        polys = [[(u, width - v) for (u, v) in poly] for poly in polys]
+    return polys
+
+
+def _expand_convex_poly_2d(
+    poly: List[Tuple[float, float]], margin: float
+) -> List[Tuple[float, float]]:
+    if margin <= 1e-6 or len(poly) < 3:
+        return poly
+    pts = list(poly)
+    if _polygon_signed_area_2d(pts) < 0:
+        pts.reverse()
+    n = len(pts)
+    lines = []
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        dx, dy = x2 - x1, y2 - y1
+        d = math.hypot(dx, dy) or 1.0
+        nx, ny = dy / d, -dx / d
+        lines.append(((x1 + nx * margin, y1 + ny * margin), (x2 + nx * margin, y2 + ny * margin)))
+    out: List[Tuple[float, float]] = []
+    for i in range(n):
+        p1, p2 = lines[i - 1]
+        p3, p4 = lines[i]
+        res = _line_intersect_2d(p1, p2, p3, p4)
+        out.append((res[0], res[1]) if res is not None else p3)
+    return out
+
+
+def compute_stair_footprint_parts(stair: ParsedStair) -> List[List[Tuple[float, float]]]:
+    """Return convex footprint polygon(s) in EstiSketch inches for ``stair``."""
+    width = max(12.0, stair.width)
+    hw = width / 2.0
+    sx, sy = stair.start_point
+    ang = stair.direction_angle
+    ca, sa = math.cos(ang), math.sin(ang)
+
+    def _xf(pts: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+        return [(sx + u * ca - v * sa, sy + u * sa + v * ca) for u, v in pts]
+
+    def _rect(u0: float, v0: float, u1: float, v1: float) -> List[Tuple[float, float]]:
+        return [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]
+
+    def _sub(ox: float, oy: float, rot: float, pts: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+        cr, sr = math.cos(rot), math.sin(rot)
+        return [(ox + a * cr - b * sr, oy + a * sr + b * cr) for a, b in pts]
+
+    stype = stair.stair_type
+    if stype == "spiral":
+        r = max(6.0, stair.inner_radius) + width
+        n = 24
+        parts = [[
+            (sx + r * math.cos(2.0 * math.pi * i / n), sy + r * math.sin(2.0 * math.pi * i / n))
+            for i in range(n)
+        ]]
+    elif stype == "l-shaped":
+        lay = _l_stair_layout_in(
+            stair.num_steps,
+            stair.steps_before_landing,
+            stair.tread_depth,
+            stair.landing_depth,
+            width,
+            stair.winder_count,
+        )
+        rb, ra, ld = lay["run_before"], lay["run_after"], lay["landing_depth"]
+        local: List[List[Tuple[float, float]]] = []
+        if rb > 0:
+            local.append(_rect(0.0, -hw, rb, hw))
+        local.append(_rect(rb, -hw, rb + ld, hw))
+        if ra > 0:
+            if stair.turn_direction == "left":
+                local.append(_sub(rb + ld - hw, -hw, -math.pi / 2.0, _rect(0.0, -hw, ra, hw)))
+            else:
+                local.append(_sub(rb + ld - hw, hw, math.pi / 2.0, _rect(0.0, -hw, ra, hw)))
+        parts = [_xf(p) for p in local]
+    elif stype == "u-shaped":
+        ld = stair.landing_depth or width
+        well = max(0.0, stair.inner_radius if stair.inner_radius != 6.0 else 0.0)
+        total = stair.num_steps
+        before = stair.steps_before_landing if 0 < stair.steps_before_landing < total else total // 2
+        after = total - before
+        rb = (before - 1) * stair.tread_depth if before > 0 else 0.0
+        ra = (after - 1) * stair.tread_depth if after > 0 else 0.0
+        span = 2.0 * width + well
+        local = []
+        if rb > 0:
+            local.append(_rect(0.0, -hw, rb, hw))
+        if stair.turn_direction == "left":
+            local.append(_rect(rb, -hw - well - width, rb + ld, -hw - well - width + span))
+            ox, oy = rb, -(width + well)
+        else:
+            local.append(_rect(rb, -hw, rb + ld, -hw + span))
+            ox, oy = rb, width + well
+        if ra > 0:
+            local.append(_sub(ox, oy, math.pi, _rect(0.0, -hw, ra, hw)))
+        parts = [_xf(p) for p in local]
+    else:
+        run = max(stair.tread_depth, stair.total_run)
+        parts = [_xf(_rect(0.0, -hw, run, hw))]
+
+    margin = max(0.0, stair.opening_clearance)
+    if margin > 0.0:
+        parts = [_expand_convex_poly_2d(p, margin) for p in parts]
+    return parts
+
+
+def _polys_overlap_2d(poly_a: List[Tuple[float, float]], poly_b: List[Tuple[float, float]]) -> bool:
+    """Fast 2D overlap test (AABB + vertex/centroid containment + edge intersection)."""
+    if len(poly_a) < 3 or len(poly_b) < 3:
+        return False
+    ax0, ax1 = min(p[0] for p in poly_a), max(p[0] for p in poly_a)
+    ay0, ay1 = min(p[1] for p in poly_a), max(p[1] for p in poly_a)
+    bx0, bx1 = min(p[0] for p in poly_b), max(p[0] for p in poly_b)
+    by0, by1 = min(p[1] for p in poly_b), max(p[1] for p in poly_b)
+    if ax1 < bx0 - 1e-3 or bx1 < ax0 - 1e-3 or ay1 < by0 - 1e-3 or by1 < ay0 - 1e-3:
+        return False
+    for pt in poly_a:
+        if _pt_in_poly_2d(pt[0], pt[1], poly_b):
+            return True
+    for pt in poly_b:
+        if _pt_in_poly_2d(pt[0], pt[1], poly_a):
+            return True
+    ca = (sum(p[0] for p in poly_a) / len(poly_a), sum(p[1] for p in poly_a) / len(poly_a))
+    cb = (sum(p[0] for p in poly_b) / len(poly_b), sum(p[1] for p in poly_b) / len(poly_b))
+    if _pt_in_poly_2d(ca[0], ca[1], poly_b) or _pt_in_poly_2d(cb[0], cb[1], poly_a):
+        return True
+    for i in range(len(poly_a)):
+        a0, a1 = poly_a[i], poly_a[(i + 1) % len(poly_a)]
+        for j in range(len(poly_b)):
+            b0, b1 = poly_b[j], poly_b[(j + 1) % len(poly_b)]
+            res = _line_intersect_2d(a0, a1, b0, b1)
+            if res is not None and 0.0 <= res[2] <= 1.0 and 0.0 <= res[3] <= 1.0:
+                return True
+    return False
+
+
+def compute_room_hole_cutouts(project: ParsedProject) -> Dict[str, List[RoomHoleCutout]]:
+    """Compute floor and ceiling cutouts per room ID from stairs and manual floor openings."""
+    out: Dict[str, List[RoomHoleCutout]] = {}
+    rooms_by_level: Dict[str, List[ParsedRoom]] = {}
+    for room in project.rooms:
+        rooms_by_level.setdefault(room.level_id, []).append(room)
+    sorted_levels = sorted(project.levels, key=lambda l: l.elevation)
+
+    for stair in project.stairs:
+        parts = compute_stair_footprint_parts(stair)
+        src = f"stair:{stair.identifier}"
+        if stair.end_level_id:
+            for room in rooms_by_level.get(stair.end_level_id, []):
+                for part in parts:
+                    if _polys_overlap_2d(room.points, part):
+                        out.setdefault(room.identifier, []).append(
+                            RoomHoleCutout(points=part, cuts_floor=True, cuts_ceiling=False, source_id=src)
+                        )
+        should_cut_ceil = (
+            bool(stair.start_level_id)
+            and (stair.start_level_id != stair.end_level_id or project.cut_lower_ceiling_under_stairs)
+        )
+        if should_cut_ceil:
+            for room in rooms_by_level.get(stair.start_level_id, []):
+                for part in parts:
+                    if _polys_overlap_2d(room.points, part):
+                        out.setdefault(room.identifier, []).append(
+                            RoomHoleCutout(points=part, cuts_floor=False, cuts_ceiling=True, source_id=src)
+                        )
+
+    for fo in project.floor_openings:
+        src = f"opening:{fo.identifier}"
+        for room in rooms_by_level.get(fo.level_id, []):
+            if _polys_overlap_2d(room.points, fo.points):
+                out.setdefault(room.identifier, []).append(
+                    RoomHoleCutout(
+                        points=list(fo.points),
+                        cuts_floor=not fo.ceiling_only,
+                        cuts_ceiling=fo.ceiling_only,
+                        source_id=src,
+                    )
+                )
+        if not fo.ceiling_only:
+            cur_lvl = next((l for l in sorted_levels if l.id == fo.level_id), None)
+            if cur_lvl is not None:
+                below = [l for l in sorted_levels if l.elevation < cur_lvl.elevation - 1e-3]
+                if below:
+                    lower_lvl = below[-1]
+                    for room in rooms_by_level.get(lower_lvl.id, []):
+                        if _polys_overlap_2d(room.points, fo.points):
+                            out.setdefault(room.identifier, []).append(
+                                RoomHoleCutout(
+                                    points=list(fo.points),
+                                    cuts_floor=False,
+                                    cuts_ceiling=True,
+                                    source_id=src,
+                                )
+                            )
+    return out
+
+
+def compute_hb5_stair_transform(
+    stair: ParsedStair, z_start_in: float, cx: float, cy: float
+) -> Tuple[Tuple[float, float, float], float]:
+    """Convert EstiSketch bottom-center stair pose to HB5 bottom-left ``(loc_m, rot_z_rad)``."""
+    sx_m, sy_m = inches_to_blender_xy(stair.start_point[0], stair.start_point[1], cx, cy)
+    theta_b = -stair.direction_angle
+    rot_z = theta_b - math.pi / 2.0
+    half_w_m = (stair.width * INCH_TO_M) / 2.0
+    loc_x = sx_m - half_w_m * math.sin(theta_b)
+    loc_y = sy_m + half_w_m * math.cos(theta_b)
+    loc_z = z_start_in * INCH_TO_M
+    return ((loc_x, loc_y, loc_z), rot_z)
+
+
+def compute_stair_railing_paths_3d(
+    stair: ParsedStair, z_start_in: float
+) -> List[List[Tuple[float, float, float]]]:
+    """Return 3D railing base polylines ``[(x_in, y_in, z_in), ...]`` in EstiSketch world inches."""
+    if not stair.has_left_rail and not stair.has_right_rail:
+        return []
+
+    width = max(12.0, stair.width)
+    hw = width / 2.0
+    total_rise = max(6.0, stair.total_rise)
+    z0 = z_start_in
+    z1 = z_start_in + total_rise
+    sx, sy = stair.start_point
+    ang = stair.direction_angle
+    ca, sa = math.cos(ang), math.sin(ang)
+
+    def _w(u: float, v: float, z: float) -> Tuple[float, float, float]:
+        return (sx + u * ca - v * sa, sy + u * sa + v * ca, z)
+
+    left_3d: List[List[Tuple[float, float, float]]] = []
+    right_3d: List[List[Tuple[float, float, float]]] = []
+    stype = stair.stair_type
+
+    if stype == "straight":
+        run = max(stair.tread_depth, stair.total_run)
+        left_3d.append([_w(0.0, -hw, z0), _w(run, -hw, z1)])
+        right_3d.append([_w(0.0, hw, z0), _w(run, hw, z1)])
+
+    elif stype == "l-shaped":
+        lay = _l_stair_layout_in(
+            stair.num_steps,
+            stair.steps_before_landing,
+            stair.tread_depth,
+            stair.landing_depth,
+            width,
+            stair.winder_count,
+        )
+        sb = lay["steps_before"]
+        sa_cnt = lay["steps_after"]
+        rb = lay["run_before"]
+        ra = lay["run_after"]
+        ld = lay["landing_depth"]
+        wc = lay["winder_count"]
+        tot_steps = max(1, sb + wc + sa_cnt)
+        z_land_s = z0 + total_rise * (sb / tot_steps)
+        z_land_e = z0 + total_rise * ((sb + wc) / tot_steps) if wc > 0 else z_land_s
+
+        if stair.turn_direction == "left":
+            right_3d.append([
+                _w(0.0, hw, z0),
+                _w(rb, hw, z_land_s),
+                _w(rb + ld, hw, 0.5 * (z_land_s + z_land_e)),
+                _w(rb + ld, -hw, z_land_e),
+                _w(rb + ld, -hw - ra, z1),
+            ])
+            left_3d.append([
+                _w(0.0, -hw, z0),
+                _w(rb, -hw, z_land_s),
+                _w(rb, -hw, z_land_e),
+                _w(rb, -hw - ra, z1),
+            ])
+        else:
+            left_3d.append([
+                _w(0.0, -hw, z0),
+                _w(rb, -hw, z_land_s),
+                _w(rb + ld, -hw, 0.5 * (z_land_s + z_land_e)),
+                _w(rb + ld, hw, z_land_e),
+                _w(rb + ld, hw + ra, z1),
+            ])
+            right_3d.append([
+                _w(0.0, hw, z0),
+                _w(rb, hw, z_land_s),
+                _w(rb, hw, z_land_e),
+                _w(rb, hw + ra, z1),
+            ])
+
+    elif stype == "u-shaped":
+        ld = stair.landing_depth or width
+        well = max(0.0, stair.inner_radius if stair.inner_radius != 6.0 else 0.0)
+        tot = stair.num_steps
+        sb = stair.steps_before_landing if 0 < stair.steps_before_landing < tot else tot // 2
+        sa_cnt = tot - sb
+        rb = (sb - 1) * stair.tread_depth if sb > 0 else 0.0
+        ra = (sa_cnt - 1) * stair.tread_depth if sa_cnt > 0 else 0.0
+        z_land = z0 + total_rise * (sb / max(1, tot))
+        if stair.turn_direction == "left":
+            oy = -width - well - hw
+            iy = -hw - well
+            right_3d.append([
+                _w(0.0, hw, z0),
+                _w(rb, hw, z_land),
+                _w(rb + ld, hw, z_land),
+                _w(rb + ld, oy, z_land),
+                _w(rb, oy, z_land),
+                _w(rb - ra, oy, z1),
+            ])
+            left_3d.append([
+                _w(0.0, -hw, z0),
+                _w(rb, -hw, z_land),
+                _w(rb, iy, z_land),
+                _w(rb - ra, iy, z1),
+            ])
+        else:
+            oy = width + well + hw
+            iy = hw + well
+            left_3d.append([
+                _w(0.0, -hw, z0),
+                _w(rb, -hw, z_land),
+                _w(rb + ld, -hw, z_land),
+                _w(rb + ld, oy, z_land),
+                _w(rb, oy, z_land),
+                _w(rb - ra, oy, z1),
+            ])
+            right_3d.append([
+                _w(0.0, hw, z0),
+                _w(rb, hw, z_land),
+                _w(rb, iy, z_land),
+                _w(rb - ra, iy, z1),
+            ])
+
+    elif stype == "spiral":
+        inner_r = max(2.0, stair.inner_radius)
+        outer_r = inner_r + width
+        rot_rad = math.radians(stair.rotation_degrees or 270.0)
+        dir_mult = -1.0 if stair.turn_direction == "left" else 1.0
+        steps = max(12, int((stair.rotation_degrees or 270.0) / 15.0))
+        inner_pts: List[Tuple[float, float, float]] = []
+        outer_pts: List[Tuple[float, float, float]] = []
+        for i in range(steps + 1):
+            frac = i / steps
+            theta = ang + frac * rot_rad * dir_mult
+            z_cur = z0 + frac * total_rise
+            inner_pts.append((sx + inner_r * math.cos(theta), sy + inner_r * math.sin(theta), z_cur))
+            outer_pts.append((sx + outer_r * math.cos(theta), sy + outer_r * math.sin(theta), z_cur))
+        if stair.turn_direction == "left":
+            if inner_r >= 4.0:
+                left_3d.append(inner_pts)
+            right_3d.append(outer_pts)
+        else:
+            left_3d.append(outer_pts)
+            if inner_r >= 4.0:
+                right_3d.append(inner_pts)
+
+    paths: List[List[Tuple[float, float, float]]] = []
+    if stair.has_left_rail:
+        paths.extend(left_3d)
+    if stair.has_right_rail:
+        paths.extend(right_3d)
+    return paths
+
+
 # ---------------------------------------------------------------------------
 # Layer 2: Blender + Home Builder 5 scene builder (lazy bpy import)
 # ---------------------------------------------------------------------------
@@ -1307,7 +1856,8 @@ def _get_or_create_roof_material(material_name: str):
     base_col, metallic, roughness = presets.get(key, ((0.22, 0.23, 0.25, 1.0), 0.0, 0.75))
 
     mat = bpy.data.materials.new(name=mat_id)
-    mat.use_nodes = True
+    if mat.node_tree is None:
+        mat.use_nodes = True
     bsdf = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
     if bsdf is not None:
         bsdf.inputs["Base Color"].default_value = base_col
@@ -1477,6 +2027,429 @@ def _build_gable_infill_mesh(
     return obj
 
 
+def _get_or_create_stair_material(
+    mat_id: str,
+    base_col: Tuple[float, float, float, float],
+    metallic: float = 0.0,
+    roughness: float = 0.45,
+):
+    import bpy
+
+    existing = bpy.data.materials.get(mat_id)
+    if existing is not None:
+        return existing
+    mat = bpy.data.materials.new(name=mat_id)
+    if mat.node_tree is None:
+        mat.use_nodes = True
+    bsdf = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if bsdf is not None:
+        bsdf.inputs["Base Color"].default_value = base_col
+        bsdf.inputs["Metallic"].default_value = metallic
+        bsdf.inputs["Roughness"].default_value = roughness
+    mat.diffuse_color = base_col
+    return mat
+
+
+def _apply_slab_cutouts(
+    slab_obj,
+    cutout_polys_in: List[List[Tuple[float, float]]],
+    z_min_m: float,
+    z_max_m: float,
+    cx: float,
+    cy: float,
+    scene,
+) -> int:
+    """Boolean-cut and bake vertical hole prisms out of a floor or ceiling slab."""
+    import bmesh
+    import bpy
+    from mathutils import Vector
+
+    if slab_obj is None or not cutout_polys_in:
+        return 0
+
+    cutters = []
+    z_lo = z_min_m - 0.15
+    z_hi = z_max_m + 0.15
+    for idx, poly_in in enumerate(cutout_polys_in):
+        pts_m = _clean_points_m([inches_to_blender_xy(x, y, cx, cy) for x, y in poly_in])
+        if len(pts_m) < 3:
+            continue
+        bm = bmesh.new()
+        verts = [bm.verts.new((x, y, z_lo)) for x, y in pts_m]
+        bm.verts.ensure_lookup_table()
+        edges = [bm.edges.new((verts[i], verts[(i + 1) % len(verts)])) for i in range(len(verts))]
+        bmesh.ops.triangle_fill(bm, use_beauty=True, use_dissolve=False, edges=edges)
+        bm.normal_update()
+        for f in bm.faces:
+            if f.normal.z > 0:
+                f.normal_flip()
+        res = bmesh.ops.extrude_face_region(bm, geom=list(bm.faces))
+        ext_verts = [g for g in res["geom"] if isinstance(g, bmesh.types.BMVert)]
+        bmesh.ops.translate(bm, verts=ext_verts, vec=Vector((0.0, 0.0, z_hi - z_lo)))
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+        c_mesh = bpy.data.meshes.new(f"_CutPrism_{slab_obj.name}_{idx}")
+        bm.to_mesh(c_mesh)
+        bm.free()
+
+        c_obj = bpy.data.objects.new(f"_CutPrism_{slab_obj.name}_{idx}", c_mesh)
+        scene.collection.objects.link(c_obj)
+        mod = slab_obj.modifiers.new(name=f"HoleCut_{idx}", type="BOOLEAN")
+        mod.operation = "DIFFERENCE"
+        mod.object = c_obj
+        mod.solver = "EXACT"
+        cutters.append((c_obj, c_mesh))
+
+    if not cutters:
+        return 0
+
+    bpy.context.view_layer.update()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    eval_obj = slab_obj.evaluated_get(depsgraph)
+    baked_mesh = bpy.data.meshes.new_from_object(eval_obj, depsgraph=depsgraph)
+    old_mesh = slab_obj.data
+    slab_obj.data = baked_mesh
+    slab_obj.modifiers.clear()
+    if old_mesh is not None and old_mesh.users == 0:
+        bpy.data.meshes.remove(old_mesh)
+
+    for c_obj, c_mesh in cutters:
+        bpy.data.objects.remove(c_obj, do_unlink=True)
+        if c_mesh.users == 0:
+            bpy.data.meshes.remove(c_mesh)
+    return len(cutters)
+
+
+def _extrude_prism_z(bm, pts_m: List[Tuple[float, float]], z_bot: float, z_top: float) -> None:
+    from mathutils import Vector
+    import bmesh
+
+    if len(pts_m) < 3 or z_top <= z_bot + 1e-5:
+        return
+    verts = [bm.verts.new((x, y, z_bot)) for x, y in pts_m]
+    bm.verts.ensure_lookup_table()
+    edges = [bm.edges.new((verts[i], verts[(i + 1) % len(verts)])) for i in range(len(verts))]
+    res_fill = bmesh.ops.triangle_fill(bm, use_beauty=True, use_dissolve=False, edges=edges)
+    faces = [g for g in res_fill.get("geom", []) if isinstance(g, bmesh.types.BMFace)]
+    if not faces:
+        return
+    for f in faces:
+        f.normal_update()
+        if f.normal.z > 0:
+            f.normal_flip()
+    res = bmesh.ops.extrude_face_region(bm, geom=faces)
+    ext_verts = [g for g in res["geom"] if isinstance(g, bmesh.types.BMVert)]
+    bmesh.ops.translate(bm, verts=ext_verts, vec=Vector((0.0, 0.0, z_top - z_bot)))
+
+
+def _build_l_winder_stair_mesh(ps: ParsedStair, z_start_in: float, cx: float, cy: float):
+    import bmesh
+    import bpy
+
+    lay = _l_stair_layout_in(
+        ps.num_steps,
+        ps.steps_before_landing,
+        ps.tread_depth,
+        ps.landing_depth,
+        ps.width,
+        ps.winder_count,
+    )
+    sb = int(lay["steps_before"])
+    sa_cnt = int(lay["steps_after"])
+    wc = int(lay["winder_count"])
+    total_steps = max(1, sb + wc + sa_cnt)
+    riser_in = ps.total_rise / total_steps
+    tread_thick_in = 1.5
+    width = max(12.0, ps.width)
+    hw = width / 2.0
+    ang = ps.direction_angle
+    ca, sa = math.cos(ang), math.sin(ang)
+    sx, sy = ps.start_point
+
+    def _to_m(u: float, v: float) -> Tuple[float, float]:
+        return inches_to_blender_xy(sx + u * ca - v * sa, sy + u * sa + v * ca, cx, cy)
+
+    bm = bmesh.new()
+
+    # Flight 1 treads + risers
+    for i in range(sb):
+        u0 = i * ps.tread_depth
+        u1 = (i + 1) * ps.tread_depth
+        z_top = (z_start_in + (i + 1) * riser_in) * INCH_TO_M
+        z_bot = (z_start_in + i * riser_in) * INCH_TO_M
+        pts_m = [_to_m(u0, -hw), _to_m(u1, -hw), _to_m(u1, hw), _to_m(u0, hw)]
+        _extrude_prism_z(bm, pts_m, max(z_start_in * INCH_TO_M, z_bot), z_top)
+
+    # Winder wedge treads in the width x width turn square
+    rb = lay["run_before"]
+    w_polys = _winder_tread_polys_local(width, wc, ps.turn_direction)
+    for wi, wpoly in enumerate(w_polys):
+        step_idx = sb + wi
+        z_top = (z_start_in + (step_idx + 1) * riser_in) * INCH_TO_M
+        z_bot = (z_start_in + step_idx * riser_in - tread_thick_in) * INCH_TO_M
+        pts_m = [_to_m(rb + u, -hw + v) for (u, v) in wpoly]
+        _extrude_prism_z(bm, pts_m, max(z_start_in * INCH_TO_M, z_bot), z_top)
+
+    # Flight 2 treads + risers after turn square
+    sign_v = -1.0 if ps.turn_direction == "left" else 1.0
+    for i in range(sa_cnt):
+        step_idx = sb + wc + i
+        d0 = i * ps.tread_depth
+        d1 = (i + 1) * ps.tread_depth
+        v0 = sign_v * (hw + d0)
+        v1 = sign_v * (hw + d1)
+        z_top = (z_start_in + (step_idx + 1) * riser_in) * INCH_TO_M
+        z_bot = (z_start_in + step_idx * riser_in - tread_thick_in) * INCH_TO_M
+        pts_m = [_to_m(rb, v0), _to_m(rb + width, v0), _to_m(rb + width, v1), _to_m(rb, v1)]
+        _extrude_prism_z(bm, pts_m, max(z_start_in * INCH_TO_M, z_bot), z_top)
+
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    mesh = bpy.data.meshes.new(f"Stair_{ps.identifier}")
+    bm.to_mesh(mesh)
+    bm.free()
+    return mesh
+
+
+def _build_spiral_stair_mesh(ps: ParsedStair, z_start_in: float, cx: float, cy: float):
+    import bmesh
+    import bpy
+    from mathutils import Matrix
+
+    bm = bmesh.new()
+    sx_m, sy_m = inches_to_blender_xy(ps.start_point[0], ps.start_point[1], cx, cy)
+    z0_m = z_start_in * INCH_TO_M
+    total_rise_m = max(0.2, ps.total_rise * INCH_TO_M)
+    inner_r_m = max(0.05, ps.inner_radius * INCH_TO_M)
+    outer_r_m = inner_r_m + max(0.3, ps.width * INCH_TO_M)
+    steps = max(4, ps.num_steps)
+    riser_m = total_rise_m / steps
+    tread_thick_m = 1.5 * INCH_TO_M
+
+    # Center structural pole (extends 36" above top tread)
+    pole_h = total_rise_m + 36.0 * INCH_TO_M
+    bmesh.ops.create_cone(
+        bm,
+        cap_ends=True,
+        cap_tris=False,
+        segments=20,
+        radius1=inner_r_m,
+        radius2=inner_r_m,
+        depth=pole_h,
+        matrix=Matrix.Translation((sx_m, sy_m, z0_m + pole_h / 2.0)),
+    )
+
+    rot_rad = math.radians(ps.rotation_degrees or 270.0)
+    # In Blender XY (Y-flipped), EstiSketch left-turn (-ang) corresponds to +ang_b
+    dir_b = 1.0 if ps.turn_direction == "left" else -1.0
+    theta0_b = -ps.direction_angle
+    dtheta = (rot_rad / steps) * dir_b
+
+    for i in range(steps):
+        a0 = theta0_b + i * dtheta
+        a1 = theta0_b + (i + 1) * dtheta
+        pts_m = [
+            (sx_m + inner_r_m * math.cos(a0), sy_m + inner_r_m * math.sin(a0)),
+            (sx_m + outer_r_m * math.cos(a0), sy_m + outer_r_m * math.sin(a0)),
+            (sx_m + outer_r_m * math.cos(a1), sy_m + outer_r_m * math.sin(a1)),
+            (sx_m + inner_r_m * math.cos(a1), sy_m + inner_r_m * math.sin(a1)),
+        ]
+        z_top = z0_m + (i + 1) * riser_m
+        _extrude_prism_z(bm, pts_m, max(z0_m, z_top - tread_thick_m), z_top)
+
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    mesh = bpy.data.meshes.new(f"Stair_{ps.identifier}")
+    bm.to_mesh(mesh)
+    bm.free()
+    return mesh
+
+
+def _build_stair_object(
+    ps: ParsedStair,
+    start_lvl: ParsedLevel,
+    cx: float,
+    cy: float,
+    target_col,
+    ops_stairs,
+):
+    import bpy
+
+    wood_mat = _get_or_create_stair_material(
+        "EstiSketch_Stair_Wood", (0.48, 0.33, 0.20, 1.0), metallic=0.0, roughness=0.45
+    )
+
+    use_hb5 = (
+        ps.stair_type in ("straight", "u-shaped")
+        or (ps.stair_type == "l-shaped" and ps.winder_count == 0)
+    )
+    if use_hb5:
+        width_m = max(0.3, ps.width * INCH_TO_M)
+        total_rise_m = max(0.2, ps.total_rise * INCH_TO_M)
+        steps = max(1, ps.num_steps)
+        riser_m = total_rise_m / steps
+        if ps.stair_type == "straight" and ps.total_run > 0.0:
+            tread_depth_m = (ps.total_run / steps) * INCH_TO_M
+        else:
+            tread_depth_m = max(0.15, ps.tread_depth * INCH_TO_M)
+        tread_thick_m = 1.25 * INCH_TO_M
+        landing_depth_m = max(width_m, (ps.landing_depth or ps.width) * INCH_TO_M)
+        if 0 < ps.steps_before_landing < steps:
+            landing_height_m = total_rise_m * (ps.steps_before_landing / steps)
+        else:
+            landing_height_m = total_rise_m / 2.0
+        hb_type = {"straight": "STRAIGHT", "l-shaped": "L_SHAPE", "u-shaped": "U_SHAPE"}[ps.stair_type]
+        hb_turn = "LEFT" if ps.turn_direction == "left" else "RIGHT"
+        gap_m = max(0.0, ps.inner_radius * INCH_TO_M) if ps.stair_type == "u-shaped" and ps.inner_radius != 6.0 else 0.0
+
+        mesh = ops_stairs.create_stair_mesh(
+            width_m,
+            total_rise_m,
+            riser_m,
+            tread_depth_m,
+            tread_thick_m,
+            hb_type,
+            hb_turn,
+            landing_depth_m,
+            landing_height_m,
+            gap_m,
+        )
+        obj = bpy.data.objects.new(f"Stair_{ps.identifier}", mesh)
+        obj["IS_STAIR"] = True
+        obj["MENU_ID"] = "HOME_BUILDER_MT_stair_commands"
+        obj["STAIR_WIDTH"] = width_m
+        obj["STAIR_TOTAL_RISE"] = total_rise_m
+        obj["STAIR_RISER_HEIGHT"] = riser_m
+        obj["STAIR_TREAD_DEPTH"] = tread_depth_m
+        obj["STAIR_TREAD_THICKNESS"] = tread_thick_m
+        obj["STAIR_TYPE"] = hb_type
+        obj["STAIR_TURN_DIRECTION"] = hb_turn
+        obj["STAIR_LANDING_DEPTH"] = landing_depth_m
+        obj["STAIR_LANDING_HEIGHT"] = landing_height_m
+        obj["STAIR_GAP"] = gap_m
+        loc, rot_z = compute_hb5_stair_transform(ps, start_lvl.elevation, cx, cy)
+        obj.location = loc
+        obj.rotation_euler = (0.0, 0.0, rot_z)
+    elif ps.stair_type == "l-shaped":
+        mesh = _build_l_winder_stair_mesh(ps, start_lvl.elevation, cx, cy)
+        obj = bpy.data.objects.new(f"Stair_{ps.identifier}", mesh)
+        obj["IS_STAIR"] = True
+    else:
+        mesh = _build_spiral_stair_mesh(ps, start_lvl.elevation, cx, cy)
+        obj = bpy.data.objects.new(f"Stair_{ps.identifier}", mesh)
+        obj["IS_STAIR"] = True
+
+    obj["ESTISKETCH_ID"] = ps.identifier
+    obj.data.materials.append(wood_mat)
+    obj.color = wood_mat.diffuse_color
+    target_col.objects.link(obj)
+    return obj
+
+
+def _build_stair_railing_mesh(
+    name: str,
+    paths_3d_in: List[List[Tuple[float, float, float]]],
+    rail_height_in: float,
+    cx: float,
+    cy: float,
+    target_col,
+):
+    import bmesh
+    import bpy
+
+    if not paths_3d_in:
+        return None
+
+    bm = bmesh.new()
+    rail_h_m = max(0.5, rail_height_in * INCH_TO_M)
+    post_r = (3.5 * INCH_TO_M) / 2.0
+    bal_r = (1.25 * INCH_TO_M) / 2.0
+    bal_step_m = 4.5 * INCH_TO_M
+    rail_hw = (2.25 * INCH_TO_M) / 2.0
+    rail_ht = 1.75 * INCH_TO_M
+
+    def _add_post(px: float, py: float, pz0: float, pz1: float, half_r: float) -> None:
+        pts = [
+            (px - half_r, py - half_r),
+            (px + half_r, py - half_r),
+            (px + half_r, py + half_r),
+            (px - half_r, py + half_r),
+        ]
+        _extrude_prism_z(bm, pts, pz0, pz1)
+
+    for path in paths_3d_in:
+        if len(path) < 2:
+            continue
+        pts_m = [
+            (*inches_to_blender_xy(x, y, cx, cy), z * INCH_TO_M)
+            for x, y, z in path
+        ]
+        for vx, vy, vz in pts_m:
+            _add_post(vx, vy, vz, vz + rail_h_m + 0.04, post_r)
+
+        for i in range(len(pts_m) - 1):
+            x0, y0, z0 = pts_m[i]
+            x1, y1, z1 = pts_m[i + 1]
+            dx, dy, dz = x1 - x0, y1 - y0, z1 - z0
+            horiz = math.hypot(dx, dy)
+            if horiz < 0.02:
+                continue
+
+            # Balusters every ~4.5"
+            n_bal = max(0, int(horiz / bal_step_m) - 1)
+            for k in range(1, n_bal + 1):
+                t = k / (n_bal + 1)
+                bx = x0 + t * dx
+                by = y0 + t * dy
+                bz = z0 + t * dz
+                _add_post(bx, by, bz, bz + rail_h_m, bal_r)
+
+            # Sloped top handrail bar
+            nx, ny = -dy / horiz, dx / horiz
+            b0 = bm.verts.new((x0 + rail_hw * nx, y0 + rail_hw * ny, z0 + rail_h_m - rail_ht))
+            b1 = bm.verts.new((x0 - rail_hw * nx, y0 - rail_hw * ny, z0 + rail_h_m - rail_ht))
+            b2 = bm.verts.new((x1 - rail_hw * nx, y1 - rail_hw * ny, z1 + rail_h_m - rail_ht))
+            b3 = bm.verts.new((x1 + rail_hw * nx, y1 + rail_hw * ny, z1 + rail_h_m - rail_ht))
+            t0 = bm.verts.new((x0 + rail_hw * nx, y0 + rail_hw * ny, z0 + rail_h_m))
+            t1 = bm.verts.new((x0 - rail_hw * nx, y0 - rail_hw * ny, z0 + rail_h_m))
+            t2 = bm.verts.new((x1 - rail_hw * nx, y1 - rail_hw * ny, z1 + rail_h_m))
+            t3 = bm.verts.new((x1 + rail_hw * nx, y1 + rail_hw * ny, z1 + rail_h_m))
+            for quad in (
+                (t0, t1, t2, t3),
+                (b3, b2, b1, b0),
+                (b0, b1, t1, t0),
+                (b1, b2, t2, t1),
+                (b2, b3, t3, t2),
+                (b3, b0, t0, t3),
+            ):
+                try:
+                    bm.faces.new(quad)
+                except ValueError:
+                    pass
+
+    if not bm.faces:
+        bm.free()
+        return None
+
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    uv_layer = bm.loops.layers.uv.new("UVMap")
+    for face in bm.faces:
+        for loop in face.loops:
+            co = loop.vert.co
+            loop[uv_layer].uv = (co.x + co.y, co.z)
+
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+
+    rail_mat = _get_or_create_stair_material(
+        "EstiSketch_Stair_Railing", (0.22, 0.16, 0.12, 1.0), metallic=0.1, roughness=0.4
+    )
+    mesh.materials.append(rail_mat)
+    obj = bpy.data.objects.new(name, mesh)
+    obj["IS_STAIR_RAILING"] = True
+    obj.color = rail_mat.diffuse_color
+    target_col.objects.link(obj)
+    return obj
+
+
 def _add_boolean_cut(wall_obj, cutting_obj) -> None:
     mod_name = f"Boolean_{cutting_obj.name}"
     if mod_name in wall_obj.modifiers:
@@ -1536,6 +2509,7 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
     )
     hb_details = importlib.import_module(pkg_name + ".hb_details")
     GeoNodeText = hb_details.GeoNodeText
+    ops_stairs = importlib.import_module(pkg_name + ".operators.ops_stairs")
 
     project = parse_estisketch_xml(xml_path)
     cx, cy = compute_plan_center(project)
@@ -1560,6 +2534,7 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
             "rooms": _ensure_collection(f"{lvl.name} - Rooms", lvl_col),
             "ceilings": _ensure_collection(f"{lvl.name} - Ceilings", lvl_col),
             "roofs": _ensure_collection(f"{lvl.name} - Roofs", lvl_col),
+            "stairs": _ensure_collection(f"{lvl.name} - Stairs", lvl_col),
         }
 
     # Build walls grouped by set_index so sequential walls in a set connect cleanly
@@ -1788,8 +2763,10 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
 
     door_window_geo.hide_reveal_cutters()
 
+    room_cutouts = compute_room_hole_cutouts(project)
     room_count = 0
     ceiling_count = 0
+    cutout_count = 0
     for idx, pr in enumerate(project.rooms):
         lvl = level_by_id.get(pr.level_id, project.levels[0])
         rooms_col = level_cols[lvl.id]["rooms"]
@@ -1801,30 +2778,58 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
             thick_m = max(0.01, lvl.floor_thickness * INCH_TO_M)
         else:
             thick_m = 0.01
+        z_top_m = lvl.elevation * INCH_TO_M
         floor_obj = _build_floor_mesh(
             f"Floor_{pr.name}_{idx}",
             pts_m,
-            lvl.elevation * INCH_TO_M,
+            z_top_m,
             thick_m,
             rooms_col,
             pr.is_slab,
         )
+        holes_for_room = room_cutouts.get(pr.identifier, [])
         if floor_obj is not None:
             floor_obj["ESTISKETCH_ID"] = pr.identifier
+            floor_holes = [h.points for h in holes_for_room if h.cuts_floor]
+            cutout_count += _apply_slab_cutouts(
+                floor_obj, floor_holes, z_top_m - thick_m, z_top_m, cx, cy, scene
+            )
             room_count += 1
 
         if pr.height > 0.0:
+            z_ceil_m = (lvl.elevation + pr.height) * INCH_TO_M
+            ceil_thick_m = 0.5 * INCH_TO_M
             ceil_obj = _build_ceiling_mesh(
                 f"Ceiling_{pr.name}_{idx}",
                 pts_m,
-                (lvl.elevation + pr.height) * INCH_TO_M,
-                0.5 * INCH_TO_M,
+                z_ceil_m,
+                ceil_thick_m,
                 ceilings_col,
                 scene,
             )
             if ceil_obj is not None:
                 ceil_obj["ESTISKETCH_ID"] = pr.identifier
+                ceil_holes = [h.points for h in holes_for_room if h.cuts_ceiling]
+                cutout_count += _apply_slab_cutouts(
+                    ceil_obj, ceil_holes, z_ceil_m, z_ceil_m + ceil_thick_m, cx, cy, scene
+                )
                 ceiling_count += 1
+
+    stair_count = 0
+    railing_count = 0
+    for ps in project.stairs:
+        start_lvl = level_by_id.get(ps.start_level_id, level_by_id.get(ps.level_id, project.levels[0]))
+        stairs_col = level_cols[start_lvl.id]["stairs"]
+        stair_obj = _build_stair_object(ps, start_lvl, cx, cy, stairs_col, ops_stairs)
+        if stair_obj is not None:
+            stair_count += 1
+        rail_paths = compute_stair_railing_paths_3d(ps, start_lvl.elevation)
+        rail_obj = _build_stair_railing_mesh(
+            f"Railing_{ps.identifier}", rail_paths, ps.rail_height, cx, cy, stairs_col
+        )
+        if rail_obj is not None:
+            rail_obj["ESTISKETCH_ID"] = ps.identifier
+            railing_count += 1
 
     roof_count = 0
     infill_count = 0
@@ -1861,6 +2866,9 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         "ceilings": ceiling_count,
         "roofs": roof_count,
         "gable_infills": infill_count,
+        "stairs": stair_count,
+        "railings": railing_count,
+        "floor_cutouts": cutout_count,
     }
 
 
