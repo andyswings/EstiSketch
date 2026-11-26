@@ -581,7 +581,33 @@ def draw_doors(self, cr, pixels_per_inch, items=None, opacity_override=None):
             cr.close_path()
             cr.fill()
 
-            # Draw black outline
+            # Total pocket rough frame width = 2 * callout + 2" (clear opening w + pocket w + 2").
+            pocket_depth = w + 2.0
+            pocket_half_t = (t * 0.6) / 2.0
+            if door.swing == "left":
+                pkt_a = H_start
+                pkt_b = (H_start[0] - pocket_depth * d[0], H_start[1] - pocket_depth * d[1])
+            else:
+                pkt_a = H_end
+                pkt_b = (H_end[0] + pocket_depth * d[0], H_end[1] + pocket_depth * d[1])
+            pkt_poly = [
+                (pkt_a[0] + pocket_half_t * p[0], pkt_a[1] + pocket_half_t * p[1]),
+                (pkt_b[0] + pocket_half_t * p[0], pkt_b[1] + pocket_half_t * p[1]),
+                (pkt_b[0] - pocket_half_t * p[0], pkt_b[1] - pocket_half_t * p[1]),
+                (pkt_a[0] - pocket_half_t * p[0], pkt_a[1] - pocket_half_t * p[1]),
+            ]
+            cr.save()
+            cr.set_line_width(0.8 / T)
+            cr.set_dash([3.0 / T, 2.0 / T])
+            cr.set_source_rgba(0.25, 0.25, 0.25, opacity)
+            cr.move_to(*pkt_poly[0])
+            for pt in pkt_poly[1:]:
+                cr.line_to(*pt)
+            cr.close_path()
+            cr.stroke()
+            cr.restore()
+
+            # Draw black outline of pocket door leaf
             cr.set_source_rgba(0, 0, 0, opacity)  # Black
             cr.move_to(*door_top_start)
             cr.line_to(*door_top_end)

@@ -16,10 +16,19 @@ from typing import Any, Iterable
 
 from .arc_wall import arc_wall_point, arc_wall_tangent
 from .room_holes import stair_footprint_parts
+from .wall_chain import collinear_chain, pocket_door_extents
 
 Point = tuple[float, float]
 
 _NON_SWING_DOORS = frozenset({"frame", "pocket", "sliding", "garage"})
+_SINK_VANITY_SYMBOLS = frozenset({
+    "vanity_single",
+    "vanity_double",
+    "pedestal_sink",
+    "utility_sink",
+    "sink_base_cabinet",
+})
+_LAUNDRY_SYMBOLS = frozenset({"washer", "dryer"})
 _EPS = 1e-6
 
 
@@ -238,12 +247,21 @@ def door_swing_polygon(wall: Any, door: Any, ratio: float) -> list[Point] | None
     tx, ty = tx / tlen, ty / tlen
     px, py = -ty, tx
     orient = getattr(door, "orientation", "inswing")
-    nx, ny = (px, py) if orient == "inswing" else (-px, -py)
+    dtype = getattr(door, "door_type", "single")
+    # Single bi-fold in door_window_renderer.py swings toward -p for inswing and +p for outswing.
+    if dtype == "bi-fold":
+        nx, ny = (-px, -py) if orient == "inswing" else (px, py)
+    else:
+        nx, ny = (px, py) if orient == "inswing" else (-px, -py)
 
     w = float(getattr(door, "width", 36.0) or 36.0)
     hw = w / 2.0
-    dtype = getattr(door, "door_type", "single")
-    leaf_len = hw if ("double" in dtype or "bi-fold" in dtype) else w
+    if "double" in dtype and "bi-fold" in dtype:
+        leaf_len = w / 4.0
+    elif "double" in dtype or "bi-fold" in dtype:
+        leaf_len = hw
+    else:
+        leaf_len = w
     half_t = float(getattr(wall, "width", 4.5) or 4.5) / 2.0
 
     p0 = (cx - hw * tx + half_t * nx, cy - hw * ty + half_t * ny)
@@ -574,6 +592,424 @@ def stair_landing_and_access_violations(
     return violations
 
 
+def _same_level(lvl_a: str, lvl_b: str) -> bool:
+    return not (lvl_a and lvl_b and lvl_a != lvl_b)
+
+
+def _fixture_local_rect(
+    fx: Any,
+    lx0: float,
+    ly0: float,
+    lx1: float,
+    ly1: float,
+) -> list[Point]:
+    """Transform local rectangle ``[lx0..lx1] x [ly0..ly1]`` (inches) to world polygon."""
+    rad = math.radians(float(getattr(fx, "rotation", 0.0) or 0.0))
+    ca, sa = math.cos(rad), math.sin(rad)
+    cx, cy = float(fx.x), float(fx.y)
+    pts = [(lx0, ly0), (lx1, ly0), (lx1, ly1), (lx0, ly1)]
+    return [(cx + lx * ca - ly * sa, cy + lx * sa + ly * ca) for lx, ly in pts]
+
+
+def _check_rect_clear(
+    rect: list[Point],
+    owner: Any,
+    owner_label: str,
+    lvl_id: str,
+    wall_polys: list[tuple[Any, str, list[Point]]],
+    floor_fx_polys: list[tuple[Any, str, list[Point]]],
+    skip_wall_ids: set[int] | None = None,
+    tolerance_in: float = 1.0,
+) -> list[str]:
+    """Check that ``rect`` is clear of same-level walls and floor-standing fixtures."""
+    violations: list[str] = []
+    skip_ids = skip_wall_ids or set()
+    for wall, wlvl, wpoly in wall_polys:
+        if id(wall) in skip_ids or not _same_level(lvl_id, wlvl):
+            continue
+        ov = _sat_overlap(rect, wpoly)
+        if ov is not None and ov[0] > tolerance_in:
+            violations.append(
+                f"{owner_label} clearance blocked by wall {wall.start}->{wall.end} "
+                f"by {ov[0]:.2f}\""
+            )
+    for other_fx, olvl, fpoly in floor_fx_polys:
+        if other_fx is owner or not _same_level(lvl_id, olvl):
+            continue
+        ov = _sat_overlap(rect, fpoly)
+        if ov is not None and ov[0] > tolerance_in:
+            violations.append(
+                f"{owner_label} clearance blocked by {other_fx.symbol_type} "
+                f"at ({other_fx.x:.1f}, {other_fx.y:.1f}) by {ov[0]:.2f}\""
+            )
+    return violations
+
+
+def pocket_door_violations(
+    doors: Iterable[tuple[Any, Any, float]],
+    walls: Iterable[Any],
+    windows: Iterable[tuple[Any, Any, float]],
+    layer_to_level: dict[str, str],
+    tolerance_in: float = 0.5,
+) -> list[str]:
+    """Verify each pocket door's ``2 * width + 2\"`` frame fits unobstructed in its wall chain."""
+    violations: list[str] = []
+    wall_list = list(walls)
+    all_openings: list[tuple[Any, str, Any, float, float, str]] = []
+    for w, d, r in doors:
+        if w is not None:
+            all_openings.append((
+                w,
+                "door",
+                d,
+                float(r),
+                float(getattr(d, "width", 36.0) or 36.0),
+                layer_to_level.get(getattr(d, "layer_id", ""), ""),
+            ))
+    for w, win, r in windows:
+        if w is not None:
+            all_openings.append((
+                w,
+                "window",
+                win,
+                float(r),
+                float(getattr(win, "width", 36.0) or 36.0),
+                layer_to_level.get(getattr(win, "layer_id", ""), ""),
+            ))
+
+    for wall, door, ratio in doors:
+        if wall is None or getattr(door, "door_type", "") != "pocket":
+            continue
+        if getattr(wall, "is_curved", False):
+            continue
+        dx = float(wall.end[0]) - float(wall.start[0])
+        dy = float(wall.end[1]) - float(wall.start[1])
+        wlen = math.hypot(dx, dy)
+        if wlen <= 1e-4:
+            continue
+        ux, uy = dx / wlen, dy / wlen
+        ox, oy = float(wall.start[0]), float(wall.start[1])
+        dlvl = layer_to_level.get(getattr(door, "layer_id", ""), "")
+        same_lvl_walls = [
+            w for w in wall_list
+            if _same_level(dlvl, layer_to_level.get(getattr(w, "layer_id", ""), ""))
+        ]
+        chain = collinear_chain(wall, same_lvl_walls)
+        chain_ids = {id(w) for w in chain}
+
+        def proj(pt: Point) -> float:
+            return (float(pt[0]) - ox) * ux + (float(pt[1]) - oy) * uy
+
+        chain_lo = min(min(proj(w.start), proj(w.end)) for w in chain)
+        chain_hi = max(max(proj(w.start), proj(w.end)) for w in chain)
+        centre = float(ratio) * wlen
+        door_w = float(getattr(door, "width", 36.0) or 36.0)
+        left_ext, right_ext = pocket_door_extents(door_w, getattr(door, "swing", "left"))
+        pkt_lo = centre - left_ext
+        pkt_hi = centre + right_ext
+
+        if pkt_lo < chain_lo - tolerance_in or pkt_hi > chain_hi + tolerance_in:
+            violations.append(
+                f"Pocket door ({door_w:g}\", frame {2.0 * door_w + 2.0:g}\") at "
+                f"({ox + ux * centre:.1f}, {oy + uy * centre:.1f}) extends past wall ends "
+                f"[{chain_lo:.1f}, {chain_hi:.1f}] with pocket [{pkt_lo:.1f}, {pkt_hi:.1f}]"
+            )
+
+        for owall, okind, oobj, oratio, ow, olvl in all_openings:
+            if oobj is door or id(owall) not in chain_ids or not _same_level(dlvl, olvl):
+                continue
+            oc = arc_wall_point(owall, oratio)
+            oc_proj = proj(oc)
+            o_lo = oc_proj - ow / 2.0
+            o_hi = oc_proj + ow / 2.0
+            ov = min(pkt_hi, o_hi) - max(pkt_lo, o_lo)
+            if ov > tolerance_in:
+                violations.append(
+                    f"Pocket door at ({ox + ux * centre:.1f}, {oy + uy * centre:.1f}) "
+                    f"cavity conflicts with {okind} on same wall run by {ov:.2f}\""
+                )
+
+    return violations
+
+
+def bathroom_clearance_violations(
+    doors: Iterable[tuple[Any, Any, float]],
+    fixtures: Iterable[Any],
+    rooms: Iterable[Any],
+    walls: Iterable[Any],
+    layer_to_level: dict[str, str],
+    min_door_clear_in: float = 24.0,
+    min_toilet_front_in: float = 21.0,
+) -> list[str]:
+    """Check bathroom door ingress/egress landing clearance and toilet 21\" front clearance."""
+    violations: list[str] = []
+    wall_list = list(walls)
+    wall_polys = [
+        (w, layer_to_level.get(getattr(w, "layer_id", ""), ""), wp)
+        for w in wall_list
+        if (wp := _wall_polygon(w)) is not None
+    ]
+    floor_fx_polys = [
+        (fx, layer_to_level.get(getattr(fx, "layer_id", ""), ""), _fixture_polygon(fx))
+        for fx in fixtures
+        if _is_floor_standing_fixture(fx)
+    ]
+    bath_rooms = []
+    for r in rooms:
+        if len(getattr(r, "points", [])) < 3:
+            continue
+        rtype = (getattr(r, "room_type", "") or "").lower()
+        rname = (getattr(r, "name", "") or "").lower()
+        if rtype == "bathroom" or "bath" in rname:
+            bath_rooms.append((r, layer_to_level.get(getattr(r, "layer_id", ""), "")))
+
+    for wall, door, ratio in doors:
+        if wall is None or not bath_rooms:
+            continue
+        cx, cy = arc_wall_point(wall, ratio)
+        tx, ty = arc_wall_tangent(wall, ratio)
+        tlen = math.hypot(tx, ty)
+        if tlen <= 1e-6:
+            continue
+        tx, ty = tx / tlen, ty / tlen
+        px, py = -ty, tx
+        dlvl = layer_to_level.get(getattr(door, "layer_id", ""), "")
+        half_t = float(getattr(wall, "width", 4.5) or 4.5) / 2.0
+        half_w = max(9.0, (float(getattr(door, "width", 30.0) or 30.0) - 2.0) / 2.0)
+
+        same_lvl_baths = [
+            r for r, rlvl in bath_rooms if _same_level(dlvl, rlvl)
+        ]
+        if not same_lvl_baths:
+            continue
+
+        same_lvl_walls = [
+            w for w in wall_list
+            if _same_level(dlvl, layer_to_level.get(getattr(w, "layer_id", ""), ""))
+        ]
+        skip_ids = {id(w) for w in collinear_chain(wall, same_lvl_walls)}
+
+        for side in (1.0, -1.0):
+            nx, ny = side * px, side * py
+            probe = (cx + (half_t + 6.0) * nx, cy + (half_t + 6.0) * ny)
+            if not any(_point_in_poly(probe, r.points) for r in same_lvl_baths):
+                continue
+            d0 = half_t + 0.5
+            d1 = half_t + min_door_clear_in
+            landing = [
+                (cx - half_w * tx + d0 * nx, cy - half_w * ty + d0 * ny),
+                (cx + half_w * tx + d0 * nx, cy + half_w * ty + d0 * ny),
+                (cx + half_w * tx + d1 * nx, cy + half_w * ty + d1 * ny),
+                (cx - half_w * tx + d1 * nx, cy - half_w * ty + d1 * ny),
+            ]
+            label = f"Bathroom door ({door.door_type}) at ({cx:.1f}, {cy:.1f}) ingress/egress"
+            violations.extend(
+                _check_rect_clear(
+                    landing, door, label, dlvl, wall_polys, floor_fx_polys,
+                    skip_wall_ids=skip_ids,
+                )
+            )
+
+    for fx, flvl, _poly in floor_fx_polys:
+        if getattr(fx, "symbol_type", "") != "toilet":
+            continue
+        hw = float(fx.width) / 2.0
+        hd = float(fx.depth) / 2.0
+        front_rect = _fixture_local_rect(
+            fx, -hw + 1.0, hd + 0.5, hw - 1.0, hd + min_toilet_front_in
+        )
+        label = f"Toilet at ({fx.x:.1f}, {fx.y:.1f}) {min_toilet_front_in:g}\" front"
+        violations.extend(
+            _check_rect_clear(front_rect, fx, label, flvl, wall_polys, floor_fx_polys)
+        )
+
+    return violations
+
+
+def sink_and_vanity_clearance_violations(
+    fixtures: Iterable[Any],
+    walls: Iterable[Any],
+    layer_to_level: dict[str, str],
+    min_front_clear_in: float = 21.0,
+) -> list[str]:
+    """Check ``21\"`` clear floor space in front of sinks and bathroom vanities."""
+    violations: list[str] = []
+    wall_polys = [
+        (w, layer_to_level.get(getattr(w, "layer_id", ""), ""), wp)
+        for w in walls
+        if (wp := _wall_polygon(w)) is not None
+    ]
+    floor_fx_polys = [
+        (fx, layer_to_level.get(getattr(fx, "layer_id", ""), ""), _fixture_polygon(fx))
+        for fx in fixtures
+        if _is_floor_standing_fixture(fx)
+    ]
+
+    for fx, flvl, _poly in floor_fx_polys:
+        sym = getattr(fx, "symbol_type", "")
+        if sym not in _SINK_VANITY_SYMBOLS:
+            continue
+        hw = float(fx.width) / 2.0
+        hd = float(fx.depth) / 2.0
+        overhang = float(getattr(fx, "countertop_overhang", 0.0) or 0.0)
+        has_ct = bool(getattr(fx, "has_countertop", False)) and overhang > 0.0
+        front_y = hd + (overhang if has_ct else 0.0)
+        front_rect = _fixture_local_rect(
+            fx, -hw + 1.0, front_y + 0.5, hw - 1.0, front_y + min_front_clear_in
+        )
+        label = f"Sink/vanity {sym} at ({fx.x:.1f}, {fx.y:.1f}) {min_front_clear_in:g}\" front"
+        violations.extend(
+            _check_rect_clear(front_rect, fx, label, flvl, wall_polys, floor_fx_polys)
+        )
+    return violations
+
+
+def bathtub_drain_wall_violations(
+    fixtures: Iterable[Any],
+    walls: Iterable[Any],
+    layer_to_level: dict[str, str],
+    max_gap_in: float = 2.5,
+) -> list[str]:
+    """Verify every bathtub's drain end (local ``-X``) butts against a same-level plumbing wall."""
+    violations: list[str] = []
+    wall_axes: list[tuple[Any, str, list[Point], Point]] = []
+    for wall in walls:
+        wpoly = _wall_polygon(wall)
+        if wpoly is None:
+            continue
+        dx = float(wall.end[0]) - float(wall.start[0])
+        dy = float(wall.end[1]) - float(wall.start[1])
+        wlen = math.hypot(dx, dy)
+        if wlen <= 1e-4:
+            continue
+        wlvl = layer_to_level.get(getattr(wall, "layer_id", ""), "")
+        wall_axes.append((wall, wlvl, wpoly, (dx / wlen, dy / wlen)))
+
+    for fx in fixtures:
+        if getattr(fx, "symbol_type", "") != "bathtub":
+            continue
+        flvl = layer_to_level.get(getattr(fx, "layer_id", ""), "")
+        hw = float(fx.width) / 2.0
+        hd = float(fx.depth) / 2.0
+        probe = _fixture_local_rect(fx, -hw - max_gap_in, -hd * 0.5, -hw + 1.0, hd * 0.5)
+        rad = math.radians(float(getattr(fx, "rotation", 0.0) or 0.0))
+        tub_ux, tub_uy = math.cos(rad), math.sin(rad)
+
+        has_drain_wall = False
+        for _w, wlvl, wpoly, (wux, wuy) in wall_axes:
+            if not _same_level(flvl, wlvl):
+                continue
+            if abs(wux * tub_ux + wuy * tub_uy) >= 0.35:
+                continue
+            if _sat_overlap(probe, wpoly) is not None:
+                has_drain_wall = True
+                break
+
+        if not has_drain_wall:
+            violations.append(
+                f"Bathtub at ({fx.x:.1f}, {fx.y:.1f}) drain end (-X local) must butt "
+                f"against a wall for plumbing (gap > {max_gap_in:g}\")"
+            )
+    return violations
+
+
+def laundry_appliance_violations(
+    fixtures: Iterable[Any],
+    doors: Iterable[tuple[Any, Any, float]],
+    walls: Iterable[Any],
+    layer_to_level: dict[str, str],
+    min_front_clear_in: float = 30.0,
+) -> list[str]:
+    """Verify washers and dryers have ``30\"`` unobstructed front door-opening clearance."""
+    violations: list[str] = []
+    wall_polys = [
+        (w, layer_to_level.get(getattr(w, "layer_id", ""), ""), wp)
+        for w in walls
+        if (wp := _wall_polygon(w)) is not None
+    ]
+    floor_fx_polys = [
+        (fx, layer_to_level.get(getattr(fx, "layer_id", ""), ""), _fixture_polygon(fx))
+        for fx in fixtures
+        if _is_floor_standing_fixture(fx)
+    ]
+
+    door_info_by_wall: dict[int, list[tuple[float, float, list[Point] | None, str]]] = {}
+    for wall, door, ratio in doors:
+        if wall is None:
+            continue
+        cx, cy = arc_wall_point(wall, ratio)
+        wx = float(wall.end[0]) - float(wall.start[0])
+        wy = float(wall.end[1]) - float(wall.start[1])
+        wlen = math.hypot(wx, wy)
+        if wlen <= 1e-4:
+            continue
+        ux, uy = wx / wlen, wy / wlen
+        c_u = (cx - float(wall.start[0])) * ux + (cy - float(wall.start[1])) * uy
+        half_dw = float(getattr(door, "width", 36.0) or 36.0) / 2.0
+        dlvl = layer_to_level.get(getattr(door, "layer_id", ""), "")
+        spoly = door_swing_polygon(wall, door, ratio)
+        door_info_by_wall.setdefault(id(wall), []).append(
+            (c_u - half_dw, c_u + half_dw, spoly, dlvl)
+        )
+
+    for fx, flvl, fx_poly in floor_fx_polys:
+        sym = getattr(fx, "symbol_type", "")
+        if sym not in _LAUNDRY_SYMBOLS:
+            continue
+        hw = float(fx.width) / 2.0
+        hd = float(fx.depth) / 2.0
+        front_rect = _fixture_local_rect(
+            fx, -hw + 1.0, hd + 0.5, hw - 1.0, hd + min_front_clear_in
+        )
+
+        # 1. Check other floor-standing fixtures in front of washer/dryer
+        for other_fx, olvl, fpoly in floor_fx_polys:
+            if other_fx is fx or not _same_level(flvl, olvl):
+                continue
+            ov = _sat_overlap(front_rect, fpoly)
+            if ov is not None and ov[0] > 1.0:
+                violations.append(
+                    f"Laundry {sym} at ({fx.x:.1f}, {fx.y:.1f}) front access blocked by "
+                    f"{other_fx.symbol_type} by {ov[0]:.2f}\""
+                )
+
+        # 2. Check walls blocking front access (unless span is covered by a passable door opening
+        #    whose swing does not obstruct the appliance front).
+        for wall, wlvl, wpoly in wall_polys:
+            if not _same_level(flvl, wlvl):
+                continue
+            ov = _sat_overlap(front_rect, wpoly)
+            if ov is None or ov[0] <= 1.0:
+                continue
+            wx = float(wall.end[0]) - float(wall.start[0])
+            wy = float(wall.end[1]) - float(wall.start[1])
+            wlen = math.hypot(wx, wy) or 1.0
+            ux, uy = wx / wlen, wy / wlen
+            r_u = [
+                (p[0] - float(wall.start[0])) * ux + (p[1] - float(wall.start[1])) * uy
+                for p in front_rect
+            ]
+            span_lo = max(0.0, min(r_u))
+            span_hi = min(wlen, max(r_u))
+            covered = False
+            for d_lo, d_hi, spoly, dlvl in door_info_by_wall.get(id(wall), []):
+                if not _same_level(flvl, dlvl):
+                    continue
+                if d_lo - 1.0 <= span_lo and span_hi <= d_hi + 1.0:
+                    hits_front = spoly is not None and (_sat_overlap(front_rect, spoly) or (0.0,))[0] > 1.0
+                    hits_fx = spoly is not None and (_sat_overlap(fx_poly, spoly) or (0.0,))[0] > 1.0
+                    if not (hits_front or hits_fx):
+                        covered = True
+                        break
+            if not covered:
+                violations.append(
+                    f"Laundry {sym} at ({fx.x:.1f}, {fx.y:.1f}) front door clearance "
+                    f"({min_front_clear_in:g}\") blocked by wall {wall.start}->{wall.end}"
+                )
+
+    return violations
+
+
 def validate_project_layout(canvas: Any) -> list[str]:
     """Run all architectural layout checks on a canvas or headless project."""
     layer_to_level = {
@@ -594,6 +1030,7 @@ def validate_project_layout(canvas: Any) -> list[str]:
 
     fixtures = list(getattr(canvas, "fixtures", []))
     doors = list(getattr(canvas, "doors", []))
+    windows = list(getattr(canvas, "windows", []))
     rooms = list(getattr(canvas, "rooms", []))
     stairs = list(getattr(canvas, "stairs", []))
     levels = list(getattr(canvas, "levels", []))
@@ -601,6 +1038,13 @@ def validate_project_layout(canvas: Any) -> list[str]:
     violations: list[str] = []
     violations.extend(fixture_wall_violations(fixtures, walls, layer_to_level))
     violations.extend(fixture_door_violations(fixtures, doors, layer_to_level))
+    violations.extend(pocket_door_violations(doors, walls, windows, layer_to_level))
+    violations.extend(
+        bathroom_clearance_violations(doors, fixtures, rooms, walls, layer_to_level)
+    )
+    violations.extend(sink_and_vanity_clearance_violations(fixtures, walls, layer_to_level))
+    violations.extend(bathtub_drain_wall_violations(fixtures, walls, layer_to_level))
+    violations.extend(laundry_appliance_violations(fixtures, doors, walls, layer_to_level))
     violations.extend(
         stair_landing_and_access_violations(
             stairs, walls, rooms, doors, fixtures, levels, layer_to_level

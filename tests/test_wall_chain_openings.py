@@ -8,6 +8,8 @@ import pytest
 from EstiSketch.geometry.wall_chain import (
     collinear_chain,
     opening_chain_overlaps,
+    pocket_door_extents,
+    pocket_door_total_width,
     resolve_opening_on_chain,
 )
 
@@ -93,3 +95,36 @@ def test_opening_overlaps_single_and_curved_fallback() -> None:
     assert overlaps == [(a, pytest.approx(36.0))]
     curved = _wall((0, 0), (100, 0), curved=True)
     assert opening_chain_overlaps(curved, 0.5, 36.0, [curved]) == [(curved, 36.0)]
+
+
+def test_pocket_door_total_width_and_extents() -> None:
+    assert pocket_door_total_width(36.0) == pytest.approx(74.0)  # 6'2"
+    assert pocket_door_total_width(30.0) == pytest.approx(62.0)
+
+    # Left pocket on 36" door needs 56" left of centre and 18" right of centre
+    left_ext, right_ext = pocket_door_extents(36.0, "left")
+    assert left_ext == pytest.approx(56.0)
+    assert right_ext == pytest.approx(18.0)
+    assert left_ext + right_ext == pytest.approx(74.0)
+
+    # Right pocket mirrors extents
+    r_left, r_right = pocket_door_extents(36.0, "right")
+    assert (r_left, r_right) == pytest.approx((18.0, 56.0))
+
+
+def test_pocket_door_clamping_reserves_cavity_on_wall_and_split_chain() -> None:
+    w = _wall((0.0, 0.0), (120.0, 0.0))
+    l_ext, r_ext = pocket_door_extents(36.0, "left")
+    # Dragging near x=10 clamps centre to 56.0 so 38" pocket + 2" stud clearance stays inside
+    _host, ratio = resolve_opening_on_chain(
+        w, 10.0 / 120.0, 36.0, [w], left_ext=l_ext, right_ext=r_ext
+    )
+    assert ratio * 120.0 == pytest.approx(56.0)
+
+    # Split wall chain allows pocket cavity to cross junction cleanly
+    a, b, walls = _split()
+    host, s_ratio = resolve_opening_on_chain(
+        b, 1.0 / 100.0, 36.0, walls, left_ext=l_ext, right_ext=r_ext
+    )
+    centre = host.start[0] + s_ratio * (host.end[0] - host.start[0])
+    assert centre == pytest.approx(101.0)  # 101 - 56 = 45 >= 0 on a, 101 + 18 = 119 <= 200 on b

@@ -1440,10 +1440,18 @@ class EditEventsMixin:
                             if wall_len_sq > 0:
                                 dot = (
                                     target_x - check_wall.start[0]) * wx + (target_y - check_wall.start[1]) * wy
+                                left_ext = None
+                                right_ext = None
+                                if item["type"] == "door" and getattr(obj, "door_type", "") == "pocket":
+                                    from ..geometry.wall_chain import pocket_door_extents
+                                    left_ext, right_ext = pocket_door_extents(
+                                        opening_width, getattr(obj, "swing", "left")
+                                    )
                                 # Host is chosen by the opening's centre so it can straddle a split.
                                 best_wall, best_ratio = resolve_opening_on_chain(
                                     check_wall, dot / wall_len_sq, opening_width,
-                                    self._opening_candidate_walls())
+                                    self._opening_candidate_walls(),
+                                    left_ext=left_ext, right_ext=right_ext)
                             else:
                                 best_ratio = 0.5
 

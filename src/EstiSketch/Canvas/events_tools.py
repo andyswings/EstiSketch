@@ -6,7 +6,7 @@ from ..geometry.arc_wall import (
     clamp_opening_ratio,
     is_curved_wall,
 )
-from ..geometry.wall_chain import resolve_opening_on_chain
+from ..geometry.wall_chain import pocket_door_extents, resolve_opening_on_chain
 from ..Resources.tool_hints import TOOL_HINTS
 
 
@@ -23,7 +23,7 @@ class CanvasToolsMixin:
                 walls.append(wall)
         return walls
 
-    def _locate_on_wall(self, x, y, opening_width=None):
+    def _locate_on_wall(self, x, y, opening_width=None, left_ext=None, right_ext=None):
         """Find the wall nearest to widget point (x, y) and the position ratio on it.
 
         Shared by door/window placement clicks and the placement ghost so the
@@ -33,6 +33,8 @@ class CanvasToolsMixin:
             x, y: Pointer position in widget coordinates.
             opening_width: Optional opening width (inches). For straight walls
                 the ratio is clamped so the opening stays within the wall.
+            left_ext: Optional distance required before opening centre along wall.
+            right_ext: Optional distance required after opening centre along wall.
 
         Returns:
             (wall, ratio) or None if no wall is within tolerance.
@@ -79,7 +81,8 @@ class CanvasToolsMixin:
                         t = ((canvas_x - wall.start[0]) * dx + (canvas_y - wall.start[1]) * dy) / (wall_length ** 2)
                         # Openings may straddle a split: pick the host by the opening's centre.
                         selected_wall, selected_ratio = resolve_opening_on_chain(
-                            wall, t, opening_width, self._opening_candidate_walls())
+                            wall, t, opening_width, self._opening_candidate_walls(),
+                            left_ext=left_ext, right_ext=right_ext)
                     else:
                         selected_ratio = 0.5
 
@@ -150,13 +153,20 @@ class CanvasToolsMixin:
         Returns:
             None
         """
-        hit = self._locate_on_wall(x, y, opening_width=self._default_door_dims()[0])
+        new_door = self._build_default_door(identifier="")
+        left_ext = None
+        right_ext = None
+        if getattr(new_door, "door_type", "") == "pocket":
+            left_ext, right_ext = pocket_door_extents(new_door.width, new_door.swing)
+        hit = self._locate_on_wall(
+            x, y, opening_width=new_door.width, left_ext=left_ext, right_ext=right_ext
+        )
         if hit is None:
             print("No wall was found near the click for door addition.")
             return
         selected_wall, selected_ratio = hit
         door_identifier = self.generate_identifier("door", self.existing_ids)
-        new_door = self._build_default_door(identifier=door_identifier)
+        new_door.identifier = door_identifier
         self.existing_ids.append(door_identifier)
         self.doors.append((selected_wall, new_door, selected_ratio))
         self.save_state()

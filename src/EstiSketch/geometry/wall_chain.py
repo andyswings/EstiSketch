@@ -71,11 +71,34 @@ def collinear_chain(wall: Any, candidates: Iterable[Any]) -> list[Any]:
     return chain
 
 
+def pocket_door_total_width(callout_width_in: float) -> float:
+    """Return total rough frame width (inches) for a pocket door: ``2 * width + 2``."""
+    return 2.0 * float(callout_width_in) + 2.0
+
+
+def pocket_door_extents(
+    callout_width_in: float,
+    swing: str = "left",
+) -> tuple[float, float]:
+    """Return ``(left_ext_in, right_ext_in)`` from clear opening center along wall ``d``.
+
+    The clear opening spans ``[-w/2, +w/2]`` and the recessed pocket cavity extends by an
+    additional ``w + 2`` inches toward ``-d`` (``swing == "left"``) or ``+d``
+    (``swing == "right"``), giving a total span of ``2 * w + 2`` inches.
+    """
+    w = float(callout_width_in)
+    if swing == "right":
+        return (0.5 * w, 1.5 * w + 2.0)
+    return (1.5 * w + 2.0, 0.5 * w)
+
+
 def resolve_opening_on_chain(
     wall: Any,
     ratio: float,
     opening_width: float | None,
     candidates: Iterable[Any],
+    left_ext: float | None = None,
+    right_ext: float | None = None,
 ) -> tuple[Any, float]:
     """Resolve a placement on ``wall`` into the correct host wall and ratio.
 
@@ -85,11 +108,15 @@ def resolve_opening_on_chain(
             outside [0, 1] when the cursor is beyond the wall's end.
         opening_width: Opening width in inches, or None to skip fitting.
         candidates: All walls that could continue ``wall`` (visible and unlocked).
+        left_ext: Optional distance (inches) required before ``centre`` along ``wall``'s
+            direction (used for pocket doors whose cavity extends into the wall).
+        right_ext: Optional distance (inches) required after ``centre`` along ``wall``'s
+            direction.
 
     Returns:
         ``(host, host_ratio)``: the wall containing the opening's centre and the ratio of
-        that centre along it. The centre is clamped so the opening stays inside the whole
-        chain. ``host_ratio`` lies in [0, 1].
+        that centre along it. The centre is clamped so the opening (plus any pocket cavity)
+        stays inside the whole chain. ``host_ratio`` lies in [0, 1].
     """
     chain = collinear_chain(wall, candidates)
     length = _length(wall)
@@ -107,7 +134,14 @@ def resolve_opening_on_chain(
     lo = min(s[0] for s in spans)
     hi = max(s[1] for s in spans)
     centre = ratio * length
-    if opening_width and opening_width < hi - lo:
+    if left_ext is not None and right_ext is not None:
+        ext_l = float(left_ext)
+        ext_r = float(right_ext)
+        if ext_l + ext_r < hi - lo:
+            centre = max(lo + ext_l, min(hi - ext_r, centre))
+        else:
+            centre = max(lo, min(hi, lo + (hi - lo - ext_l - ext_r) * 0.5 + ext_l))
+    elif opening_width and opening_width < hi - lo:
         half = opening_width / 2.0
         centre = max(lo + half, min(hi - half, centre))
     else:

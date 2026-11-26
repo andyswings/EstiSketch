@@ -22,7 +22,7 @@ from typing import List, Dict, Tuple, Optional
 
 from .roof_takeoff import RoofSection, CombinedRoofTakeoff, format_takeoff_report
 from ..components import EXTERIOR_WALL_FINISHES
-from ..geometry.wall_chain import opening_chain_overlaps
+from ..geometry.wall_chain import opening_chain_overlaps, pocket_door_total_width
 
 # Unit Conversion Constants
 CM_PER_INCH = 2.54
@@ -320,19 +320,30 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
             if host_dict is None:
                 host_dict = next((wd for wd in walls if wd['id'] == w_id), None)
             if host_dict is not None:
-                host_dict[kind_key].append({
+                door_type = getattr(op_obj, "door_type", "") if kind_key == "doors" else ""
+                ro_w_in = (
+                    pocket_door_total_width(op_w_in)
+                    if kind_key == "doors" and door_type == "pocket"
+                    else op_w_in
+                )
+                entry = {
                     'id': op_id or f"{label[0]}-{len(host_dict[kind_key]) + 1}",
                     'name': op_name,
                     'type': label,
                     'width_cm': op_w_in * CM_PER_INCH,
                     'width_in': op_w_in,
                     'width_ft_in': format_ft_in(op_w_in),
+                    'rough_opening_width_in': ro_w_in,
+                    'rough_opening_ft_in': format_ft_in(ro_w_in),
                     'height_cm': op_h_in * CM_PER_INCH,
                     'height_in': op_h_in,
                     'height_ft_in': format_ft_in(op_h_in),
                     'position_t': ratio,
                     'position_ft': ratio * host_dict['length_ft'],
-                })
+                }
+                if kind_key == "doors":
+                    entry['door_type'] = door_type
+                host_dict[kind_key].append(entry)
 
             w_layer = getattr(w_obj, "layer_id", "")
             same_layer_walls = [
@@ -518,7 +529,15 @@ def generate_wall_report(walls: List[Dict]) -> str:
         if doors:
             lines.append(f"  • Doors ({len(doors)}):")
             for d in doors:
-                lines.append(f"      - {d['name']}: Width = {d['width_in']:.2f} in ({d['width_ft_in']}) [Pos: {d['position_ft']:.1f} ft]")
+                extra = (
+                    f" [Pocket Frame: {d['rough_opening_ft_in']}]"
+                    if d.get('door_type') == 'pocket' and 'rough_opening_ft_in' in d
+                    else ""
+                )
+                lines.append(
+                    f"      - {d['name']}: Width = {d['width_in']:.2f} in "
+                    f"({d['width_ft_in']}) [Pos: {d['position_ft']:.1f} ft]{extra}"
+                )
         else:
             lines.append("  • Doors: None")
 
@@ -563,7 +582,10 @@ def generate_framing_report(walls: List[Dict], stud_spacing: float = 16.0, plate
             corner_note = "Interior wall (+1 stud)"
 
         openings = w['doors'] + w['windows']
-        opening_extra = sum(get_opening_extra_studs(op['width_in']) for op in openings)
+        opening_extra = sum(
+            get_opening_extra_studs(op.get('rough_opening_width_in', op['width_in']))
+            for op in openings
+        )
 
         wall_total = basic_studs + corner_extra + opening_extra
         total_basic_studs += basic_studs
@@ -944,7 +966,10 @@ def get_supplier_quote_items(canvas, config, custom_items: Optional[List[Dict]] 
             basic_studs = math.ceil(length_in / stud_spacing) + 1
             corner_extra = 2 if w['is_exterior'] else 1
             openings = w['doors'] + w['windows']
-            opening_extra = sum(get_opening_extra_studs(op['width_in']) for op in openings)
+            opening_extra = sum(
+            get_opening_extra_studs(op.get('rough_opening_width_in', op['width_in']))
+            for op in openings
+        )
 
             wall_total = basic_studs + corner_extra + opening_extra
             width_key = round(w['width_in'], 2)

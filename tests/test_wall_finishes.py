@@ -270,3 +270,40 @@ def test_straddling_openings_split_takeoff_deductions_without_double_counting():
     # Sheathing report deducts exact total opening area (32.00 sq ft)
     sheathing = generate_sheathing_report(extracted)
     assert "Total Door/Window Openings:  32.00 sq ft" in sheathing
+
+
+def test_pocket_door_takeoff_uses_2x_plus_2_rough_frame_and_clear_finish_deduction():
+    from EstiSketch.Takeoff.building_takeoff import (
+        extract_walls_from_canvas,
+        generate_framing_report,
+        generate_wall_report,
+        get_opening_extra_studs,
+    )
+
+    c = _make_canvas()
+    w = Wall((0.0, 0.0), (120.0, 0.0), width=5.5, height=96.0, identifier="w-pkt", layer_id=c.active_layer_id)
+    w.left_finish = "Drywall"
+    w.left_baseboard = True
+    c.wall_sets = [[w]]
+    c.rooms = [Room([(0.0, 0.0), (120.0, 0.0), (120.0, 120.0), (0.0, 120.0)], identifier="r1")]
+
+    pkt = Door("pocket", 36.0, 80.0, "left", "inswing", identifier="d-pkt")
+    c.doors = [(w, pkt, 0.7)]
+
+    extracted = extract_walls_from_canvas(c)
+    door_entry = extracted[0]["doors"][0]
+    assert door_entry["width_in"] == pytest.approx(36.0)
+    assert door_entry["rough_opening_width_in"] == pytest.approx(74.0)
+    assert door_entry["rough_opening_ft_in"] == "6' 2\""
+
+    wall_rep = generate_wall_report(extracted)
+    assert "Pocket Frame: 6' 2\"" in wall_rep
+
+    framing = generate_framing_report(extracted)
+    expected_extra = get_opening_extra_studs(74.0)
+    assert f"Door/Window Opening Studs: {expected_extra} studs" in framing
+
+    # Clear opening only (36" x 80" = 20 sf, 3' baseboard) is deducted from drywall/baseboard
+    finishes = extract_wall_finishes(c)
+    assert finishes["per_wall"][0]["net_face_sqft"] == pytest.approx(80.0 - 20.0)
+    assert finishes["per_wall"][0]["baseboard_lf"] == pytest.approx(10.0 - 3.0)

@@ -2646,6 +2646,14 @@ class DoorPropertiesWidget(Gtk.Box):
         row.append(self.width_combo)
         box.append(row)
 
+        # Pocket door rough frame width readout (2 * callout + 2")
+        self.pocket_width_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.pocket_width_row.append(Gtk.Label(label="Pocket Frame Width:"))
+        self.pocket_width_label = Gtk.Label(label="")
+        self.pocket_width_row.append(self.pocket_width_label)
+        self.pocket_width_row.set_visible(False)
+        box.append(self.pocket_width_row)
+
         # Height
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         row.append(Gtk.Label(label="Height:"))
@@ -2678,6 +2686,23 @@ class DoorPropertiesWidget(Gtk.Box):
         row.append(self.orientation_combo)
         box.append(row)
 
+    def _update_pocket_width_label(self) -> None:
+        """Display the pocket rough-frame width (``2 * w + 2``) when a pocket door is selected."""
+        if not self.current_doors:
+            self.pocket_width_row.set_visible(False)
+            return
+        pocket_doors = [
+            d for _w, d, _r in self.current_doors if getattr(d, "door_type", "") == "pocket"
+        ]
+        if not pocket_doors:
+            self.pocket_width_row.set_visible(False)
+            return
+        from ..geometry.wall_chain import pocket_door_total_width
+        from ..Takeoff.building_takeoff import format_ft_in
+        total_w = pocket_door_total_width(pocket_doors[0].width)
+        self.pocket_width_label.set_text(f'{format_ft_in(total_w)} ({total_w:g}")')
+        self.pocket_width_row.set_visible(True)
+
     def on_type_changed(self, combo):
         if self._block_updates or not self.current_doors:
             return
@@ -2685,6 +2710,7 @@ class DoorPropertiesWidget(Gtk.Box):
         if door_type:
             for wall, door, ratio in self.current_doors:
                 door.door_type = door_type
+        self._update_pocket_width_label()
         self.emit_property_changed()
 
     def on_width_changed(self, combo):
@@ -2698,6 +2724,7 @@ class DoorPropertiesWidget(Gtk.Box):
             width = float(text.strip('"'))
             for wall, door, ratio in self.current_doors:
                 door.width = width
+            self._update_pocket_width_label()
             self.emit_property_changed()
         except ValueError:
             pass
@@ -2789,6 +2816,7 @@ class DoorPropertiesWidget(Gtk.Box):
             first_door.orientation)
         self.orientation_combo.set_active(idx)
 
+        self._update_pocket_width_label()
         self._block_updates = False
 
 

@@ -409,15 +409,22 @@ class CanvasEventsMixin:
             active_layer = self.get_layer_by_id(self.active_layer_id)
             layer_locked = bool(active_layer and active_layer.locked)
             if not layer_locked:
+                left_ext = None
+                right_ext = None
                 if self.tool_mode == "add_doors":
                     opening = self._build_default_door(identifier="ghost")
                     width = opening.width
                     kind = "door"
+                    if getattr(opening, "door_type", "") == "pocket":
+                        from ..geometry.wall_chain import pocket_door_extents
+                        left_ext, right_ext = pocket_door_extents(width, opening.swing)
                 else:
                     opening = self._build_default_window(identifier="ghost")
                     width = opening.width
                     kind = "window"
-                hit = self._locate_on_wall(x, y, opening_width=width)
+                hit = self._locate_on_wall(
+                    x, y, opening_width=width, left_ext=left_ext, right_ext=right_ext
+                )
                 if hit is not None:
                     wall, ratio = hit
                     new_ghost = (kind, (wall, opening, ratio))

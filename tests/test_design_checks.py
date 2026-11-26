@@ -22,9 +22,14 @@ from EstiSketch.components import (  # noqa: E402
     Wall,
 )
 from EstiSketch.geometry.design_checks import (  # noqa: E402
+    bathtub_drain_wall_violations,
+    bathroom_clearance_violations,
     clamp_fixture_out_of_walls,
     fixture_door_violations,
     fixture_wall_violations,
+    laundry_appliance_violations,
+    pocket_door_violations,
+    sink_and_vanity_clearance_violations,
     stair_landing_and_access_violations,
 )
 
@@ -151,3 +156,81 @@ def test_stair_landing_flushness_and_accessibility_checks() -> None:
         layer_map,
     )
     assert not any("enclosed" in m for m in v_open)
+
+
+def test_pocket_door_and_properties_dock_width() -> None:
+    from EstiSketch.Dialogs.properties_dock import DoorPropertiesWidget
+
+    w = Wall((0.0, 0.0), (100.0, 0.0), 4.5, 96.0, layer_id="l1")
+    layer_map = {"l1": "lvl1"}
+
+    # 36" pocket door needs 74" total width -> at ratio 0.3 (x=30), left pocket goes to -26"
+    pkt_bad = Door("pocket", 36.0, 80.0, swing="left", orientation="inswing", layer_id="l1")
+    assert pocket_door_violations([(w, pkt_bad, 0.30)], [w], [], layer_map)
+
+    # At ratio 0.7 (x=70), spans [14, 88] cleanly inside [0, 100]
+    assert pocket_door_violations([(w, pkt_bad, 0.70)], [w], [], layer_map) == []
+
+    # DoorPropertiesWidget displays 6' 2" (74") for 36" pocket door
+    dpw = DoorPropertiesWidget()
+    dpw.set_door((w, pkt_bad, 0.70))
+    assert dpw.pocket_width_row.get_visible() is True
+    assert '74"' in dpw.pocket_width_label.get_text()
+    assert "6' 2\"" in dpw.pocket_width_label.get_text()
+
+
+def test_bathroom_sink_tub_drain_and_laundry_checks() -> None:
+    walls = _room_box()
+    layer_map = {"l1": "lvl1"}
+    bath = Room([(0.0, 0.0), (200.0, 0.0), (200.0, 200.0), (0.0, 200.0)], layer_id="l1")
+    bath.name = "Full Bath"
+    bath.room_type = "bathroom"
+    entry = Door("single", 32.0, 80.0, swing="left", orientation="inswing", layer_id="l1")
+
+    # 1. Bathroom door ingress blocked & toilet inside door swing
+    toilet_in_swing = Fixture(
+        "toilet", x=98.0, y=18.0, width=18.0, depth=28.0, rotation=0.0, layer_id="l1"
+    )
+    assert fixture_door_violations([toilet_in_swing], [(walls[0], entry, 0.5)], layer_map)
+    assert bathroom_clearance_violations(
+        [(walls[0], entry, 0.5)], [toilet_in_swing], [bath], walls, layer_map
+    )
+
+    # Toilet clear of door swing & with 21" front clearance passes
+    toilet_ok = Fixture(
+        "toilet", x=180.0, y=20.0, width=18.0, depth=28.0, rotation=0.0, layer_id="l1"
+    )
+    assert fixture_door_violations([toilet_ok], [(walls[0], entry, 0.5)], layer_map) == []
+    assert bathroom_clearance_violations(
+        [(walls[0], entry, 0.5)], [toilet_ok], [bath], walls, layer_map
+    ) == []
+
+    # 2. Vanity/sink 21" front clearance check
+    vanity_bad = Fixture(
+        "vanity_single", x=180.0, y=180.0, width=36.0, depth=21.0, rotation=0.0, layer_id="l1"
+    )
+    assert sink_and_vanity_clearance_violations([vanity_bad], walls, layer_map)
+    vanity_ok = Fixture(
+        "vanity_single", x=180.0, y=150.0, width=36.0, depth=21.0, rotation=0.0, layer_id="l1"
+    )
+    assert sink_and_vanity_clearance_violations([vanity_ok], walls, layer_map) == []
+
+    # 3. Bathtub drain end (-X local) must butt against a plumbing wall (stub wall counts)
+    tub_floating = Fixture(
+        "bathtub", x=100.0, y=180.0, width=60.0, depth=30.0, rotation=0.0, layer_id="l1"
+    )
+    assert bathtub_drain_wall_violations([tub_floating], walls, layer_map)
+    stub_wall = Wall((68.0, 165.0), (68.0, 197.0), 4.5, 96.0, layer_id="l1")
+    assert bathtub_drain_wall_violations([tub_floating], walls + [stub_wall], layer_map) == []
+
+    # 4. Laundry front-loader 30" clearance & bi-fold door swing check
+    washer_blocked = Fixture(
+        "washer", x=180.0, y=180.0, width=27.0, depth=30.0, rotation=0.0, layer_id="l1"
+    )
+    assert laundry_appliance_violations([washer_blocked], [], walls, layer_map)
+    washer_ok = Fixture(
+        "washer", x=100.0, y=18.0, width=27.0, depth=30.0, rotation=0.0, layer_id="l1"
+    )
+    assert laundry_appliance_violations([washer_ok], [], walls, layer_map) == []
+    bifold_in = Door("bi-fold", 36.0, 80.0, swing="left", orientation="outswing", layer_id="l1")
+    assert fixture_door_violations([washer_ok], [(walls[0], bifold_in, 0.5)], layer_map)
