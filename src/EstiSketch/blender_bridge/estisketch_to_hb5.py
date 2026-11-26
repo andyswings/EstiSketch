@@ -52,6 +52,19 @@ class ParsedWall:
     is_curved: bool = False
     arc_center: Optional[Tuple[float, float]] = None
     arc_radius: Optional[float] = None
+    symbolic: bool = False
+    interior_finish: str = "Drywall"
+    exterior_finish: str = ""
+    left_finish: str = "Drywall"
+    right_finish: str = "Drywall"
+    left_color: Optional[Tuple[float, float, float]] = None
+    right_color: Optional[Tuple[float, float, float]] = None
+    left_baseboard: bool = False
+    right_baseboard: bool = False
+    footer: bool = False
+    footer_left_offset: float = 6.0
+    footer_right_offset: float = 6.0
+    footer_depth: float = 8.0
 
 
 @dataclass
@@ -66,6 +79,11 @@ class ParsedRoom:
     floor_type: str = "default"
     is_slab: bool = False
     slab_thickness: float = 4.0  # inches
+    floor_pattern: str = "none"
+    pattern_rotation: float = 0.0
+    pattern_scale: float = 1.0
+    room_type: str = ""
+    wall_finish: str = "Paint"
 
 
 @dataclass
@@ -255,6 +273,8 @@ class ParsedProject:
     floor_openings: List[ParsedFloorOpening] = field(default_factory=list)
     fixtures: List[ParsedFixture] = field(default_factory=list)
     cut_lower_ceiling_under_stairs: bool = False
+    north_angle: float = 0.0
+    skipped_openings: List[str] = field(default_factory=list)
 
 
 def _attr_float(elem: ET.Element, name: str, default: float) -> float:
@@ -315,6 +335,16 @@ def _resolve_level_id(
     return default_level_id
 
 
+def _parse_hex_rgb(text: str) -> Optional[Tuple[float, float, float]]:
+    s = (text or "").strip().lstrip("#")
+    if len(s) != 6:
+        return None
+    try:
+        return (int(s[0:2], 16) / 255.0, int(s[2:4], 16) / 255.0, int(s[4:6], 16) / 255.0)
+    except ValueError:
+        return None
+
+
 def parse_estisketch_xml(xml_path: str) -> ParsedProject:
     """Parse an EstiSketch ``.xml`` project file into pure-Python dataclasses."""
     tree = ET.parse(xml_path)
@@ -351,7 +381,9 @@ def parse_estisketch_xml(xml_path: str) -> ParsedProject:
     if wall_sets_elem is not None:
         for set_idx, ws_el in enumerate(wall_sets_elem.findall("WallSet")):
             for wall_idx, wall_el in enumerate(ws_el.findall("Wall")):
-                if not _is_visible(wall_el) or _elem_bool(wall_el, "Symbolic", False):
+                is_symbolic = _elem_bool(wall_el, "Symbolic", False)
+                has_footer = _elem_bool(wall_el, "Footer", False)
+                if not _is_visible(wall_el) or (is_symbolic and not has_footer):
                     continue
                 start_el = wall_el.find("Start")
                 end_el = wall_el.find("End")
@@ -390,9 +422,23 @@ def parse_estisketch_xml(xml_path: str) -> ParsedProject:
                         is_curved=is_curved,
                         arc_center=arc_center,
                         arc_radius=arc_radius,
+                        symbolic=is_symbolic,
+                        interior_finish=_elem_text(wall_el, "InteriorFinish", "Drywall") or "Drywall",
+                        exterior_finish=_elem_text(wall_el, "ExteriorFinish", ""),
+                        left_finish=_elem_text(wall_el, "LeftFinish", "Drywall") or "Drywall",
+                        right_finish=_elem_text(wall_el, "RightFinish", "Drywall") or "Drywall",
+                        left_color=_parse_hex_rgb(_elem_text(wall_el, "LeftColor", "")),
+                        right_color=_parse_hex_rgb(_elem_text(wall_el, "RightColor", "")),
+                        left_baseboard=_elem_bool(wall_el, "LeftBaseboard", False),
+                        right_baseboard=_elem_bool(wall_el, "RightBaseboard", False),
+                        footer=has_footer,
+                        footer_left_offset=_elem_float(wall_el, "FooterLeftOffset", 6.0),
+                        footer_right_offset=_elem_float(wall_el, "FooterRightOffset", 6.0),
+                        footer_depth=_elem_float(wall_el, "FooterDepth", 8.0),
                     )
                 )
-                valid_wall_refs.add((set_idx, wall_idx))
+                if not is_symbolic:
+                    valid_wall_refs.add((set_idx, wall_idx))
 
     rooms: List[ParsedRoom] = []
     rooms_elem = root.find("Rooms")
@@ -419,27 +465,35 @@ def parse_estisketch_xml(xml_path: str) -> ParsedProject:
                     floor_type=_elem_text(room_el, "FloorType", "default"),
                     is_slab=_elem_bool(room_el, "IsSlab", False),
                     slab_thickness=_elem_float(room_el, "SlabThickness", 4.0),
+                    floor_pattern=_elem_text(room_el, "FloorPattern", "none") or "none",
+                    pattern_rotation=_elem_float(room_el, "PatternRotation", 0.0),
+                    pattern_scale=max(0.25, min(4.0, _elem_float(room_el, "PatternScale", 1.0))),
+                    room_type=_elem_text(room_el, "RoomType", ""),
+                    wall_finish=_elem_text(room_el, "WallFinish", "Paint") or "Paint",
                 )
             )
 
+    skipped_openings: List[str] = []
     doors: List[ParsedDoor] = []
     doors_elem = root.find("Doors")
     if doors_elem is not None:
         for door_idx, door_el in enumerate(doors_elem.findall("Door")):
             if not _is_visible(door_el):
                 continue
+            door_id = door_el.get("identifier") or _elem_text(door_el, "Identifier", "") or f"door_{door_idx}"
             wref = door_el.find("WallReference")
             if wref is None:
+                skipped_openings.append(f"door:{door_id} (no WallReference)")
                 continue
             set_idx = _attr_int(wref, "set_index", -1)
             wall_idx = _attr_int(wref, "wall_index", -1)
             if (set_idx, wall_idx) not in valid_wall_refs:
+                skipped_openings.append(f"door:{door_id} (set={set_idx}, wall={wall_idx})")
                 continue
             layer_id = _elem_text(door_el, "LayerId", "")
-            door_id = door_el.get("identifier") or _elem_text(door_el, "Identifier", "")
             doors.append(
                 ParsedDoor(
-                    identifier=door_id or f"door_{door_idx}",
+                    identifier=door_id,
                     set_index=set_idx,
                     wall_index=wall_idx,
                     ratio=_elem_float(door_el, "AttachedToWallRatio", 0.5),
@@ -458,18 +512,20 @@ def parse_estisketch_xml(xml_path: str) -> ParsedProject:
         for win_idx, win_el in enumerate(windows_elem.findall("Window")):
             if not _is_visible(win_el):
                 continue
+            win_id = win_el.get("identifier") or _elem_text(win_el, "Identifier", "") or f"window_{win_idx}"
             wref = win_el.find("WallReference")
             if wref is None:
+                skipped_openings.append(f"window:{win_id} (no WallReference)")
                 continue
             set_idx = _attr_int(wref, "set_index", -1)
             wall_idx = _attr_int(wref, "wall_index", -1)
             if (set_idx, wall_idx) not in valid_wall_refs:
+                skipped_openings.append(f"window:{win_id} (set={set_idx}, wall={wall_idx})")
                 continue
             layer_id = _elem_text(win_el, "LayerId", "")
-            win_id = win_el.get("identifier") or _elem_text(win_el, "Identifier", "")
             windows.append(
                 ParsedWindow(
-                    identifier=win_id or f"window_{win_idx}",
+                    identifier=win_id,
                     set_index=set_idx,
                     wall_index=wall_idx,
                     ratio=_elem_float(win_el, "AttachedToWallRatio", 0.5),
@@ -620,15 +676,6 @@ def parse_estisketch_xml(xml_path: str) -> ParsedProject:
                 )
             )
 
-    def _parse_hex_rgb(text: str) -> Optional[Tuple[float, float, float]]:
-        s = (text or "").strip().lstrip("#")
-        if len(s) != 6:
-            return None
-        try:
-            return (int(s[0:2], 16) / 255.0, int(s[2:4], 16) / 255.0, int(s[4:6], 16) / 255.0)
-        except ValueError:
-            return None
-
     fixtures: List[ParsedFixture] = []
     fx_elem = root.find("Fixtures")
     if fx_elem is not None:
@@ -663,6 +710,7 @@ def parse_estisketch_xml(xml_path: str) -> ParsedProject:
             )
 
     cut_lower = root.get("cut_lower_ceiling_under_stairs", "False").strip().lower() == "true"
+    north_angle = _attr_float(root, "north_angle", 0.0)
 
     return ParsedProject(
         levels=levels,
@@ -675,6 +723,8 @@ def parse_estisketch_xml(xml_path: str) -> ParsedProject:
         floor_openings=floor_openings,
         fixtures=fixtures,
         cut_lower_ceiling_under_stairs=cut_lower,
+        north_angle=north_angle,
+        skipped_openings=skipped_openings,
     )
 
 
@@ -736,6 +786,69 @@ def compute_opening_local_x(ratio: float, wall_len_m: float, width_m: float) -> 
     max_x = max(0.0, wall_len_m - max(0.0, width_m))
     raw_x = ratio * wall_len_m - width_m / 2.0
     return max(0.0, min(raw_x, max_x))
+
+
+def compute_sun_rotation_euler(north_angle_deg: float) -> Tuple[float, float, float]:
+    """Return Blender sun ``rotation_euler`` adjusted clockwise by project ``north_angle``."""
+    return (math.radians(48.0), math.radians(15.0), math.radians(-35.0 - north_angle_deg))
+
+
+def compute_window_sill_height_m(
+    win_height_m: float,
+    wall_min_h_m: float,
+    head_height_m: float = 80.0 * INCH_TO_M,
+) -> float:
+    """Compute window sill height so standard & awning windows align cleanly to an ~80\" head."""
+    max_sill = max(0.0, wall_min_h_m - win_height_m - 0.05)
+    target_head = min(head_height_m, max(win_height_m + 0.05, wall_min_h_m - 0.10))
+    return max(0.0, min(target_head - win_height_m, max_sill))
+
+
+def compute_baseboard_spans(
+    wall_len_m: float,
+    door_intervals: List[Tuple[float, float]],
+    min_span_m: float = 0.03,
+) -> List[Tuple[float, float]]:
+    """Return uninterrupted ``(start_m, end_m)`` baseboard spans along a wall segment."""
+    if wall_len_m < min_span_m:
+        return []
+    cleaned: List[Tuple[float, float]] = []
+    for x0, x1 in door_intervals:
+        a = max(0.0, min(x0, x1))
+        b = min(wall_len_m, max(x0, x1))
+        if b - a > 1e-4:
+            cleaned.append((a, b))
+    cleaned.sort()
+
+    spans: List[Tuple[float, float]] = []
+    cursor = 0.0
+    for a, b in cleaned:
+        if a - cursor >= min_span_m:
+            spans.append((cursor, a))
+        cursor = max(cursor, b)
+    if wall_len_m - cursor >= min_span_m:
+        spans.append((cursor, wall_len_m))
+    return spans
+
+
+def resolve_curved_wall_segment(
+    seg_lengths: List[float], ratio: float
+) -> Tuple[int, float]:
+    """Map an opening ratio ``[0, 1]`` along a multi-segment wall to ``(seg_index, local_ratio)``."""
+    if not seg_lengths:
+        return (0, 0.5)
+    total = sum(seg_lengths)
+    if total <= 1e-6:
+        return (0, 0.5)
+    clamped = max(0.0, min(1.0, ratio))
+    target = clamped * total
+    acc = 0.0
+    for idx, slen in enumerate(seg_lengths):
+        if target <= acc + slen + 1e-9 or idx == len(seg_lengths) - 1:
+            local_r = (target - acc) / slen if slen > 1e-6 else 0.5
+            return (idx, max(0.0, min(1.0, local_r)))
+        acc += slen
+    return (len(seg_lengths) - 1, 0.5)
 
 
 @dataclass
@@ -988,7 +1101,7 @@ def _extract_planar_faces(
 def solve_roof_3d(roof: ParsedRoof, project: ParsedProject) -> SolvedRoofGeometry:
     """Reconstruct watertight 3D roof facets and gable-end wall infills in inches."""
     level_by_id = {lvl.id: lvl for lvl in project.levels}
-    wall_by_id = {w.identifier: w for w in project.walls}
+    wall_by_id = {w.identifier: w for w in project.walls if not w.symbolic}
 
     def _wall_plate_z(w: ParsedWall) -> float:
         lvl = level_by_id.get(w.level_id, project.levels[0])
@@ -1215,7 +1328,7 @@ def solve_roof_3d(roof: ParsedRoof, project: ParsedProject) -> SolvedRoofGeometr
         # Skip if another collinear wall rises directly above this gable wall (e.g., 2nd story)
         covered_by_upper = False
         for ow in project.walls:
-            if ow.identifier == pw.identifier:
+            if ow.symbolic or ow.identifier == pw.identifier:
                 continue
             o_base = level_by_id.get(ow.level_id, project.levels[0]).elevation
             o_top = _wall_top_max_z(ow)
@@ -1777,34 +1890,183 @@ def _clear_default_scene(scene) -> None:
         bpy.data.objects.remove(obj, do_unlink=True)
 
 
-def _ensure_sun_light(scene, target_col) -> None:
+def _ensure_sun_light(scene, target_col, north_angle: float = 0.0) -> None:
     import bpy
 
     light_data = bpy.data.lights.new(name="EstiSketch Sun", type="SUN")
     light_data.energy = 2.5
     light_obj = bpy.data.objects.new(name="EstiSketch Sun", object_data=light_data)
-    light_obj.rotation_euler = (math.radians(48.0), math.radians(15.0), math.radians(-35.0))
+    light_obj.rotation_euler = compute_sun_rotation_euler(north_angle)
     target_col.objects.link(light_obj)
 
 
-def _assign_wall_materials(wall, scene) -> None:
-    mat = getattr(scene.home_builder, "wall_material", None)
-    if mat is None:
-        return
-    for slot in (
-        "Top Surface",
-        "Bottom Surface",
-        "Inside Face",
-        "Outside Face",
-        "Left Edge",
-        "Right Edge",
-        "Left Surface",
-        "Right Surface",
-        "Front Surface",
-        "Back Surface",
+_WALL_FINISH_PRESETS: Dict[str, Tuple[str, Tuple[float, float, float], Optional[Tuple[float, float, float]], float, dict]] = {
+    "drywall": ("SOLID", (0.91, 0.90, 0.87), None, 0.72, {}),
+    "painted drywall": ("SOLID", (0.91, 0.90, 0.87), None, 0.65, {}),
+    "plaster": ("SOLID", (0.90, 0.87, 0.82), None, 0.78, {}),
+    "tile": ("TILE", (0.92, 0.92, 0.91), (0.65, 0.65, 0.64), 0.18, {"tile_w": 6 * INCH_TO_M, "tile_h": 3 * INCH_TO_M, "running_bond": True}),
+    "t&g wood": ("WOOD", (0.60, 0.43, 0.27), (0.45, 0.30, 0.17), 0.45, {"tile_h": 5 * INCH_TO_M}),
+    "wainscoting": ("WOOD", (0.88, 0.87, 0.84), (0.76, 0.75, 0.72), 0.42, {"tile_h": 4 * INCH_TO_M}),
+    "vinyl siding": ("TILE", (0.76, 0.79, 0.81), (0.58, 0.61, 0.64), 0.52, {"tile_w": 2.4, "tile_h": 7 * INCH_TO_M, "running_bond": False, "grout_size": 0.006}),
+    "hardie lap siding": ("TILE", (0.62, 0.66, 0.64), (0.44, 0.48, 0.46), 0.62, {"tile_w": 2.4, "tile_h": 7 * INCH_TO_M, "running_bond": False, "grout_size": 0.007}),
+    "stucco": ("SOLID", (0.84, 0.79, 0.70), None, 0.88, {}),
+    "brick": ("TILE", (0.55, 0.24, 0.17), (0.72, 0.70, 0.66), 0.82, {"tile_w": 8 * INCH_TO_M, "tile_h": 2.67 * INCH_TO_M, "running_bond": True, "grout_size": 0.010}),
+    "stone veneer": ("STONE", (0.54, 0.52, 0.48), (0.36, 0.34, 0.32), 0.82, {}),
+    "exposed concrete": ("SOLID", (0.56, 0.56, 0.55), None, 0.85, {}),
+    "none": ("SOLID", (0.68, 0.58, 0.42), None, 0.80, {}),
+}
+
+
+def _resolve_wall_side_finishes(pw: ParsedWall) -> Tuple[str, str]:
+    lf = pw.left_finish or "Drywall"
+    rf = pw.right_finish or "Drywall"
+    if (
+        pw.exterior_wall
+        and lf.lower() == "drywall"
+        and rf.lower() == "drywall"
+        and pw.exterior_finish
+        and "drywall" not in pw.exterior_finish.lower()
     ):
-        if wall.has_input(slot):
-            wall.set_input(slot, mat)
+        rf = pw.exterior_finish
+    return (lf, rf)
+
+
+def _get_or_create_wall_finish_material(
+    finish_name: str,
+    color_rgb: Optional[Tuple[float, float, float]],
+    surface_materials,
+    fallback_mat=None,
+):
+    import bpy
+
+    key = (finish_name or "drywall").strip().lower()
+    preset = _WALL_FINISH_PRESETS.get(key)
+    if preset is None:
+        if "siding" in key:
+            preset = _WALL_FINISH_PRESETS["hardie lap siding"]
+        elif "stucco" in key:
+            preset = _WALL_FINISH_PRESETS["stucco"]
+        elif "brick" in key:
+            preset = _WALL_FINISH_PRESETS["brick"]
+        elif "stone" in key:
+            preset = _WALL_FINISH_PRESETS["stone veneer"]
+        elif "tile" in key:
+            preset = _WALL_FINISH_PRESETS["tile"]
+        elif "wood" in key:
+            preset = _WALL_FINISH_PRESETS["t&g wood"]
+        elif "concrete" in key:
+            preset = _WALL_FINISH_PRESETS["exposed concrete"]
+        elif color_rgb is None and fallback_mat is not None:
+            return fallback_mat
+        else:
+            preset = _WALL_FINISH_PRESETS["drywall"]
+
+    style, base_srgb, accent_srgb, rough, extra = preset
+    if color_rgb is not None:
+        base_srgb = color_rgb
+        if accent_srgb is not None:
+            accent_srgb = tuple(max(0.0, c * 0.72) for c in color_rgb)
+        hex_tag = "".join(f"{int(round(max(0.0, min(1.0, c)) * 255)):02x}" for c in color_rgb)
+    else:
+        hex_tag = "default"
+
+    slug = "".join(ch if ch.isalnum() else "_" for ch in key).strip("_") or "drywall"
+    mat_id = f"EstiSketch_Wall_{slug}_{hex_tag}"
+    existing = bpy.data.materials.get(mat_id)
+    if existing is not None:
+        return existing
+
+    mat = surface_materials.build_surface_material(
+        mat_id, style, base_srgb, accent_srgb, rough, **extra
+    )
+    mat.diffuse_color = (*base_srgb, 1.0)
+    return mat
+
+
+def _assign_wall_materials(
+    wall, scene, pw: Optional[ParsedWall] = None, surface_materials=None
+) -> None:
+    fallback = getattr(scene.home_builder, "wall_material", None)
+    if pw is not None and surface_materials is not None:
+        lf, rf = _resolve_wall_side_finishes(pw)
+        left_mat = _get_or_create_wall_finish_material(
+            lf, pw.left_color, surface_materials, fallback
+        )
+        right_mat = _get_or_create_wall_finish_material(
+            rf, pw.right_color, surface_materials, fallback
+        )
+        edge_mat = right_mat if pw.exterior_wall else left_mat
+    else:
+        left_mat = right_mat = edge_mat = fallback
+
+    if left_mat is not None and wall.has_input("Left Edge"):
+        wall.set_input("Left Edge", left_mat)
+    if right_mat is not None and wall.has_input("Right Edge"):
+        wall.set_input("Right Edge", right_mat)
+
+    if edge_mat is not None:
+        for slot in (
+            "Top Surface",
+            "Bottom Surface",
+            "Inside Face",
+            "Outside Face",
+            "Left Surface",
+            "Right Surface",
+            "Front Surface",
+            "Back Surface",
+        ):
+            if wall.has_input(slot):
+                wall.set_input(slot, edge_mat)
+
+
+_FLOOR_PATTERN_PRESETS: Dict[str, Tuple[str, Tuple[float, float, float], Optional[Tuple[float, float, float]], float, dict]] = {
+    "wood_plank": ("WOOD", (0.58, 0.42, 0.27), (0.42, 0.28, 0.16), 0.38, {"tile_h": 0.14}),
+    "herringbone": ("WOOD", (0.55, 0.39, 0.24), (0.39, 0.26, 0.15), 0.36, {"tile_h": 0.10}),
+    "chevron": ("WOOD", (0.60, 0.44, 0.28), (0.44, 0.30, 0.17), 0.36, {"tile_h": 0.11}),
+    "vinyl_plank": ("WOOD", (0.65, 0.56, 0.44), (0.50, 0.42, 0.32), 0.35, {"tile_h": 0.18}),
+    "tile_12": ("TILE", (0.84, 0.82, 0.78), (0.55, 0.54, 0.52), 0.25, {"tile_w": 12 * INCH_TO_M, "tile_h": 12 * INCH_TO_M, "running_bond": False}),
+    "tile_18": ("TILE", (0.85, 0.83, 0.79), (0.55, 0.54, 0.52), 0.24, {"tile_w": 18 * INCH_TO_M, "tile_h": 18 * INCH_TO_M, "running_bond": False}),
+    "tile_24": ("TILE", (0.86, 0.84, 0.81), (0.56, 0.55, 0.53), 0.22, {"tile_w": 24 * INCH_TO_M, "tile_h": 24 * INCH_TO_M, "running_bond": False}),
+    "tile_offset_half": ("TILE", (0.82, 0.81, 0.79), (0.52, 0.52, 0.51), 0.25, {"tile_w": 24 * INCH_TO_M, "tile_h": 12 * INCH_TO_M, "running_bond": True}),
+    "tile_offset_third": ("TILE", (0.83, 0.82, 0.79), (0.52, 0.52, 0.51), 0.25, {"tile_w": 24 * INCH_TO_M, "tile_h": 12 * INCH_TO_M, "running_bond": True}),
+    "tile_hex": ("TILE", (0.86, 0.86, 0.84), (0.52, 0.52, 0.52), 0.25, {"tile_w": 8 * INCH_TO_M, "tile_h": 8 * INCH_TO_M, "running_bond": True}),
+    "tile_basketweave": ("TILE", (0.85, 0.84, 0.81), (0.52, 0.52, 0.52), 0.25, {"tile_w": 8 * INCH_TO_M, "tile_h": 8 * INCH_TO_M, "running_bond": True}),
+    "carpet_stipple": ("SOLID", (0.68, 0.63, 0.56), None, 0.92, {}),
+    "carpet_weave": ("SOLID", (0.60, 0.56, 0.50), None, 0.92, {}),
+    "concrete_stipple": ("SOLID", (0.56, 0.56, 0.55), None, 0.82, {}),
+}
+
+
+def _get_or_create_floor_material(pr: ParsedRoom, surface_materials):
+    import bpy
+
+    pat = (pr.floor_pattern or "none").strip().lower()
+    if pat in ("none", "") or pat not in _FLOOR_PATTERN_PRESETS:
+        ft = (pr.floor_type or "").lower()
+        if "carpet" in ft:
+            pat = "carpet_stipple"
+        elif "tile" in ft or "porcelain" in ft or "ceramic" in ft:
+            pat = "tile_18"
+        elif "vinyl" in ft or "lvp" in ft or "laminate" in ft:
+            pat = "vinyl_plank"
+        elif "hardwood" in ft or "wood" in ft or "oak" in ft:
+            pat = "wood_plank"
+        elif "concrete" in ft or "garage" in ft or pr.is_slab:
+            pat = "concrete_stipple"
+        else:
+            pat = "wood_plank"
+
+    mat_id = f"EstiSketch_Floor_{pat}"
+    existing = bpy.data.materials.get(mat_id)
+    if existing is not None:
+        return existing
+
+    style, base_srgb, accent_srgb, rough, extra = _FLOOR_PATTERN_PRESETS[pat]
+    mat = surface_materials.build_surface_material(
+        mat_id, style, base_srgb, accent_srgb, rough, **extra
+    )
+    mat.diffuse_color = (*base_srgb, 1.0)
+    return mat
 
 
 def _build_floor_mesh(
@@ -1814,6 +2076,9 @@ def _build_floor_mesh(
     thickness_m: float,
     target_col,
     is_slab: bool,
+    mat=None,
+    pattern_rotation_deg: float = 0.0,
+    pattern_scale: float = 1.0,
 ):
     import bmesh
     import bpy
@@ -1847,20 +2112,30 @@ def _build_floor_mesh(
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
         bm.normal_update()
 
+    rot_rad = math.radians(pattern_rotation_deg)
+    cr_rot, sr_rot = math.cos(rot_rad), math.sin(rot_rad)
+    inv_scale = 1.0 / max(0.25, pattern_scale)
+
     uv_layer = bm.loops.layers.uv.new("UVMap")
     for face in bm.faces:
         for loop in face.loops:
-            loop[uv_layer].uv = (loop.vert.co.x, loop.vert.co.y)
+            vx, vy = loop.vert.co.x, loop.vert.co.y
+            u = (vx * cr_rot - vy * sr_rot) * inv_scale
+            v = (vx * sr_rot + vy * cr_rot) * inv_scale
+            loop[uv_layer].uv = (u, v)
 
     mesh = bpy.data.meshes.new(name)
     bm.to_mesh(mesh)
     bm.free()
 
+    if mat is not None:
+        mesh.materials.append(mat)
+
     obj = bpy.data.objects.new(name, mesh)
     obj["IS_FLOOR_BP"] = True
     if is_slab:
         obj["IS_SLAB"] = True
-    obj.color = (0.72, 0.72, 0.70, 1.0)
+    obj.color = mat.diffuse_color if mat is not None else (0.72, 0.72, 0.70, 1.0)
     target_col.objects.link(obj)
     return obj
 
@@ -2068,6 +2343,7 @@ def _build_gable_infill_mesh(
     cy: float,
     target_col,
     scene,
+    mat=None,
 ):
     import bmesh
     import bpy
@@ -2110,15 +2386,273 @@ def _build_gable_infill_mesh(
     bm.to_mesh(mesh)
     bm.free()
 
-    mat = getattr(scene.home_builder, "wall_material", None)
-    if mat is not None:
-        mesh.materials.append(mat)
+    use_mat = mat if mat is not None else getattr(scene.home_builder, "wall_material", None)
+    if use_mat is not None:
+        mesh.materials.append(use_mat)
 
     obj = bpy.data.objects.new(name, mesh)
     obj["IS_GABLE_INFILL"] = True
-    obj.color = (0.85, 0.85, 0.83, 1.0)
+    obj.color = use_mat.diffuse_color if use_mat is not None else (0.85, 0.85, 0.83, 1.0)
     target_col.objects.link(obj)
     return obj
+
+
+def _build_wall_baseboards(
+    pw: ParsedWall,
+    hb_wall,
+    seg_len_m: float,
+    door_intervals: List[Tuple[float, float]],
+    target_col,
+    name: str,
+):
+    import bmesh
+    import bpy
+
+    if not pw.left_baseboard and not pw.right_baseboard:
+        return None
+    spans = compute_baseboard_spans(seg_len_m, door_intervals)
+    if not spans:
+        return None
+
+    bb_h = 4.5 * INCH_TO_M
+    bb_t = 0.625 * INCH_TO_M
+    thick_m = max(0.02, hb_wall.get_input("Thickness"))
+
+    bm = bmesh.new()
+    for x0, x1 in spans:
+        if pw.left_baseboard:
+            _bm_add_box(bm, x0, -bb_t, 0.0, x1, 0.0, bb_h)
+        if pw.right_baseboard:
+            _bm_add_box(bm, x0, thick_m, 0.0, x1, thick_m + bb_t, bb_h)
+
+    if not bm.faces:
+        bm.free()
+        return None
+
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    uv_layer = bm.loops.layers.uv.new("UVMap")
+    for face in bm.faces:
+        for loop in face.loops:
+            co = loop.vert.co
+            loop[uv_layer].uv = (co.x, co.z)
+
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+
+    trim_mat = _get_or_create_simple_material(
+        "EstiSketch_Trim_Baseboard", (0.95, 0.95, 0.94, 1.0), metallic=0.0, roughness=0.35
+    )
+    mesh.materials.append(trim_mat)
+
+    obj = bpy.data.objects.new(name, mesh)
+    obj.parent = hb_wall.obj
+    obj.location = (0.0, 0.0, 0.0)
+    obj["IS_BASEBOARD"] = True
+    obj["ESTISKETCH_ID"] = pw.identifier
+    obj.color = trim_mat.diffuse_color
+    target_col.objects.link(obj)
+    return obj
+
+
+def _build_wall_footer(
+    pw: ParsedWall,
+    lvl: ParsedLevel,
+    cx: float,
+    cy: float,
+    target_col,
+    surface_materials,
+):
+    import bmesh
+    import bpy
+
+    if not pw.footer:
+        return None
+
+    if pw.is_curved and pw.arc_center is not None and pw.arc_radius is not None:
+        pts_in = tessellate_curved_wall_points(
+            pw.start, pw.end, pw.arc_center, pw.arc_radius
+        )
+    else:
+        pts_in = [pw.start, pw.end]
+    pts_m = [inches_to_blender_xy(x, y, cx, cy) for x, y in pts_in]
+    if len(pts_m) < 2:
+        return None
+
+    thick_m = max(0.02, pw.width * INCH_TO_M)
+    left_off_m = max(0.0, pw.footer_left_offset * INCH_TO_M)
+    right_off_m = max(0.0, pw.footer_right_offset * INCH_TO_M)
+    if pw.symbolic:
+        y0 = -(thick_m / 2.0 + left_off_m)
+        y1 = thick_m / 2.0 + right_off_m
+    else:
+        y0 = -left_off_m
+        y1 = thick_m + right_off_m
+
+    z_top = lvl.elevation * INCH_TO_M
+    z_bot = z_top - max(0.05, pw.footer_depth * INCH_TO_M)
+
+    bm = bmesh.new()
+    for i in range(len(pts_m) - 1):
+        p0, p1 = pts_m[i], pts_m[i + 1]
+        dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+        seg_len = math.hypot(dx, dy)
+        if seg_len < 1e-4:
+            continue
+        nx, ny = -dy / seg_len, dx / seg_len
+        poly = [
+            (p0[0] + nx * y0, p0[1] + ny * y0),
+            (p1[0] + nx * y0, p1[1] + ny * y0),
+            (p1[0] + nx * y1, p1[1] + ny * y1),
+            (p0[0] + nx * y1, p0[1] + ny * y1),
+        ]
+        _extrude_prism_z(bm, poly, z_bot, z_top)
+
+    if not bm.faces:
+        bm.free()
+        return None
+
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    uv_layer = bm.loops.layers.uv.new("UVMap")
+    for face in bm.faces:
+        for loop in face.loops:
+            co = loop.vert.co
+            loop[uv_layer].uv = (co.x, co.y)
+
+    mesh = bpy.data.meshes.new(f"Footer_{pw.identifier}")
+    bm.to_mesh(mesh)
+    bm.free()
+
+    mat_id = "EstiSketch_Concrete_Footer"
+    mat = bpy.data.materials.get(mat_id)
+    if mat is None:
+        mat = surface_materials.build_surface_material(
+            mat_id, "SOLID", (0.52, 0.52, 0.51), None, 0.88
+        )
+        mat.diffuse_color = (0.52, 0.52, 0.51, 1.0)
+    mesh.materials.append(mat)
+
+    obj = bpy.data.objects.new(f"Footer_{pw.identifier}", mesh)
+    obj["IS_FOOTER_BP"] = True
+    obj["ESTISKETCH_ID"] = pw.identifier
+    obj.color = mat.diffuse_color
+    target_col.objects.link(obj)
+    return obj
+
+
+def _build_garage_door_mesh(
+    cage_obj,
+    width_m: float,
+    thickness_m: float,
+    height_m: float,
+    openings_col,
+    hb_wall_obj,
+):
+    import bmesh
+    import bpy
+
+    # Create a dedicated boolean cutter inside the cage matching reveal depth
+    cutter_bm = bmesh.new()
+    reveal_pad = 0.02
+    _bm_add_box(
+        cutter_bm,
+        0.0,
+        -reveal_pad,
+        -0.01,
+        width_m,
+        thickness_m + reveal_pad,
+        height_m,
+    )
+    bmesh.ops.recalc_face_normals(cutter_bm, faces=cutter_bm.faces[:])
+    cutter_mesh = bpy.data.meshes.new(f"{cage_obj.name}_Cutter")
+    cutter_bm.to_mesh(cutter_mesh)
+    cutter_bm.free()
+    cutter_obj = bpy.data.objects.new(f"{cage_obj.name}_Cutter", cutter_mesh)
+    cutter_obj.parent = cage_obj
+    cutter_obj.display_type = "WIRE"
+    cutter_obj.hide_viewport = True
+    cutter_obj.hide_render = True
+    openings_col.objects.link(cutter_obj)
+    _add_boolean_cut(hb_wall_obj, cutter_obj)
+
+    frame_mat = _get_or_create_simple_material(
+        "EstiSketch_Garage_Frame", (0.86, 0.86, 0.85, 1.0), metallic=0.15, roughness=0.38
+    )
+    panel_mat = _get_or_create_simple_material(
+        "EstiSketch_Garage_Panel", (0.93, 0.93, 0.91, 1.0), metallic=0.05, roughness=0.40
+    )
+    glass_mat = _get_or_create_simple_material(
+        "EstiSketch_Garage_Glass", (0.68, 0.80, 0.88, 1.0), metallic=0.0, roughness=0.08, alpha=0.55
+    )
+    seal_mat = _get_or_create_simple_material(
+        "EstiSketch_DarkMetal", (0.14, 0.14, 0.15, 1.0), metallic=0.5, roughness=0.45
+    )
+
+    bm = bmesh.new()
+    jamb_w = 0.045
+    # Perimeter jamb & header trim (mat 0)
+    _bm_add_box(bm, 0.0, 0.0, 0.0, jamb_w, thickness_m, height_m, mat_index=0)
+    _bm_add_box(bm, width_m - jamb_w, 0.0, 0.0, width_m, thickness_m, height_m, mat_index=0)
+    _bm_add_box(bm, jamb_w, 0.0, height_m - jamb_w, width_m - jamb_w, thickness_m, height_m, mat_index=0)
+
+    # Door leaf recessed near center-outside of wall (y in [0.03, 0.08])
+    y_back = min(thickness_m * 0.45, max(0.02, thickness_m - 0.055))
+    y_front = y_back + 0.045
+    seal_h = 0.03
+    _bm_add_box(bm, jamb_w, y_back, 0.0, width_m - jamb_w, y_front, seal_h, mat_index=3)
+
+    inner_x0 = jamb_w
+    inner_x1 = width_m - jamb_w
+    inner_w = max(0.2, inner_x1 - inner_x0)
+    inner_z0 = seal_h
+    inner_z1 = height_m - jamb_w
+    n_sections = 4
+    sec_h = (inner_z1 - inner_z0) / n_sections
+    gap = 0.008
+
+    for s_idx in range(n_sections):
+        sz0 = inner_z0 + s_idx * sec_h + gap * 0.5
+        sz1 = inner_z0 + (s_idx + 1) * sec_h - gap * 0.5
+        _bm_add_box(bm, inner_x0, y_back, sz0, inner_x1, y_front, sz1, mat_index=1)
+        if s_idx < n_sections - 1:
+            # Horizontal raised stiles / carriage embosses on outer face (+Y)
+            n_cols = 4 if inner_w > 3.2 else 2
+            col_w = inner_w / n_cols
+            pad_x = 0.08
+            pad_z = 0.06
+            for ci in range(n_cols):
+                px0 = inner_x0 + ci * col_w + pad_x
+                px1 = inner_x0 + (ci + 1) * col_w - pad_x
+                if px1 > px0 + 0.05 and sz1 - sz0 > 2 * pad_z + 0.04:
+                    _bm_add_box(
+                        bm, px0, y_front, sz0 + pad_z, px1, y_front + 0.012, sz1 - pad_z, mat_index=1
+                    )
+        else:
+            # Top row carriage-house glass lites (mat 2)
+            n_lites = 4 if inner_w > 3.2 else 2
+            lite_w = inner_w / n_lites
+            pad_x = 0.09
+            pad_z = 0.08
+            for li in range(n_lites):
+                gx0 = inner_x0 + li * lite_w + pad_x
+                gx1 = inner_x0 + (li + 1) * lite_w - pad_x
+                if gx1 > gx0 + 0.05 and sz1 - sz0 > 2 * pad_z + 0.04:
+                    _bm_add_box(
+                        bm, gx0, y_front - 0.004, sz0 + pad_z, gx1, y_front + 0.008, sz1 - pad_z, mat_index=2
+                    )
+
+    door_obj = _finalize_bmesh_object(
+        bm,
+        f"GarageDoor_{cage_obj.name}",
+        [frame_mat, panel_mat, glass_mat, seal_mat],
+        (0.0, 0.0, 0.0),
+        0.0,
+        openings_col,
+        cage_obj.get("ESTISKETCH_ID", ""),
+    )
+    door_obj.parent = cage_obj
+    door_obj["IS_DOOR_WINDOW_GEO"] = True
+    return door_obj
 
 
 def _get_or_create_stair_material(
@@ -3367,8 +3901,14 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
     appliance_geo = importlib.import_module(
         pkg_name + ".product_libraries.common.appliance_geo"
     )
+    surface_materials = importlib.import_module(pkg_name + ".surface_materials")
 
     project = parse_estisketch_xml(xml_path)
+    if project.skipped_openings:
+        print(
+            f"Warning: skipped {len(project.skipped_openings)} orphaned opening(s): "
+            + ", ".join(project.skipped_openings[:8])
+        )
     cx, cy = compute_plan_center(project)
 
     scene = bpy.context.scene
@@ -3379,7 +3919,8 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
     scene.unit_settings.length_unit = "INCHES"
 
     root_col = _ensure_collection("EstiSketch Import", scene.collection)
-    _ensure_sun_light(scene, root_col)
+    _ensure_sun_light(scene, root_col, north_angle=project.north_angle)
+    foundations_col = _ensure_collection("Foundations", root_col)
 
     level_by_id = {lvl.id: lvl for lvl in project.levels}
     level_cols: Dict[str, Dict[str, object]] = {}
@@ -3388,6 +3929,7 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         level_cols[lvl.id] = {
             "walls": _ensure_collection(f"{lvl.name} - Walls", lvl_col),
             "openings": _ensure_collection(f"{lvl.name} - Openings", lvl_col),
+            "trim": _ensure_collection(f"{lvl.name} - Trim", lvl_col),
             "rooms": _ensure_collection(f"{lvl.name} - Rooms", lvl_col),
             "ceilings": _ensure_collection(f"{lvl.name} - Ceilings", lvl_col),
             "roofs": _ensure_collection(f"{lvl.name} - Roofs", lvl_col),
@@ -3399,7 +3941,8 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
 
     # Build walls grouped by set_index so sequential walls in a set connect cleanly
     # without closing a cyclic COPY_LOCATION dependency loop.
-    wall_map: Dict[Tuple[int, int], Tuple[object, float, float]] = {}
+    wall_segments: Dict[Tuple[int, int], List[Tuple[object, float, float, ParsedWall]]] = {}
+    built_wall_records: List[Tuple[ParsedWall, object, float, ParsedLevel]] = []
     walls_by_set: Dict[int, List[ParsedWall]] = {}
     for pw in project.walls:
         walls_by_set.setdefault(pw.set_index, []).append(pw)
@@ -3410,6 +3953,8 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         prev_end_m: Optional[Tuple[float, float]] = None
 
         for pw in set_walls:
+            if pw.symbolic:
+                continue
             lvl = level_by_id.get(pw.level_id, project.levels[0])
             z_m = lvl.elevation * INCH_TO_M
             walls_col = level_cols[lvl.id]["walls"]
@@ -3422,8 +3967,7 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
                 pts_in = [pw.start, pw.end]
 
             seg_count = len(pts_in) - 1
-            first_seg_wall = None
-            first_seg_len = 0.0
+            segs_for_wall: List[Tuple[object, float, float, ParsedWall]] = []
 
             for seg_i in range(seg_count):
                 p0 = inches_to_blender_xy(pts_in[seg_i][0], pts_in[seg_i][1], cx, cy)
@@ -3454,7 +3998,9 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
                 hb_wall.set_input("Height", h0_m)
                 if hb_wall.has_input("End Height"):
                     hb_wall.set_input("End Height", h1_m)
-                _assign_wall_materials(hb_wall, scene)
+                _assign_wall_materials(
+                    hb_wall, scene, pw=pw, surface_materials=surface_materials
+                )
 
                 _move_object_to_collection(hb_wall.obj, walls_col)
                 if hb_wall.obj_x is not None:
@@ -3471,17 +4017,12 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
                 prev_hb_wall = hb_wall
                 prev_end_m = p1
                 wall_count += 1
-                if first_seg_wall is None:
-                    first_seg_wall = hb_wall
-                    first_seg_len = length_m
+                seg_min_h = min(h0_m, h1_m)
+                segs_for_wall.append((hb_wall, length_m, seg_min_h, pw))
+                built_wall_records.append((pw, hb_wall, length_m, lvl))
 
-            if first_seg_wall is not None and not pw.is_curved:
-                min_h_m = min(pw.height, pw.height_at_end) * INCH_TO_M
-                wall_map[(pw.set_index, pw.wall_index)] = (
-                    first_seg_wall,
-                    first_seg_len,
-                    min_h_m,
-                )
+            if segs_for_wall:
+                wall_segments[(pw.set_index, pw.wall_index)] = segs_for_wall
 
     bpy.context.view_layer.update()
     if hasattr(walls_op, "refresh_wall_junctions"):
@@ -3492,19 +4033,32 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
     hb_props = scene.home_builder
     hb_wm_prefs = bpy.context.window_manager.home_builder.get_user_preferences(bpy.context)
 
+    def _resolve_opening_host(set_idx: int, wall_idx: int, ratio: float):
+        segs = wall_segments.get((set_idx, wall_idx))
+        if not segs:
+            return None
+        if len(segs) == 1:
+            return (*segs[0], ratio)
+        seg_idx, local_r = resolve_curved_wall_segment([s[1] for s in segs], ratio)
+        return (*segs[seg_idx], local_r)
+
+    door_intervals_by_wall_obj: Dict[int, List[Tuple[float, float]]] = {}
     door_count = 0
     for pd in project.doors:
-        host = wall_map.get((pd.set_index, pd.wall_index))
-        if host is None:
+        resolved = _resolve_opening_host(pd.set_index, pd.wall_index, pd.ratio)
+        if resolved is None:
             continue
-        hb_wall, wall_len_m, min_h_m = host
+        hb_wall, wall_len_m, min_h_m, host_pw, local_ratio = resolved
         lvl = level_by_id.get(pd.level_id, project.levels[0])
         openings_col = level_cols[lvl.id]["openings"]
 
         width_m = max(0.1, min(pd.width * INCH_TO_M, wall_len_m))
         height_m = max(0.2, min(pd.height * INCH_TO_M, min_h_m))
         thickness_m = hb_wall.get_input("Thickness")
-        x_local = compute_opening_local_x(pd.ratio, wall_len_m, width_m)
+        x_local = compute_opening_local_x(local_ratio, wall_len_m, width_m)
+        door_intervals_by_wall_obj.setdefault(id(hb_wall.obj), []).append(
+            (x_local, x_local + width_m)
+        )
 
         cage = hb_types.GeoNodeCage()
         cage.create(f"Door_{pd.identifier}")
@@ -3522,21 +4076,30 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         cage.obj.rotation_euler = (0.0, 0.0, 0.0)
         _move_object_to_collection(cage.obj, openings_col)
 
-        is_frame = pd.door_type == "frame"
-        if is_frame:
+        if pd.door_type == "frame":
             cage.obj["IS_OPEN_DOORWAY"] = True
             _add_boolean_cut(hb_wall.obj, cage.obj)
+        elif pd.door_type == "garage":
+            cage.obj["IS_GARAGE_DOOR"] = True
+            _build_garage_door_mesh(
+                cage.obj, width_m, thickness_m, height_m, openings_col, hb_wall.obj
+            )
         else:
             dim_x = cage.var_input("Dim X", "dim_x")
             dim_y = cage.var_input("Dim Y", "dim_y")
             dim_z = cage.var_input("Dim Z", "dim_z")
+            is_double = (
+                "double" in pd.door_type
+                or "bi-fold" in pd.door_type
+                or pd.door_type == "sliding"
+            )
 
             swing_obj = hb_types.GeoNodeDoorSwing()
             swing_obj.create("Door Swing Annotation")
             swing_obj.obj.parent = cage.obj
             swing_obj.driver_input("Dim X", "dim_x", [dim_x])
             swing_obj.driver_input("Dim Y", "dim_y", [dim_y])
-            swing_obj.set_input("Is Double", "double" in pd.door_type)
+            swing_obj.set_input("Is Double", is_double)
             swing_obj.set_input("Swing Inside", pd.orientation == "inswing")
             swing_obj.set_input("Is Left", pd.swing == "left")
             _move_object_to_collection(swing_obj.obj, openings_col)
@@ -3553,8 +4116,25 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
 
             opts = dict(door_window_geo.DOOR_DEFAULTS)
             opts["style"] = "CUSTOM"
-            if "double" in pd.door_type:
+            opts["threshold_height"] = 0.75 * INCH_TO_M if host_pw.exterior_wall else 0.0
+            if pd.door_type == "sliding":
+                opts["door_style"] = "LITE_FULL"
+                opts["glass_grid_cols"] = 2
+                opts["glass_grid_rows"] = 1
+            elif "double" in pd.door_type and "bi-fold" not in pd.door_type:
+                if host_pw.exterior_wall:
+                    opts["door_style"] = "LITE_FULL"
+                    opts["glass_grid_cols"] = 2
+                    opts["glass_grid_rows"] = 3
+                else:
+                    opts["door_style"] = "PANEL_4"
+            elif "bi-fold" in pd.door_type:
+                opts["door_style"] = "PANEL_2"
+            elif "pocket" in pd.door_type:
                 opts["door_style"] = "FLUSH"
+            else:
+                opts["door_style"] = "LITE_HALF" if host_pw.exterior_wall else "PANEL_6"
+
             door_window_geo.set_opts(cage.obj, opts)
             cutting_obj = door_window_geo.update_reveal_cutter(cage.obj)
             _add_boolean_cut(hb_wall.obj, cutting_obj)
@@ -3565,26 +4145,25 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         door_count += 1
 
     window_count = 0
-    default_sill_m = getattr(hb_props, "window_height_from_floor", 36.0 * INCH_TO_M)
-    for pw in project.windows:
-        host = wall_map.get((pw.set_index, pw.wall_index))
-        if host is None:
+    for pw_win in project.windows:
+        resolved = _resolve_opening_host(pw_win.set_index, pw_win.wall_index, pw_win.ratio)
+        if resolved is None:
             continue
-        hb_wall, wall_len_m, min_h_m = host
-        lvl = level_by_id.get(pw.level_id, project.levels[0])
+        hb_wall, wall_len_m, min_h_m, _host_pw, local_ratio = resolved
+        lvl = level_by_id.get(pw_win.level_id, project.levels[0])
         openings_col = level_cols[lvl.id]["openings"]
 
-        width_m = max(0.1, min(pw.width * INCH_TO_M, wall_len_m))
-        height_m = max(0.1, min(pw.height * INCH_TO_M, max(0.1, min_h_m - 0.05)))
+        width_m = max(0.1, min(pw_win.width * INCH_TO_M, wall_len_m))
+        height_m = max(0.1, min(pw_win.height * INCH_TO_M, max(0.1, min_h_m - 0.05)))
         thickness_m = hb_wall.get_input("Thickness")
-        z_local = max(0.0, min(default_sill_m, max(0.0, min_h_m - height_m - 0.05)))
-        x_local = compute_opening_local_x(pw.ratio, wall_len_m, width_m)
+        z_local = compute_window_sill_height_m(height_m, min_h_m)
+        x_local = compute_opening_local_x(local_ratio, wall_len_m, width_m)
 
         cage = hb_types.GeoNodeCage()
-        cage.create(f"Window_{pw.identifier}")
+        cage.create(f"Window_{pw_win.identifier}")
         cage.obj["IS_WINDOW_BP"] = True
         cage.obj["MENU_ID"] = "HOME_BUILDER_MT_window_commands"
-        cage.obj["ESTISKETCH_ID"] = pw.identifier
+        cage.obj["ESTISKETCH_ID"] = pw_win.identifier
         cage.set_input("Dim X", width_m)
         cage.set_input("Dim Y", thickness_m)
         cage.set_input("Dim Z", height_m)
@@ -3611,7 +4190,7 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
 
         opts = dict(door_window_geo.WINDOW_DEFAULTS)
         opts["style"] = "CUSTOM"
-        opts["window_type"] = _map_window_type(pw.window_type)
+        opts["window_type"] = _map_window_type(pw_win.window_type)
         door_window_geo.set_opts(cage.obj, opts)
         cutting_obj = door_window_geo.update_reveal_cutter(cage.obj)
         _add_boolean_cut(hb_wall.obj, cutting_obj)
@@ -3622,6 +4201,29 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         window_count += 1
 
     door_window_geo.hide_reveal_cutters()
+
+    baseboard_count = 0
+    for b_idx, (pw, hb_wall, seg_len_m, lvl) in enumerate(built_wall_records):
+        bb_obj = _build_wall_baseboards(
+            pw,
+            hb_wall,
+            seg_len_m,
+            door_intervals_by_wall_obj.get(id(hb_wall.obj), []),
+            level_cols[lvl.id]["trim"],
+            f"Baseboard_{pw.identifier}_{b_idx}",
+        )
+        if bb_obj is not None:
+            baseboard_count += 1
+
+    footer_count = 0
+    for pw in project.walls:
+        if pw.footer:
+            lvl = level_by_id.get(pw.level_id, project.levels[0])
+            f_obj = _build_wall_footer(
+                pw, lvl, cx, cy, foundations_col, surface_materials
+            )
+            if f_obj is not None:
+                footer_count += 1
 
     room_cutouts = compute_room_hole_cutouts(project)
     room_count = 0
@@ -3639,6 +4241,7 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         else:
             thick_m = 0.01
         z_top_m = lvl.elevation * INCH_TO_M
+        floor_mat = _get_or_create_floor_material(pr, surface_materials)
         floor_obj = _build_floor_mesh(
             f"Floor_{pr.name}_{idx}",
             pts_m,
@@ -3646,6 +4249,9 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
             thick_m,
             rooms_col,
             pr.is_slab,
+            mat=floor_mat,
+            pattern_rotation_deg=pr.pattern_rotation,
+            pattern_scale=pr.pattern_scale,
         )
         holes_for_room = room_cutouts.get(pr.identifier, [])
         if floor_obj is not None:
@@ -3691,6 +4297,16 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
             rail_obj["ESTISKETCH_ID"] = ps.identifier
             railing_count += 1
 
+    ext_mat_by_level: Dict[str, object] = {}
+    for pw in project.walls:
+        if pw.exterior_wall and not pw.symbolic and pw.level_id not in ext_mat_by_level:
+            lf, rf = _resolve_wall_side_finishes(pw)
+            use_fin = rf if rf.lower() != "drywall" else lf
+            if use_fin.lower() != "drywall":
+                ext_mat_by_level[pw.level_id] = _get_or_create_wall_finish_material(
+                    use_fin, None, surface_materials
+                )
+
     roof_count = 0
     infill_count = 0
     for r_idx, prf in enumerate(project.roofs):
@@ -3703,8 +4319,15 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         for i_idx, infill in enumerate(solved.gable_infills):
             infill_lvl = level_by_id.get(infill.level_id, lvl)
             walls_col = level_cols[infill_lvl.id]["walls"]
+            infill_mat = ext_mat_by_level.get(infill_lvl.id)
             infill_obj = _build_gable_infill_mesh(
-                f"GableInfill_{r_idx}_{i_idx}", infill, cx, cy, walls_col, scene
+                f"GableInfill_{r_idx}_{i_idx}",
+                infill,
+                cx,
+                cy,
+                walls_col,
+                scene,
+                mat=infill_mat,
             )
             if infill_obj is not None:
                 infill_count += 1
@@ -3786,6 +4409,9 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         "appliances": appliance_count,
         "plumbing_mechanical": plumbing_count,
         "furniture": furniture_count,
+        "baseboards": baseboard_count,
+        "footers": footer_count,
+        "skipped_openings": len(project.skipped_openings),
     }
 
 

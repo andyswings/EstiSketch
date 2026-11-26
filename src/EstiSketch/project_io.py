@@ -189,6 +189,21 @@ def save_project(canvas, window_width, window_height, filepath):
             ET.SubElement(wall_elem, "FooterDepth").text = str(wall.footer_depth)
             ET.SubElement(wall_elem, "Symbolic").text = str(getattr(wall, 'symbolic', False))
 
+            # Save curved wall geometry
+            is_curved = bool(getattr(wall, 'is_curved', False))
+            ET.SubElement(wall_elem, "IsCurved").text = str(is_curved)
+            arc_center = getattr(wall, 'arc_center', None)
+            arc_radius = getattr(wall, 'arc_radius', None)
+            if is_curved and arc_center is not None:
+                ET.SubElement(
+                    wall_elem,
+                    "ArcCenter",
+                    x=str(arc_center[0]),
+                    y=str(arc_center[1]),
+                )
+            if is_curved and arc_radius is not None:
+                ET.SubElement(wall_elem, "ArcRadius").text = str(arc_radius)
+
     # Save rooms along with their vertex points and other properties.
     rooms_elem = ET.SubElement(root, "Rooms")
     for room in canvas.rooms:
@@ -879,6 +894,17 @@ def open_project(canvas, filepath):
                     _get_attr_text(wall_elem, "identifier", "")
                     or _get_elem_text(wall_elem, "Identifier", "")
                 )
+                is_curved = _get_elem_bool(wall_elem, "IsCurved", False)
+                arc_center = None
+                arc_radius = None
+                if is_curved:
+                    ac_el = wall_elem.find("ArcCenter")
+                    if ac_el is not None:
+                        arc_center = (
+                            _get_attr_float(ac_el, "x", 0.0),
+                            _get_attr_float(ac_el, "y", 0.0),
+                        )
+                    arc_radius = _get_elem_float(wall_elem, "ArcRadius", 0.0) or None
 
                 # Create a new Wall instance.
                 wall = Wall(
@@ -888,6 +914,9 @@ def open_project(canvas, filepath):
                     height,
                     exterior_wall,
                     identifier=wall_id,
+                    is_curved=is_curved,
+                    arc_center=arc_center,
+                    arc_radius=arc_radius,
                     height_at_end=height_at_end,
                 )
                 wall.layer_id = _get_elem_text(wall_elem, "LayerId", "")

@@ -1,11 +1,16 @@
 import math
 import os
 import stat
+from types import SimpleNamespace
 
 import pytest
 
+from EstiSketch import config
+from EstiSketch.Canvas import canvas_area
 from EstiSketch.blender_bridge import estisketch_to_hb5 as bridge
 from EstiSketch.blender_bridge import launcher
+from EstiSketch.components import Wall
+from EstiSketch.project_io import open_project, save_project
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -286,3 +291,114 @@ def test_compute_hb5_fixture_transform_rotations_and_z():
         assert loc[1] == pytest.approx(ey, abs=1e-5)
         assert loc[2] == pytest.approx(106.0 * bridge.INCH_TO_M, abs=1e-5)
         assert rot_z == pytest.approx(-math.radians(rot_deg), abs=1e-5)
+
+
+def test_curved_wall_xml_roundtrip_and_bridge_parse(tmp_path):
+    cfg = SimpleNamespace(**config.DEFAULT_SETTINGS)
+    canvas = canvas_area.create_canvas_area(cfg)
+    curved = Wall(
+        (0.0, 0.0),
+        (120.0, 120.0),
+        width=6.0,
+        height=96.0,
+        exterior_wall=True,
+        identifier="wall-curved-1",
+        layer_id=canvas.active_layer_id,
+        is_curved=True,
+        arc_center=(0.0, 120.0),
+        arc_radius=120.0,
+    )
+    curved.left_finish = "Painted Drywall"
+    curved.right_finish = "Brick"
+    curved.left_color = (0.85, 0.82, 0.78)
+    curved.left_baseboard = True
+    curved.footer = True
+    canvas.wall_sets = [[curved]]
+
+    out_xml = str(tmp_path / "curved.xml")
+    save_project(canvas, 1280, 720, out_xml)
+
+    canvas2 = canvas_area.create_canvas_area(cfg)
+    open_project(canvas2, out_xml)
+    loaded = canvas2.wall_sets[0][0]
+    assert loaded.is_curved is True
+    assert loaded.arc_center == pytest.approx((0.0, 120.0))
+    assert loaded.arc_radius == pytest.approx(120.0)
+
+    proj = bridge.parse_estisketch_xml(out_xml)
+    assert len(proj.walls) == 1
+    pw = proj.walls[0]
+    assert pw.is_curved is True
+    assert pw.arc_center == pytest.approx((0.0, 120.0))
+    assert pw.arc_radius == pytest.approx(120.0)
+    assert pw.left_finish == "Painted Drywall"
+    assert pw.right_finish == "Brick"
+    assert pw.left_color[0] == pytest.approx(0.85, abs=0.01)
+    assert pw.left_baseboard is True
+    assert pw.right_baseboard is False
+    assert pw.footer is True
+
+
+def test_parse_milestone4_fields_and_skipped_openings(tmp_path):
+    xml_path = str(tmp_path / "m4_parse.xml")
+    with open(xml_path, "w", encoding="utf-8") as fh:
+        fh.write(
+            '<Project north_angle="45.0">'
+            '<Levels><Level id="l1" name="Level 1" elevation="0" height="96" floor_thickness="10"/></Levels>'
+            '<Layers><Layer id="lay1" name="L1" visible="True" level_id="l1"/></Layers>'
+            '<WallSets><WallSet>'
+            '<Wall identifier="w1" visible="True"><Start x="0" y="0"/><End x="240" y="0"/>'
+            '<Width>6</Width><Height>96</Height><LayerId>lay1</LayerId>'
+            '<LeftFinish>Tile</LeftFinish><RightFinish>Stucco</RightFinish>'
+            '<LeftColor>#336699</LeftColor><LeftBaseboard>True</LeftBaseboard>'
+            '<Footer>True</Footer><FooterLeftOffset>8</FooterLeftOffset><FooterRightOffset>4</FooterRightOffset>'
+            '<FooterDepth>12</FooterDepth><Symbolic>False</Symbolic></Wall>'
+            '<Wall identifier="w_foot" visible="True"><Start x="0" y="120"/><End x="240" y="120"/>'
+            '<Width>8</Width><Height>96</Height><LayerId>lay1</LayerId>'
+            '<Footer>True</Footer><Symbolic>True</Symbolic></Wall>'
+            '</WallSet></WallSets>'
+            '<Rooms><Room identifier="r1" visible="True"><LayerId>lay1</LayerId>'
+            '<Points><Point x="0" y="0"/><Point x="240" y="0"/><Point x="240" y="120"/><Point x="0" y="120"/></Points>'
+            '<FloorType>Tile</FloorType><FloorPattern>tile_18</FloorPattern>'
+            '<PatternRotation>45.0</PatternRotation><PatternScale>1.5</PatternScale>'
+            '</Room></Rooms>'
+            '<Doors><Door identifier="orphan_d"><WallReference set_index="-1" wall_index="-1"/></Door></Doors>'
+            '<Windows><Window identifier="orphan_w"><WallReference set_index="0" wall_index="1"/></Window></Windows>'
+            '</Project>'
+        )
+
+    proj = bridge.parse_estisketch_xml(xml_path)
+    assert proj.north_angle == pytest.approx(45.0)
+    assert len(proj.walls) == 2
+    assert proj.walls[0].left_color == pytest.approx((0x33 / 255.0, 0x66 / 255.0, 0x99 / 255.0))
+    assert proj.walls[0].footer_depth == pytest.approx(12.0)
+    assert proj.walls[1].symbolic is True
+    assert proj.walls[1].footer is True
+    assert proj.rooms[0].floor_pattern == "tile_18"
+    assert proj.rooms[0].pattern_rotation == pytest.approx(45.0)
+    assert proj.rooms[0].pattern_scale == pytest.approx(1.5)
+    assert len(proj.skipped_openings) == 2
+
+
+def test_milestone4_pure_python_helpers():
+    e0 = bridge.compute_sun_rotation_euler(0.0)
+    e90 = bridge.compute_sun_rotation_euler(90.0)
+    assert math.degrees(e0[2] - e90[2]) == pytest.approx(90.0)
+
+    # 24" awning on 96" wall aligns top at 80" -> sill at 56"
+    sill_24 = bridge.compute_window_sill_height_m(24.0 * bridge.INCH_TO_M, 96.0 * bridge.INCH_TO_M)
+    assert sill_24 / bridge.INCH_TO_M == pytest.approx(56.0, abs=0.01)
+
+    # 48" double-hung on 96" wall aligns top at 80" -> sill at 32"
+    sill_48 = bridge.compute_window_sill_height_m(48.0 * bridge.INCH_TO_M, 96.0 * bridge.INCH_TO_M)
+    assert sill_48 / bridge.INCH_TO_M == pytest.approx(32.0, abs=0.01)
+
+    spans = bridge.compute_baseboard_spans(5.0, [(1.0, 1.9), (3.5, 4.4)])
+    assert len(spans) == 3
+    assert spans[0] == pytest.approx((0.0, 1.0))
+    assert spans[1] == pytest.approx((1.9, 3.5))
+    assert spans[2] == pytest.approx((4.4, 5.0))
+
+    seg_idx, local_r = bridge.resolve_curved_wall_segment([1.0, 2.0, 1.0], 0.5)
+    assert seg_idx == 1
+    assert local_r == pytest.approx(0.5)
