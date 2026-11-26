@@ -989,18 +989,6 @@ class CanvasSelectionMixin:
                  if selected_item:
                      break
 
-                 # Convert outline to widget coords
-                 if getattr(roof, 'outline_points', None):
-                     poly_widget = [
-                         self.model_to_device(pt[0], pt[1], pixels_per_inch)
-                         for pt in roof.outline_points
-                     ]
-                     
-                     if self._point_in_polygon(click_pt, poly_widget):
-                         selected_item = {"type": "roof", "object": roof}
-                         self.update_hint("Click to select roof")
-                         break
-
 
         # Check Stairs  
         if selected_item is None:
@@ -1260,6 +1248,23 @@ class CanvasSelectionMixin:
                     selected_item = {"type": "room", "object": room}
                     from ..Resources.tool_hints import TOOL_HINTS
                     self.update_hint(TOOL_HINTS["select_room"])
+                    break
+
+        # Roof surface is a large filled area that covers the whole building, so it is
+        # hit-tested last; otherwise it would swallow clicks on everything beneath it.
+        if selected_item is None:
+            for roof in getattr(self, 'roofs', []):
+                if self.is_object_on_locked_layer(roof) or not self.is_object_on_visible_layer(roof):
+                    continue
+                if not getattr(roof, 'outline_points', None):
+                    continue
+                poly_widget = [
+                    self.model_to_device(pt[0], pt[1], pixels_per_inch)
+                    for pt in roof.outline_points
+                ]
+                if self._point_in_polygon(click_pt, poly_widget):
+                    selected_item = {"type": "roof", "object": roof}
+                    self.update_hint("Click to select roof")
                     break
 
         event = gesture.get_current_event()
@@ -3040,6 +3045,15 @@ class CanvasSelectionMixin:
             split_button.connect(
                 "clicked", lambda btn: self.split_wall(parent_popover))
             box.append(split_button)
+
+        # Merge Walls button (two selected collinear, connected walls)
+        if len(selected_walls) == 2 and hasattr(self, "merge_selected_walls"):
+            from ..geometry.wall_merge import can_merge_walls
+            if can_merge_walls(selected_walls[0]["object"], selected_walls[1]["object"]):
+                merge_button = Gtk.Button(label="Merge Walls")
+                merge_button.connect(
+                    "clicked", lambda btn: self.merge_selected_walls(parent_popover))
+                box.append(merge_button)
 
         # Snap Length to Nearest Foot button (when any selected wall is not already a whole foot)
         if len(selected_walls) > 0 and hasattr(self, "snap_selected_walls_to_nearest_foot"):

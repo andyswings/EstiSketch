@@ -1,6 +1,8 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
+- [ ] Add to AGENTS.md the following: All fixes or features added must be marked in the TODO list under the Done section. The use of the "Any" type hint should be avoided unless there is no other single correct type hint.
+- [ ] We should go through each file and fix all known problems flagged by Pyrefly.
 - [ ] When it comes time to ship the software, we will need to package it with Blender or somehow extract enough of Blender to be able to do our 3D rendering and editing. I don't know if this is even possible in any practical way, but it's something to think about. Maybe we can use Blender as a backend service. We need to put together a comprehensive plan for what we want to do regarding the 3D modeling aspect of the application. 
 - [ ] Currently when we send a floor plan to Blender to be turned into a 3D model, items which don't have a 3D model are drawn as wireframes. We need a plan to generate our own 3D models so that we don't have to do this. 
 - [ ] We have basic support for sending our drawing to Blender for 3D rendering. However, we should make it possible to bring it back into the 2D editor after making edits in Blender. I don't know if we need to somehow read Blender files and try to identify valid geometry to bring back (so we don't try to import things like lights and cameras, monkeys, etc...), or if we can implement our own data format that can be read/written by both Blender and EstiSketch to exchange the 3D models.
@@ -31,7 +33,7 @@
 - [ ] Schedules (door/window/material)
 - [ ] Tags/Labels (room names, numbers)
 
-### 3D Visualization (long term) (I wonder if this part might better be done in Rust for speed?)
+### 3D Visualization (long term) (I wonder if this part might better be done in Rust for speed?) (Likely that we don't even need to do most of this oursevles.  The user can do this in Blender.)
 - [ ] Basic 3D modeling/view
 - [ ] 3D navigation (orbit, walk through)
 - [ ] Material textures in 3D
@@ -145,18 +147,11 @@
 
 ### Noticed in the 2D interface
 - [ ] Double clicking in a closed loop of walls to create a room, draws a room to the center of the walls instead of drawing to the inside edge of the walls as was intended.
-- [ ] Unable to select objects under a roof.
-- [ ] When selecting "New" from the file menu, not all canvas data is deleted. This is a problem.
-- [ ] Doors and windows are not able to be placed in the center of a wall after a wall is split because a window or door cannot span multiple walls.
-- [ ] If a roof is created after a wall is already split, it messes up the entire roof calculation and ridge and hip lines go every which way.
 - [ ] Asymetrical pitch settings do not seem to affect where the ridge is drawn like it should. Only the labels change.
-- [ ] Unable to select and move a room once created.
 - [ ] Trying to move multiple objects at the same time does not always work properly.
 
 ### Noticed in the 3D interface
-- [ ] Footers not mitered at corners
-- [ ] Floors are visible from the outside of the building as a recessed groove around the perimeter of the building. These should be covered with walls in the rendering.
-- [ ] Some interior walls are not mitered where they should be.
+- [ ] Takeoff deducts an opening that straddles a split wall from the host wall only instead of splitting the deduction across overlapped collinear walls.
 
 ### Noticed in Both 2D and 3D interfaces
 - [ ] Stair case has no landing at the top in the case of our example house 2. We need to implement checks to ensure that there is a level landing at the top and bottom of the stair case. It should also be flush with the floor of the second story.
@@ -166,6 +161,15 @@
 
 
 ## Done ✅ (latest first)
+### Bug fixes (2026-11-26)
+- [x] Mitered 3D footers at wall corners (`compute_mitered_strip_polygons`, `_build_level_footers` in `blender_bridge/estisketch_to_hb5.py`); tests in `tests/test_blender_bridge.py` (2026-11-26).
+- [x] Exterior rim-band walls cover upper-level floor perimeter grooves (`_build_level_rim_bands` in `blender_bridge/estisketch_to_hb5.py`) matching the exterior wall finish; verified on House 2 in Blender (2026-11-26).
+- [x] Interior L-/Z-wall chains now orient head-to-tail and compute per-level miters (`orient_interior_wall_chains`, `compute_level_wall_miters` in `blender_bridge/estisketch_to_hb5.py`) without flipping T-junctions or cross-level seams; tests in `tests/test_blender_bridge.py` and verified in Blender (2026-11-26).
+- [x] Blender export now supports doors and windows that straddle collinear split walls (`collinear_parsed_wall_chain`, `resolve_opening_chain_placement`, and `_apply_neighbor_opening_cuts` in `blender_bridge/estisketch_to_hb5.py`): openings keep their un-clamped position across the wall chain, preserve interpolated heights, cut neighboring overlapped walls (including reversed-direction segments), and exclude baseboards across all overlapped segments; tests in `tests/test_blender_bridge.py` (2026-11-26).
+- [x] Doors/windows can now be placed (and dragged) anywhere along a run of collinear split walls, straddling the junction, without merging walls (so per-wall asymmetric heights are kept): the host is the wall containing the opening's centre and the jambs may extend onto the neighbour (`geometry/wall_chain.py`, used by `_locate_on_wall` and door/window dragging). Split Wall now re-homes doors/windows onto the correct half, and an optional right-click **Merge Walls** exists (`geometry/wall_merge.py`). Tests in `tests/test_wall_chain_openings.py`, `tests/test_wall_merge.py` (2026-11-26).
+- [x] Roofs over split walls: collinear consecutive walls are merged into one side before shape classification/solving (`merge_collinear_items` in `Canvas/complex_roof.py`), so ridge/hip lines match the unsplit building; tests in `tests/test_roof_split_walls.py` (2026-11-26).
+- [x] File > New now fully resets the canvas (all object lists, levels/layers, selection, undo history, project settings) via headless `Canvas/project_reset.py`; tests in `tests/test_project_reset.py` (2026-11-26).
+- [x] Objects under a roof (rooms, and by extension stairs/fixtures) can be selected and moved again: the roof surface is now hit-tested last; tests in `tests/test_selection_under_roof.py` (2026-11-26).
 ### v0.4.0-beta (2026-11-23)
 - [x] Release prep for `0.4.0-beta`: bumped version from `0.3.0-alpha` to `0.4.0-beta`, consolidated Python packaging metadata in `pyproject.toml` (removed `setup.cfg`), fixed `EstimatorApp._save_settings` & `config.py` to write to per-user writable config (`~/.config/estisketch` / `%APPDATA%\EstiSketch`) and merge defaults on load, updated `.deb` (`packaging/build_deb.py`), AppImage (`packaging/estisketch.spec`, `packaging/build_pyinstaller_appimage.sh`), and Windows Conda `constructor` `.exe` (`conda-recipe/`, `construct.yaml`, `menu/`, `packaging/make_ico.py`, `packaging/build_windows_installer.ps1`, `pixi.toml`) pipelines, added `.github/workflows/release.yml`, and updated `RELEASE_NOTES.md` & `README.md` (2026-11-23).
 - [x] Ignore and untrack Windows & Linux package build artifacts (`build_deb/`, `build_pyinstaller/`, `dist/`, `pixi.zip`, `build/`, `.build_venv/`, `.flatpak-builder/`, `.venv/`, `.pytest_cache/`, and package/installer binary extensions) from `origin/Dev` while keeping packaging recipes/scripts tracked (2026-11-23).

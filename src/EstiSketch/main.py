@@ -18,6 +18,7 @@ from .Dialogs import manage_materials
 from .Dialogs import settings_ui
 from .Printing import print_dialog
 from .Canvas import canvas_area
+from .Canvas.project_reset import reset_canvas_content
 from . import toolbar
 from . import config
 from . import blender_bridge
@@ -1134,13 +1135,9 @@ class EstimatorApp(Gtk.Application):
         Removes all drawing content, resets the current file path, marks the
         project as clean, and redraws the canvas.
         """
-        # Clear all canvas content
-        self.canvas.wall_sets.clear()
-        self.canvas.walls.clear()
-        self.canvas.rooms.clear()
-        self.canvas.doors.clear()
-        self.canvas.windows.clear()
-        self.canvas.texts.clear()
+        reset_canvas_content(self.canvas)
+        # Seed the fresh undo history with the empty state
+        self.canvas.save_state()
         # Reset the current file path
         self.current_filepath = None
         # Reset the dirty state

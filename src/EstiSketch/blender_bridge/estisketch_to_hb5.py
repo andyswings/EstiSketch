@@ -788,6 +788,571 @@ def compute_opening_local_x(ratio: float, wall_len_m: float, width_m: float) -> 
     return max(0.0, min(raw_x, max_x))
 
 
+@dataclass
+class WallOpeningCut:
+    """Local span along a single wall segment overlapped by a door or window."""
+
+    wall: ParsedWall
+    x_start_m: float
+    x_end_m: float
+    same_direction: bool
+    min_height_m: float
+
+
+@dataclass
+class OpeningChainPlacement:
+    """Opening placement across a straight chain of collinear connected walls."""
+
+    x_local_m: float
+    width_m: float
+    min_height_m: float
+    cuts: List[WallOpeningCut]
+
+
+def collinear_parsed_wall_chain(
+    host_pw: ParsedWall,
+    all_walls: List[ParsedWall],
+    join_tol_in: float = 0.5,
+    line_tol_in: float = 0.5,
+) -> List[ParsedWall]:
+    """Return ``host_pw`` plus all straight same-level walls connected collinearly."""
+    hx = host_pw.end[0] - host_pw.start[0]
+    hy = host_pw.end[1] - host_pw.start[1]
+    host_len = math.hypot(hx, hy)
+    if host_pw.is_curved or host_pw.symbolic or host_len <= 1e-6:
+        return [host_pw]
+
+    ux, uy = hx / host_len, hy / host_len
+    ox, oy = host_pw.start
+
+    def _on_line(w: ParsedWall) -> bool:
+        for px, py in (w.start, w.end):
+            if abs((px - ox) * uy - (py - oy) * ux) > line_tol_in:
+                return False
+        return True
+
+    def _close(a: Tuple[float, float], b: Tuple[float, float]) -> bool:
+        return math.hypot(a[0] - b[0], a[1] - b[1]) <= join_tol_in
+
+    def _is_candidate(w: ParsedWall) -> bool:
+        if w is host_pw or w.symbolic or w.is_curved or w.level_id != host_pw.level_id:
+            return False
+        if math.hypot(w.end[0] - w.start[0], w.end[1] - w.start[1]) <= 1e-6:
+            return False
+        return _on_line(w)
+
+    candidates = [w for w in all_walls if _is_candidate(w)]
+
+    chain = [host_pw]
+    grew = True
+    while grew:
+        grew = False
+        for cand in list(candidates):
+            if any(
+                _close(m_pt, c_pt)
+                for member in chain
+                for m_pt in (member.start, member.end)
+                for c_pt in (cand.start, cand.end)
+            ):
+                chain.append(cand)
+                candidates.remove(cand)
+                grew = True
+    return chain
+
+
+def resolve_opening_chain_placement(
+    host_pw: ParsedWall,
+    ratio: float,
+    opening_width_in: float,
+    all_walls: List[ParsedWall],
+) -> OpeningChainPlacement:
+    """Resolve placement and per-wall cuts for an opening that may straddle split walls."""
+    hx = host_pw.end[0] - host_pw.start[0]
+    hy = host_pw.end[1] - host_pw.start[1]
+    host_len_in = math.hypot(hx, hy)
+    if host_len_in <= 1e-6:
+        return OpeningChainPlacement(
+            x_local_m=0.0,
+            width_m=max(0.1, opening_width_in * INCH_TO_M),
+            min_height_m=min(host_pw.height, host_pw.height_at_end) * INCH_TO_M,
+            cuts=[],
+        )
+
+    ux, uy = hx / host_len_in, hy / host_len_in
+    ox, oy = host_pw.start
+
+    def _proj(pt: Tuple[float, float]) -> float:
+        return (pt[0] - ox) * ux + (pt[1] - oy) * uy
+
+    chain = collinear_parsed_wall_chain(host_pw, all_walls)
+    projected: List[Tuple[ParsedWall, float, float, float, float]] = []
+    for w in chain:
+        ps = _proj(w.start)
+        pe = _proj(w.end)
+        projected.append((w, ps, pe, min(ps, pe), max(ps, pe)))
+
+    chain_lo = min(item[3] for item in projected)
+    chain_hi = max(item[4] for item in projected)
+    chain_len_in = max(0.0, chain_hi - chain_lo)
+
+    width_m = max(0.1, min(opening_width_in * INCH_TO_M, chain_len_in * INCH_TO_M))
+    eff_width_in = width_m / INCH_TO_M
+    raw_start_in = ratio * host_len_in - eff_width_in / 2.0
+    max_start_in = max(chain_lo, chain_hi - eff_width_in)
+    open_start_in = max(chain_lo, min(raw_start_in, max_start_in))
+    open_end_in = open_start_in + eff_width_in
+
+    cuts: List[WallOpeningCut] = []
+    for w, ps, pe, s_lo, s_hi in projected:
+        ov_lo = max(open_start_in, s_lo)
+        ov_hi = min(open_end_in, s_hi)
+        if ov_hi - ov_lo <= 1e-3:
+            continue
+        w_len_in = abs(pe - ps)
+        if w_len_in <= 1e-6:
+            continue
+        same_dir = pe >= ps
+        if same_dir:
+            wx0_in = ov_lo - ps
+            wx1_in = ov_hi - ps
+        else:
+            wx0_in = ps - ov_hi
+            wx1_in = ps - ov_lo
+        wx0_in = max(0.0, min(w_len_in, wx0_in))
+        wx1_in = max(0.0, min(w_len_in, wx1_in))
+        t0 = wx0_in / w_len_in
+        t1 = wx1_in / w_len_in
+        h0 = w.height + (w.height_at_end - w.height) * t0
+        h1 = w.height + (w.height_at_end - w.height) * t1
+        cuts.append(
+            WallOpeningCut(
+                wall=w,
+                x_start_m=wx0_in * INCH_TO_M,
+                x_end_m=wx1_in * INCH_TO_M,
+                same_direction=same_dir,
+                min_height_m=min(h0, h1) * INCH_TO_M,
+            )
+        )
+
+    min_height_m = (
+        min(c.min_height_m for c in cuts)
+        if cuts
+        else min(host_pw.height, host_pw.height_at_end) * INCH_TO_M
+    )
+    return OpeningChainPlacement(
+        x_local_m=open_start_in * INCH_TO_M,
+        width_m=width_m,
+        min_height_m=min_height_m,
+        cuts=cuts,
+    )
+
+
+@dataclass
+class StripSegment:
+    """2D oriented strip segment (meters) with offsets along its left normal."""
+
+    p0: Tuple[float, float]
+    p1: Tuple[float, float]
+    y0: float
+    y1: float
+
+
+def _intersect_2d_lines(
+    p: Tuple[float, float],
+    dp: Tuple[float, float],
+    q: Tuple[float, float],
+    dq: Tuple[float, float],
+) -> Optional[Tuple[float, float]]:
+    """Return intersection of lines ``p + t*dp`` and ``q + u*dq``, or None if parallel."""
+    det = dp[0] * dq[1] - dp[1] * dq[0]
+    if abs(det) < 1e-5:
+        return None
+    dx = q[0] - p[0]
+    dy = q[1] - p[1]
+    t = (dx * dq[1] - dy * dq[0]) / det
+    return (p[0] + t * dp[0], p[1] + t * dp[1])
+
+
+def _is_duplicate_seg(
+    p0: Tuple[float, float],
+    p1: Tuple[float, float],
+    q0: Tuple[float, float],
+    q1: Tuple[float, float],
+    tol: float,
+) -> bool:
+    """True when two segments share both endpoints in either order within ``tol``."""
+    same = math.hypot(p0[0] - q0[0], p0[1] - q0[1]) <= tol
+    same_end = math.hypot(p1[0] - q1[0], p1[1] - q1[1]) <= tol
+    if same and same_end:
+        return True
+    swap = math.hypot(p0[0] - q1[0], p0[1] - q1[1]) <= tol
+    swap_end = math.hypot(p1[0] - q0[0], p1[1] - q0[1]) <= tol
+    return swap and swap_end
+
+
+def compute_mitered_strip_polygons(
+    segments: List[StripSegment],
+    join_tol_m: float = 0.015,
+    miter_limit: float = 4.0,
+) -> List[List[Tuple[float, float]]]:
+    """Compute mitered 2D quad polygons for connected 2D strips (footers, rim bands).
+
+    At clean 2-way non-collinear corners, adjacent inner and outer strip edges are
+    intersected so corners join seamlessly without gaps or notches. Free ends,
+    collinear continuations, duplicate coincident segments, and T-/3-way junctions
+    keep square ends.
+
+    Args:
+        segments: List of ``StripSegment`` in meters.
+        join_tol_m: Endpoint matching tolerance in meters.
+        miter_limit: Maximum corner extension as a multiple of strip offset width.
+
+    Returns:
+        List of 4-vertex polygons ``[s0, e0, e1, s1]`` parallel to ``segments``
+        (or ``[]`` for degenerate zero-length segments).
+    """
+    meta: List[Optional[Tuple[Tuple[float, float], Tuple[float, float]]]] = []
+    for seg in segments:
+        dx = seg.p1[0] - seg.p0[0]
+        dy = seg.p1[1] - seg.p0[1]
+        length = math.hypot(dx, dy)
+        if length < 1e-4:
+            meta.append(None)
+        else:
+            d = (dx / length, dy / length)
+            n = (-d[1], d[0])
+            meta.append((d, n))
+
+    def _pt_close(a: Tuple[float, float], b: Tuple[float, float]) -> bool:
+        return math.hypot(a[0] - b[0], a[1] - b[1]) <= join_tol_m
+
+    def _miter_endpoint(
+        idx: int,
+        pt: Tuple[float, float],
+        is_start: bool,
+        cur_0: Tuple[float, float],
+        cur_1: Tuple[float, float],
+    ) -> Tuple[Tuple[float, float], Tuple[float, float]]:
+        seg = segments[idx]
+        d, n = meta[idx]  # type: ignore[misc]
+        non_collinear: List[int] = []
+        for j, other in enumerate(segments):
+            if j == idx or meta[j] is None:
+                continue
+            if _is_duplicate_seg(seg.p0, seg.p1, other.p0, other.p1, join_tol_m):
+                continue
+            if not (_pt_close(other.p0, pt) or _pt_close(other.p1, pt)):
+                continue
+            od, _ = meta[j]  # type: ignore[misc]
+            cross = d[0] * od[1] - d[1] * od[0]
+            if abs(cross) < 1e-3:
+                return (cur_0, cur_1)
+            non_collinear.append(j)
+
+        unique_nbs: List[int] = []
+        for j in non_collinear:
+            oj = segments[j]
+            if not any(
+                _is_duplicate_seg(
+                    oj.p0, oj.p1, segments[k].p0, segments[k].p1, join_tol_m
+                )
+                for k in unique_nbs
+            ):
+                unique_nbs.append(j)
+
+        if len(unique_nbs) != 1:
+            return (cur_0, cur_1)
+
+        nb_idx = unique_nbs[0]
+        other = segments[nb_idx]
+        od, on = meta[nb_idx]  # type: ignore[misc]
+        same_flow = _pt_close(other.p1, pt) if is_start else _pt_close(other.p0, pt)
+        other_y0, other_y1 = (other.y0, other.y1) if same_flow else (other.y1, other.y0)
+
+        max_off = max(
+            abs(seg.y0), abs(seg.y1), abs(other.y0), abs(other.y1), 0.1
+        )
+        max_dist = miter_limit * max_off
+
+        ix0 = _intersect_2d_lines(
+            (pt[0] + n[0] * seg.y0, pt[1] + n[1] * seg.y0),
+            d,
+            (pt[0] + on[0] * other_y0, pt[1] + on[1] * other_y0),
+            od,
+        )
+        ix1 = _intersect_2d_lines(
+            (pt[0] + n[0] * seg.y1, pt[1] + n[1] * seg.y1),
+            d,
+            (pt[0] + on[0] * other_y1, pt[1] + on[1] * other_y1),
+            od,
+        )
+        out_0 = ix0 if (ix0 is not None and math.hypot(ix0[0] - pt[0], ix0[1] - pt[1]) <= max_dist) else cur_0
+        out_1 = ix1 if (ix1 is not None and math.hypot(ix1[0] - pt[0], ix1[1] - pt[1]) <= max_dist) else cur_1
+        return (out_0, out_1)
+
+    result: List[List[Tuple[float, float]]] = []
+    for idx, seg in enumerate(segments):
+        m = meta[idx]
+        if m is None:
+            result.append([])
+            continue
+        d, n = m
+        sq_s0 = (seg.p0[0] + n[0] * seg.y0, seg.p0[1] + n[1] * seg.y0)
+        sq_s1 = (seg.p0[0] + n[0] * seg.y1, seg.p0[1] + n[1] * seg.y1)
+        sq_e0 = (seg.p1[0] + n[0] * seg.y0, seg.p1[1] + n[1] * seg.y0)
+        sq_e1 = (seg.p1[0] + n[0] * seg.y1, seg.p1[1] + n[1] * seg.y1)
+
+        s0, s1 = _miter_endpoint(idx, seg.p0, True, sq_s0, sq_s1)
+        e0, e1 = _miter_endpoint(idx, seg.p1, False, sq_e0, sq_e1)
+
+        dot0 = (e0[0] - s0[0]) * d[0] + (e0[1] - s0[1]) * d[1]
+        dot1 = (e1[0] - s1[0]) * d[0] + (e1[1] - s1[1]) * d[1]
+        if dot0 <= 1e-5 or dot1 <= 1e-5:
+            result.append([sq_s0, sq_e0, sq_e1, sq_s1])
+        else:
+            result.append([s0, e0, e1, s1])
+    return result
+
+
+def _flip_parsed_wall(pw: ParsedWall, project: ParsedProject) -> None:
+    """Reverse a wall's direction while preserving finishes, footers, and openings."""
+    pw.start, pw.end = pw.end, pw.start
+    pw.height, pw.height_at_end = pw.height_at_end, pw.height
+    pw.left_finish, pw.right_finish = pw.right_finish, pw.left_finish
+    pw.left_color, pw.right_color = pw.right_color, pw.left_color
+    pw.left_baseboard, pw.right_baseboard = pw.right_baseboard, pw.left_baseboard
+    pw.footer_left_offset, pw.footer_right_offset = (
+        pw.footer_right_offset,
+        pw.footer_left_offset,
+    )
+    key = (pw.set_index, pw.wall_index)
+    for pd in project.doors:
+        if (pd.set_index, pd.wall_index) == key:
+            pd.ratio = 1.0 - pd.ratio
+            if pd.orientation == "inswing":
+                pd.orientation = "outswing"
+            elif pd.orientation == "outswing":
+                pd.orientation = "inswing"
+            if pd.swing == "left":
+                pd.swing = "right"
+            elif pd.swing == "right":
+                pd.swing = "left"
+    for pw_win in project.windows:
+        if (pw_win.set_index, pw_win.wall_index) == key:
+            pw_win.ratio = 1.0 - pw_win.ratio
+
+
+def orient_interior_wall_chains(
+    project: ParsedProject, join_tol_in: float = 0.5
+) -> int:
+    """Orient connected interior wall L-/Z-chains head-to-tail for HB5 mitering.
+
+    Only flips straight, non-symbolic interior walls at clean 2-wall non-collinear
+    corners (skipping T-junctions and exterior walls). Returns the count of flipped walls.
+    """
+    walls_by_level: Dict[str, List[ParsedWall]] = {}
+    for pw in project.walls:
+        if pw.exterior_wall or pw.symbolic or pw.is_curved:
+            continue
+        if math.hypot(pw.end[0] - pw.start[0], pw.end[1] - pw.start[1]) <= 1e-4:
+            continue
+        walls_by_level.setdefault(pw.level_id, []).append(pw)
+
+    flipped = 0
+    for lvl_walls in walls_by_level.values():
+        clusters: List[Tuple[float, float]] = []
+        wall_clusters: List[Tuple[int, int]] = []
+
+        def _cluster_id(pt: Tuple[float, float]) -> int:
+            for cid, cpt in enumerate(clusters):
+                if math.hypot(pt[0] - cpt[0], pt[1] - cpt[1]) <= join_tol_in:
+                    return cid
+            clusters.append(pt)
+            return len(clusters) - 1
+
+        at_cluster: Dict[int, List[int]] = {}
+        for idx, pw in enumerate(lvl_walls):
+            c_s = _cluster_id(pw.start)
+            c_e = _cluster_id(pw.end)
+            wall_clusters.append((c_s, c_e))
+            at_cluster.setdefault(c_s, []).append(idx)
+            if c_e != c_s:
+                at_cluster.setdefault(c_e, []).append(idx)
+
+        eligible_corners: Dict[int, Tuple[int, int]] = {}
+        adj: Dict[int, List[Tuple[int, int]]] = {i: [] for i in range(len(lvl_walls))}
+        for cid, members in at_cluster.items():
+            if len(members) != 2:
+                continue
+            ia, ib = members[0], members[1]
+            wa, wb = lvl_walls[ia], lvl_walls[ib]
+            dax, day = wa.end[0] - wa.start[0], wa.end[1] - wa.start[1]
+            dbx, dby = wb.end[0] - wb.start[0], wb.end[1] - wb.start[1]
+            la, lb = math.hypot(dax, day), math.hypot(dbx, dby)
+            if la <= 1e-4 or lb <= 1e-4:
+                continue
+            cross = (dax * dby - day * dbx) / (la * lb)
+            if abs(cross) <= 1e-3:
+                continue
+            eligible_corners[cid] = (ia, ib)
+            adj[ia].append((cid, ib))
+            adj[ib].append((cid, ia))
+
+        visited: set[int] = set()
+
+        def _walk_from(start_idx: int) -> None:
+            nonlocal flipped
+            nbs = adj[start_idx]
+            if not nbs:
+                visited.add(start_idx)
+                return
+            first_cid = nbs[0][0]
+            w0 = lvl_walls[start_idx]
+            c_s, c_e = wall_clusters[start_idx]
+            if len(nbs) == 1 and c_s == first_cid and c_e != first_cid:
+                _flip_parsed_wall(w0, project)
+                wall_clusters[start_idx] = (c_e, c_s)
+                flipped += 1
+
+            curr = start_idx
+            visited.add(curr)
+            while True:
+                curr_end_cid = wall_clusters[curr][1]
+                next_idx = None
+                for cid, nb in adj[curr]:
+                    if cid == curr_end_cid and nb not in visited:
+                        next_idx = nb
+                        break
+                if next_idx is None:
+                    break
+                wn = lvl_walls[next_idx]
+                nc_s, nc_e = wall_clusters[next_idx]
+                if nc_e == curr_end_cid and nc_s != curr_end_cid:
+                    _flip_parsed_wall(wn, project)
+                    wall_clusters[next_idx] = (nc_e, nc_s)
+                    flipped += 1
+                visited.add(next_idx)
+                curr = next_idx
+
+        for idx in range(len(lvl_walls)):
+            if idx not in visited and len(adj[idx]) == 1:
+                _walk_from(idx)
+        for idx in range(len(lvl_walls)):
+            if idx not in visited and len(adj[idx]) >= 1:
+                _walk_from(idx)
+
+    return flipped
+
+
+def solve_hb5_miter_angles(
+    a_rot: float,
+    a_thick: float,
+    b_rot: float,
+    b_thick: float,
+    max_shear_ratio: float = 8.0,
+) -> Tuple[float, float]:
+    """Solve HB5 ``(Right Angle on A, Left Angle on B)`` closing outer faces at a corner."""
+    turn = b_rot - a_rot
+    while turn > math.pi:
+        turn -= 2.0 * math.pi
+    while turn <= -math.pi:
+        turn += 2.0 * math.pi
+    if abs(turn) < 1e-6:
+        return (0.0, 0.0)
+
+    ca, sa = math.cos(a_rot), math.sin(a_rot)
+    cb, sb = math.cos(b_rot), math.sin(b_rot)
+    nax, nay = -sa, ca
+    nbx, nby = -sb, cb
+
+    det = ca * (-sb) - (-cb) * sa
+    if abs(det) < 1e-9:
+        return (-turn / 2.0, turn / 2.0)
+
+    rhs_x = b_thick * nbx - a_thick * nax
+    rhs_y = b_thick * nby - a_thick * nay
+    shear_a = (rhs_x * (-sb) - (-cb) * rhs_y) / det
+    shear_b = (ca * rhs_y - rhs_x * sa) / det
+
+    if abs(shear_a) > max_shear_ratio * a_thick or abs(shear_b) > max_shear_ratio * b_thick:
+        return (-turn / 2.0, turn / 2.0)
+
+    right_a = math.atan2(shear_a, a_thick) if a_thick else 0.0
+    left_b = math.atan2(shear_b, b_thick) if b_thick else 0.0
+    return (right_a, left_b)
+
+
+def compute_level_wall_miters(
+    wall_entries: List[Tuple[str, Tuple[float, float], Tuple[float, float], float, bool]],
+    join_tol_m: float = 0.015,
+) -> Dict[str, Tuple[float, float]]:
+    """Compute ``{key: (left_angle, right_angle)}`` for wall segments on one level."""
+    left_angles: Dict[str, float] = {item[0]: 0.0 for item in wall_entries}
+    right_angles: Dict[str, float] = {item[0]: 0.0 for item in wall_entries}
+
+    dirs: List[Optional[Tuple[float, float, float]]] = []
+    for _, p0, p1, _, _ in wall_entries:
+        dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+        length = math.hypot(dx, dy)
+        if length < 1e-4:
+            dirs.append(None)
+        else:
+            dirs.append((dx / length, dy / length, math.atan2(dy, dx)))
+
+    def _pt_close(a: Tuple[float, float], b: Tuple[float, float]) -> bool:
+        return math.hypot(a[0] - b[0], a[1] - b[1]) <= join_tol_m
+
+    def _has_collinear_at(idx: int, pt: Tuple[float, float]) -> bool:
+        d_i = dirs[idx]
+        if d_i is None:
+            return False
+        _, p0_i, p1_i, _, _ = wall_entries[idx]
+        for j, (_, p0_j, p1_j, _, _) in enumerate(wall_entries):
+            if j == idx or dirs[j] is None:
+                continue
+            if _is_duplicate_seg(p0_i, p1_i, p0_j, p1_j, join_tol_m):
+                continue
+            if not (_pt_close(p0_j, pt) or _pt_close(p1_j, pt)):
+                continue
+            d_j = dirs[j]
+            assert d_j is not None
+            cross = d_i[0] * d_j[1] - d_i[1] * d_j[0]
+            if abs(cross) < 1e-3:
+                return True
+        return False
+
+    for i, (key_a, p0_a, p1_a, thick_a, ext_a) in enumerate(wall_entries):
+        d_a = dirs[i]
+        if d_a is None or _has_collinear_at(i, p1_a):
+            continue
+
+        cands: List[Tuple[int, str, float, float, bool]] = []
+        for j, (key_b, p0_b, p1_b, thick_b, ext_b) in enumerate(wall_entries):
+            if j == i or dirs[j] is None:
+                continue
+            if _is_duplicate_seg(p0_a, p1_a, p0_b, p1_b, join_tol_m):
+                continue
+            if not _pt_close(p0_b, p1_a):
+                continue
+            d_b = dirs[j]
+            assert d_b is not None
+            cross = d_a[0] * d_b[1] - d_a[1] * d_b[0]
+            if abs(cross) < 1e-3 or _has_collinear_at(j, p0_b):
+                continue
+            cands.append((j, key_b, thick_b, d_b[2], ext_b))
+
+        same_kind = [c for c in cands if c[4] == ext_a]
+        if same_kind:
+            cands = same_kind
+        if len(cands) == 1:
+            _, key_b, thick_b, rot_b, _ = cands[0]
+            ra, lb = solve_hb5_miter_angles(d_a[2], thick_a, rot_b, thick_b)
+            right_angles[key_a] = ra
+            left_angles[key_b] = lb
+
+    return {k: (left_angles[k], right_angles[k]) for k in left_angles}
+
+
 def compute_sun_rotation_euler(north_angle_deg: float) -> Tuple[float, float, float]:
     """Return Blender sun ``rotation_euler`` adjusted clockwise by project ``north_angle``."""
     return (math.radians(48.0), math.radians(15.0), math.radians(-35.0 - north_angle_deg))
@@ -2455,58 +3020,23 @@ def _build_wall_baseboards(
     return obj
 
 
-def _build_wall_footer(
+def _build_footer_mesh_from_polys(
     pw: ParsedWall,
+    polys_m: List[List[Tuple[float, float]]],
     lvl: ParsedLevel,
-    cx: float,
-    cy: float,
     target_col,
     surface_materials,
 ):
+    """Build a single concrete footer object from pre-mitered 2D strip polygons."""
     import bmesh
     import bpy
 
-    if not pw.footer:
-        return None
-
-    if pw.is_curved and pw.arc_center is not None and pw.arc_radius is not None:
-        pts_in = tessellate_curved_wall_points(
-            pw.start, pw.end, pw.arc_center, pw.arc_radius
-        )
-    else:
-        pts_in = [pw.start, pw.end]
-    pts_m = [inches_to_blender_xy(x, y, cx, cy) for x, y in pts_in]
-    if len(pts_m) < 2:
-        return None
-
-    thick_m = max(0.02, pw.width * INCH_TO_M)
-    left_off_m = max(0.0, pw.footer_left_offset * INCH_TO_M)
-    right_off_m = max(0.0, pw.footer_right_offset * INCH_TO_M)
-    if pw.symbolic:
-        y0 = -(thick_m / 2.0 + left_off_m)
-        y1 = thick_m / 2.0 + right_off_m
-    else:
-        y0 = -left_off_m
-        y1 = thick_m + right_off_m
-
     z_top = lvl.elevation * INCH_TO_M
     z_bot = z_top - max(0.05, pw.footer_depth * INCH_TO_M)
-
     bm = bmesh.new()
-    for i in range(len(pts_m) - 1):
-        p0, p1 = pts_m[i], pts_m[i + 1]
-        dx, dy = p1[0] - p0[0], p1[1] - p0[1]
-        seg_len = math.hypot(dx, dy)
-        if seg_len < 1e-4:
-            continue
-        nx, ny = -dy / seg_len, dx / seg_len
-        poly = [
-            (p0[0] + nx * y0, p0[1] + ny * y0),
-            (p1[0] + nx * y0, p1[1] + ny * y0),
-            (p1[0] + nx * y1, p1[1] + ny * y1),
-            (p0[0] + nx * y1, p0[1] + ny * y1),
-        ]
-        _extrude_prism_z(bm, poly, z_bot, z_top)
+    for poly in polys_m:
+        if len(poly) >= 3:
+            _extrude_prism_z(bm, poly, z_bot, z_top)
 
     if not bm.faces:
         bm.free()
@@ -2538,6 +3068,172 @@ def _build_wall_footer(
     obj.color = mat.diffuse_color
     target_col.objects.link(obj)
     return obj
+
+
+def _build_level_footers(
+    project: ParsedProject,
+    level_by_id: Dict[str, ParsedLevel],
+    cx: float,
+    cy: float,
+    target_col,
+    surface_materials,
+) -> int:
+    """Build mitered footers grouped by ``(level_id, footer_depth)``."""
+    groups: Dict[Tuple[str, float], List[ParsedWall]] = {}
+    for pw in project.walls:
+        if pw.footer:
+            groups.setdefault((pw.level_id, round(pw.footer_depth, 3)), []).append(pw)
+
+    footer_count = 0
+    for (lvl_id, _), group_walls in groups.items():
+        lvl = level_by_id.get(lvl_id, project.levels[0])
+        segs: List[StripSegment] = []
+        seg_ranges: List[Tuple[ParsedWall, int, int]] = []
+        for pw in group_walls:
+            if pw.is_curved and pw.arc_center is not None and pw.arc_radius is not None:
+                pts_in = tessellate_curved_wall_points(
+                    pw.start, pw.end, pw.arc_center, pw.arc_radius
+                )
+            else:
+                pts_in = [pw.start, pw.end]
+            pts_m = [inches_to_blender_xy(x, y, cx, cy) for x, y in pts_in]
+            thick_m = max(0.02, pw.width * INCH_TO_M)
+            left_off_m = max(0.0, pw.footer_left_offset * INCH_TO_M)
+            right_off_m = max(0.0, pw.footer_right_offset * INCH_TO_M)
+            if pw.symbolic:
+                y0 = -(thick_m / 2.0 + left_off_m)
+                y1 = thick_m / 2.0 + right_off_m
+            else:
+                y0 = -left_off_m
+                y1 = thick_m + right_off_m
+            start_idx = len(segs)
+            for i in range(len(pts_m) - 1):
+                segs.append(StripSegment(pts_m[i], pts_m[i + 1], y0, y1))
+            seg_ranges.append((pw, start_idx, len(segs)))
+
+        polys = compute_mitered_strip_polygons(segs)
+        for pw, s_idx, e_idx in seg_ranges:
+            f_obj = _build_footer_mesh_from_polys(
+                pw, polys[s_idx:e_idx], lvl, target_col, surface_materials
+            )
+            if f_obj is not None:
+                footer_count += 1
+    return footer_count
+
+
+def _build_level_rim_bands(
+    project: ParsedProject,
+    level_by_id: Dict[str, ParsedLevel],
+    level_cols: Dict[str, Dict[str, object]],
+    cx: float,
+    cy: float,
+    scene,
+    surface_materials,
+) -> int:
+    """Build exterior rim-joist band walls covering upper-level floor slab edges."""
+    import bmesh
+    import bpy
+
+    fallback = getattr(scene.home_builder, "wall_material", None)
+    rim_count = 0
+    for lvl in project.levels:
+        if lvl.elevation <= 0.1 or lvl.floor_thickness <= 0.01:
+            continue
+        ext_walls = [
+            pw
+            for pw in project.walls
+            if pw.level_id == lvl.id and pw.exterior_wall and not pw.symbolic
+        ]
+        if not ext_walls:
+            continue
+
+        z_top = lvl.elevation * INCH_TO_M
+        z_bot = (lvl.elevation - lvl.floor_thickness) * INCH_TO_M
+        segs: List[StripSegment] = []
+        seg_ranges: List[Tuple[ParsedWall, int, int]] = []
+        for pw in ext_walls:
+            if pw.is_curved and pw.arc_center is not None and pw.arc_radius is not None:
+                pts_in = tessellate_curved_wall_points(
+                    pw.start, pw.end, pw.arc_center, pw.arc_radius
+                )
+            else:
+                pts_in = [pw.start, pw.end]
+            pts_m = [inches_to_blender_xy(x, y, cx, cy) for x, y in pts_in]
+            thick_m = max(0.02, pw.width * INCH_TO_M)
+            start_idx = len(segs)
+            for i in range(len(pts_m) - 1):
+                segs.append(StripSegment(pts_m[i], pts_m[i + 1], 0.0, thick_m))
+            seg_ranges.append((pw, start_idx, len(segs)))
+
+        polys = compute_mitered_strip_polygons(segs)
+        walls_col = level_cols[lvl.id]["walls"]
+        for pw, s_idx, e_idx in seg_ranges:
+            bm = bmesh.new()
+            for poly in polys[s_idx:e_idx]:
+                if len(poly) >= 3:
+                    _extrude_prism_z(bm, poly, z_bot, z_top)
+            if not bm.faces:
+                bm.free()
+                continue
+
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+            p0_m = segs[s_idx].p0 if s_idx < len(segs) else (0.0, 0.0)
+            p1_m = segs[e_idx - 1].p1 if e_idx > s_idx else (1.0, 0.0)
+            wdx, wdy = p1_m[0] - p0_m[0], p1_m[1] - p0_m[1]
+            wlen = math.hypot(wdx, wdy) or 1.0
+            ux, uy = wdx / wlen, wdy / wlen
+
+            uv_layer = bm.loops.layers.uv.new("UVMap")
+            for face in bm.faces:
+                is_side = abs(face.normal.z) < 0.25
+                for loop in face.loops:
+                    co = loop.vert.co
+                    if is_side:
+                        along_m = (co.x - p0_m[0]) * ux + (co.y - p0_m[1]) * uy
+                        loop[uv_layer].uv = (along_m, co.z)
+                    else:
+                        loop[uv_layer].uv = (co.x, co.y)
+
+            mesh = bpy.data.meshes.new(f"RimBand_{pw.identifier}")
+            bm.to_mesh(mesh)
+            bm.free()
+
+            _, rf = _resolve_wall_side_finishes(pw)
+            ext_mat = _get_or_create_wall_finish_material(
+                rf, pw.right_color, surface_materials, fallback
+            )
+            if ext_mat is not None:
+                mesh.materials.append(ext_mat)
+
+            obj = bpy.data.objects.new(f"RimBand_{pw.identifier}", mesh)
+            obj["IS_RIM_BAND"] = True
+            obj["ESTISKETCH_ID"] = pw.identifier
+            obj["ESTISKETCH_LEVEL"] = lvl.id
+            if ext_mat is not None:
+                obj.color = ext_mat.diffuse_color
+            walls_col.objects.link(obj)
+            rim_count += 1
+    return rim_count
+
+
+def _build_wall_footer(
+    pw: ParsedWall,
+    lvl: ParsedLevel,
+    cx: float,
+    cy: float,
+    target_col,
+    surface_materials,
+):
+    if not pw.footer:
+        return None
+    return _build_level_footers(
+        ParsedProject(levels=[lvl], walls=[pw]),
+        {lvl.id: lvl},
+        cx,
+        cy,
+        target_col,
+        surface_materials,
+    )
 
 
 def _build_garage_door_mesh(
@@ -2652,7 +3348,7 @@ def _build_garage_door_mesh(
     )
     door_obj.parent = cage_obj
     door_obj["IS_DOOR_WINDOW_GEO"] = True
-    return door_obj
+    return door_obj, cutter_obj
 
 
 def _get_or_create_stair_material(
@@ -3840,6 +4536,37 @@ def _add_boolean_cut(wall_obj, cutting_obj) -> None:
     cutting_obj.hide_render = True
 
 
+def _build_wall_span_cutter(
+    wall_obj,
+    x_start_m: float,
+    x_end_m: float,
+    wall_len_m: float,
+    thickness_m: float,
+    z_min_m: float,
+    z_max_m: float,
+    openings_col,
+    name: str,
+):
+    import bmesh
+    import bpy
+
+    x0 = x_start_m - (0.005 if x_start_m <= 1e-4 else 0.0)
+    x1 = x_end_m + (0.005 if x_end_m >= wall_len_m - 1e-4 else 0.0)
+    bm = bmesh.new()
+    _bm_add_box(bm, x0, -0.02, z_min_m - 0.01, x1, thickness_m + 0.02, z_max_m)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    cutter_obj = bpy.data.objects.new(name, mesh)
+    cutter_obj.parent = wall_obj
+    cutter_obj.display_type = "WIRE"
+    cutter_obj.hide_viewport = True
+    cutter_obj.hide_render = True
+    openings_col.objects.link(cutter_obj)
+    return cutter_obj
+
+
 def _map_window_type(win_type: str) -> str:
     if "fixed" in win_type or "picture" in win_type:
         return "PICTURE"
@@ -3909,6 +4636,7 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
             f"Warning: skipped {len(project.skipped_openings)} orphaned opening(s): "
             + ", ".join(project.skipped_openings[:8])
         )
+    orient_interior_wall_chains(project)
     cx, cy = compute_plan_center(project)
 
     scene = bpy.context.scene
@@ -3943,6 +4671,9 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
     # without closing a cyclic COPY_LOCATION dependency loop.
     wall_segments: Dict[Tuple[int, int], List[Tuple[object, float, float, ParsedWall]]] = {}
     built_wall_records: List[Tuple[ParsedWall, object, float, ParsedLevel]] = []
+    miter_records_by_level: Dict[
+        str, List[Tuple[object, Tuple[float, float], Tuple[float, float], float, bool]]
+    ] = {}
     walls_by_set: Dict[int, List[ParsedWall]] = {}
     for pw in project.walls:
         walls_by_set.setdefault(pw.set_index, []).append(pw)
@@ -4020,6 +4751,9 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
                 seg_min_h = min(h0_m, h1_m)
                 segs_for_wall.append((hb_wall, length_m, seg_min_h, pw))
                 built_wall_records.append((pw, hb_wall, length_m, lvl))
+                miter_records_by_level.setdefault(lvl.id, []).append(
+                    (hb_wall, p0, p1, thick_m, pw.exterior_wall)
+                )
 
             if segs_for_wall:
                 wall_segments[(pw.set_index, pw.wall_index)] = segs_for_wall
@@ -4029,6 +4763,19 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         walls_op.refresh_wall_junctions(scene)
     elif hasattr(walls_op, "update_all_wall_miters"):
         walls_op.update_all_wall_miters()
+
+    for lvl_records in miter_records_by_level.values():
+        entries = [
+            (hb_w.obj.name, p0, p1, thick_m, is_ext)
+            for hb_w, p0, p1, thick_m, is_ext in lvl_records
+        ]
+        miters = compute_level_wall_miters(entries)
+        for hb_w, _, _, _, _ in lvl_records:
+            la, ra = miters.get(hb_w.obj.name, (0.0, 0.0))
+            hb_w.set_input("Left Angle", la)
+            hb_w.set_input("Right Angle", ra)
+            hb_w.obj.update_tag()
+    bpy.context.view_layer.update()
 
     hb_props = scene.home_builder
     hb_wm_prefs = bpy.context.window_manager.home_builder.get_user_preferences(bpy.context)
@@ -4042,6 +4789,42 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         seg_idx, local_r = resolve_curved_wall_segment([s[1] for s in segs], ratio)
         return (*segs[seg_idx], local_r)
 
+    def _apply_neighbor_opening_cuts(
+        cuts: List[WallOpeningCut],
+        host_pw: ParsedWall,
+        host_hb_wall,
+        primary_cutter,
+        z_min_m: float,
+        z_max_m: float,
+        openings_col,
+        opening_tag: str,
+    ) -> None:
+        host_thick_m = host_hb_wall.get_input("Thickness")
+        for cut in cuts:
+            if cut.wall is host_pw:
+                continue
+            cut_segs = wall_segments.get((cut.wall.set_index, cut.wall.wall_index))
+            if not cut_segs:
+                continue
+            nb_hb_wall, nb_len_m, _, _ = cut_segs[0]
+            nb_thick_m = nb_hb_wall.get_input("Thickness")
+            same_or_thinner = cut.same_direction and nb_thick_m <= host_thick_m + 1e-4
+            if same_or_thinner and primary_cutter is not None:
+                _add_boolean_cut(nb_hb_wall.obj, primary_cutter)
+            else:
+                extra_cutter = _build_wall_span_cutter(
+                    nb_hb_wall.obj,
+                    cut.x_start_m,
+                    cut.x_end_m,
+                    nb_len_m,
+                    nb_thick_m,
+                    z_min_m,
+                    z_max_m,
+                    openings_col,
+                    f"{opening_tag}_Cut_{cut.wall.identifier}",
+                )
+                _add_boolean_cut(nb_hb_wall.obj, extra_cutter)
+
     door_intervals_by_wall_obj: Dict[int, List[Tuple[float, float]]] = {}
     door_count = 0
     for pd in project.doors:
@@ -4052,13 +4835,31 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         lvl = level_by_id.get(pd.level_id, project.levels[0])
         openings_col = level_cols[lvl.id]["openings"]
 
-        width_m = max(0.1, min(pd.width * INCH_TO_M, wall_len_m))
-        height_m = max(0.2, min(pd.height * INCH_TO_M, min_h_m))
+        if not host_pw.is_curved:
+            placement = resolve_opening_chain_placement(
+                host_pw, local_ratio, pd.width, project.walls
+            )
+            width_m = placement.width_m
+            x_local = placement.x_local_m
+            eff_min_h_m = placement.min_height_m
+            cuts = placement.cuts
+            for cut in cuts:
+                cut_segs = wall_segments.get((cut.wall.set_index, cut.wall.wall_index))
+                if cut_segs:
+                    door_intervals_by_wall_obj.setdefault(
+                        id(cut_segs[0][0].obj), []
+                    ).append((cut.x_start_m, cut.x_end_m))
+        else:
+            width_m = max(0.1, min(pd.width * INCH_TO_M, wall_len_m))
+            x_local = compute_opening_local_x(local_ratio, wall_len_m, width_m)
+            eff_min_h_m = min_h_m
+            cuts = []
+            door_intervals_by_wall_obj.setdefault(id(hb_wall.obj), []).append(
+                (x_local, x_local + width_m)
+            )
+
+        height_m = max(0.2, min(pd.height * INCH_TO_M, eff_min_h_m))
         thickness_m = hb_wall.get_input("Thickness")
-        x_local = compute_opening_local_x(local_ratio, wall_len_m, width_m)
-        door_intervals_by_wall_obj.setdefault(id(hb_wall.obj), []).append(
-            (x_local, x_local + width_m)
-        )
 
         cage = hb_types.GeoNodeCage()
         cage.create(f"Door_{pd.identifier}")
@@ -4076,12 +4877,14 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         cage.obj.rotation_euler = (0.0, 0.0, 0.0)
         _move_object_to_collection(cage.obj, openings_col)
 
+        primary_cutter = None
         if pd.door_type == "frame":
             cage.obj["IS_OPEN_DOORWAY"] = True
             _add_boolean_cut(hb_wall.obj, cage.obj)
+            primary_cutter = cage.obj
         elif pd.door_type == "garage":
             cage.obj["IS_GARAGE_DOOR"] = True
-            _build_garage_door_mesh(
+            _, primary_cutter = _build_garage_door_mesh(
                 cage.obj, width_m, thickness_m, height_m, openings_col, hb_wall.obj
             )
         else:
@@ -4138,10 +4941,21 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
             door_window_geo.set_opts(cage.obj, opts)
             cutting_obj = door_window_geo.update_reveal_cutter(cage.obj)
             _add_boolean_cut(hb_wall.obj, cutting_obj)
+            primary_cutter = cutting_obj
             door_window_geo.build_geometry(cage.obj)
             for child in cage.obj.children:
                 _move_object_to_collection(child, openings_col)
 
+        _apply_neighbor_opening_cuts(
+            cuts,
+            host_pw,
+            hb_wall,
+            primary_cutter,
+            0.0,
+            height_m,
+            openings_col,
+            f"Door_{pd.identifier}",
+        )
         door_count += 1
 
     window_count = 0
@@ -4149,15 +4963,27 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         resolved = _resolve_opening_host(pw_win.set_index, pw_win.wall_index, pw_win.ratio)
         if resolved is None:
             continue
-        hb_wall, wall_len_m, min_h_m, _host_pw, local_ratio = resolved
+        hb_wall, wall_len_m, min_h_m, host_pw, local_ratio = resolved
         lvl = level_by_id.get(pw_win.level_id, project.levels[0])
         openings_col = level_cols[lvl.id]["openings"]
 
-        width_m = max(0.1, min(pw_win.width * INCH_TO_M, wall_len_m))
-        height_m = max(0.1, min(pw_win.height * INCH_TO_M, max(0.1, min_h_m - 0.05)))
+        if not host_pw.is_curved:
+            placement = resolve_opening_chain_placement(
+                host_pw, local_ratio, pw_win.width, project.walls
+            )
+            width_m = placement.width_m
+            x_local = placement.x_local_m
+            eff_min_h_m = placement.min_height_m
+            cuts = placement.cuts
+        else:
+            width_m = max(0.1, min(pw_win.width * INCH_TO_M, wall_len_m))
+            x_local = compute_opening_local_x(local_ratio, wall_len_m, width_m)
+            eff_min_h_m = min_h_m
+            cuts = []
+
+        height_m = max(0.1, min(pw_win.height * INCH_TO_M, max(0.1, eff_min_h_m - 0.05)))
         thickness_m = hb_wall.get_input("Thickness")
-        z_local = compute_window_sill_height_m(height_m, min_h_m)
-        x_local = compute_opening_local_x(local_ratio, wall_len_m, width_m)
+        z_local = compute_window_sill_height_m(height_m, eff_min_h_m)
 
         cage = hb_types.GeoNodeCage()
         cage.create(f"Window_{pw_win.identifier}")
@@ -4198,6 +5024,16 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         for child in cage.obj.children:
             _move_object_to_collection(child, openings_col)
 
+        _apply_neighbor_opening_cuts(
+            cuts,
+            host_pw,
+            hb_wall,
+            cutting_obj,
+            z_local,
+            z_local + height_m,
+            openings_col,
+            f"Window_{pw_win.identifier}",
+        )
         window_count += 1
 
     door_window_geo.hide_reveal_cutters()
@@ -4215,15 +5051,12 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         if bb_obj is not None:
             baseboard_count += 1
 
-    footer_count = 0
-    for pw in project.walls:
-        if pw.footer:
-            lvl = level_by_id.get(pw.level_id, project.levels[0])
-            f_obj = _build_wall_footer(
-                pw, lvl, cx, cy, foundations_col, surface_materials
-            )
-            if f_obj is not None:
-                footer_count += 1
+    footer_count = _build_level_footers(
+        project, level_by_id, cx, cy, foundations_col, surface_materials
+    )
+    _build_level_rim_bands(
+        project, level_by_id, level_cols, cx, cy, scene, surface_materials
+    )
 
     room_cutouts = compute_room_hole_cutouts(project)
     room_count = 0

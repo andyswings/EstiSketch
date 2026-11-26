@@ -2,6 +2,12 @@ import math
 import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk
+from ..geometry.wall_chain import resolve_opening_on_chain
+from ..geometry.wall_merge import (
+    can_merge_walls,
+    merge_walls,
+    reassign_openings_after_split,
+)
 from ..geometry.arc_wall import (
     arc_wall_project,
     clamp_opening_ratio,
@@ -122,6 +128,46 @@ class EditEventsMixin:
         except BaseException:
             pass
 
+    def merge_selected_walls(self, popover: Gtk.Popover | None = None) -> bool:
+        """Merge two selected collinear, touching walls into a single wall.
+
+        Openings on either wall keep their physical positions, so a door or window can then
+        be centred across the former junction. Roof edges that referenced the absorbed wall
+        are re-pointed at the surviving wall.
+
+        Returns:
+            True if the walls were merged.
+        """
+        selected = [i["object"] for i in self.selected_items if i.get("type") == "wall"]
+        if len(selected) != 2 or not can_merge_walls(selected[0], selected[1]):
+            self.update_hint("Select two straight, collinear, connected walls of equal thickness.")
+            return False
+        for wall in selected:
+            if self.is_object_on_locked_layer(wall):
+                self.update_hint("Cannot merge walls on a locked layer.")
+                return False
+        survivor, absorbed = selected
+        merge_walls(survivor, absorbed, self.wall_sets, self.doors, self.windows)
+        for roof in getattr(self, "roofs", []):
+            ids = {e.wall_identifier for e in roof.edges}
+            if absorbed.identifier in ids:
+                roof.edges = [e for e in roof.edges
+                              if e.wall_identifier != absorbed.identifier or survivor.identifier not in ids]
+                for edge in roof.edges:
+                    if edge.wall_identifier == absorbed.identifier:
+                        edge.wall_identifier = survivor.identifier
+        self.wall_sets = [ws for ws in self.wall_sets if ws]
+        self.selected_items = [{"type": "wall", "object": survivor}]
+        self.save_state()
+        self.emit('content-changed')
+        self.queue_draw()
+        if popover is not None:
+            try:
+                popover.popdown()
+            except BaseException:
+                pass
+        return True
+
     def split_wall(self, popover: Gtk.Popover) -> None:
         """
         Split a single selected wall into two connected walls at its midpoint.
@@ -198,9 +244,7 @@ class EditEventsMixin:
                 wall_set.insert(idx, w2)
                 wall_set.insert(idx, w1)
 
-                # Update any doors/windows on this wall?
-                # This is complex. For now, drop openings on the split wall or try to reassign.
-                # Moving forward without complex opening logic for now.
+                reassign_openings_after_split(wall, w1, w2, self.doors, self.windows)
                 found = True
                 break
 
@@ -1361,7 +1405,10 @@ class EditEventsMixin:
                             if wall_len_sq > 0:
                                 dot = (
                                     target_x - check_wall.start[0]) * wx + (target_y - check_wall.start[1]) * wy
-                                best_ratio = clamp_opening_ratio(check_wall, dot / wall_len_sq, opening_width)
+                                # Host is chosen by the opening's centre so it can straddle a split.
+                                best_wall, best_ratio = resolve_opening_on_chain(
+                                    check_wall, dot / wall_len_sq, opening_width,
+                                    self._opening_candidate_walls())
                             else:
                                 best_ratio = 0.5
 

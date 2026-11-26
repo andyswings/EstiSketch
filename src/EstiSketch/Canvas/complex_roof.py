@@ -735,6 +735,71 @@ def generate_convex_multisided_roof(
     return ridge_lines, hip_lines, valley_lines, [], [], outline_points
 
 
+def _item_dir(item: Dict[str, Any]) -> Tuple[float, float]:
+    """Unit direction of an ordered wall item (zero vector if degenerate)."""
+    dx = item['end'][0] - item['start'][0]
+    dy = item['end'][1] - item['start'][1]
+    length = math.hypot(dx, dy)
+    if length < 1e-9:
+        return (0.0, 0.0)
+    return (dx / length, dy / length)
+
+
+def _items_collinear(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    """True when consecutive items continue in the same straight direction."""
+    da, db = _item_dir(a), _item_dir(b)
+    cross = da[0] * db[1] - da[1] * db[0]
+    dot = da[0] * db[0] + da[1] * db[1]
+    return abs(cross) < 1e-3 and dot > 0.0
+
+
+def merge_collinear_items(ordered: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Merge consecutive collinear wall items (e.g. a split wall) into one edge.
+
+    Roof shape classification and the solvers treat every item as a polygon side, so
+    a wall split in two would otherwise add a phantom vertex at the split point and
+    corrupt ridge/hip/valley generation. The merged item keeps the wall and edge type
+    of its longest member so overhang offsets use a representative wall thickness.
+
+    Args:
+        ordered: Closed loop from ``order_walls_into_loop`` (model inches).
+
+    Returns:
+        A new list with collinear runs collapsed; the input is returned unchanged if
+        merging would leave fewer than 3 sides.
+    """
+    n = len(ordered)
+    if n < 4:
+        return ordered
+    # Start the walk at a real corner so a collinear run is never split by the seam.
+    corner = next((i for i in range(n)
+                   if not _items_collinear(ordered[i - 1], ordered[i])), None)
+    if corner is None:
+        return ordered
+    rotated = ordered[corner:] + ordered[:corner]
+
+    runs: List[List[Dict[str, Any]]] = [[rotated[0]]]
+    for item in rotated[1:]:
+        if _items_collinear(runs[-1][-1], item):
+            runs[-1].append(item)
+        else:
+            runs.append([item])
+    if len(runs) < 3 or len(runs) == n:
+        return ordered
+
+    merged = []
+    for run in runs:
+        longest = max(run, key=lambda it: pt_distance(it['start'], it['end']))
+        merged.append({
+            'start': run[0]['start'],
+            'end': run[-1]['end'],
+            'wall': longest['wall'],
+            'edge_type': longest['edge_type'],
+            'members': [it['wall'] for it in run],
+        })
+    return merged
+
+
 def calculate_complex_roof_geometry(
     walls: list,
     markings: Dict[str, str],
@@ -751,6 +816,7 @@ def calculate_complex_roof_geometry(
     ordered_walls = order_walls_into_loop(walls, markings)
     if not ordered_walls:
         return [], [], [], [], [], []
+    ordered_walls = merge_collinear_items(ordered_walls)
 
     shape, reflex_idx, _ = classify_polygon_shape(ordered_walls)
 
@@ -767,25 +833,26 @@ def calculate_complex_roof_geometry(
         has_gables = any(item.get('edge_type') == 'gable' for item in ordered_walls)
         if has_gables:
             # Standard rectangular gable
-            eave_walls = [item['wall'] for item in ordered_walls if item.get('edge_type') == 'eave']
-            gable_walls = [item['wall'] for item in ordered_walls if item.get('edge_type') == 'gable']
-            if len(eave_walls) == 2 and len(gable_walls) == 2:
+            # Use the merged item endpoints (not wall.start/end) so split walls span the full side.
+            eave_items = [item for item in ordered_walls if item.get('edge_type') == 'eave']
+            gable_items = [item for item in ordered_walls if item.get('edge_type') == 'gable']
+            if len(eave_items) == 2 and len(gable_items) == 2:
                 from .roof_solver import distance_point_to_segment
-                e1 = eave_walls[0]
+                e1 = eave_items[0]
                 ridge_pts = []
-                for gw in gable_walls[:2]:
-                    d1 = distance_point_to_segment(gw.start, e1.start, e1.end)[0]
-                    d2 = distance_point_to_segment(gw.end, e1.start, e1.end)[0]
-                    p_from = gw.start if d1 <= d2 else gw.end
-                    p_to = gw.end if d1 <= d2 else gw.start
+                for gi in gable_items[:2]:
+                    d1 = distance_point_to_segment(gi['start'], e1['start'], e1['end'])[0]
+                    d2 = distance_point_to_segment(gi['end'], e1['start'], e1['end'])[0]
+                    p_from = gi['start'] if d1 <= d2 else gi['end']
+                    p_to = gi['end'] if d1 <= d2 else gi['start']
                     r_pt = (p_from[0] + ratio * (p_to[0] - p_from[0]), p_from[1] + ratio * (p_to[1] - p_from[1]))
                     ridge_pts.append(r_pt)
                 rdx = ridge_pts[1][0] - ridge_pts[0][0]
                 rdy = ridge_pts[1][1] - ridge_pts[0][1]
                 rlen = math.hypot(rdx, rdy) or 1.0
                 ux, uy = rdx / rlen, rdy / rlen
-                gw0_w = float(getattr(gable_walls[0], 'width', 0.0) or 0.0)
-                gw1_w = float(getattr(gable_walls[1], 'width', 0.0) or 0.0)
+                gw0_w = float(getattr(gable_items[0]['wall'], 'width', 0.0) or 0.0)
+                gw1_w = float(getattr(gable_items[1]['wall'], 'width', 0.0) or 0.0)
                 r_start = (ridge_pts[0][0] - ux * (overhang + 0.5 * gw0_w), ridge_pts[0][1] - uy * (overhang + 0.5 * gw0_w))
                 r_end = (ridge_pts[1][0] + ux * (overhang + 0.5 * gw1_w), ridge_pts[1][1] + uy * (overhang + 0.5 * gw1_w))
                 outline = calculate_polygon_outline(ordered_walls, overhang)

@@ -199,3 +199,13 @@ def test_level_layer_visibility_and_deselection():
     assert canvas.set_active_layer(layer2_id) is True
 
 
+
+
+def test_locate_across_split_wall_centres_on_junction():
+    a, b = _wall((0, 0), (100, 0)), _wall((100, 0), (200, 0))
+    h = _make([a, b])
+    h.is_object_on_visible_layer = lambda _w: True
+    h.is_object_on_locked_layer = lambda _w: False
+    wall, ratio = h._locate_on_wall(100, 1, opening_width=48.0)
+    centre_x = wall.start[0] + ratio * (wall.end[0] - wall.start[0])
+    assert centre_x == pytest.approx(100.0)

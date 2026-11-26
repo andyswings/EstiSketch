@@ -6,10 +6,23 @@ from ..geometry.arc_wall import (
     clamp_opening_ratio,
     is_curved_wall,
 )
+from ..geometry.wall_chain import resolve_opening_on_chain
 from ..Resources.tool_hints import TOOL_HINTS
 
 
 class CanvasToolsMixin:
+    def _opening_candidate_walls(self) -> list:
+        """Visible, unlocked walls an opening may extend across (for split-wall placement)."""
+        walls = []
+        for wall_set in self.wall_sets:
+            for wall in wall_set:
+                if hasattr(self, "is_object_on_visible_layer") and not self.is_object_on_visible_layer(wall):
+                    continue
+                if hasattr(self, "is_object_on_locked_layer") and self.is_object_on_locked_layer(wall):
+                    continue
+                walls.append(wall)
+        return walls
+
     def _locate_on_wall(self, x, y, opening_width=None):
         """Find the wall nearest to widget point (x, y) and the position ratio on it.
 
@@ -54,6 +67,7 @@ class CanvasToolsMixin:
                     continue
                 best_dist = dist
                 selected_wall = wall
+                selected_ratio = None
 
                 if curved:
                     selected_ratio = clamp_opening_ratio(wall, ratio, opening_width)
@@ -63,7 +77,9 @@ class CanvasToolsMixin:
                     wall_length = math.hypot(dx, dy)
                     if wall_length > 0:
                         t = ((canvas_x - wall.start[0]) * dx + (canvas_y - wall.start[1]) * dy) / (wall_length ** 2)
-                        selected_ratio = clamp_opening_ratio(wall, t, opening_width)
+                        # Openings may straddle a split: pick the host by the opening's centre.
+                        selected_wall, selected_ratio = resolve_opening_on_chain(
+                            wall, t, opening_width, self._opening_candidate_walls())
                     else:
                         selected_ratio = 0.5
 

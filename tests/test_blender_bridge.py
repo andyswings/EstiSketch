@@ -402,3 +402,260 @@ def test_milestone4_pure_python_helpers():
     seg_idx, local_r = bridge.resolve_curved_wall_segment([1.0, 2.0, 1.0], 0.5)
     assert seg_idx == 1
     assert local_r == pytest.approx(0.5)
+
+
+def _parsed_wall(
+    ident: str,
+    wall_index: int,
+    start: tuple[float, float],
+    end: tuple[float, float],
+    height: float = 96.0,
+    height_at_end: float | None = None,
+    level_id: str = "l1",
+) -> bridge.ParsedWall:
+    return bridge.ParsedWall(
+        identifier=ident,
+        set_index=0,
+        wall_index=wall_index,
+        start=start,
+        end=end,
+        width=6.0,
+        height=height,
+        height_at_end=height if height_at_end is None else height_at_end,
+        exterior_wall=True,
+        level_id=level_id,
+        layer_id="lay1",
+    )
+
+
+def test_resolve_opening_chain_single_wall():
+    w = _parsed_wall("w1", 0, (0.0, 0.0), (120.0, 0.0))
+    res = bridge.resolve_opening_chain_placement(w, 0.05, 36.0, [w])
+    expected_x = bridge.compute_opening_local_x(
+        0.05, 120.0 * bridge.INCH_TO_M, 36.0 * bridge.INCH_TO_M
+    )
+    assert res.x_local_m == pytest.approx(expected_x)
+    assert res.width_m == pytest.approx(36.0 * bridge.INCH_TO_M)
+    assert len(res.cuts) == 1
+    assert res.cuts[0].wall is w
+    assert res.cuts[0].x_start_m == pytest.approx(0.0)
+    assert res.cuts[0].x_end_m == pytest.approx(36.0 * bridge.INCH_TO_M)
+    assert res.cuts[0].same_direction is True
+
+
+def test_resolve_opening_chain_straddles_split_same_direction():
+    w1 = _parsed_wall("w1", 0, (0.0, 0.0), (100.0, 0.0))
+    w2 = _parsed_wall("w2", 1, (100.0, 0.0), (200.0, 0.0))
+
+    # Host is left wall at ratio=1.0, 48" wide -> spans [76", 124"]
+    res_left = bridge.resolve_opening_chain_placement(w1, 1.0, 48.0, [w1, w2])
+    assert res_left.x_local_m == pytest.approx(76.0 * bridge.INCH_TO_M)
+    assert res_left.width_m == pytest.approx(48.0 * bridge.INCH_TO_M)
+    assert len(res_left.cuts) == 2
+    c1, c2 = res_left.cuts
+    assert c1.wall is w1 and c1.same_direction is True
+    assert c1.x_start_m == pytest.approx(76.0 * bridge.INCH_TO_M)
+    assert c1.x_end_m == pytest.approx(100.0 * bridge.INCH_TO_M)
+    assert c2.wall is w2 and c2.same_direction is True
+    assert c2.x_start_m == pytest.approx(0.0)
+    assert c2.x_end_m == pytest.approx(24.0 * bridge.INCH_TO_M)
+
+    # Host is right wall at ratio=0.0, 48" wide -> x_local_m = -24" on right wall
+    res_right = bridge.resolve_opening_chain_placement(w2, 0.0, 48.0, [w1, w2])
+    assert res_right.x_local_m == pytest.approx(-24.0 * bridge.INCH_TO_M)
+    assert res_right.width_m == pytest.approx(48.0 * bridge.INCH_TO_M)
+    cuts_by_id = {c.wall.identifier: c for c in res_right.cuts}
+    assert cuts_by_id["w1"].x_start_m == pytest.approx(76.0 * bridge.INCH_TO_M)
+    assert cuts_by_id["w1"].x_end_m == pytest.approx(100.0 * bridge.INCH_TO_M)
+    assert cuts_by_id["w2"].x_start_m == pytest.approx(0.0)
+    assert cuts_by_id["w2"].x_end_m == pytest.approx(24.0 * bridge.INCH_TO_M)
+
+
+def test_resolve_opening_chain_wider_than_single_segment():
+    w1 = _parsed_wall("w1", 0, (0.0, 0.0), (60.0, 0.0))
+    w2 = _parsed_wall("w2", 1, (60.0, 0.0), (120.0, 0.0))
+    res = bridge.resolve_opening_chain_placement(w1, 1.0, 96.0, [w1, w2])
+    assert res.width_m == pytest.approx(96.0 * bridge.INCH_TO_M)
+    assert res.x_local_m == pytest.approx(12.0 * bridge.INCH_TO_M)
+    assert len(res.cuts) == 2
+
+
+def test_resolve_opening_chain_sloped_gable_height_interpolation():
+    w1 = _parsed_wall("w1", 0, (0.0, 0.0), (100.0, 0.0), height=96.0, height_at_end=144.0)
+    w2 = _parsed_wall("w2", 1, (100.0, 0.0), (200.0, 0.0), height=144.0, height_at_end=96.0)
+    res = bridge.resolve_opening_chain_placement(w1, 1.0, 48.0, [w1, w2])
+    # Span is [76", 124"]; lowest wall top on that span is at x=76" / 124":
+    # 96 + (144 - 96) * 0.76 = 132.48"
+    assert res.min_height_m == pytest.approx(132.48 * bridge.INCH_TO_M)
+
+
+def test_resolve_opening_chain_reversed_neighbor_and_exclusions():
+    w1 = _parsed_wall("w1", 0, (0.0, 0.0), (100.0, 0.0))
+    w2_rev = _parsed_wall("w2", 1, (200.0, 0.0), (100.0, 0.0))
+    corner = _parsed_wall("wc", 2, (200.0, 0.0), (200.0, 100.0))
+    other_lvl = _parsed_wall("wl2", 3, (200.0, 0.0), (300.0, 0.0), level_id="l2")
+
+    res = bridge.resolve_opening_chain_placement(
+        w1, 1.0, 48.0, [w1, w2_rev, corner, other_lvl]
+    )
+    assert len(res.cuts) == 2
+    cuts_by_id = {c.wall.identifier: c for c in res.cuts}
+    assert cuts_by_id["w2"].same_direction is False
+    # w2_rev runs from (200, 0) to (100, 0), so global [100", 124"] is local [76", 100"]
+    assert cuts_by_id["w2"].x_start_m == pytest.approx(76.0 * bridge.INCH_TO_M)
+    assert cuts_by_id["w2"].x_end_m == pytest.approx(100.0 * bridge.INCH_TO_M)
+
+    # Clamps to outer ends of chain (0..200"), ignoring corner and other-level wall
+    res_end = bridge.resolve_opening_chain_placement(
+        w2_rev, 0.0, 48.0, [w1, w2_rev, corner, other_lvl]
+    )
+    # w2_rev ratio=0.0 is x=200"; clamping to chain keeps opening in [152", 200"] -> local [0", 48"]
+    cuts_end = {c.wall.identifier: c for c in res_end.cuts}
+    assert list(cuts_end.keys()) == ["w2"]
+    assert cuts_end["w2"].x_start_m == pytest.approx(0.0)
+    assert cuts_end["w2"].x_end_m == pytest.approx(48.0 * bridge.INCH_TO_M)
+
+
+def test_compute_mitered_strip_polygons_rect_l_t_and_reversed():
+    # 1. 4-wall rectangle with asymmetric footer offsets (-0.15, +0.30)
+    rect = [
+        bridge.StripSegment((0.0, 0.0), (4.0, 0.0), -0.15, 0.30),
+        bridge.StripSegment((4.0, 0.0), (4.0, -3.0), -0.15, 0.30),
+        bridge.StripSegment((4.0, -3.0), (0.0, -3.0), -0.15, 0.30),
+        bridge.StripSegment((0.0, -3.0), (0.0, 0.0), -0.15, 0.30),
+    ]
+    polys = bridge.compute_mitered_strip_polygons(rect)
+    assert len(polys) == 4
+    # At corner (4.0, 0.0), seg 0 end and seg 1 start must meet at exact miter points
+    assert polys[0][1] == pytest.approx(polys[1][0])
+    assert polys[0][2] == pytest.approx(polys[1][3])
+    assert polys[0][2] == pytest.approx((4.30, 0.30))
+    assert polys[0][1] == pytest.approx((3.85, -0.15))
+
+    # 2. L-shaped loop (6 corners including inside reflex corner)
+    l_loop = [
+        bridge.StripSegment((0.0, 0.0), (6.0, 0.0), -0.10, 0.25),
+        bridge.StripSegment((6.0, 0.0), (6.0, -2.0), -0.10, 0.25),
+        bridge.StripSegment((6.0, -2.0), (3.0, -2.0), -0.10, 0.25),
+        bridge.StripSegment((3.0, -2.0), (3.0, -5.0), -0.10, 0.25),
+        bridge.StripSegment((3.0, -5.0), (0.0, -5.0), -0.10, 0.25),
+        bridge.StripSegment((0.0, -5.0), (0.0, 0.0), -0.10, 0.25),
+    ]
+    l_polys = bridge.compute_mitered_strip_polygons(l_loop)
+    for i in range(6):
+        nxt = (i + 1) % 6
+        assert l_polys[i][1] == pytest.approx(l_polys[nxt][0])
+        assert l_polys[i][2] == pytest.approx(l_polys[nxt][3])
+
+    # 3. T-junction & duplicate coincident wall: continuous run stays square, stem stays square
+    t_segs = [
+        bridge.StripSegment((0.0, 0.0), (2.0, 0.0), -0.1, 0.2),
+        bridge.StripSegment((2.0, 0.0), (5.0, 0.0), -0.1, 0.2),
+        bridge.StripSegment((2.0, 0.0), (2.0, -3.0), -0.1, 0.2),
+        bridge.StripSegment((2.0, 0.0), (2.0, -3.0), -0.1, 0.2),
+    ]
+    t_polys = bridge.compute_mitered_strip_polygons(t_segs)
+    assert t_polys[0][1] == pytest.approx((2.0, -0.1))
+    assert t_polys[2][0] == pytest.approx((1.9, 0.0))
+
+    # 4. Reversed-direction L-corner (end-to-end)
+    rev_l = [
+        bridge.StripSegment((0.0, 0.0), (3.0, 0.0), -0.10, 0.25),
+        bridge.StripSegment((3.0, -3.0), (3.0, 0.0), -0.25, 0.10),
+    ]
+    rev_polys = bridge.compute_mitered_strip_polygons(rev_l)
+    assert rev_polys[0][2] == pytest.approx((3.25, 0.25))
+    assert rev_polys[1][1] == pytest.approx((3.25, 0.25))
+    assert rev_polys[0][1] == pytest.approx(rev_polys[1][2])
+
+
+def test_orient_interior_wall_chains_flips_end_to_end_and_start_to_start():
+    ext = _parsed_wall("ext0", 0, (0.0, 0.0), (300.0, 0.0))
+    w_a = _parsed_wall("int_a", 0, (100.0, 0.0), (100.0, 120.0), height=96.0, height_at_end=108.0)
+    w_a.set_index = 1
+    w_a.exterior_wall = False
+    w_a.left_finish = "Tile"
+    w_a.right_finish = "Drywall"
+    w_b = _parsed_wall("int_b", 1, (0.0, 120.0), (100.0, 120.0))
+    w_b.set_index = 1
+    w_b.exterior_wall = False
+    w_b.left_finish = "Plaster"
+    w_b.right_finish = "Drywall"
+
+    door = bridge.ParsedDoor(
+        identifier="d1",
+        set_index=1,
+        wall_index=1,
+        ratio=0.25,
+        door_type="single",
+        width=36.0,
+        height=80.0,
+        swing="left",
+        orientation="inswing",
+        level_id="l1",
+    )
+    win = bridge.ParsedWindow(
+        identifier="win1",
+        set_index=1,
+        wall_index=1,
+        ratio=0.75,
+        window_type="sliding",
+        width=36.0,
+        height=48.0,
+        level_id="l1",
+    )
+    proj = bridge.ParsedProject(
+        levels=[bridge.ParsedLevel("l1", "Level 1", 0.0, 96.0)],
+        walls=[ext, w_a, w_b],
+        doors=[door],
+        windows=[win],
+    )
+    flipped = bridge.orient_interior_wall_chains(proj)
+    assert flipped == 1
+    assert ext.start == (0.0, 0.0) and ext.end == (300.0, 0.0)
+    assert w_a.end == w_b.start
+    assert w_b.left_finish == "Drywall"
+    assert w_b.right_finish == "Plaster"
+    assert door.ratio == pytest.approx(0.75)
+    assert door.orientation == "outswing"
+    assert door.swing == "right"
+    assert win.ratio == pytest.approx(0.25)
+
+    # Verify real House 2 interior L-corners orient head-to-tail
+    house2_xml = os.path.join(
+        DEMO_DIR, "house2_two_story_3bed_2bath_garage_1800sqft.xml"
+    )
+    h2 = bridge.parse_estisketch_xml(house2_xml)
+    bridge.orient_interior_wall_chains(h2)
+    by_sw = {(w.set_index, w.wall_index): w for w in h2.walls}
+    assert by_sw[(2, 0)].end == by_sw[(2, 1)].start
+    assert by_sw[(2, 2)].end == by_sw[(2, 3)].start or by_sw[(2, 3)].end == by_sw[(2, 2)].start
+
+
+def test_compute_level_wall_miters_isolates_levels_and_miters_interior_l_corners():
+    # 1. Equal-thickness 90-degree corner (CW in Blender XY) -> +45 / -45 deg
+    entries = [
+        ("A", (0.0, 0.0), (4.0, 0.0), 0.15, True),
+        ("B", (4.0, 0.0), (4.0, -4.0), 0.15, True),
+    ]
+    miters = bridge.compute_level_wall_miters(entries)
+    assert miters["A"][1] == pytest.approx(math.pi / 4.0)
+    assert miters["B"][0] == pytest.approx(-math.pi / 4.0)
+
+    # 2. Mixed-thickness 90-degree corner: outer corners must coincide
+    ra, lb = bridge.solve_hb5_miter_angles(0.0, 0.20, -math.pi / 2.0, 0.10)
+    assert math.tan(ra) * 0.20 == pytest.approx(0.10)
+    assert math.tan(-lb) * 0.10 == pytest.approx(0.20)
+
+    # 3. Collinear split walls get 0.0 at split joint; interior L-corner gets +-45 deg
+    entries_split = [
+        ("S1", (0.0, 0.0), (2.0, 0.0), 0.15, True),
+        ("S2", (2.0, 0.0), (4.0, 0.0), 0.15, True),
+        ("I1", (1.0, 0.0), (1.0, -2.0), 0.11, False),
+        ("I2", (1.0, -2.0), (0.0, -2.0), 0.11, False),
+    ]
+    split_m = bridge.compute_level_wall_miters(entries_split)
+    assert split_m["S1"][1] == pytest.approx(0.0)
+    assert split_m["S2"][0] == pytest.approx(0.0)
+    assert split_m["I1"][1] == pytest.approx(math.pi / 4.0)
+    assert split_m["I2"][0] == pytest.approx(-math.pi / 4.0)
