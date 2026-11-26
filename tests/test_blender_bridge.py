@@ -233,3 +233,56 @@ def test_synthetic_stairs_and_floor_opening_cutouts(tmp_path):
         assert len(rails) == 2
         assert rails[0][0][2] == pytest.approx(0.0)
         assert rails[0][-1][2] == pytest.approx(106.0)
+
+
+@pytest.mark.parametrize(
+    "filename,expected_count",
+    [
+        ("house1_gable_2bed_1_5bath_1200sqft.xml", 49),
+        ("house2_two_story_3bed_2bath_garage_1800sqft.xml", 56),
+        ("house3_l_shape_2bed_2bath_office_1500sqft.xml", 53),
+    ],
+)
+def test_parse_demo_house_fixtures(filename, expected_count):
+    proj = bridge.parse_estisketch_xml(os.path.join(DEMO_DIR, filename))
+    assert len(proj.fixtures) == expected_count
+    cats = {fx.category for fx in proj.fixtures}
+    assert {"kitchen_cabinet", "kitchen_appliance", "bathroom_fixture", "living_furniture", "bedroom_furniture"}.issubset(cats)
+    assert any(fx.has_countertop for fx in proj.fixtures)
+
+
+def test_compute_hb5_fixture_transform_rotations_and_z():
+    # Base cabinet 36"x24" centered at (100, 50) on a 106" level, elevation=0
+    for rot_deg, exp_bl in [
+        (0.0, (82.0, 38.0)),
+        (90.0, (112.0, 32.0)),
+        (180.0, (118.0, 62.0)),
+        (270.0, (88.0, 68.0)),
+    ]:
+        fx = bridge.ParsedFixture(
+            identifier="fx1",
+            symbol_type="base_cabinet",
+            category="kitchen_cabinet",
+            level_id="lvl2",
+            layer_id="lay2",
+            x=100.0,
+            y=50.0,
+            width=36.0,
+            depth=24.0,
+            height=34.5,
+            rotation=rot_deg,
+            elevation=0.0,
+            mount_surface="auto",
+            has_countertop=True,
+            countertop_overhang=1.5,
+            countertop_thickness=1.5,
+            countertop_material="quartz",
+            has_backsplash=True,
+            door_swing="left",
+        )
+        loc, rot_z = bridge.compute_hb5_fixture_transform(fx, 106.0, 100.0, 50.0)
+        ex, ey = bridge.inches_to_blender_xy(exp_bl[0], exp_bl[1], 100.0, 50.0)
+        assert loc[0] == pytest.approx(ex, abs=1e-5)
+        assert loc[1] == pytest.approx(ey, abs=1e-5)
+        assert loc[2] == pytest.approx(106.0 * bridge.INCH_TO_M, abs=1e-5)
+        assert rot_z == pytest.approx(-math.radians(rot_deg), abs=1e-5)

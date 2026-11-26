@@ -215,6 +215,33 @@ class RoomHoleCutout:
 
 
 @dataclass
+class ParsedFixture:
+    """Architectural cabinet, plumbing fixture, appliance, or furniture piece."""
+
+    identifier: str
+    symbol_type: str
+    category: str
+    level_id: str
+    layer_id: str
+    x: float  # inches
+    y: float  # inches
+    width: float  # inches
+    depth: float  # inches
+    height: float  # inches
+    rotation: float  # degrees
+    elevation: float  # inches above floor
+    mount_surface: str
+    has_countertop: bool
+    countertop_overhang: float  # inches
+    countertop_thickness: float  # inches
+    countertop_material: str
+    has_backsplash: bool
+    door_swing: str
+    fill_color: Optional[Tuple[float, float, float]] = None
+    countertop_color: Optional[Tuple[float, float, float]] = None
+
+
+@dataclass
 class ParsedProject:
     """Container for all parsed EstiSketch elements needed for 3D conversion."""
 
@@ -226,6 +253,7 @@ class ParsedProject:
     roofs: List[ParsedRoof] = field(default_factory=list)
     stairs: List[ParsedStair] = field(default_factory=list)
     floor_openings: List[ParsedFloorOpening] = field(default_factory=list)
+    fixtures: List[ParsedFixture] = field(default_factory=list)
     cut_lower_ceiling_under_stairs: bool = False
 
 
@@ -592,6 +620,48 @@ def parse_estisketch_xml(xml_path: str) -> ParsedProject:
                 )
             )
 
+    def _parse_hex_rgb(text: str) -> Optional[Tuple[float, float, float]]:
+        s = (text or "").strip().lstrip("#")
+        if len(s) != 6:
+            return None
+        try:
+            return (int(s[0:2], 16) / 255.0, int(s[2:4], 16) / 255.0, int(s[4:6], 16) / 255.0)
+        except ValueError:
+            return None
+
+    fixtures: List[ParsedFixture] = []
+    fx_elem = root.find("Fixtures")
+    if fx_elem is not None:
+        for fx_idx, f_el in enumerate(fx_elem.findall("Fixture")):
+            if not _is_visible(f_el):
+                continue
+            layer_id = f_el.get("layer_id", "") or ""
+            fixtures.append(
+                ParsedFixture(
+                    identifier=f_el.get("identifier", "") or f"fixture_{fx_idx}",
+                    symbol_type=(f_el.get("symbol_type", "base_cabinet") or "base_cabinet").lower(),
+                    category=(f_el.get("category", "") or "").lower(),
+                    level_id=_resolve_level_id(layer_id, layer_to_level, default_level_id),
+                    layer_id=layer_id,
+                    x=_attr_float(f_el, "x", 0.0),
+                    y=_attr_float(f_el, "y", 0.0),
+                    width=_attr_float(f_el, "width", 24.0),
+                    depth=_attr_float(f_el, "depth", 24.0),
+                    height=_attr_float(f_el, "height", 34.5),
+                    rotation=_attr_float(f_el, "rotation", 0.0),
+                    elevation=_attr_float(f_el, "elevation", 0.0),
+                    mount_surface=(f_el.get("mount_surface", "auto") or "auto").lower(),
+                    has_countertop=(f_el.get("has_countertop", "False").strip().lower() == "true"),
+                    countertop_overhang=_attr_float(f_el, "countertop_overhang", 0.0),
+                    countertop_thickness=_attr_float(f_el, "countertop_thickness", 1.5),
+                    countertop_material=(f_el.get("countertop_material", "quartz") or "quartz").lower(),
+                    has_backsplash=(f_el.get("has_backsplash", "True").strip().lower() == "true"),
+                    door_swing=(f_el.get("door_swing", "left") or "left").lower(),
+                    fill_color=_parse_hex_rgb(f_el.get("fill_color", "")),
+                    countertop_color=_parse_hex_rgb(f_el.get("countertop_color", "")),
+                )
+            )
+
     cut_lower = root.get("cut_lower_ceiling_under_stairs", "False").strip().lower() == "true"
 
     return ParsedProject(
@@ -603,6 +673,7 @@ def parse_estisketch_xml(xml_path: str) -> ParsedProject:
         roofs=roofs,
         stairs=stairs,
         floor_openings=floor_openings,
+        fixtures=fixtures,
         cut_lower_ceiling_under_stairs=cut_lower,
     )
 
@@ -1638,6 +1709,29 @@ def compute_stair_railing_paths_3d(
     return paths
 
 
+def compute_hb5_fixture_transform(
+    fx: ParsedFixture, level_elev_in: float, cx: float, cy: float
+) -> Tuple[Tuple[float, float, float], float]:
+    """Convert centered EstiSketch fixture pose to HB5 back-left ``(loc_m, rot_z_rad)``."""
+    r = math.radians(fx.rotation)
+    ca, sa = math.cos(r), math.sin(r)
+    lx, ly = -fx.width / 2.0, -fx.depth / 2.0
+    bl_x = fx.x + lx * ca - ly * sa
+    bl_y = fx.y + lx * sa + ly * ca
+    loc_x, loc_y = inches_to_blender_xy(bl_x, bl_y, cx, cy)
+    loc_z = (level_elev_in + fx.elevation) * INCH_TO_M
+    return ((loc_x, loc_y, loc_z), -r)
+
+
+def compute_centered_fixture_transform(
+    fx: ParsedFixture, level_elev_in: float, cx: float, cy: float
+) -> Tuple[Tuple[float, float, float], float]:
+    """Convert centered EstiSketch fixture pose to centered Blender ``(loc_m, rot_z_rad)``."""
+    cx_m, cy_m = inches_to_blender_xy(fx.x, fx.y, cx, cy)
+    loc_z = (level_elev_in + fx.elevation) * INCH_TO_M
+    return ((cx_m, cy_m, loc_z), -math.radians(fx.rotation))
+
+
 # ---------------------------------------------------------------------------
 # Layer 2: Blender + Home Builder 5 scene builder (lazy bpy import)
 # ---------------------------------------------------------------------------
@@ -2450,6 +2544,757 @@ def _build_stair_railing_mesh(
     return obj
 
 
+_HB5_CABINET_SYMBOLS = {
+    "base_cabinet",
+    "base_drawer_cabinet",
+    "sink_base_cabinet",
+    "corner_base_cabinet",
+    "upper_cabinet",
+    "corner_upper_cabinet",
+    "tall_pantry",
+    "island_cabinet",
+    "vanity_single",
+    "vanity_double",
+}
+
+_HB5_APPLIANCE_SYMBOLS = {
+    "range_stove",
+    "refrigerator",
+    "dishwasher",
+    "range_hood",
+    "microwave",
+    "cooktop",
+    "wall_oven",
+    "kitchen_sink_single",
+    "kitchen_sink_double",
+    "washer",
+    "dryer",
+}
+
+_PLUMBING_MECHANICAL_SYMBOLS = {
+    "toilet",
+    "bathtub",
+    "shower_square",
+    "shower_corner",
+    "pedestal_sink",
+    "utility_sink",
+    "water_heater",
+    "furnace",
+    "air_conditioner",
+}
+
+_FURNITURE_SYMBOLS = {
+    "sofa",
+    "loveseat",
+    "armchair",
+    "coffee_table",
+    "end_table",
+    "tv_console",
+    "bed_king",
+    "bed_queen",
+    "bed_twin",
+    "nightstand",
+    "dresser",
+    "dining_table",
+    "dining_chair",
+    "desk",
+    "office_chair",
+    "bookshelf",
+}
+
+
+def _get_or_create_simple_material(
+    mat_id: str,
+    base_col: Tuple[float, float, float, float],
+    metallic: float = 0.0,
+    roughness: float = 0.5,
+    alpha: float = 1.0,
+):
+    import bpy
+
+    existing = bpy.data.materials.get(mat_id)
+    if existing is not None:
+        return existing
+    mat = bpy.data.materials.new(name=mat_id)
+    if mat.node_tree is None:
+        mat.use_nodes = True
+    bsdf = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if bsdf is not None:
+        bsdf.inputs["Base Color"].default_value = base_col
+        bsdf.inputs["Metallic"].default_value = metallic
+        bsdf.inputs["Roughness"].default_value = roughness
+        if alpha < 0.999 and "Alpha" in bsdf.inputs:
+            bsdf.inputs["Alpha"].default_value = alpha
+    mat.diffuse_color = (base_col[0], base_col[1], base_col[2], alpha)
+    return mat
+
+
+def _bm_add_box(
+    bm,
+    x0: float,
+    y0: float,
+    z0: float,
+    x1: float,
+    y1: float,
+    z1: float,
+    mat_index: int = 0,
+) -> None:
+    if abs(x1 - x0) < 1e-5 or abs(y1 - y0) < 1e-5 or abs(z1 - z0) < 1e-5:
+        return
+    xa, xb = (x0, x1) if x0 < x1 else (x1, x0)
+    ya, yb = (y0, y1) if y0 < y1 else (y1, y0)
+    za, zb = (z0, z1) if z0 < z1 else (z1, z0)
+    v = [
+        bm.verts.new((xa, ya, za)),
+        bm.verts.new((xb, ya, za)),
+        bm.verts.new((xb, yb, za)),
+        bm.verts.new((xa, yb, za)),
+        bm.verts.new((xa, ya, zb)),
+        bm.verts.new((xb, ya, zb)),
+        bm.verts.new((xb, yb, zb)),
+        bm.verts.new((xa, yb, zb)),
+    ]
+    faces = [
+        (v[4], v[5], v[6], v[7]),
+        (v[3], v[2], v[1], v[0]),
+        (v[0], v[1], v[5], v[4]),
+        (v[1], v[2], v[6], v[5]),
+        (v[2], v[3], v[7], v[6]),
+        (v[3], v[0], v[4], v[7]),
+    ]
+    for fverts in faces:
+        f = bm.faces.new(fverts)
+        f.material_index = mat_index
+
+
+def _bm_add_cylinder(
+    bm,
+    cx: float,
+    cy: float,
+    z0: float,
+    z1: float,
+    radius: float,
+    segments: int = 20,
+    mat_index: int = 0,
+) -> None:
+    from mathutils import Matrix
+    import bmesh
+
+    h = max(1e-4, z1 - z0)
+    res = bmesh.ops.create_cone(
+        bm,
+        cap_ends=True,
+        cap_tris=False,
+        segments=segments,
+        radius1=radius,
+        radius2=radius,
+        depth=h,
+        matrix=Matrix.Translation((cx, cy, z0 + h / 2.0)),
+    )
+    if mat_index != 0:
+        for g in res.get("verts", []):
+            for f in g.link_faces:
+                f.material_index = mat_index
+
+
+def _finalize_bmesh_object(
+    bm,
+    name: str,
+    materials: List[object],
+    loc: Tuple[float, float, float],
+    rot_z: float,
+    target_col,
+    identifier: str,
+):
+    import bmesh
+    import bpy
+
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    uv_layer = bm.loops.layers.uv.new("UVMap")
+    for face in bm.faces:
+        is_vert = abs(face.normal.z) < 0.25
+        for loop in face.loops:
+            co = loop.vert.co
+            loop[uv_layer].uv = (co.x + co.y, co.z) if is_vert else (co.x, co.y)
+
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    for mat in materials:
+        mesh.materials.append(mat)
+
+    obj = bpy.data.objects.new(name, mesh)
+    obj.location = loc
+    obj.rotation_euler = (0.0, 0.0, rot_z)
+    obj["ESTISKETCH_ID"] = identifier
+    if materials:
+        obj.color = materials[0].diffuse_color
+    target_col.objects.link(obj)
+    return obj
+
+
+def _move_hierarchy_to_collection(root_obj, target_col) -> None:
+    _move_object_to_collection(root_obj, target_col)
+    for child in list(root_obj.children_recursive):
+        _move_object_to_collection(child, target_col)
+
+
+def _build_hb5_cabinet(
+    fx: ParsedFixture,
+    lvl: ParsedLevel,
+    cx: float,
+    cy: float,
+    target_col,
+    types_frameless,
+    solver_frameless,
+):
+    sym = fx.symbol_type
+    w_m = max(0.15, fx.width * INCH_TO_M)
+    d_m = max(0.15, fx.depth * INCH_TO_M)
+    h_m = max(0.15, fx.height * INCH_TO_M)
+
+    if sym == "upper_cabinet":
+        cab = types_frameless.UpperCabinet()
+        cab.width, cab.depth, cab.height = w_m, d_m, h_m
+        cab.create(f"Cabinet_{sym}_{fx.identifier}")
+    elif sym == "tall_pantry":
+        cab = types_frameless.TallCabinet()
+        cab.width, cab.depth, cab.height = w_m, d_m, h_m
+        cab.create(f"Cabinet_{sym}_{fx.identifier}")
+    elif sym == "corner_base_cabinet":
+        cab = types_frameless.PieCutCornerBaseCabinet()
+        cab.corner_size = w_m
+        cab.depth = 24.0 * INCH_TO_M
+        cab.height = h_m
+        cab.create(f"Cabinet_{sym}_{fx.identifier}")
+        if cab.has_input("Left Depth"):
+            cab.set_input("Left Depth", 24.0 * INCH_TO_M)
+        if cab.has_input("Right Depth"):
+            cab.set_input("Right Depth", 24.0 * INCH_TO_M)
+    elif sym == "corner_upper_cabinet":
+        cab = types_frameless.PieCutCornerUpperCabinet()
+        cab.corner_size = w_m
+        cab.depth = 12.0 * INCH_TO_M
+        cab.height = h_m
+        cab.create(f"Cabinet_{sym}_{fx.identifier}")
+        if cab.has_input("Left Depth"):
+            cab.set_input("Left Depth", 12.0 * INCH_TO_M)
+        if cab.has_input("Right Depth"):
+            cab.set_input("Right Depth", 12.0 * INCH_TO_M)
+    else:
+        cab = types_frameless.BaseCabinet()
+        cab.default_exterior = "3 Drawers" if sym == "base_drawer_cabinet" else "Doors"
+        cab.width, cab.depth, cab.height = w_m, d_m, h_m
+        cab.create(f"Cabinet_{sym}_{fx.identifier}")
+        if sym == "sink_base_cabinet":
+            try:
+                cab.set_property("Base Top Construction", 2)
+            except Exception:
+                pass
+
+    cab.set_input("Dim X", w_m)
+    cab.set_input("Dim Y", d_m if "corner" not in sym else w_m)
+    cab.set_input("Dim Z", h_m)
+    try:
+        solver_frameless.recalculate_cabinet(cab.obj)
+    except Exception as exc:
+        print(f"Warning: frameless solver recalc skipped for {fx.identifier}: {exc}")
+
+    loc, rot_z = compute_hb5_fixture_transform(fx, lvl.elevation, cx, cy)
+    cab.obj.location = loc
+    cab.obj.rotation_euler = (0.0, 0.0, rot_z)
+    cab.obj["ESTISKETCH_ID"] = fx.identifier
+    cab.obj["ESTISKETCH_SYMBOL"] = sym
+    _move_hierarchy_to_collection(cab.obj, target_col)
+    return cab.obj
+
+
+def _build_countertop_mesh(
+    fx: ParsedFixture,
+    lvl: ParsedLevel,
+    cx: float,
+    cy: float,
+    target_col,
+):
+    import bmesh
+
+    if not fx.has_countertop:
+        return None
+
+    w_m = max(0.1, fx.width * INCH_TO_M)
+    d_m = max(0.1, fx.depth * INCH_TO_M)
+    hw, hd = w_m / 2.0, d_m / 2.0
+    oh_m = max(0.0, fx.countertop_overhang * INCH_TO_M)
+    ct_t = max(0.015, fx.countertop_thickness * INCH_TO_M)
+
+    ct_presets = {
+        "quartz": ((0.90, 0.90, 0.88, 1.0), 0.20),
+        "granite": ((0.35, 0.36, 0.38, 1.0), 0.25),
+        "marble": ((0.94, 0.94, 0.95, 1.0), 0.18),
+        "butcher_block": ((0.64, 0.45, 0.26, 1.0), 0.45),
+        "laminate": ((0.85, 0.82, 0.76, 1.0), 0.40),
+        "concrete": ((0.55, 0.56, 0.56, 1.0), 0.65),
+        "solid_surface": ((0.92, 0.92, 0.90, 1.0), 0.25),
+    }
+    col, rough = ct_presets.get(fx.countertop_material, ((0.88, 0.88, 0.86, 1.0), 0.25))
+    if fx.countertop_color is not None:
+        col = (fx.countertop_color[0], fx.countertop_color[1], fx.countertop_color[2], 1.0)
+
+    ct_mat = _get_or_create_simple_material(
+        f"EstiSketch_CT_{fx.countertop_material}", col, metallic=0.0, roughness=rough
+    )
+    steel_mat = _get_or_create_simple_material(
+        "EstiSketch_BrushedSteel", (0.72, 0.74, 0.76, 1.0), metallic=0.85, roughness=0.25
+    )
+
+    bm = bmesh.new()
+    if fx.symbol_type == "corner_base_cabinet":
+        arm_m = min(24.0 * INCH_TO_M + oh_m, w_m, d_m)
+        # Back at +Y (+hd) and Left (-hw); open quadrant at (+X, -Y)
+        pts = [
+            (-hw, hd),
+            (hw, hd),
+            (hw, hd - arm_m),
+            (-hw + arm_m, hd - arm_m),
+            (-hw + arm_m, -hd),
+            (-hw, -hd),
+        ]
+        _extrude_prism_z(bm, pts, 0.0, ct_t)
+        if fx.has_backsplash:
+            bs_h = 4.0 * INCH_TO_M
+            bs_d = 0.75 * INCH_TO_M
+            _bm_add_box(bm, -hw, hd - bs_d, ct_t, hw, hd, ct_t + bs_h, mat_index=0)
+            _bm_add_box(bm, -hw, -hd, ct_t, -hw + bs_d, hd - bs_d, ct_t + bs_h, mat_index=0)
+    else:
+        # Back at +hd, front overhangs toward -Y (-hd - oh_m)
+        _bm_add_box(bm, -hw, -hd - oh_m, 0.0, hw, hd, ct_t, mat_index=0)
+        if fx.has_backsplash and fx.symbol_type != "island_cabinet":
+            bs_h = 4.0 * INCH_TO_M
+            bs_d = 0.75 * INCH_TO_M
+            _bm_add_box(bm, -hw, hd - bs_d, ct_t, hw, hd, ct_t + bs_h, mat_index=0)
+
+    # Add integrated sink rim & faucet for sink base and bath vanities
+    if fx.symbol_type in ("sink_base_cabinet", "vanity_single", "vanity_double"):
+        bowls = [-w_m * 0.24, w_m * 0.24] if fx.symbol_type == "vanity_double" else [0.0]
+        bw = min(w_m * 0.36, 18.0 * INCH_TO_M) if len(bowls) > 1 else min(w_m * 0.72, 28.0 * INCH_TO_M)
+        bd = min(d_m * 0.62, 15.0 * INCH_TO_M)
+        rim = 1.0 * INCH_TO_M
+        for bx in bowls:
+            _bm_add_box(bm, bx - bw / 2.0, -bd / 2.0, ct_t, bx + bw / 2.0, bd / 2.0, ct_t + 0.008, mat_index=1)
+            _bm_add_box(bm, bx - bw / 2.0 + rim, -bd / 2.0 + rim, ct_t + 0.004, bx + bw / 2.0 - rim, bd / 2.0 - rim, ct_t + 0.012, mat_index=1)
+            fy = bd / 2.0 + 0.025
+            _bm_add_cylinder(bm, bx, fy, ct_t, ct_t + 0.16, 0.014, segments=12, mat_index=1)
+            _bm_add_box(bm, bx - 0.012, fy - 0.09, ct_t + 0.14, bx + 0.012, fy + 0.01, ct_t + 0.165, mat_index=1)
+
+    loc, rot_z = compute_centered_fixture_transform(fx, lvl.elevation + fx.height, cx, cy)
+    obj = _finalize_bmesh_object(
+        bm,
+        f"Countertop_{fx.symbol_type}_{fx.identifier}",
+        [ct_mat, steel_mat],
+        loc,
+        rot_z,
+        target_col,
+        fx.identifier,
+    )
+    obj["IS_COUNTERTOP_BP"] = True
+    return obj
+
+
+def _build_hb5_appliance(
+    fx: ParsedFixture,
+    lvl: ParsedLevel,
+    cx: float,
+    cy: float,
+    target_col,
+    types_appliances,
+    appliance_geo,
+):
+    import bmesh
+    import bpy
+
+    cls_map = {
+        "range_stove": ("Range", types_appliances.Range),
+        "refrigerator": ("Refrigerator", types_appliances.Refrigerator),
+        "dishwasher": ("Dishwasher", types_appliances.Dishwasher),
+        "range_hood": ("Hood", types_appliances.Hood),
+        "microwave": ("Microwave", types_appliances.Microwave),
+        "cooktop": ("Cooktop", types_appliances.Cooktop),
+        "wall_oven": ("Wall Oven", types_appliances.WallOven),
+        "kitchen_sink_single": ("Sink", types_appliances.Sink),
+        "kitchen_sink_double": ("Sink", types_appliances.Sink),
+        "washer": ("Washing Machine", types_appliances.WashingMachine),
+        "dryer": ("Dryer", types_appliances.Dryer),
+    }
+    label, app_cls = cls_map[fx.symbol_type]
+    w_m = max(0.15, fx.width * INCH_TO_M)
+    d_m = max(0.15, fx.depth * INCH_TO_M)
+    h_m = max(0.08, fx.height * INCH_TO_M)
+
+    app = app_cls()
+    app.width = w_m
+    app.depth = d_m
+    app.height = h_m
+    app.create(f"{label}_{fx.identifier}")
+    app.set_input("Dim X", w_m)
+    app.set_input("Dim Y", d_m)
+    app.set_input("Dim Z", h_m)
+
+    if fx.symbol_type == "kitchen_sink_single":
+        app.obj["Sink Type"] = "Single Bowl"
+    elif fx.symbol_type == "microwave" and fx.elevation >= 48.0:
+        app.obj["Over Range"] = True
+
+    if appliance_geo.supports(app.obj):
+        try:
+            opts = appliance_geo.defaults_for(app.obj)
+            appliance_geo.set_opts(app.obj, opts)
+            appliance_geo.build_geometry(app.obj)
+        except Exception as exc:
+            print(f"Warning: appliance_geo failed for {fx.identifier}: {exc}")
+    else:
+        # WashingMachine & Dryer solid cabinet + front porthole door in HB5 local coords (X: 0..W, Y: -D..0)
+        white_mat = _get_or_create_simple_material(
+            "EstiSketch_Appliance_White", (0.92, 0.93, 0.94, 1.0), metallic=0.1, roughness=0.35
+        )
+        dark_mat = _get_or_create_simple_material(
+            "EstiSketch_Appliance_DarkGlass", (0.10, 0.11, 0.13, 1.0), metallic=0.4, roughness=0.18
+        )
+        bm = bmesh.new()
+        _bm_add_box(bm, 0.0, -d_m, 0.0, w_m, 0.0, h_m, mat_index=0)
+        _bm_add_box(bm, 0.02, -d_m - 0.015, h_m - 0.16, w_m - 0.02, -d_m, h_m - 0.02, mat_index=1)
+        door_r = min(w_m, h_m) * 0.28
+        _bm_add_box(
+            bm,
+            w_m / 2.0 - door_r,
+            -d_m - 0.025,
+            h_m * 0.46 - door_r,
+            w_m / 2.0 + door_r,
+            -d_m,
+            h_m * 0.46 + door_r,
+            mat_index=1,
+        )
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+        body_mesh = bpy.data.meshes.new(f"{label}_Body_{fx.identifier}")
+        bm.to_mesh(body_mesh)
+        bm.free()
+        body_mesh.materials.append(white_mat)
+        body_mesh.materials.append(dark_mat)
+        body_obj = bpy.data.objects.new(f"{label}_Body_{fx.identifier}", body_mesh)
+        body_obj.parent = app.obj
+        target_col.objects.link(body_obj)
+
+    loc, rot_z = compute_hb5_fixture_transform(fx, lvl.elevation, cx, cy)
+    app.obj.location = loc
+    app.obj.rotation_euler = (0.0, 0.0, rot_z)
+    app.obj["ESTISKETCH_ID"] = fx.identifier
+    app.obj["ESTISKETCH_SYMBOL"] = fx.symbol_type
+    _move_hierarchy_to_collection(app.obj, target_col)
+    return app.obj
+
+
+def _build_plumbing_mechanical_mesh(
+    fx: ParsedFixture,
+    lvl: ParsedLevel,
+    cx: float,
+    cy: float,
+    target_col,
+):
+    import bmesh
+
+    sym = fx.symbol_type
+    w_m = max(0.15, fx.width * INCH_TO_M)
+    d_m = max(0.15, fx.depth * INCH_TO_M)
+    h_m = max(0.15, fx.height * INCH_TO_M)
+    hw, hd = w_m / 2.0, d_m / 2.0
+
+    porcelain = _get_or_create_simple_material(
+        "EstiSketch_Porcelain", (0.96, 0.96, 0.97, 1.0), metallic=0.0, roughness=0.22
+    )
+    chrome = _get_or_create_simple_material(
+        "EstiSketch_Chrome", (0.82, 0.84, 0.86, 1.0), metallic=0.92, roughness=0.15
+    )
+    glass = _get_or_create_simple_material(
+        "EstiSketch_ShowerGlass", (0.78, 0.88, 0.92, 1.0), metallic=0.0, roughness=0.08, alpha=0.32
+    )
+    mech = _get_or_create_simple_material(
+        "EstiSketch_MechanicalMetal", (0.52, 0.55, 0.58, 1.0), metallic=0.55, roughness=0.45
+    )
+
+    bm = bmesh.new()
+    mats = [porcelain, chrome]
+
+    if sym == "toilet":
+        tank_d = d_m * 0.30
+        _bm_add_box(bm, -hw * 0.88, hd - tank_d, h_m * 0.48, hw * 0.88, hd - 0.01, h_m, mat_index=0)
+        _bm_add_box(bm, -hw * 0.92, hd - tank_d - 0.01, h_m - 0.04, hw * 0.92, hd, h_m + 0.02, mat_index=0)
+        bowl_r = min(hw * 0.72, (d_m - tank_d) * 0.45)
+        bowl_cy = -hd + bowl_r + 0.02
+        _bm_add_cylinder(bm, 0.0, bowl_cy, 0.0, h_m * 0.52, bowl_r * 0.70, segments=18, mat_index=0)
+        _bm_add_cylinder(bm, 0.0, bowl_cy, h_m * 0.46, h_m * 0.56, bowl_r, segments=20, mat_index=0)
+    elif sym == "bathtub":
+        wall_t = 2.5 * INCH_TO_M
+        _bm_add_box(bm, -hw, -hd, 0.0, hw, hd, wall_t, mat_index=0)
+        _bm_add_box(bm, -hw, hd - wall_t, wall_t, hw, hd, h_m, mat_index=0)
+        _bm_add_box(bm, -hw, -hd, wall_t, hw, -hd + wall_t, h_m, mat_index=0)
+        _bm_add_box(bm, -hw, -hd + wall_t, wall_t, -hw + wall_t, hd - wall_t, h_m, mat_index=0)
+        _bm_add_box(bm, hw - wall_t, -hd + wall_t, wall_t, hw, hd - wall_t, h_m, mat_index=0)
+        _bm_add_box(bm, -hw + 0.01, -0.02, h_m, -hw + 0.14, 0.02, h_m + 0.06, mat_index=1)
+    elif sym in ("shower_square", "shower_corner"):
+        mats = [porcelain, glass, chrome]
+        curb_h = 4.0 * INCH_TO_M
+        curb_w = 2.5 * INCH_TO_M
+        gt = 0.4 * INCH_TO_M
+        if sym == "shower_corner":
+            chamf = min(w_m, d_m) * 0.42
+            # Back at +Y (+hd) and Left (-hw), front-right chamfered corner at (+hw, -hd)
+            pts = [(-hw, hd), (hw, hd), (hw, -hd + chamf), (hw - chamf, -hd), (-hw, -hd)]
+            _extrude_prism_z(bm, pts, 0.0, curb_h)
+            _bm_add_box(bm, hw - gt, -hd + chamf, curb_h, hw, hd, h_m, mat_index=1)
+            _bm_add_box(bm, -hw, -hd, curb_h, hw - chamf, -hd + gt, h_m, mat_index=1)
+            # Angled front glass panel
+            x0, y0 = hw - chamf, -hd
+            x1, y1 = hw, -hd + chamf
+            dx, dy = x1 - x0, y1 - y0
+            L = math.hypot(dx, dy) or 1.0
+            nx, ny = -dy / L * gt, dx / L * gt
+            _extrude_prism_z(bm, [(x0, y0), (x1, y1), (x1 + nx, y1 + ny), (x0 + nx, y0 + ny)], curb_h, h_m)
+        else:
+            _bm_add_box(bm, -hw, -hd, 0.0, hw, hd, curb_h, mat_index=0)
+            _bm_add_box(bm, -hw, -hd, curb_h, hw, -hd + gt, h_m, mat_index=1)
+            _bm_add_box(bm, hw - gt, -hd, curb_h, hw, hd, h_m, mat_index=1)
+            _bm_add_box(bm, -hw, -hd, curb_h, -hw + gt, hd, h_m, mat_index=1)
+        _bm_add_cylinder(bm, 0.0, hd - curb_w, h_m * 0.85, h_m * 0.88, 0.04, segments=12, mat_index=2)
+    elif sym in ("pedestal_sink", "utility_sink"):
+        basin_z0 = h_m - 0.16
+        if sym == "pedestal_sink":
+            _bm_add_cylinder(bm, 0.0, 0.02, 0.0, basin_z0, min(hw, hd) * 0.36, segments=16, mat_index=0)
+        else:
+            leg_w = 0.04
+            for lx in (-hw + 0.03, hw - 0.07):
+                for ly in (-hd + 0.03, hd - 0.07):
+                    _bm_add_box(bm, lx, ly, 0.0, lx + leg_w, ly + leg_w, basin_z0, mat_index=1)
+        _bm_add_box(bm, -hw, -hd, basin_z0, hw, hd, h_m, mat_index=0)
+        _bm_add_cylinder(bm, 0.0, hd - 0.05, h_m, h_m + 0.14, 0.015, segments=10, mat_index=1)
+    elif sym == "water_heater":
+        mats = [mech, chrome]
+        r = min(hw, hd) * 0.92
+        _bm_add_cylinder(bm, 0.0, 0.0, 0.0, h_m, r, segments=24, mat_index=0)
+        _bm_add_cylinder(bm, 0.0, 0.0, h_m, h_m + 0.15, r * 0.25, segments=14, mat_index=1)
+    else:
+        # furnace / air_conditioner
+        mats = [mech, chrome]
+        _bm_add_box(bm, -hw, -hd, 0.0, hw, hd, h_m, mat_index=0)
+        if sym == "air_conditioner":
+            _bm_add_cylinder(bm, 0.0, 0.0, h_m, h_m + 0.03, min(hw, hd) * 0.72, segments=20, mat_index=1)
+        else:
+            _bm_add_box(bm, -hw * 0.75, -hd - 0.01, h_m * 0.2, hw * 0.75, -hd, h_m * 0.8, mat_index=1)
+
+    loc, rot_z = compute_centered_fixture_transform(fx, lvl.elevation, cx, cy)
+    obj = _finalize_bmesh_object(
+        bm,
+        f"Plumbing_{sym}_{fx.identifier}",
+        mats,
+        loc,
+        rot_z,
+        target_col,
+        fx.identifier,
+    )
+    obj["IS_PLUMBING_MECHANICAL"] = True
+    return obj
+
+
+def _build_furniture_mesh(
+    fx: ParsedFixture,
+    lvl: ParsedLevel,
+    cx: float,
+    cy: float,
+    target_col,
+):
+    import bmesh
+
+    sym = fx.symbol_type
+    w_m = max(0.15, fx.width * INCH_TO_M)
+    d_m = max(0.15, fx.depth * INCH_TO_M)
+    h_m = max(0.15, fx.height * INCH_TO_M)
+    hw, hd = w_m / 2.0, d_m / 2.0
+
+    wood_mat = _get_or_create_simple_material(
+        "EstiSketch_Furn_Wood", (0.45, 0.30, 0.18, 1.0), roughness=0.45
+    )
+    walnut_mat = _get_or_create_simple_material(
+        "EstiSketch_Furn_Walnut", (0.26, 0.17, 0.11, 1.0), roughness=0.40
+    )
+    fabric_mat = _get_or_create_simple_material(
+        "EstiSketch_Furn_Fabric", (0.58, 0.56, 0.52, 1.0), roughness=0.85
+    )
+    linen_mat = _get_or_create_simple_material(
+        "EstiSketch_Furn_Linen", (0.90, 0.89, 0.86, 1.0), roughness=0.80
+    )
+    duvet_mat = _get_or_create_simple_material(
+        "EstiSketch_Furn_Duvet", (0.34, 0.44, 0.54, 1.0), roughness=0.82
+    )
+    screen_mat = _get_or_create_simple_material(
+        "EstiSketch_TVScreen", (0.04, 0.04, 0.05, 1.0), metallic=0.2, roughness=0.12
+    )
+    metal_mat = _get_or_create_simple_material(
+        "EstiSketch_Furn_Metal", (0.22, 0.23, 0.25, 1.0), metallic=0.8, roughness=0.35
+    )
+
+    bm = bmesh.new()
+    mats = [wood_mat]
+
+    if sym in ("bed_king", "bed_queen", "bed_twin"):
+        mats = [wood_mat, linen_mat, duvet_mat]
+        frame_h = 0.22
+        matt_h = 0.24
+        hb_h = 1.08
+        hb_t = 0.09
+        # Wood platform & tall headboard at +Y (+hd)
+        _bm_add_box(bm, -hw, -hd, 0.06, hw, hd, frame_h, mat_index=0)
+        _bm_add_box(bm, -hw, hd - hb_t, 0.0, hw, hd, hb_h, mat_index=0)
+        for lx in (-hw + 0.04, hw - 0.12):
+            _bm_add_box(bm, lx, -hd + 0.04, 0.0, lx + 0.08, -hd + 0.12, 0.06, mat_index=0)
+        # Mattress
+        pad = 0.03
+        _bm_add_box(bm, -hw + pad, -hd + pad, frame_h, hw - pad, hd - hb_t, frame_h + matt_h, mat_index=1)
+        # Duvet covering lower 68% of mattress
+        duvet_y = hd - hb_t - (d_m - hb_t) * 0.32
+        _bm_add_box(
+            bm,
+            -hw + pad * 0.5,
+            -hd + pad * 0.5,
+            frame_h + matt_h * 0.5,
+            hw - pad * 0.5,
+            duvet_y,
+            frame_h + matt_h + 0.03,
+            mat_index=2,
+        )
+        # Pillows near headboard
+        p_cnt = 1 if sym == "bed_twin" else 2
+        p_gap = 0.08
+        p_w = (w_m - (p_cnt + 1) * p_gap) / p_cnt
+        for pi in range(p_cnt):
+            px0 = -hw + p_gap + pi * (p_w + p_gap)
+            _bm_add_box(
+                bm,
+                px0,
+                hd - hb_t - 0.36,
+                frame_h + matt_h,
+                px0 + p_w,
+                hd - hb_t - 0.04,
+                frame_h + matt_h + 0.11,
+                mat_index=1,
+            )
+
+    elif sym in ("sofa", "loveseat", "armchair"):
+        mats = [fabric_mat, walnut_mat]
+        leg_h = 0.10
+        base_h = 0.24
+        seat_h = 0.44
+        arm_w = 0.15
+        back_d = 0.20
+        # Legs
+        for lx in (-hw + 0.04, hw - 0.10):
+            for ly in (-hd + 0.04, hd - 0.10):
+                _bm_add_box(bm, lx, ly, 0.0, lx + 0.06, ly + 0.06, leg_h, mat_index=1)
+        # Frame base, backrest (+Y), left/right arms
+        _bm_add_box(bm, -hw, -hd, leg_h, hw, hd, base_h, mat_index=0)
+        _bm_add_box(bm, -hw, hd - back_d, base_h, hw, hd, h_m, mat_index=0)
+        _bm_add_box(bm, -hw, -hd, base_h, -hw + arm_w, hd - back_d, h_m * 0.72, mat_index=0)
+        _bm_add_box(bm, hw - arm_w, -hd, base_h, hw, hd - back_d, h_m * 0.72, mat_index=0)
+        # Seat cushions
+        c_cnt = 3 if sym == "sofa" else (2 if sym == "loveseat" else 1)
+        c_span = max(0.2, w_m - 2.0 * arm_w)
+        c_w = (c_span - (c_cnt - 1) * 0.015) / c_cnt
+        for ci in range(c_cnt):
+            cx0 = -hw + arm_w + ci * (c_w + 0.015)
+            _bm_add_box(bm, cx0, -hd + 0.01, base_h, cx0 + c_w, hd - back_d - 0.01, seat_h, mat_index=0)
+
+    elif sym in ("dining_table", "coffee_table", "end_table"):
+        mats = [wood_mat]
+        top_t = 0.045
+        leg_w = 0.065 if sym == "dining_table" else 0.05
+        inset = 0.05
+        _bm_add_box(bm, -hw, -hd, h_m - top_t, hw, hd, h_m, mat_index=0)
+        # Apron
+        _bm_add_box(bm, -hw + inset, -hd + inset, h_m - top_t - 0.06, hw - inset, hd - inset, h_m - top_t, mat_index=0)
+        for lx in (-hw + inset, hw - inset - leg_w):
+            for ly in (-hd + inset, hd - inset - leg_w):
+                _bm_add_box(bm, lx, ly, 0.0, lx + leg_w, ly + leg_w, h_m - top_t, mat_index=0)
+
+    elif sym == "dining_chair":
+        mats = [wood_mat, fabric_mat]
+        seat_z = 0.45
+        leg_w = 0.038
+        for lx in (-hw + 0.02, hw - 0.02 - leg_w):
+            for ly in (-hd + 0.02, hd - 0.02 - leg_w):
+                _bm_add_box(bm, lx, ly, 0.0, lx + leg_w, ly + leg_w, seat_z, mat_index=0)
+        _bm_add_box(bm, -hw, -hd, seat_z, hw, hd, seat_z + 0.05, mat_index=1)
+        _bm_add_box(bm, -hw + 0.02, hd - 0.05, seat_z + 0.05, hw - 0.02, hd, h_m, mat_index=0)
+
+    elif sym == "office_chair":
+        mats = [metal_mat, fabric_mat]
+        seat_z = 0.46
+        _bm_add_cylinder(bm, 0.0, 0.0, 0.0, 0.06, 0.04, segments=12, mat_index=0)
+        _bm_add_box(bm, -hw * 0.8, -0.025, 0.02, hw * 0.8, 0.025, 0.05, mat_index=0)
+        _bm_add_box(bm, -0.025, -hd * 0.8, 0.02, 0.025, hd * 0.8, 0.05, mat_index=0)
+        _bm_add_cylinder(bm, 0.0, 0.0, 0.05, seat_z, 0.03, segments=12, mat_index=0)
+        _bm_add_box(bm, -hw * 0.85, -hd * 0.82, seat_z, hw * 0.85, hd * 0.82, seat_z + 0.07, mat_index=1)
+        _bm_add_box(bm, -hw * 0.78, hd * 0.70, seat_z + 0.07, hw * 0.78, hd * 0.86, h_m, mat_index=1)
+        _bm_add_box(bm, -hw * 0.92, -hd * 0.35, seat_z + 0.07, -hw * 0.80, hd * 0.65, seat_z + 0.24, mat_index=0)
+        _bm_add_box(bm, hw * 0.80, -hd * 0.35, seat_z + 0.07, hw * 0.92, hd * 0.65, seat_z + 0.24, mat_index=0)
+
+    elif sym == "desk":
+        mats = [walnut_mat, metal_mat]
+        top_t = 0.04
+        ped_w = min(0.40, w_m * 0.28)
+        _bm_add_box(bm, -hw, -hd, h_m - top_t, hw, hd, h_m, mat_index=0)
+        _bm_add_box(bm, hw - ped_w - 0.02, -hd + 0.03, 0.05, hw - 0.02, hd - 0.03, h_m - top_t, mat_index=0)
+        _bm_add_box(bm, -hw + 0.03, -hd + 0.04, 0.0, -hw + 0.08, hd - 0.04, h_m - top_t, mat_index=1)
+
+    elif sym in ("nightstand", "dresser", "tv_console"):
+        mats = [walnut_mat, metal_mat, screen_mat]
+        _bm_add_box(bm, -hw, -hd, 0.06, hw, hd, h_m, mat_index=0)
+        for lx in (-hw + 0.04, hw - 0.09):
+            for ly in (-hd + 0.04, hd - 0.09):
+                _bm_add_box(bm, lx, ly, 0.0, lx + 0.05, ly + 0.05, 0.06, mat_index=0)
+        rows = 2 if sym == "nightstand" else (3 if sym == "dresser" else 2)
+        band_h = (h_m - 0.12) / rows
+        for ri in range(rows):
+            bz = 0.08 + ri * band_h
+            _bm_add_box(bm, -hw + 0.04, -hd - 0.015, bz + 0.015, hw - 0.04, -hd, bz + band_h - 0.015, mat_index=0)
+            _bm_add_box(bm, -0.06, -hd - 0.025, bz + band_h * 0.45, 0.06, -hd - 0.015, bz + band_h * 0.55, mat_index=1)
+        if sym == "tv_console":
+            tv_w = min(w_m * 0.82, 1.32)
+            tv_h = 0.76
+            _bm_add_box(bm, -0.18, -0.06, h_m, 0.18, 0.06, h_m + 0.03, mat_index=1)
+            _bm_add_box(bm, -0.04, -0.02, h_m + 0.03, 0.04, 0.02, h_m + 0.12, mat_index=1)
+            _bm_add_box(bm, -tv_w / 2.0, -0.03, h_m + 0.10, tv_w / 2.0, 0.03, h_m + 0.10 + tv_h, mat_index=2)
+
+    elif sym == "bookshelf":
+        mats = [wood_mat]
+        bt = 0.03
+        _bm_add_box(bm, -hw, -hd, 0.0, -hw + bt, hd, h_m, mat_index=0)
+        _bm_add_box(bm, hw - bt, -hd, 0.0, hw, hd, h_m, mat_index=0)
+        _bm_add_box(bm, -hw + bt, hd - bt, 0.0, hw - bt, hd, h_m, mat_index=0)
+        for si in range(6):
+            sz = (si / 5.0) * (h_m - bt)
+            _bm_add_box(bm, -hw + bt, -hd, sz, hw - bt, hd - bt, sz + bt, mat_index=0)
+
+    loc, rot_z = compute_centered_fixture_transform(fx, lvl.elevation, cx, cy)
+    obj = _finalize_bmesh_object(
+        bm,
+        f"Furniture_{sym}_{fx.identifier}",
+        mats,
+        loc,
+        rot_z,
+        target_col,
+        fx.identifier,
+    )
+    obj["IS_FURNITURE"] = True
+    return obj
+
+
 def _add_boolean_cut(wall_obj, cutting_obj) -> None:
     mod_name = f"Boolean_{cutting_obj.name}"
     if mod_name in wall_obj.modifiers:
@@ -2510,6 +3355,18 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
     hb_details = importlib.import_module(pkg_name + ".hb_details")
     GeoNodeText = hb_details.GeoNodeText
     ops_stairs = importlib.import_module(pkg_name + ".operators.ops_stairs")
+    types_frameless = importlib.import_module(
+        pkg_name + ".product_libraries.frameless.types_frameless"
+    )
+    solver_frameless = importlib.import_module(
+        pkg_name + ".product_libraries.frameless.solver_frameless"
+    )
+    types_appliances = importlib.import_module(
+        pkg_name + ".product_libraries.common.types_appliances"
+    )
+    appliance_geo = importlib.import_module(
+        pkg_name + ".product_libraries.common.appliance_geo"
+    )
 
     project = parse_estisketch_xml(xml_path)
     cx, cy = compute_plan_center(project)
@@ -2535,6 +3392,9 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
             "ceilings": _ensure_collection(f"{lvl.name} - Ceilings", lvl_col),
             "roofs": _ensure_collection(f"{lvl.name} - Roofs", lvl_col),
             "stairs": _ensure_collection(f"{lvl.name} - Stairs", lvl_col),
+            "cabinets": _ensure_collection(f"{lvl.name} - Cabinets & Appliances", lvl_col),
+            "plumbing": _ensure_collection(f"{lvl.name} - Plumbing & Mechanical", lvl_col),
+            "furniture": _ensure_collection(f"{lvl.name} - Furniture", lvl_col),
         }
 
     # Build walls grouped by set_index so sequential walls in a set connect cleanly
@@ -2849,6 +3709,58 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
             if infill_obj is not None:
                 infill_count += 1
 
+    cabinet_count = 0
+    countertop_count = 0
+    appliance_count = 0
+    plumbing_count = 0
+    furniture_count = 0
+    for fx in project.fixtures:
+        lvl = level_by_id.get(fx.level_id, project.levels[0])
+        sym = fx.symbol_type
+        if sym in _HB5_CABINET_SYMBOLS:
+            cab_obj = _build_hb5_cabinet(
+                fx,
+                lvl,
+                cx,
+                cy,
+                level_cols[lvl.id]["cabinets"],
+                types_frameless,
+                solver_frameless,
+            )
+            if cab_obj is not None:
+                cabinet_count += 1
+        elif sym in _HB5_APPLIANCE_SYMBOLS:
+            app_obj = _build_hb5_appliance(
+                fx,
+                lvl,
+                cx,
+                cy,
+                level_cols[lvl.id]["cabinets"],
+                types_appliances,
+                appliance_geo,
+            )
+            if app_obj is not None:
+                appliance_count += 1
+        elif sym in _PLUMBING_MECHANICAL_SYMBOLS:
+            pm_obj = _build_plumbing_mechanical_mesh(
+                fx, lvl, cx, cy, level_cols[lvl.id]["plumbing"]
+            )
+            if pm_obj is not None:
+                plumbing_count += 1
+        else:
+            furn_obj = _build_furniture_mesh(
+                fx, lvl, cx, cy, level_cols[lvl.id]["furniture"]
+            )
+            if furn_obj is not None:
+                furniture_count += 1
+
+        if fx.has_countertop:
+            ct_obj = _build_countertop_mesh(
+                fx, lvl, cx, cy, level_cols[lvl.id]["cabinets"]
+            )
+            if ct_obj is not None:
+                countertop_count += 1
+
     bpy.context.view_layer.update()
 
     if save_blend_path:
@@ -2869,6 +3781,11 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         "stairs": stair_count,
         "railings": railing_count,
         "floor_cutouts": cutout_count,
+        "cabinets": cabinet_count,
+        "countertops": countertop_count,
+        "appliances": appliance_count,
+        "plumbing_mechanical": plumbing_count,
+        "furniture": furniture_count,
     }
 
 
