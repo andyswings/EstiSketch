@@ -1,5 +1,7 @@
 import math
 
+from ..geometry.room_loop import find_enclosed_room_inner_polygon, inset_polygon, polygon_signed_area
+
 
 class CanvasGeometryMixin:
     def _apply_alignment_snapping(self, x, y, exclude_points=None):
@@ -86,44 +88,46 @@ class CanvasGeometryMixin:
     def _inset_polygon(poly, offsets):
         """Offset each edge i (poly[i] -> poly[i+1]) inward by offsets[i] and
         intersect consecutive offset edges. Orientation independent."""
-        n = len(poly)
-        if n < 3 or not any(o > 0 for o in offsets):
-            return list(poly)
-        area = 0.0
-        for i in range(n):
-            x1, y1 = poly[i]
-            x2, y2 = poly[(i + 1) % n]
-            area += x1 * y2 - x2 * y1
-        sign = 1.0 if area > 0 else -1.0  # +1: counter-clockwise (y-up math)
-        lines = []  # (point, direction) of each offset edge
-        for i in range(n):
-            x1, y1 = poly[i]
-            x2, y2 = poly[(i + 1) % n]
-            dx, dy = x2 - x1, y2 - y1
-            length = math.hypot(dx, dy)
-            if length < 1e-9:
-                lines.append(None)
-                continue
-            # Inward normal: left of the direction for CCW, right for CW.
-            nx, ny = -dy / length * sign, dx / length * sign
-            o = offsets[i]
-            lines.append(((x1 + nx * o, y1 + ny * o), (dx / length, dy / length)))
-        result = []
-        for i in range(n):
-            prev = lines[(i - 1) % n]
-            cur = lines[i]
-            if prev is None or cur is None:
-                result.append(poly[i])
-                continue
-            (px, py), (pdx, pdy) = prev
-            (cx, cy), (cdx, cdy) = cur
-            det = pdx * cdy - pdy * cdx
-            if abs(det) < 1e-6:
-                result.append((cx, cy))  # collinear: just the shifted vertex
-                continue
-            t = ((cx - px) * cdy - (cy - py) * cdx) / det
-            result.append((px + pdx * t, py + pdy * t))
-        return result
+        return inset_polygon(poly, offsets)
+
+    def _find_closed_wall_room_inner_polygon(
+        self,
+        click_pt: tuple[float, float],
+    ) -> list[tuple[float, float]] | None:
+        """Return the smallest closed-wall-loop inside-face polygon around ``click_pt``."""
+        is_visible = getattr(self, "is_object_on_visible_layer", lambda _obj: True)
+        candidates: list[tuple[float, list[tuple[float, float]]]] = []
+
+        visible_straight_walls = []
+        for wall_set in getattr(self, "wall_sets", []):
+            visible_in_set = [w for w in wall_set if is_visible(w)]
+            for w in visible_in_set:
+                if not getattr(w, "is_curved", False):
+                    visible_straight_walls.append(w)
+
+            has_curved = any(getattr(w, "is_curved", False) for w in wall_set)
+            if has_curved and len(visible_in_set) == len(wall_set) and len(wall_set) >= 2:
+                if self._is_closed_polygon(wall_set):
+                    center_poly = self._get_wall_set_polygon(wall_set)
+                    if self._point_in_polygon(click_pt, center_poly):
+                        inner = self._get_wall_set_inner_polygon(wall_set)
+                        area = abs(polygon_signed_area(inner))
+                        if len(inner) >= 3 and area > 1.0:
+                            candidates.append((area, inner))
+
+        for wall in getattr(self, "walls", []):
+            if is_visible(wall) and not getattr(wall, "is_curved", False):
+                visible_straight_walls.append(wall)
+
+        planar_inner = find_enclosed_room_inner_polygon(visible_straight_walls, click_pt)
+        if planar_inner:
+            planar_area = abs(polygon_signed_area(planar_inner))
+            if planar_area > 1.0:
+                candidates.append((planar_area, planar_inner))
+
+        if not candidates:
+            return None
+        return min(candidates, key=lambda item: item[0])[1]
 
     def _get_wall_set_polygon_with_widths(self, wall_set):
         """Returns (points, widths) where widths[i] is the thickness of the

@@ -65,7 +65,9 @@ class CanvasRoomMixin:
             self.update_hint(TOOL_HINTS["draw_rooms_active"])
             self.queue_draw()
         elif n_press == 2:
-            # Only save when finalizing the room
+            active_layer = self.get_layer_by_id(self.active_layer_id) if hasattr(self, "get_layer_by_id") else None
+            if active_layer is not None and getattr(active_layer, "locked", False):
+                return
             room_created = False
             if self.current_room_points and len(self.current_room_points) >= 3:
                 # Room stores only unique vertices - rendering uses
@@ -80,33 +82,23 @@ class CanvasRoomMixin:
                 self.current_room_points = []
                 self.current_room_preview = None
                 room_created = True
-                
                 self.update_hint(TOOL_HINTS["draw_rooms"])
-            for wall_set in self.wall_sets:
-                if len(wall_set) < 2:
-                    continue
-                if self._is_closed_polygon(wall_set):
-                    poly = self._get_wall_set_polygon(wall_set)
-                    if self._point_in_polygon((snapped_x, snapped_y), poly):
-                        # Draw the room to the inside faces of the walls
-                        poly = self._get_wall_set_inner_polygon(wall_set)
-                        room_id = self.generate_identifier(
-                            "room", self.existing_ids
-                        )
-                        new_room = self.Room(
-                            poly,
-                            identifier=room_id,
-                            layer_id=self.active_layer_id)
-                        self.existing_ids.append(room_id)
-                        self.rooms.append(new_room)
-                        # Reset room drawing state after creating room from
-                        # closed loop
-                        self.current_room_points = []
-                        self.current_room_preview = None
-                        room_created = True
-                        
-                        self.update_hint(TOOL_HINTS["draw_rooms"])
-                        break
+            else:
+                inner_poly = self._find_closed_wall_room_inner_polygon((canvas_x, canvas_y))
+                if inner_poly and len(inner_poly) >= 3:
+                    room_id = self.generate_identifier(
+                        "room", self.existing_ids
+                    )
+                    new_room = self.Room(
+                        inner_poly,
+                        identifier=room_id,
+                        layer_id=self.active_layer_id)
+                    self.existing_ids.append(room_id)
+                    self.rooms.append(new_room)
+                    self.current_room_points = []
+                    self.current_room_preview = None
+                    room_created = True
+                    self.update_hint(TOOL_HINTS["draw_rooms"])
             if room_created:
                 self.save_state()
                 self.emit('content-changed')

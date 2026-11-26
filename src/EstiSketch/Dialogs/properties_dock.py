@@ -314,6 +314,27 @@ class RoofPropertiesWidget(Gtk.Box):
                 self.summary_label.set_text(f"Solved: {len(solved.solved_lines)} lines, {total_area:.1f} sq ft 3D area")
                 self.refresh_slopes_list(solved)
 
+    def _get_asymmetric_eave_groups(self, roof):
+        """Return ``(side_a_edges, side_b_edges)`` for the two opposite primary eaves."""
+        eaves = [e for e in getattr(roof, 'edges', []) if e.edge_type == 'eave']
+        if len(eaves) < 2:
+            return eaves, []
+        canvas = getattr(self, "canvas", None)
+        if canvas is not None and hasattr(canvas, "get_wall_by_identifier"):
+            walls = [canvas.get_wall_by_identifier(e.wall_identifier) for e in roof.edges]
+            walls = [w for w in walls if w is not None]
+            if len(walls) >= 3:
+                from ..Canvas.complex_roof import group_opposite_eave_sides
+                markings = {e.wall_identifier: e.edge_type for e in roof.edges}
+                a_ids, b_ids = group_opposite_eave_sides(walls, markings)
+                if a_ids and b_ids:
+                    a_set, b_set = set(a_ids), set(b_ids)
+                    side_a = [e for e in eaves if e.wall_identifier in a_set]
+                    side_b = [e for e in eaves if e.wall_identifier in b_set]
+                    if side_a and side_b:
+                        return side_a, side_b
+        return [eaves[0]], [eaves[1]]
+
     def on_pitch_changed(self, widget):
         if self._block_updates or not self.current_roofs:
             return
@@ -339,7 +360,7 @@ class RoofPropertiesWidget(Gtk.Box):
 
             if hasattr(self, "canvas") and self.canvas:
                 if hasattr(self.canvas, "recalculate_roof"):
-                    self.canvas.recalculate_roof(roof)
+                    self.canvas.recalculate_roof(roof, force_auto_geometry=(mode == 0))
                 else:
                     self.canvas.solve_active_roof(roof)
             
@@ -371,7 +392,7 @@ class RoofPropertiesWidget(Gtk.Box):
                     if edge.edge_type == 'eave':
                         edge.pitch_rise = base_pitch
                 if hasattr(self, "canvas") and self.canvas:
-                    self.canvas.recalculate_roof(roof)
+                    self.canvas.recalculate_roof(roof, force_auto_geometry=True)
             if hasattr(self, "canvas") and self.canvas:
                 self.canvas.save_state()
                 self.emit_property_changed()
@@ -391,21 +412,25 @@ class RoofPropertiesWidget(Gtk.Box):
         pitch_b = self.pitch_b_spin.get_value()
 
         for roof in self.current_roofs:
-            eaves = [e for e in getattr(roof, 'edges', []) if e.edge_type == 'eave']
-            if len(eaves) >= 2:
-                eaves[0].pitch_rise = pitch_a
-                eaves[1].pitch_rise = pitch_b
-            elif len(eaves) == 1:
-                eaves[0].pitch_rise = pitch_a
-            
-            # Sync to manual_lines if auto-generated
-            eave_lines = [l for l in getattr(roof, 'manual_lines', []) if l.line_type == 'eave']
-            if len(eave_lines) >= 2:
-                eave_lines[0].pitch_rise = pitch_a
-                eave_lines[1].pitch_rise = pitch_b
+            side_a, side_b = self._get_asymmetric_eave_groups(roof)
+            for edge in side_a:
+                edge.pitch_rise = pitch_a
+            for edge in side_b:
+                edge.pitch_rise = pitch_b
+
+            # Sync to manual_lines matching those eave walls if present
+            side_a_ids = {e.wall_identifier for e in side_a}
+            side_b_ids = {e.wall_identifier for e in side_b}
+            for ml in getattr(roof, 'manual_lines', []):
+                if ml.line_type == 'eave':
+                    wid = getattr(ml, 'wall_identifier', '')
+                    if wid in side_a_ids:
+                        ml.pitch_rise = pitch_a
+                    elif wid in side_b_ids:
+                        ml.pitch_rise = pitch_b
 
             if hasattr(self, "canvas") and self.canvas:
-                self.canvas.recalculate_roof(roof)
+                self.canvas.recalculate_roof(roof, force_auto_geometry=True)
 
         if hasattr(self, "canvas") and self.canvas:
             self.canvas.save_state()
@@ -525,10 +550,10 @@ class RoofPropertiesWidget(Gtk.Box):
         if not found:
              self.pitch_run_combo.set_active(0) # Default 12
 
-        # Check for asymmetric pitch on eave edges
-        eaves = [e for e in getattr(first, 'edges', []) if e.edge_type == 'eave']
-        p_a = eaves[0].pitch_rise if len(eaves) >= 1 and eaves[0].pitch_rise is not None else first.pitch_rise
-        p_b = eaves[1].pitch_rise if len(eaves) >= 2 and eaves[1].pitch_rise is not None else first.pitch_rise
+        # Check for asymmetric pitch on opposite eave sides
+        side_a, side_b = self._get_asymmetric_eave_groups(first)
+        p_a = side_a[0].pitch_rise if (side_a and side_a[0].pitch_rise is not None) else first.pitch_rise
+        p_b = side_b[0].pitch_rise if (side_b and side_b[0].pitch_rise is not None) else first.pitch_rise
         self.pitch_a_spin.set_value(p_a)
         self.pitch_b_spin.set_value(p_b)
 

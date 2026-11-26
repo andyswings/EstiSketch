@@ -2738,9 +2738,19 @@ class CanvasDrawMixin:
                 cr.stroke()
 
             # Draw pitch annotation near ridge or peak center
-            eave_pitches = [e.pitch_rise for e in getattr(roof, 'edges', []) if e.edge_type == 'eave' and e.pitch_rise is not None]
-            if len(eave_pitches) >= 2 and abs(eave_pitches[0] - eave_pitches[1]) > 0.05:
+            eaves_with_pitch = [
+                e for e in getattr(roof, 'edges', [])
+                if e.edge_type == 'eave' and e.pitch_rise is not None
+            ]
+            eave_pitches = []
+            for e in eaves_with_pitch:
+                val = float(e.pitch_rise)
+                if not any(abs(val - existing) <= 0.05 for existing in eave_pitches):
+                    eave_pitches.append(val)
+            if len(eave_pitches) >= 2:
                 pitch_text = f"{eave_pitches[0]:g}/{roof.pitch_run:.0f} & {eave_pitches[1]:g}/{roof.pitch_run:.0f}"
+            elif len(eave_pitches) == 1:
+                pitch_text = f"{eave_pitches[0]:g}/{roof.pitch_run:.0f}"
             else:
                 pitch_text = f"{roof.pitch_rise:g}/{roof.pitch_run:.0f}"
 

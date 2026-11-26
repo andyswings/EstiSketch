@@ -66,6 +66,31 @@ class CanvasSelectionMixin:
     drag_start_x: float
     drag_start_y: float
 
+    def _selection_contains_item(self, candidate: dict) -> bool:
+        """Return True if ``candidate`` (or its enclosing room/opening vertices) is selected."""
+        ctype = candidate.get("type")
+        cobj = candidate.get("object")
+        for existing in self.selected_items:
+            if existing.get("type") == ctype and self.same_selection(existing.get("object"), cobj):
+                return True
+        if ctype == "room" and getattr(cobj, "points", None):
+            verts = [
+                it["object"][1]
+                for it in self.selected_items
+                if it.get("type") == "vertex" and it["object"][0] is cobj
+            ]
+            if len(verts) >= len(cobj.points):
+                return True
+        if ctype == "floor_opening" and getattr(cobj, "points", None):
+            verts = [
+                it["object"][1]
+                for it in self.selected_items
+                if it.get("type") == "opening_vertex" and it["object"][0] is cobj
+            ]
+            if len(verts) >= len(cobj.points):
+                return True
+        return False
+
     def _handle_pointer_click(
             self,
             gesture: Gtk.GestureClick,
@@ -1273,6 +1298,7 @@ class CanvasSelectionMixin:
         shift_pressed = bool(state & Gdk.ModifierType.SHIFT_MASK)
 
         self._last_pressed_item = selected_item
+        self._pending_single_select_item = None
 
         if selected_item:
             # If the clicked object belongs to an ObjectGroup, select/toggle the entire group as a unit
@@ -1308,7 +1334,12 @@ class CanvasSelectionMixin:
                     # Add to selection
                     self.selected_items.append(selected_item)
             else:
-                self.selected_items = [selected_item]
+                # Preserve multi-selection when pressing an already-selected item so dragging
+                # moves all selected objects; release without drag collapses to that item.
+                if len(self.selected_items) > 1 and self._selection_contains_item(selected_item):
+                    self._pending_single_select_item = selected_item
+                else:
+                    self.selected_items = [selected_item]
         else:
             if not shift_pressed:
                 self.selected_items = []
@@ -1438,23 +1469,61 @@ class CanvasSelectionMixin:
                 # Handle single selection drag for doors/windows
                 item = self._last_pressed_item if isinstance(getattr(self, "_last_pressed_item", None), dict) and self._last_pressed_item in self.selected_items else self.selected_items[0]
 
-                # If the pressed item belongs to a selected, unlocked ObjectGroup, drag the whole group as a unit
+                # If the pressed item belongs to a selected, unlocked ObjectGroup (and no extra
+                # non-group items are selected), drag the whole group as a unit
                 pressed_group = (
                     self.get_group_for_selection_item(item)
                     if hasattr(self, "get_group_for_selection_item")
                     else None
                 )
                 if pressed_group is not None and not pressed_group.locked:
-                    self.dragging_group = pressed_group
-                    self._group_drag_last_model = self.device_to_model(
-                        start_x, start_y, pixels_per_inch
+                    group_member_objs = {id(m_obj) for _, m_obj in self.get_group_members(pressed_group)}
+                    extra_selected = any(
+                        id(it.get("object")) not in group_member_objs
+                        for it in self.selected_items
                     )
-                    self.box_selecting = False
-                    try:
-                        self.save_state()
-                    except Exception:
-                        pass
-                    return
+                    if not extra_selected:
+                        self.dragging_group = pressed_group
+                        self._group_drag_last_model = self.device_to_model(
+                            start_x, start_y, pixels_per_inch
+                        )
+                        self.box_selecting = False
+                        try:
+                            self.save_state()
+                        except Exception:
+                            pass
+                        return
+
+                # Unified multi-object drag for mixed selections and types without multi-handlers
+                sel_types = {it.get("type") for it in self.selected_items}
+                homogeneous_existing = (
+                    {"vertex"},
+                    {"opening_vertex"},
+                    {"roof_line"},
+                    {"dimension"},
+                    {"dimension_chain"},
+                    {"leader_callout"},
+                    {"polyline"},
+                    {"fixture"},
+                )
+                if len(self.selected_items) > 1 and sel_types not in homogeneous_existing:
+                    from .multi_move import capture_multi_drag_snapshot
+                    self.moving_text = None
+                    self.moving_text_start_pos = None
+                    tol = getattr(self.config, "JOINT_SNAP_TOLERANCE", 0.25)
+                    snapshot = capture_multi_drag_snapshot(
+                        self, self.selected_items, joint_tol=tol
+                    )
+                    if not snapshot.is_empty():
+                        self.dragging_multi_snapshot = snapshot
+                        self.drag_start_x = start_x
+                        self.drag_start_y = start_y
+                        self.multi_drag_start_model = self.device_to_model(
+                            start_x, start_y, pixels_per_inch
+                        )
+                        self._multi_drag_moved = False
+                        self.box_selecting = False
+                        return
 
                 if item["type"] in ["door", "window"]:
                     wall, obj, ratio = item["object"]
@@ -1879,6 +1948,30 @@ class CanvasSelectionMixin:
             self.save_state()
             self.emit('content-changed')
             self.queue_draw()
+            return
+
+        # Finalize unified multi-object move
+        if getattr(self, "dragging_multi_snapshot", None) is not None:
+            snapshot = self.dragging_multi_snapshot
+            was_moved = getattr(self, "_multi_drag_moved", False)
+            moved = was_moved or math.hypot(offset_x, offset_y) > 2.0
+            self.dragging_multi_snapshot = None
+            self.multi_drag_start_model = None
+            self._multi_drag_moved = False
+            if moved:
+                from .multi_move import finalize_multi_drag
+                self._pending_single_select_item = None
+                finalize_multi_drag(self, snapshot)
+                self.save_state()
+                self.emit('content-changed')
+                self.queue_draw()
+            else:
+                pending = getattr(self, "_pending_single_select_item", None)
+                if pending is not None:
+                    self._pending_single_select_item = None
+                    self.selected_items = [pending]
+                    self.emit('selection-changed', self.selected_items)
+                    self.queue_draw()
             return
 
         # If we were editing a wall endpoint, just clear that state and stop.

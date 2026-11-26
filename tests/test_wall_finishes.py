@@ -210,3 +210,63 @@ def test_draw_walls_renders_per_side_accents():
     styled.right_baseboard = True
 
     assert _render(plain) != _render(styled)
+
+
+def test_straddling_openings_split_takeoff_deductions_without_double_counting():
+    from EstiSketch.Takeoff.building_takeoff import (
+        extract_walls_from_canvas,
+        generate_framing_report,
+        generate_sheathing_report,
+        get_opening_extra_studs,
+    )
+
+    c = _make_canvas()
+    # Two split walls forming one 120" interior face (10' x 10' room):
+    # w1 is 24" (shorter than the 36" door!) and w2 is 96".
+    w1 = Wall((0.0, 0.0), (24.0, 0.0), width=5.5, height=96.0, identifier="w1", layer_id=c.active_layer_id)
+    w2 = Wall((24.0, 0.0), (120.0, 0.0), width=5.5, height=96.0, identifier="w2", layer_id=c.active_layer_id)
+    for w in (w1, w2):
+        w.left_finish = "Drywall"
+        w.right_finish = "Hardie Lap Siding"
+        w.left_baseboard = True
+        w.right_baseboard = False
+
+    c.wall_sets = [[w1, w2]]
+    c.rooms = [Room([(0.0, 0.0), (120.0, 0.0), (120.0, 120.0), (0.0, 120.0)], identifier="r1")]
+
+    # Door (36" x 80") centered at x=24 -> 18" on w1, 18" on w2 (total 20 sq ft, 3.0' bb).
+    # Window (48" x 36") centered at x=24 -> 24" on w1, 24" on w2 (total 12 sq ft, 0' bb).
+    door = Door("single", 36.0, 80.0, "left", "in", identifier="d-split")
+    win = Window(48.0, 36.0, "sliding", identifier="win-split")
+    c.doors = [(w1, door, 1.0)]
+    c.windows = [(w2, win, 0.0)]
+
+    extracted = extract_walls_from_canvas(c)
+    by_id = {wd["id"]: wd for wd in extracted}
+    # Host inventory is NOT double-counted across walls
+    assert len(by_id["w1"]["doors"]) == 1
+    assert len(by_id["w2"]["doors"]) == 0
+    assert len(by_id["w2"]["windows"]) == 1
+    assert len(by_id["w1"]["windows"]) == 0
+
+    # Framing counts each opening once (host wall only)
+    expected_extra = get_opening_extra_studs(36.0) + get_opening_extra_studs(48.0)
+    framing = generate_framing_report(extracted, stud_spacing=16.0, plate_length_in=192.0)
+    assert f"Door/Window Opening Studs: {expected_extra} studs" in framing
+
+    # Interior finish: 10' * 8' = 80 sf gross, minus 20 sf door minus 12 sf window = 48 sf net
+    finishes = extract_wall_finishes(c)
+    assert finishes["interior_surface_sqft"] == pytest.approx(48.0)
+    # Without split deductions, w1 (16 sf gross) clamped to 0 and over/under-deducted w2!
+    # Check per-wall net faces: w1 = 2'*8' - (1.5'*6.667' + 2'*3') = 16 - 16 = 0
+    # w2 = 8'*8' - (1.5'*6.667' + 2'*3') = 64 - 16 = 48
+    per_wall = {row["id"]: row for row in finishes["per_wall"]}
+    assert per_wall["w1"]["net_face_sqft"] == pytest.approx(0.0)
+    assert per_wall["w2"]["net_face_sqft"] == pytest.approx(48.0)
+
+    # Baseboard on left side: (2' - 1.5') + (8' - 1.5') = 0.5' + 6.5' = 7.0'
+    assert finishes["baseboard_linear_ft"] == pytest.approx(7.0)
+
+    # Sheathing report deducts exact total opening area (32.00 sq ft)
+    sheathing = generate_sheathing_report(extracted)
+    assert "Total Door/Window Openings:  32.00 sq ft" in sheathing

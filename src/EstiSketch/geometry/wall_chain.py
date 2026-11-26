@@ -119,3 +119,50 @@ def resolve_opening_on_chain(
         return host, 0.5
     host_ratio = (centre - p_start) / (p_end - p_start)
     return host, max(0.0, min(1.0, host_ratio))
+
+
+def opening_chain_overlaps(
+    host_wall: Any,
+    ratio: float,
+    opening_width: float,
+    candidates: Iterable[Any],
+) -> list[tuple[Any, float]]:
+    """Return how much of an opening's width overlaps each collinear wall segment.
+
+    Args:
+        host_wall: Host wall holding ``(host_wall, opening, ratio)``.
+        ratio: Normalized centre position along ``host_wall`` (0 = start, 1 = end).
+        opening_width: Opening clear width in inches.
+        candidates: Candidate walls on the same level/layer that may continue ``host_wall``.
+
+    Returns:
+        List of ``(wall, overlap_width_in)`` for every collinear chain wall with a
+        positive overlap (inches), keeping ``host_wall`` first when present. Curved
+        or degenerate walls fall back to ``[(host_wall, max(0.0, opening_width))]``.
+    """
+    width_in = max(0.0, float(opening_width))
+    length = _length(host_wall)
+    if not _is_straight(host_wall) or length < 1e-6 or width_in <= 0.0:
+        return [(host_wall, width_in)]
+
+    ux = (host_wall.end[0] - host_wall.start[0]) / length
+    uy = (host_wall.end[1] - host_wall.start[1]) / length
+    ox, oy = host_wall.start
+    centre = float(ratio) * length
+    half = width_in / 2.0
+    op_lo = centre - half
+    op_hi = centre + half
+
+    overlaps: list[tuple[Any, float]] = []
+    for member in collinear_chain(host_wall, candidates):
+        p_s = (member.start[0] - ox) * ux + (member.start[1] - oy) * uy
+        p_e = (member.end[0] - ox) * ux + (member.end[1] - oy) * uy
+        w_lo = min(p_s, p_e)
+        w_hi = max(p_s, p_e)
+        ov = min(op_hi, w_hi) - max(op_lo, w_lo)
+        if ov > 1e-6:
+            overlaps.append((member, ov))
+
+    if not overlaps:
+        return [(host_wall, width_in)]
+    return overlaps

@@ -61,15 +61,15 @@ class CanvasEventsMixin:
             self._handle_door_click(n_press, x, y)
         elif self.tool_mode == "add_windows":
             self._handle_window_click(n_press, x, y)
-        elif self.tool_mode == "pointer":
-            # Selection is already handled in on_click_pressed, so we don't
-            # call _handle_pointer_click here (on release) to avoid overriding
-            # shift+click toggle behavior
-            pass
-        elif self.tool_mode == "design_roof":
-            # Design roof uses pointer-like selection for marking walls
-            # Selection already handled in on_click_pressed
-            pass
+        elif self.tool_mode in ("pointer", "design_roof"):
+            # If the user clicked an already-selected item inside a multi-selection
+            # without dragging, collapse the selection down to that clicked item now.
+            pending = getattr(self, "_pending_single_select_item", None)
+            if pending is not None and not getattr(self, "_multi_drag_moved", False):
+                self._pending_single_select_item = None
+                self.selected_items = [pending]
+                self.emit("selection-changed", self.selected_items)
+                self.queue_draw()
         elif self.tool_mode == "add_roof_line":
             self._handle_roof_line_click(n_press, x, y)
         elif self.tool_mode == "add_polyline":
@@ -390,10 +390,11 @@ class CanvasEventsMixin:
                             math.atan2(y - text_y_dev, x - text_x_dev))
                         return
 
-                    # Otherwise, start moving the text
-                    self.moving_text = text
-                    self.moving_text_start_pos = (
-                        self.moving_text.x, self.moving_text.y)
+                    # Otherwise, start moving the single text (multi-selections use multi-drag)
+                    if len(getattr(self, "selected_items", [])) <= 1:
+                        self.moving_text = text
+                        self.moving_text_start_pos = (
+                            self.moving_text.x, self.moving_text.y)
                     return
 
     def _update_opening_ghost(self, x: float, y: float) -> None:

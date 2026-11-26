@@ -349,6 +349,22 @@ class EditEventsMixin:
             self.queue_draw()
             return
 
+        # Handle unified multi-object dragging
+        if getattr(self, "dragging_multi_snapshot", None) is not None:
+            if math.hypot(offset_x, offset_y) > 2.0:
+                self._multi_drag_moved = True
+                self._pending_single_select_item = None
+            curr_dev_x = self.drag_start_x + offset_x
+            curr_dev_y = self.drag_start_y + offset_y
+            curr_model = self.device_to_model(curr_dev_x, curr_dev_y, pixels_per_inch)
+            start_model = getattr(self, "multi_drag_start_model", curr_model)
+            dx = curr_model[0] - start_model[0]
+            dy = curr_model[1] - start_model[1]
+            from .multi_move import apply_multi_drag_delta
+            apply_multi_drag_delta(self, self.dragging_multi_snapshot, dx, dy)
+            self.queue_draw()
+            return
+
         # Handle wall endpoint editing
         if getattr(
                 self,

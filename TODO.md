@@ -144,17 +144,15 @@
 - [ ] Themes
 
 ## 🐛 Known Bugs / FIXMEs
-
-### Noticed in the 2D interface
-- [ ] Double clicking in a closed loop of walls to create a room, draws a room to the center of the walls instead of drawing to the inside edge of the walls as was intended.
-- [ ] Asymetrical pitch settings do not seem to affect where the ridge is drawn like it should. Only the labels change.
-- [ ] Trying to move multiple objects at the same time does not always work properly.
-
-### Noticed in the 3D interface
-- [ ] Takeoff deducts an opening that straddles a split wall from the host wall only instead of splitting the deduction across overlapped collinear walls.
+- [ ] Pocket door width should be 2 times the call out size of the door plus 2 inches.  Example: 3'0" opening door should have a 6'2" pocket door width.  
+- [ ] Need to add Architectural layout checks for the following: Toilets in a bathroom should not be placed where they are within door swing area. Bathrooms must have an appropriate clearance in front of the door (for code compliance) to allow for ingress and egress.  Sinks and vanities should have an appropriate clearance in front of them (for code compliance). Bathtubs must always but up against a wall on the drain side of the bathtub to allow for plumbing (in cases where it works out best otherwise, a short wall may be added next to that end of the tub to meet this requirement). Washers/Dryers in a laundry room should not be placed where they are within door swing area and must be accessable with nothing placed in front of them to prevent access to the appliance doors (front loaders must have clearance in front to allow the door to open fully).
 
 ## Done ✅ (latest first)
 ### Bug fixes (2026-11-26)
+- [x] Multi-object dragging (`Canvas/multi_move.py`, `Canvas/events_selection.py`, `Canvas/events_edit.py`, `Canvas/canvas_events.py`) now translates heterogeneous and multi-item selections together without collapsing selection on press, double-moving hosted openings/room vertices, or losing connected adjoining wall joints; tests in `tests/test_multi_object_move.py` (2026-11-26).
+- [x] Asymmetric roof pitch settings now move the ridge cleanly across rectangular gables (including reordered or split eaves), rectangular/square hip roofs (weighted straight-skeleton wavefront), L-shaped, and T-shaped roofs even when custom/edited roof lines exist (`Canvas/complex_roof.py`, `Canvas/events_roof.py`, `Canvas/roof_solver.py`, `Dialogs/properties_dock.py`, `Canvas/canvas_draw.py`); tests in `tests/test_roof_solver.py` (2026-11-26).
+- [x] Double-clicking inside any closed wall loop now reliably creates a room to the interior wall faces across single/multi wall sets, split walls, and interior partition T-junctions without duplicating manually finalized rooms (`geometry/room_loop.py`, `Canvas/canvas_geometry.py`, `Canvas/events_room.py`); tests in `tests/test_room_inner_polygon.py` (2026-11-26).
+- [x] Takeoff now splits opening deductions across all overlapped collinear walls (`opening_chain_overlaps` in `geometry/wall_chain.py`, used by `extract_walls_from_canvas`, `generate_sheathing_report`, and `extract_wall_finishes` in `Takeoff/building_takeoff.py`) so sheathing, wall finishes, and baseboards deduct only each wall's overlapped width/area without double-counting host opening inventory or framing studs; tests in `tests/test_wall_chain_openings.py` and `tests/test_wall_finishes.py` (2026-11-26).
 - [x] Added architectural layout checks (`geometry/design_checks.py`) verifying furniture/fixture wall clearance, door-swing clearance, stair top/bottom landings, second-story flushness, and unobstructed stair access; wired live wall clamping into 2D fixture placement/dragging/rotation (`Canvas/events_fixture.py`, `Canvas/events_edit.py`), aligned U-shaped stairs in Blender export (`blender_bridge/estisketch_to_hb5.py`), and fixed all violations in the 3 demo houses (`examples/demo_houses/generate_demo_houses.py` + regenerated XMLs); tests in `tests/test_design_checks.py` and `tests/test_demo_houses.py` (2026-11-26).
 - [x] Mitered 3D footers at wall corners (`compute_mitered_strip_polygons`, `_build_level_footers` in `blender_bridge/estisketch_to_hb5.py`); tests in `tests/test_blender_bridge.py` (2026-11-26).
 - [x] Exterior rim-band walls cover upper-level floor perimeter grooves (`_build_level_rim_bands` in `blender_bridge/estisketch_to_hb5.py`) matching the exterior wall finish; verified on House 2 in Blender (2026-11-26).

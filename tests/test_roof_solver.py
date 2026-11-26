@@ -893,8 +893,109 @@ def test_l_shaped_unequal_wings_non_45_degree_hip_valley():
     assert abs(hip_dx - hip_dy) > 20.0
 
 
+def test_asymmetric_pitch_moves_ridge_on_hip_roof_and_custom_lines():
+    from types import SimpleNamespace
+    from EstiSketch import config
+    from EstiSketch.Canvas.canvas_area import CanvasArea
+    from EstiSketch.Dialogs.properties_dock import RoofPropertiesWidget
+
+    cfg = SimpleNamespace(**config.load_config())
+    canvas = CanvasArea(cfg)
+
+    # 360" x 240" rectangular hip roof (all 4 walls marked as eave)
+    w1 = DummyWall("W1", (0.0, 0.0), (360.0, 0.0))
+    w2 = DummyWall("W2", (360.0, 0.0), (360.0, 240.0))
+    w3 = DummyWall("W3", (360.0, 240.0), (0.0, 240.0))
+    w4 = DummyWall("W4", (0.0, 240.0), (0.0, 0.0))
+    canvas.wall_sets = [[w1, w2, w3, w4]]
+
+    canvas.mark_walls_as_eave([w1, w2, w3, w4])
+    roof = canvas.generate_roof_from_marked_walls(pitch_rise=6, overhang=12.0)
+
+    # Initially symmetric: ridge at Y = 120.0
+    ridge = next(l for l in roof.solved_lines if l.line_type == "ridge")
+    assert ridge.start[1] == pytest.approx(120.0, abs=1.0)
+
+    # Simulate a custom/edited line existing (or loaded from XML where is_auto=False)
+    for ml in roof.manual_lines:
+        if ml.line_type == "ridge":
+            ml.is_auto_generated = False
+
+    widget = RoofPropertiesWidget()
+    widget.canvas = canvas
+    widget.set_roof([roof])
+
+    # Switch to Asymmetric (8/12 vs 4/12) -> ridge must move to 240 * 4 / (8 + 4) = 80.0
+    widget.pitch_mode_combo.set_active(1)
+    widget.pitch_a_spin.set_value(8.0)
+    widget.pitch_b_spin.set_value(4.0)
+
+    moved_ridge = next(l for l in roof.solved_lines if l.line_type == "ridge")
+    assert moved_ridge.start[1] == pytest.approx(80.0, abs=1.0)
+    assert moved_ridge.end[1] == pytest.approx(80.0, abs=1.0)
+    edge_map = {e.wall_identifier: e.pitch_rise for e in roof.edges}
+    assert edge_map["W1"] == pytest.approx(8.0)
+    assert edge_map["W3"] == pytest.approx(4.0)
+
+    # Revert to Uniform -> ridge must return to center Y = 120.0
+    widget.pitch_mode_combo.set_active(0)
+    recentered_ridge = next(l for l in roof.solved_lines if l.line_type == "ridge")
+    assert recentered_ridge.start[1] == pytest.approx(120.0, abs=1.0)
 
 
+def test_asymmetric_pitch_split_eave_gable_and_l_t_shapes():
+    from types import SimpleNamespace
+    from EstiSketch import config
+    from EstiSketch.Canvas.canvas_area import CanvasArea
+    from EstiSketch.Canvas.complex_roof import calculate_complex_roof_geometry
+    from EstiSketch.Dialogs.properties_dock import RoofPropertiesWidget
 
+    cfg = SimpleNamespace(**config.load_config())
+    canvas = CanvasArea(cfg)
 
+    # Top eave split into W1a + W1b; W3 is opposite bottom eave
+    w1a = DummyWall("W1a", (0.0, 0.0), (120.0, 0.0))
+    w1b = DummyWall("W1b", (120.0, 0.0), (240.0, 0.0))
+    w2 = DummyWall("W2", (240.0, 0.0), (240.0, 360.0))
+    w3 = DummyWall("W3", (240.0, 360.0), (0.0, 360.0))
+    w4 = DummyWall("W4", (0.0, 360.0), (0.0, 0.0))
+    canvas.wall_sets = [[w1a, w1b, w2, w3, w4]]
+    canvas.mark_walls_as_eave([w1a, w1b, w3])
+    canvas.mark_walls_as_gable([w2, w4])
+    roof = canvas.generate_roof_from_marked_walls(pitch_rise=6, overhang=12.0)
+
+    widget = RoofPropertiesWidget()
+    widget.canvas = canvas
+    widget.set_roof([roof])
+    widget.pitch_mode_combo.set_active(1)
+    widget.pitch_a_spin.set_value(8.0)
+    widget.pitch_b_spin.set_value(4.0)
+
+    ridge = next(l for l in roof.solved_lines if l.line_type == "ridge")
+    assert ridge.start[1] == pytest.approx(120.0, abs=1.0)
+    assert ridge.end[1] == pytest.approx(120.0, abs=1.0)
+
+    # L-shaped roof asymmetric pitches shift the ridge off center
+    l_pts = [(0.0, 0.0), (400.0, 0.0), (400.0, 200.0), (200.0, 200.0), (200.0, 500.0), (0.0, 500.0)]
+    l_walls = [DummyWall(f"L{i}", l_pts[i], l_pts[(i + 1) % 6]) for i in range(6)]
+    l_mark = {f"L{i}": ("gable" if i in (1, 4) else "eave") for i in range(6)}
+    sym_r, _, _, _, _, _ = calculate_complex_roof_geometry(l_walls, l_mark, 12.0, 6.0, 12.0)
+    asym_r, _, _, _, _, _ = calculate_complex_roof_geometry(
+        l_walls, l_mark, 12.0, 6.0, 12.0,
+        edge_pitches={"L0": 8.0, "L2": 4.0, "L3": 6.0, "L5": 6.0},
+    )
+    assert sym_r[0][0][1] == pytest.approx(100.0, abs=1.0)
+    assert asym_r[0][0][1] == pytest.approx(200.0 * 4.0 / 12.0, abs=1.0)
+
+    # Square hip roof with asymmetric pitch shifts away from centroid (120, 120)
+    sq_pts = [(0.0, 0.0), (240.0, 0.0), (240.0, 240.0), (0.0, 240.0)]
+    sq_walls = [DummyWall(f"S{i}", sq_pts[i], sq_pts[(i + 1) % 4]) for i in range(4)]
+    sq_mark = {f"S{i}": "eave" for i in range(4)}
+    sq_r, sq_h, _, _, _, _ = calculate_complex_roof_geometry(
+        sq_walls, sq_mark, 12.0, 6.0, 12.0,
+        edge_pitches={"S0": 8.0, "S1": 6.0, "S2": 4.0, "S3": 6.0},
+    )
+    assert len(sq_r) == 1
+    assert sq_r[0][0][1] == pytest.approx(80.0, abs=1.0)
+    assert len(sq_h) == 4
 

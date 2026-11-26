@@ -236,16 +236,54 @@ def calculate_polygon_outline(ordered_walls: List[Dict[str, Any]], overhang: flo
     return outline
 
 
+def _intersect_ray_lines(
+    p1: Tuple[float, float],
+    d1: Tuple[float, float],
+    p2: Tuple[float, float],
+    d2: Tuple[float, float],
+) -> Optional[Tuple[float, float]]:
+    """Intersect infinite lines ``p1 + t*d1`` and ``p2 + u*d2``."""
+    denom = d1[0] * d2[1] - d1[1] * d2[0]
+    if abs(denom) < 1e-9:
+        return None
+    rx = p2[0] - p1[0]
+    ry = p2[1] - p1[1]
+    t = (rx * d2[1] - ry * d2[0]) / denom
+    return (p1[0] + t * d1[0], p1[1] + t * d1[1])
+
+
+def _ratio_from_pitches(
+    p1: Optional[float],
+    p2: Optional[float],
+    default_pitch: float,
+    z1: Optional[float] = None,
+    z2: Optional[float] = None,
+    span: float = 1.0,
+    pitch_run: float = 12.0,
+) -> float:
+    """Return distance ratio from side 1 across ``span`` for asymmetric pitches/heights."""
+    rise1 = float(p1) if p1 is not None else float(default_pitch)
+    rise2 = float(p2) if p2 is not None else float(default_pitch)
+    s1 = rise1 / max(1e-6, float(pitch_run))
+    s2 = rise2 / max(1e-6, float(pitch_run))
+    if s1 + s2 <= 0.0:
+        return 0.5
+    dz = (float(z2) - float(z1)) if (z1 is not None and z2 is not None) else 0.0
+    raw = (s2 + dz / max(1.0, float(span))) / (s1 + s2)
+    return max(0.05, min(0.95, raw))
+
+
 def generate_l_shaped_roof(
     ordered_walls: List[Dict[str, Any]],
     overhang: float,
     pitch_rise: float = 6.0,
     pitch_run: float = 12.0,
-    ratio: float = 0.5
+    ratio: float = 0.5,
+    has_edge_overrides: bool = False,
 ) -> Tuple[List, List, List, List, List, List]:
     """
     Generate roof geometry for an L-shaped house:
-    - Two separate ridge lines, centered along each wing of the house
+    - Two separate ridge lines, centered (or pitch-offset) along each wing
     - Valley line from the ridge intersection through the inside corner to the overhang
     - Hip line from the ridge intersection through the outside corner to the overhang
     - Gable or Hip end treatment on both wings
@@ -269,7 +307,7 @@ def generate_l_shaped_roof(
         p_prev = pts[(i - 1) % n]
         p_curr = pts[i]
         p_next = pts[(i + 1) % n]
-        cross = (p_curr[0] - p_prev[0]) * (p_next[1] - p_curr[1]) - (p_curr[1] - p_prev[1]) * (p_next[0] - p_curr[0])
+        cross = (p_curr[0] - p_prev[0]) * (p_next[1] - p_curr[1]) - (p_curr[1] - p_prev[1]) * (p_next[0] - p_prev[0])
         if cross * area2 < -1e-5:
             reflex_idx = i
             break
@@ -281,8 +319,37 @@ def generate_l_shaped_roof(
     v_in = pts[r]
     v_out = pts[(r + 3) % n]
 
-    # Ridge intersection I is exactly midway between inside corner and outside corner
-    I = ((v_in[0] + v_out[0]) / 2.0, (v_in[1] + v_out[1]) / 2.0)
+    if has_edge_overrides:
+        ratio_a = _ratio_from_pitches(
+            ordered_walls[(r - 3) % n].get('pitch_rise'),
+            ordered_walls[(r - 1) % n].get('pitch_rise'),
+            pitch_rise,
+            pitch_run=pitch_run,
+        )
+        ratio_b = _ratio_from_pitches(
+            ordered_walls[r].get('pitch_rise'),
+            ordered_walls[(r + 2) % n].get('pitch_rise'),
+            pitch_rise,
+            pitch_run=pitch_run,
+        )
+    else:
+        ratio_a = ratio
+        ratio_b = ratio
+
+    p_a1 = pts[(r - 2) % n]
+    p_a2 = pts[(r - 1) % n]
+    p_b1 = pts[(r + 1) % n]
+    p_b2 = pts[(r + 2) % n]
+
+    wing_a_pt = (p_a1[0] + ratio_a * (p_a2[0] - p_a1[0]), p_a1[1] + ratio_a * (p_a2[1] - p_a1[1]))
+    wing_b_pt = (p_b1[0] + ratio_b * (p_b2[0] - p_b1[0]), p_b1[1] + ratio_b * (p_b2[1] - p_b1[1]))
+    dir_a = (v_in[0] - p_a2[0], v_in[1] - p_a2[1])
+    dir_b = (p_b1[0] - v_in[0], p_b1[1] - v_in[1])
+    intersect = _intersect_ray_lines(wing_a_pt, dir_a, wing_b_pt, dir_b)
+    if intersect is not None and abs(ratio_a - 0.5) + abs(ratio_b - 0.5) > 1e-4:
+        I = intersect
+    else:
+        I = ((v_in[0] + v_out[0]) / 2.0, (v_in[1] + v_out[1]) / 2.0)
 
     # Valley line: from I through v_in extending to overhang corner
     valley_end = get_corner_at_vertex(pts, ordered_walls, r, overhang, winding_flip)
@@ -297,8 +364,8 @@ def generate_l_shaped_roof(
     eave_lines = []
 
     # Helper to process wing ends
-    def process_wing_end(p1, p2, edge_type, wall_obj):
-        mid = ((p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0)
+    def process_wing_end(p1, p2, edge_type, wall_obj, end_ratio: float):
+        mid = (p1[0] + end_ratio * (p2[0] - p1[0]), p1[1] + end_ratio * (p2[1] - p1[1]))
         width = pt_distance(p1, p2)
         dx = mid[0] - I[0]
         dy = mid[1] - I[1]
@@ -319,8 +386,8 @@ def generate_l_shaped_roof(
             ridge_lines.append((I, r_end))
             rake_lines.append((c1_ext, c2_ext))
         else:
-            # Hip end: Ridge terminates width/2 before end wall
-            inset = width / 2.0
+            # Hip end: Ridge terminates inset before end wall
+            inset = width * min(end_ratio, 1.0 - end_ratio)
             r_end = (mid[0] - ux * inset, mid[1] - uy * inset)
             ridge_lines.append((I, r_end))
             hip_lines.append((r_end, c1_ext))
@@ -329,15 +396,11 @@ def generate_l_shaped_roof(
 
     # Wing A end wall is segment (r - 2)
     end_a_seg = ordered_walls[(r - 2) % n]
-    p_a1 = pts[(r - 2) % n]
-    p_a2 = pts[(r - 1) % n]
-    process_wing_end(p_a1, p_a2, end_a_seg.get('edge_type', 'eave'), end_a_seg.get('wall'))
+    process_wing_end(p_a1, p_a2, end_a_seg.get('edge_type', 'eave'), end_a_seg.get('wall'), ratio_a)
 
     # Wing B end wall is segment (r + 1)
     end_b_seg = ordered_walls[(r + 1) % n]
-    p_b1 = pts[(r + 1) % n]
-    p_b2 = pts[(r + 2) % n]
-    process_wing_end(p_b1, p_b2, end_b_seg.get('edge_type', 'eave'), end_b_seg.get('wall'))
+    process_wing_end(p_b1, p_b2, end_b_seg.get('edge_type', 'eave'), end_b_seg.get('wall'), ratio_b)
 
     # Add eave lines for all other walls marked eave
     for idx, item in enumerate(ordered_walls):
@@ -355,7 +418,8 @@ def generate_t_shaped_roof(
     overhang: float,
     pitch_rise: float = 6.0,
     pitch_run: float = 12.0,
-    ratio: float = 0.5
+    ratio: float = 0.5,
+    has_edge_overrides: bool = False,
 ) -> Tuple[List, List, List, List, List, List]:
     """
     Generate roof geometry for a T-shaped house:
@@ -382,7 +446,7 @@ def generate_t_shaped_roof(
         p_prev = pts[(i - 1) % n]
         p_curr = pts[i]
         p_next = pts[(i + 1) % n]
-        cross = (p_curr[0] - p_prev[0]) * (p_next[1] - p_curr[1]) - (p_curr[1] - p_prev[1]) * (p_next[0] - p_curr[0])
+        cross = (p_curr[0] - p_prev[0]) * (p_next[1] - p_curr[1]) - (p_curr[1] - p_prev[1]) * (p_next[0] - p_prev[0])
         if cross * area2 < -1e-5:
             reflex.append(i)
 
@@ -401,10 +465,24 @@ def generate_t_shaped_roof(
     # Stem wing corners
     stem_c1 = pts[(r_start + 1) % n]
     stem_c2 = pts[(r_start + 2) % n]
-    stem_mid = ((stem_c1[0] + stem_c2[0]) / 2.0, (stem_c1[1] + stem_c2[1]) / 2.0)
+    stem_ratio = 0.5
+    if has_edge_overrides:
+        stem_ratio = _ratio_from_pitches(
+            ordered_walls[r_start].get('pitch_rise'),
+            ordered_walls[(r_start + 2) % n].get('pitch_rise'),
+            pitch_rise,
+            pitch_run=pitch_run,
+        )
+    stem_mid = (
+        stem_c1[0] + stem_ratio * (stem_c2[0] - stem_c1[0]),
+        stem_c1[1] + stem_ratio * (stem_c2[1] - stem_c1[1]),
+    )
     stem_width = pt_distance(stem_c1, stem_c2)
 
-    base_mid = ((v_in1[0] + v_in2[0]) / 2.0, (v_in1[1] + v_in2[1]) / 2.0)
+    base_mid = (
+        v_in1[0] + stem_ratio * (v_in2[0] - v_in1[0]),
+        v_in1[1] + stem_ratio * (v_in2[1] - v_in1[1]),
+    )
     stem_dx = stem_mid[0] - base_mid[0]
     stem_dy = stem_mid[1] - base_mid[1]
     stem_len = math.hypot(stem_dx, stem_dy) or 1.0
@@ -412,13 +490,24 @@ def generate_t_shaped_roof(
 
     # Main back wall is segment (r_start + 5)
     bw_p1 = pts[(r_start + 5) % n]
-    bw_p2 = pts[(r_start + 6) % n]
     main_width = abs((base_mid[0] - bw_p1[0]) * (-s_ux) + (base_mid[1] - bw_p1[1]) * (-s_uy))
     if main_width < 1.0:
         main_width = stem_width
 
-    # Ridge intersection I is inside the main body midway across its width
-    I = (base_mid[0] - s_ux * (main_width / 2.0), base_mid[1] - s_uy * (main_width / 2.0))
+    if has_edge_overrides:
+        p_back = ordered_walls[(r_start + 5) % n].get('pitch_rise')
+        p_f1 = ordered_walls[(r_start + 3) % n].get('pitch_rise')
+        p_f2 = ordered_walls[(r_start + 7) % n].get('pitch_rise')
+        f_vals = [float(p) for p in (p_f1, p_f2) if p is not None]
+        p_front = sum(f_vals) / len(f_vals) if f_vals else None
+        main_ratio = _ratio_from_pitches(
+            p_front, p_back, pitch_rise, span=main_width, pitch_run=pitch_run
+        )
+    else:
+        main_ratio = ratio
+
+    # Ridge intersection I is inside the main body at main_ratio across its width from front
+    I = (base_mid[0] - s_ux * (main_width * main_ratio), base_mid[1] - s_uy * (main_width * main_ratio))
 
     # Two valley lines from I to extended inside corners
     v1_ext = get_corner_at_vertex(pts, ordered_walls, r_start, overhang, winding_flip)
@@ -441,7 +530,7 @@ def generate_t_shaped_roof(
         ridge_lines.append((I, r_stem_end))
         rake_lines.append((c1_ext, c2_ext))
     else:
-        inset = stem_width / 2.0
+        inset = stem_width * min(stem_ratio, 1.0 - stem_ratio)
         r_stem_end = (stem_mid[0] - s_ux * inset, stem_mid[1] - s_uy * inset)
         ridge_lines.append((I, r_stem_end))
         hip_lines.append((r_stem_end, c1_ext))
@@ -449,11 +538,11 @@ def generate_t_shaped_roof(
         eave_lines.append((c1_ext, c2_ext))
 
     # 2. Main body ridge ends
-    # End 1 is segment (r_start + 4)
+    # End 1 is segment (r_start + 4): front corner p_e1_1 -> back corner p_e1_2
     end1_seg = ordered_walls[(r_start + 4) % n]
     p_e1_1 = pts[(r_start + 4) % n]
     p_e1_2 = pts[(r_start + 5) % n]
-    e1_mid = ((p_e1_1[0] + p_e1_2[0]) / 2.0, (p_e1_1[1] + p_e1_2[1]) / 2.0)
+    e1_mid = (p_e1_1[0] + main_ratio * (p_e1_2[0] - p_e1_1[0]), p_e1_1[1] + main_ratio * (p_e1_2[1] - p_e1_1[1]))
     e1_w = pt_distance(p_e1_1, p_e1_2)
     e1_dx, e1_dy = e1_mid[0] - I[0], e1_mid[1] - I[1]
     e1_dist = math.hypot(e1_dx, e1_dy) or 1.0
@@ -468,18 +557,18 @@ def generate_t_shaped_roof(
         ridge_lines.append((I, r1_end))
         rake_lines.append((e1_c1_ext, e1_c2_ext))
     else:
-        inset = e1_w / 2.0
+        inset = e1_w * min(main_ratio, 1.0 - main_ratio)
         r1_end = (e1_mid[0] - e1_ux * inset, e1_mid[1] - e1_uy * inset)
         ridge_lines.append((I, r1_end))
         hip_lines.append((r1_end, e1_c1_ext))
         hip_lines.append((r1_end, e1_c2_ext))
         eave_lines.append((e1_c1_ext, e1_c2_ext))
 
-    # End 2 is segment (r_start + 6)
+    # End 2 is segment (r_start + 6): back corner p_e2_1 -> front corner p_e2_2
     end2_seg = ordered_walls[(r_start + 6) % n]
     p_e2_1 = pts[(r_start + 6) % n]
     p_e2_2 = pts[(r_start + 7) % n]
-    e2_mid = ((p_e2_1[0] + p_e2_2[0]) / 2.0, (p_e2_1[1] + p_e2_2[1]) / 2.0)
+    e2_mid = (p_e2_2[0] + main_ratio * (p_e2_1[0] - p_e2_2[0]), p_e2_2[1] + main_ratio * (p_e2_1[1] - p_e2_2[1]))
     e2_w = pt_distance(p_e2_1, p_e2_2)
     e2_dx, e2_dy = e2_mid[0] - I[0], e2_mid[1] - I[1]
     e2_dist = math.hypot(e2_dx, e2_dy) or 1.0
@@ -494,7 +583,7 @@ def generate_t_shaped_roof(
         ridge_lines.append((I, r2_end))
         rake_lines.append((e2_c1_ext, e2_c2_ext))
     else:
-        inset = e2_w / 2.0
+        inset = e2_w * min(main_ratio, 1.0 - main_ratio)
         r2_end = (e2_mid[0] - e2_ux * inset, e2_mid[1] - e2_uy * inset)
         ridge_lines.append((I, r2_end))
         hip_lines.append((r2_end, e2_c1_ext))
@@ -513,9 +602,8 @@ def generate_convex_multisided_roof(
 ) -> Tuple[List, List, List, List, List, List]:
     """
     Generate hip roof for arbitrary convex polygons (e.g. hexagons, octagons, pentagons)
-    using 2D straight skeleton wavefront simulation.
-    Handles elongated polygons (producing a central ridge with hips)
-    and regular polygons (pyramid hip roof).
+    using 2D weighted straight-skeleton wavefront simulation.
+    Handles elongated polygons, regular polygons, and asymmetric per-edge pitches.
     """
     n = len(ordered_walls)
     pts = [item['start'] for item in ordered_walls]
@@ -527,11 +615,22 @@ def generate_convex_multisided_roof(
         signed_area += (p2[0] - p1[0]) * (p2[1] + p1[1])
     winding_flip = 1.0 if signed_area > 0 else -1.0
 
-    # Ensure CCW orientation for wavefront
+    # Ensure CCW orientation for wavefront and preserve aligned edge pitches
     area = get_polygon_signed_area(pts)
     is_ccw = area > 0
-    work_pts = list(pts) if is_ccw else list(reversed(pts))
+    raw_pitches = [
+        float(item.get('pitch_rise') if item.get('pitch_rise') is not None else pitch_rise)
+        for item in ordered_walls
+    ]
+    if is_ccw:
+        work_pts = list(pts)
+        work_pitches = list(raw_pitches)
+    else:
+        # Vertex i in reversed order corresponds to wall (n - 1 - i)'s end->start
+        work_pts = list(reversed(pts))
+        work_pitches = [raw_pitches[(n - 2 - i) % n] for i in range(n)]
     m = len(work_pts)
+    has_asymmetric = (max(work_pitches) - min(work_pitches)) > 1e-3
 
     # Map extended corners for work_pts
     ext_corners = []
@@ -547,13 +646,12 @@ def generate_convex_multisided_roof(
     center_dists = [math.hypot(p[0] - cx, p[1] - cy) for p in work_pts]
     min_d, max_d = min(center_dists), max(center_dists)
 
-    # 1. Triangle (m == 3): All 3 roof planes always meet at a single apex (incenter).
-    # There is never a ridge line on a triangular hip roof; all hip lines converge directly to the incenter.
-    if m == 3:
+    # 1. Triangle (m == 3): All 3 roof planes meet at a single apex (weighted by 1/pitch).
+    if m == 3 and not has_asymmetric:
         p0, p1, p2 = work_pts[0], work_pts[1], work_pts[2]
         l0 = math.hypot(p2[0] - p1[0], p2[1] - p1[1])  # side opposite p0
         l1 = math.hypot(p0[0] - p2[0], p0[1] - p2[1])  # side opposite p1
-        l2 = math.hypot(p1[0] - p0[0], p1[1] - p0[0])  # side opposite p2
+        l2 = math.hypot(p1[0] - p0[0], p1[1] - p1[1] + (p1[1] - p0[1]))
         perim = l0 + l1 + l2
         if perim > 1e-6:
             ix = (l0 * p0[0] + l1 * p1[0] + l2 * p2[0]) / perim
@@ -565,31 +663,33 @@ def generate_convex_multisided_roof(
         outline_points = calculate_polygon_outline(ordered_walls, overhang)
         return [], hip_lines, [], [], [], outline_points
 
-    # 2. Polygons with all equal sides (square for m == 4, or regular m >= 5):
-    # All hip lines converge directly to the centroid with NO ridge line.
+    # 2. Polygons with all equal sides AND uniform pitch: pyramid hip to centroid.
     side_lens = [math.hypot(work_pts[(i + 1) % m][0] - work_pts[i][0], work_pts[(i + 1) % m][1] - work_pts[i][1]) for i in range(m)]
     min_side, max_side = min(side_lens), max(side_lens)
     is_equal_sides = max_side > 0 and ((max_side - min_side) / max_side < 0.03)
 
-    if m == 4 and is_equal_sides:
+    if not has_asymmetric and m == 4 and is_equal_sides:
         # Square hip roof: pyramid hip with 4 hips meeting at centroid, no ridge
         hip_lines = [(center, c_ext) for c_ext in ext_corners]
         outline_points = calculate_polygon_outline(ordered_walls, overhang)
         return [], hip_lines, [], [], [], outline_points
 
-    if m >= 5 and (is_equal_sides or (max_d > 0 and (max_d - min_d) / max_d < 0.02)):
+    if not has_asymmetric and m >= 5 and (is_equal_sides or (max_d > 0 and (max_d - min_d) / max_d < 0.02)):
         # Regular multisided convex hip roof (pentagon, hexagon, octagon)
         hip_lines = [(center, c_ext) for c_ext in ext_corners]
         outline_points = calculate_polygon_outline(ordered_walls, overhang)
         return [], hip_lines, [], [], [], outline_points
 
+    ref_pitch = max(0.5, float(pitch_rise or 6.0))
+
     class Edge:
-        def __init__(self, idx, p1, p2):
+        def __init__(self, idx, p1, p2, edge_pitch):
             self.idx = idx
             dx = p2[0] - p1[0]
             dy = p2[1] - p1[1]
             length = math.hypot(dx, dy) or 1.0
             self.normal = (-dy / length, dx / length)
+            self.speed = ref_pitch / max(0.5, float(edge_pitch))
 
     class VertexNode:
         def __init__(self, pt, orig_idx, e_prev, e_next, t=0.0):
@@ -600,17 +700,25 @@ def generate_convex_multisided_roof(
             self.e_next = e_next
             n1 = e_prev.normal
             n2 = e_next.normal
-            denom = 1.0 + n1[0] * n2[0] + n1[1] * n2[1]
-            if abs(denom) < 1e-9:
-                self.b = (0.0, 0.0)
+            v1 = e_prev.speed
+            v2 = e_next.speed
+            det = n1[0] * n2[1] - n1[1] * n2[0]
+            if abs(det) >= 1e-6:
+                self.b = (
+                    (v1 * n2[1] - v2 * n1[1]) / det,
+                    (n1[0] * v2 - n2[0] * v1) / det,
+                )
+            elif n1[0] * n2[0] + n1[1] * n2[1] > 0.0:
+                avg_v = 0.5 * (v1 + v2)
+                self.b = (n1[0] * avg_v, n1[1] * avg_v)
             else:
-                self.b = ((n1[0] + n2[0]) / denom, (n1[1] + n2[1]) / denom)
+                self.b = (0.0, 0.0)
 
         def pos_at(self, t):
             dt = t - self.t_start
             return (self.pt[0] + dt * self.b[0], self.pt[1] + dt * self.b[1])
 
-    edges = [Edge(i, work_pts[i], work_pts[(i + 1) % m]) for i in range(m)]
+    edges = [Edge(i, work_pts[i], work_pts[(i + 1) % m], work_pitches[i]) for i in range(m)]
     nodes = [VertexNode(work_pts[i], i, edges[(i - 1) % m], edges[i], t=0.0) for i in range(m)]
 
     skeleton_raw = []
@@ -800,13 +908,69 @@ def merge_collinear_items(ordered: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return merged
 
 
+def group_opposite_eave_sides(
+    walls: list,
+    markings: Dict[str, str],
+) -> Tuple[List[str], List[str]]:
+    """Group eave wall identifiers into the two primary opposing sides.
+
+    Handles collinear split eaves (merging segments belonging to the same facade)
+    and multi-eave hip/L/T footprints (choosing the longest pair of opposing eaves
+    so Side A and Side B always flank the main ridge rather than adjacent corners).
+    """
+    ordered = merge_collinear_items(order_walls_into_loop(walls, markings))
+    eave_items = [item for item in ordered if item.get('edge_type') == 'eave']
+    if len(eave_items) < 2:
+        return ([getattr(w, 'identifier', '') for w in _item_walls(eave_items[0])] if eave_items else []), []
+
+    if len(eave_items) == 2:
+        return (
+            [getattr(w, 'identifier', '') for w in _item_walls(eave_items[0])],
+            [getattr(w, 'identifier', '') for w in _item_walls(eave_items[1])],
+        )
+
+    best_pair: Optional[Tuple[Dict[str, Any], Dict[str, Any]]] = None
+    best_score = -1.0
+    for i in range(len(eave_items)):
+        a = eave_items[i]
+        da = _item_dir(a)
+        la = pt_distance(a['start'], a['end'])
+        for j in range(i + 1, len(eave_items)):
+            b = eave_items[j]
+            db = _item_dir(b)
+            lb = pt_distance(b['start'], b['end'])
+            dot = da[0] * db[0] + da[1] * db[1]
+            if dot < -0.7:
+                score = min(la, lb) * 1000.0 + (la + lb)
+                if score > best_score:
+                    best_score = score
+                    best_pair = (a, b)
+
+    if best_pair is None:
+        best_pair = (eave_items[0], eave_items[1])
+    return (
+        [getattr(w, 'identifier', '') for w in _item_walls(best_pair[0])],
+        [getattr(w, 'identifier', '') for w in _item_walls(best_pair[1])],
+    )
+
+
+def _item_walls(item: Dict[str, Any]) -> List[Any]:
+    """Return all underlying Wall objects represented by a loop item."""
+    if 'members' in item and item['members']:
+        return list(item['members'])
+    w = item.get('wall')
+    return [w] if w is not None else []
+
+
 def calculate_complex_roof_geometry(
     walls: list,
     markings: Dict[str, str],
     overhang: float = 12.0,
     pitch_rise: float = 6.0,
     pitch_run: float = 12.0,
-    ratio: float = 0.5
+    ratio: float = 0.5,
+    edge_pitches: Optional[Dict[str, float]] = None,
+    edge_elevations: Optional[Dict[str, float]] = None,
 ) -> Tuple[List, List, List, List, List, List]:
     """
     Master geometry solver for all roof types.
@@ -818,15 +982,42 @@ def calculate_complex_roof_geometry(
         return [], [], [], [], [], []
     ordered_walls = merge_collinear_items(ordered_walls)
 
+    has_edge_overrides = bool(edge_pitches or edge_elevations)
+    if has_edge_overrides:
+        for item in ordered_walls:
+            members = _item_walls(item)
+            if edge_pitches:
+                p_vals = [
+                    float(edge_pitches[getattr(w, 'identifier', '')])
+                    for w in members
+                    if getattr(w, 'identifier', '') in edge_pitches
+                ]
+                if p_vals:
+                    item['pitch_rise'] = sum(p_vals) / len(p_vals)
+            if edge_elevations:
+                z_vals = [
+                    float(edge_elevations[getattr(w, 'identifier', '')])
+                    for w in members
+                    if getattr(w, 'identifier', '') in edge_elevations
+                ]
+                if z_vals:
+                    item['elevation'] = sum(z_vals) / len(z_vals)
+
     shape, reflex_idx, _ = classify_polygon_shape(ordered_walls)
 
     # 1. L-shaped house
     if shape == 'l_shape':
-        return generate_l_shaped_roof(ordered_walls, overhang, pitch_rise, pitch_run, ratio)
+        return generate_l_shaped_roof(
+            ordered_walls, overhang, pitch_rise, pitch_run, ratio,
+            has_edge_overrides=has_edge_overrides,
+        )
 
     # 2. T-shaped house
     if shape == 't_shape':
-        return generate_t_shaped_roof(ordered_walls, overhang, pitch_rise, pitch_run, ratio)
+        return generate_t_shaped_roof(
+            ordered_walls, overhang, pitch_rise, pitch_run, ratio,
+            has_edge_overrides=has_edge_overrides,
+        )
 
     # 3. 4-wall rectangle
     if shape == 'rectangle':
@@ -839,13 +1030,27 @@ def calculate_complex_roof_geometry(
             if len(eave_items) == 2 and len(gable_items) == 2:
                 from .roof_solver import distance_point_to_segment
                 e1 = eave_items[0]
+                e2 = eave_items[1]
+                eff_ratio = ratio
+                if has_edge_overrides:
+                    mid1 = ((e1['start'][0] + e1['end'][0]) / 2.0, (e1['start'][1] + e1['end'][1]) / 2.0)
+                    span = distance_point_to_segment(mid1, e2['start'], e2['end'])[0] or 1.0
+                    eff_ratio = _ratio_from_pitches(
+                        e1.get('pitch_rise'),
+                        e2.get('pitch_rise'),
+                        pitch_rise,
+                        z1=e1.get('elevation'),
+                        z2=e2.get('elevation'),
+                        span=span,
+                        pitch_run=pitch_run,
+                    )
                 ridge_pts = []
                 for gi in gable_items[:2]:
                     d1 = distance_point_to_segment(gi['start'], e1['start'], e1['end'])[0]
                     d2 = distance_point_to_segment(gi['end'], e1['start'], e1['end'])[0]
                     p_from = gi['start'] if d1 <= d2 else gi['end']
                     p_to = gi['end'] if d1 <= d2 else gi['start']
-                    r_pt = (p_from[0] + ratio * (p_to[0] - p_from[0]), p_from[1] + ratio * (p_to[1] - p_from[1]))
+                    r_pt = (p_from[0] + eff_ratio * (p_to[0] - p_from[0]), p_from[1] + eff_ratio * (p_to[1] - p_from[1]))
                     ridge_pts.append(r_pt)
                 rdx = ridge_pts[1][0] - ridge_pts[0][0]
                 rdy = ridge_pts[1][1] - ridge_pts[0][1]

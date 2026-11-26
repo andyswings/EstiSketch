@@ -409,7 +409,12 @@ def intersect_and_clean_lines(
     return final_lines
 
 
-def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None, canvas: Optional[Any] = None) -> Roof:
+def solve_and_clean_roof(
+    roof: Roof,
+    walls: Optional[list] = None,
+    canvas: Optional[Any] = None,
+    force_auto_geometry: bool = False,
+) -> Roof:
     """
     Main entry point for the Roof Topology & Clean-Up Engine.
     """
@@ -426,10 +431,14 @@ def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None, canvas: Optio
 
     # Gather manual sketched lines
     sketched = list(roof.manual_lines)
-    has_custom_lines = any(not getattr(l, 'is_auto_generated', False) for l in sketched)
+    has_custom_lines = (
+        False
+        if force_auto_geometry
+        else any(not getattr(l, 'is_auto_generated', False) for l in sketched)
+    )
 
-    # If all existing manual lines are auto-generated (or empty), and walls and roof.edges exist,
-    # regenerate auto lines so changes in overhang, pitch overrides, or wall positions are applied.
+    # If all existing manual lines are auto-generated (or forced regeneration), and walls and
+    # roof.edges exist, regenerate auto lines so pitch/overhang/wall changes take effect.
     if not has_custom_lines and walls and roof.edges:
         sketched = []
 
@@ -472,16 +481,12 @@ def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None, canvas: Optio
                     elif edge.edge_type == 'tie_in':
                         marked_tie_ins.append((wall, p_rise, oh))
 
-        # Sync edge pitch_rise and overhang to existing sketched lines (for custom/edited lines)
+        # Sync edge pitch_rise and overhang only to matching wall lines (never overwrite all eaves!)
         for wall, p_rise, oh in marked_eaves:
             for line in sketched:
                 if (
                     getattr(line, "wall_identifier", "") == wall.identifier
                     or line.identifier == f"auto_eave_{wall.identifier}"
-                    or (
-                        line.line_type == "eave"
-                        and getattr(line, "is_auto_generated", False)
-                    )
                 ):
                     line.pitch_rise = p_rise
                     line.overhang = oh
@@ -490,10 +495,6 @@ def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None, canvas: Optio
                 if (
                     getattr(line, "wall_identifier", "") == wall.identifier
                     or line.identifier == f"auto_rake_{wall.identifier}"
-                    or (
-                        line.line_type == "rake"
-                        and getattr(line, "is_auto_generated", False)
-                    )
                 ):
                     line.pitch_rise = p_rise
                     line.overhang = oh
@@ -576,35 +577,51 @@ def solve_and_clean_roof(roof: Roof, walls: Optional[list] = None, canvas: Optio
 
         # If still no ridge or hip lines, run complex roof geometry solver
         if not any(l.line_type in ("ridge", "hip") for l in sketched):
-            from .complex_roof import calculate_complex_roof_geometry
+            from .complex_roof import calculate_complex_roof_geometry, group_opposite_eave_sides
             markings = {e.wall_identifier: e.edge_type for e in roof.edges}
+            edge_pitches = {
+                e.wall_identifier: float(
+                    e.pitch_rise if getattr(e, 'pitch_rise', None) is not None else roof.pitch_rise
+                )
+                for e in roof.edges
+            }
             marked_walls = [w for w in walls if getattr(w, 'identifier', '') in markings]
+            edge_elevations: Dict[str, float] = {}
+            for mw in marked_walls:
+                if canvas and hasattr(canvas, 'get_wall_top_elevations'):
+                    zs, ze = canvas.get_wall_top_elevations(mw)
+                else:
+                    zs = float(getattr(mw, 'height', 96.0) or 96.0)
+                    ze = float(getattr(mw, 'height_at_end', zs) or zs)
+                edge_elevations[mw.identifier] = (zs + ze) / 2.0
             if len(marked_walls) >= 3:
                 ratio = 0.5
-                if len(marked_eaves) >= 2:
-                    p1 = marked_eaves[0][1]
-                    p2 = marked_eaves[1][1]
-                    s1 = p1 / 12.0
-                    s2 = p2 / 12.0
-                    w1 = marked_eaves[0][0]
-                    w2 = marked_eaves[1][0]
-                    if canvas and hasattr(canvas, 'get_wall_top_elevations'):
-                        z1_s, z1_e = canvas.get_wall_top_elevations(w1)
-                        z2_s, z2_e = canvas.get_wall_top_elevations(w2)
-                    else:
-                        z1_s = float(getattr(w1, 'height', 96.0) or 96.0)
-                        z1_e = float(getattr(w1, 'height_at_end', z1_s) or z1_s)
-                        z2_s = float(getattr(w2, 'height', 96.0) or 96.0)
-                        z2_e = float(getattr(w2, 'height_at_end', z2_s) or z2_s)
-                    z1 = (z1_s + z1_e) / 2.0
-                    z2 = (z2_s + z2_e) / 2.0
+                side_a_ids, side_b_ids = group_opposite_eave_sides(marked_walls, markings)
+                if side_a_ids and side_b_ids and len(marked_eaves) >= 2:
+                    w1 = next((w for w, _, _ in marked_eaves if w.identifier == side_a_ids[0]), marked_eaves[0][0])
+                    w2 = next((w for w, _, _ in marked_eaves if w.identifier == side_b_ids[0]), marked_eaves[1][0])
+                    p1 = edge_pitches.get(w1.identifier, roof.pitch_rise)
+                    p2 = edge_pitches.get(w2.identifier, roof.pitch_rise)
+                    s1 = p1 / float(roof.pitch_run or 12.0)
+                    s2 = p2 / float(roof.pitch_run or 12.0)
+                    z1 = edge_elevations.get(w1.identifier, 96.0)
+                    z2 = edge_elevations.get(w2.identifier, 96.0)
                     mid1 = ((w1.start[0] + w1.end[0]) / 2.0, (w1.start[1] + w1.end[1]) / 2.0)
                     span = distance_point_to_segment(mid1, w2.start, w2.end)[0] or 1.0
                     if s1 + s2 > 0:
                         raw_ratio = (s2 + (z2 - z1) / span) / (s1 + s2)
                         ratio = max(0.05, min(0.95, raw_ratio))
                 r_lines, h_lines, v_lines, rk_lines, ev_lines, outline = \
-                    calculate_complex_roof_geometry(marked_walls, markings, roof.overhang, roof.pitch_rise, roof.pitch_run, ratio=ratio)
+                    calculate_complex_roof_geometry(
+                        marked_walls,
+                        markings,
+                        roof.overhang,
+                        roof.pitch_rise,
+                        roof.pitch_run,
+                        ratio=ratio,
+                        edge_pitches=edge_pitches,
+                        edge_elevations=edge_elevations,
+                    )
                 for s, e in r_lines:
                     sketched.append(RoofLine(
                         start=s, end=e, line_type="ridge",

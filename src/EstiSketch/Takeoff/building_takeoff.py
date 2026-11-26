@@ -22,6 +22,7 @@ from typing import List, Dict, Tuple, Optional
 
 from .roof_takeoff import RoofSection, CombinedRoofTakeoff, format_takeoff_report
 from ..components import EXTERIOR_WALL_FINISHES
+from ..geometry.wall_chain import opening_chain_overlaps
 
 # Unit Conversion Constants
 CM_PER_INCH = 2.54
@@ -176,6 +177,8 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
     min_y = min(min(w.start[1], w.end[1]) for w in all_walls)
     max_y = max(max(w.start[1], w.end[1]) for w in all_walls)
 
+    walls_by_obj_id: Dict[int, Dict] = {}
+
     for idx, w in enumerate(all_walls, 1):
         x1, y1 = w.start[0], w.start[1]
         x2, y2 = w.end[0], w.end[1]
@@ -254,7 +257,7 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
                 left_is_ext = False
                 right_is_ext = False
 
-        walls.append({
+        wall_dict = {
             'id': wall_id,
             'start_cm': (x1 * CM_PER_INCH, y1 * CM_PER_INCH),
             'end_cm': (x2 * CM_PER_INCH, y2 * CM_PER_INCH),
@@ -293,63 +296,70 @@ def extract_walls_from_canvas(canvas) -> List[Dict]:
             'left_is_exterior': left_is_ext,
             'right_is_exterior': right_is_ext,
             'doors': [],
-            'windows': []
-        })
+            'windows': [],
+            'opening_deductions': [],
+            'door_deductions': [],
+        }
+        walls.append(wall_dict)
+        walls_by_obj_id[id(w)] = wall_dict
 
-    # Map doors and windows from canvas
-    if hasattr(canvas, "doors") and canvas.doors:
-        for item in canvas.doors:
-            if isinstance(item, (tuple, list)) and len(item) >= 3:
-                w_obj, door_obj, ratio = item[0], item[1], item[2]
-                w_id = str(getattr(w_obj, "identifier", ""))
-                d_width_in = float(getattr(door_obj, "width", 36.0))
-                d_height_in = float(getattr(door_obj, "height", 80.0))
-                d_name = getattr(door_obj, "name", "Door")
-            else:
+    def _map_openings(entries, kind_key: str, label: str, default_w: float, default_h: float) -> None:
+        if not entries:
+            return
+        for item in entries:
+            if not (isinstance(item, (tuple, list)) and len(item) >= 3):
                 continue
+            w_obj, op_obj, ratio = item[0], item[1], float(item[2])
+            w_id = str(getattr(w_obj, "identifier", ""))
+            op_w_in = float(getattr(op_obj, "width", default_w))
+            op_h_in = float(getattr(op_obj, "height", default_h))
+            op_name = getattr(op_obj, "name", label)
+            op_id = getattr(op_obj, "id", None)
 
-            for wall_dict in walls:
-                if wall_dict['id'] == w_id:
-                    wall_dict['doors'].append({
-                        'id': getattr(door_obj, "id", f"D-{len(wall_dict['doors'])+1}"),
-                        'name': d_name,
-                        'type': 'Door',
-                        'width_cm': d_width_in * CM_PER_INCH,
-                        'width_in': d_width_in,
-                        'width_ft_in': format_ft_in(d_width_in),
-                        'height_cm': d_height_in * CM_PER_INCH,
-                        'height_in': d_height_in,
-                        'height_ft_in': format_ft_in(d_height_in),
-                        'position_t': float(ratio),
-                        'position_ft': float(ratio) * wall_dict['length_ft']
-                    })
+            host_dict = walls_by_obj_id.get(id(w_obj))
+            if host_dict is None:
+                host_dict = next((wd for wd in walls if wd['id'] == w_id), None)
+            if host_dict is not None:
+                host_dict[kind_key].append({
+                    'id': op_id or f"{label[0]}-{len(host_dict[kind_key]) + 1}",
+                    'name': op_name,
+                    'type': label,
+                    'width_cm': op_w_in * CM_PER_INCH,
+                    'width_in': op_w_in,
+                    'width_ft_in': format_ft_in(op_w_in),
+                    'height_cm': op_h_in * CM_PER_INCH,
+                    'height_in': op_h_in,
+                    'height_ft_in': format_ft_in(op_h_in),
+                    'position_t': ratio,
+                    'position_ft': ratio * host_dict['length_ft'],
+                })
 
-    if hasattr(canvas, "windows") and canvas.windows:
-        for item in canvas.windows:
-            if isinstance(item, (tuple, list)) and len(item) >= 3:
-                w_obj, win_obj, ratio = item[0], item[1], item[2]
-                w_id = str(getattr(w_obj, "identifier", ""))
-                win_width_in = float(getattr(win_obj, "width", 36.0))
-                win_height_in = float(getattr(win_obj, "height", 48.0))
-                win_name = getattr(win_obj, "name", "Window")
-            else:
-                continue
+            w_layer = getattr(w_obj, "layer_id", "")
+            same_layer_walls = [
+                rw for rw in all_walls if getattr(rw, "layer_id", "") == w_layer
+            ]
+            for ov_wall, ov_w_in in opening_chain_overlaps(
+                w_obj, ratio, op_w_in, same_layer_walls
+            ):
+                ov_dict = walls_by_obj_id.get(id(ov_wall))
+                if ov_dict is None:
+                    ov_id = str(getattr(ov_wall, "identifier", ""))
+                    ov_dict = next((wd for wd in walls if wd['id'] == ov_id), None)
+                if ov_dict is None:
+                    continue
+                ded = {
+                    'id': op_id or f"{label[0]}-{len(ov_dict['opening_deductions']) + 1}",
+                    'name': op_name,
+                    'type': label,
+                    'width_in': ov_w_in,
+                    'height_in': op_h_in,
+                }
+                ov_dict['opening_deductions'].append(ded)
+                if kind_key == 'doors':
+                    ov_dict['door_deductions'].append(ded)
 
-            for wall_dict in walls:
-                if wall_dict['id'] == w_id:
-                    wall_dict['windows'].append({
-                        'id': getattr(win_obj, "id", f"W-{len(wall_dict['windows'])+1}"),
-                        'name': win_name,
-                        'type': 'Window',
-                        'width_cm': win_width_in * CM_PER_INCH,
-                        'width_in': win_width_in,
-                        'width_ft_in': format_ft_in(win_width_in),
-                        'height_cm': win_height_in * CM_PER_INCH,
-                        'height_in': win_height_in,
-                        'height_ft_in': format_ft_in(win_height_in),
-                        'position_t': float(ratio),
-                        'position_ft': float(ratio) * wall_dict['length_ft']
-                    })
+    _map_openings(getattr(canvas, "doors", None), "doors", "Door", 36.0, 80.0)
+    _map_openings(getattr(canvas, "windows", None), "windows", "Window", 36.0, 48.0)
 
     # Calculate exterior corner extensions for exterior walls to accurately represent outer surface dimensions
     ext_walls = [w for w in walls if w['is_exterior']]
@@ -624,7 +634,8 @@ def generate_sheathing_report(walls: List[Dict], sheet_width_ft: float = 4.0, sh
         base_h = w.get('base_height_ft', w['height_ft'])
         tri_h = w.get('tri_height_ft', 0.0)
         gross = (w['length_ft'] * base_h) + (0.5 * w['length_ft'] * tri_h)
-        op_sqft = sum((op['width_in'] * op['height_in']) / 144.0 for op in (w['doors'] + w['windows']))
+        openings = w.get('opening_deductions', w['doors'] + w['windows'])
+        op_sqft = sum((op['width_in'] * op['height_in']) / 144.0 for op in openings)
         total_gross_sqft += gross
         total_opening_sqft += op_sqft
 
@@ -1575,13 +1586,15 @@ def extract_wall_finishes(canvas) -> Dict:
     for w in walls:
         raw_len_ft = float(w.get("raw_length_ft", w["length_ft"]))
         ext_len_ft = float(w["length_ft"])
+        openings = w.get("opening_deductions", w["doors"] + w["windows"])
         openings_sqft = sum(
             (op["width_in"] * op["height_in"]) / 144.0
-            for op in (w["doors"] + w["windows"])
+            for op in openings
         )
         int_net_face = max(0.0, raw_len_ft * w["height_ft"] - openings_sqft)
         ext_net_face = max(0.0, ext_len_ft * w["height_ft"] - openings_sqft)
-        door_width_ft = sum(d["width_in"] / 12.0 for d in w["doors"])
+        door_deductions = w.get("door_deductions", w["doors"])
+        door_width_ft = sum(d["width_in"] / 12.0 for d in door_deductions)
         face_bb = max(0.0, raw_len_ft - door_width_ft)
 
         wall_bb = 0.0
