@@ -67,9 +67,9 @@ def parse_distance(text: str) -> float:
     (``7500 mm``, ``750 cm``, ``7.5 m``) input. Plain numbers are inches.
     Raises ``ValueError`` for empty, malformed or non-positive values.
     """
-    if text is None or not str(text).strip():
+    if text is None or not text.strip():
         raise ValueError("Enter a distance.")
-    s = str(text).strip().lower()
+    s = text.strip().lower()
     m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(mm|cm|m)", s)
     if m:
         value = float(m.group(1)) * _METRIC_UNITS[m.group(2)]

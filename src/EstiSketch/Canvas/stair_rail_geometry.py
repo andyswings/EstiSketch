@@ -41,10 +41,10 @@ def stair_rail_paths(stair: Stair) -> Dict[str, List[List[Tuple[float, float]]]]
 
     # 2. L-Shaped Stair (with landing or winders)
     elif stair_type == 'L-shaped':
-        total_steps = int(getattr(stair, 'num_steps', 14) or 14)
+        total_steps = getattr(stair, 'num_steps', 14) or 14
         tread_depth = float(getattr(stair, 'tread_depth', 11.0) or 11.0)
         landing_depth = float(getattr(stair, 'landing_depth', 36.0) or 36.0)
-        winder_count = int(getattr(stair, 'winder_count', 0) or 0)
+        winder_count = getattr(stair, 'winder_count', 0) or 0
         turn_dir = getattr(stair, 'turn_direction', 'left')
 
         layout = l_stair_layout(
@@ -97,7 +97,7 @@ def stair_rail_paths(stair: Stair) -> Dict[str, List[List[Tuple[float, float]]]]
         landing_depth = float(getattr(stair, 'landing_depth', 36.0) or 36.0)
         turn_dir = getattr(stair, 'turn_direction', 'left')
         well_width = float(getattr(stair, 'inner_radius', 0.0) or 0.0)
-        total_steps = int(getattr(stair, 'num_steps', 14) or 14)
+        total_steps = getattr(stair, 'num_steps', 14) or 14
         tread_depth = float(getattr(stair, 'tread_depth', 11.0) or 11.0)
 
         steps_before = getattr(stair, 'steps_before_landing', 0)
@@ -219,11 +219,11 @@ def stair_rail_length_3d(stair: Stair) -> Dict[str, float]:
     stair_type = getattr(stair, 'stair_type', 'straight')
     width = float(getattr(stair, 'width', 36.0) or 36.0)
     total_rise = float(getattr(stair, 'total_rise', 106.0) or 106.0)
-    total_steps = int(getattr(stair, 'num_steps', 14) or 14)
+    total_steps = getattr(stair, 'num_steps', 14) or 14
     tread_depth = float(getattr(stair, 'tread_depth', 11.0) or 11.0)
 
-    has_left = bool(getattr(stair, 'has_left_rail', True))
-    has_right = bool(getattr(stair, 'has_right_rail', True))
+    has_left = getattr(stair, 'has_left_rail', True)
+    has_right = getattr(stair, 'has_right_rail', True)
 
     l_in = 0.0
     r_in = 0.0
@@ -238,7 +238,7 @@ def stair_rail_length_3d(stair: Stair) -> Dict[str, float]:
 
     elif stair_type == 'L-shaped':
         landing_depth = float(getattr(stair, 'landing_depth', 36.0) or 36.0)
-        winder_count = int(getattr(stair, 'winder_count', 0) or 0)
+        winder_count = getattr(stair, 'winder_count', 0) or 0
         turn_dir = getattr(stair, 'turn_direction', 'left')
 
         layout = l_stair_layout(

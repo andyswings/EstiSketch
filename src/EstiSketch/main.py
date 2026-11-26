@@ -497,7 +497,7 @@ class EstimatorApp(Gtk.Application):
         # Connect the "destroy" signal to check for unsaved changes.
         self.window.connect("close-request", self.on_close_request)
 
-    def on_status_update(self, canvas: canvas_area, message: str) -> None:
+    def on_status_update(self, canvas: canvas_area.CanvasArea, message: str) -> None:
         """Update the status bar text."""
         self.status_label.set_label(message)
 
@@ -592,13 +592,13 @@ class EstimatorApp(Gtk.Application):
                 return True
             elif keyname == "f":
                 if self.tool_buttons["add_fixture"].get_active():
-                    open_fixture_browser()
+                    self._open_fixture_browser()
                 else:
                     self.tool_buttons["add_fixture"].set_active(True)
                 return True
             elif keyname == "k":
                 if self.tool_buttons["add_kitchen_layout"].get_active():
-                    open_kitchen_layout_dialog()
+                    self._open_kitchen_layout_dialog()
                 else:
                     self.tool_buttons["add_kitchen_layout"].set_active(True)
                 return True

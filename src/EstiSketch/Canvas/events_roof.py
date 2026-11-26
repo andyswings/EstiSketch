@@ -920,6 +920,8 @@ class CanvasRoofEventsMixin:
         all_walls = []
         
         for edge in roof.edges:
+            if not edge.wall_identifier:
+                continue
             wall = self.get_wall_by_identifier(edge.wall_identifier)
             if wall:
                 all_walls.append(wall)
@@ -930,12 +932,17 @@ class CanvasRoofEventsMixin:
         
         # Calculate pitch ratio across opposite eave sides and collect per-edge overrides
         from .complex_roof import calculate_complex_roof_geometry, group_opposite_eave_sides
-        markings = {edge.wall_identifier: edge.edge_type for edge in roof.edges}
+        markings = {
+            edge.wall_identifier: edge.edge_type
+            for edge in roof.edges
+            if edge.wall_identifier
+        }
         edge_pitches = {
             edge.wall_identifier: float(
                 edge.pitch_rise if edge.pitch_rise is not None else roof.pitch_rise
             )
             for edge in roof.edges
+            if edge.wall_identifier
         }
         edge_elevations = {}
         for wall in all_walls:

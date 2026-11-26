@@ -68,7 +68,7 @@ def _draw_model(canvas, cr, pts_per_in: float, ppi: float) -> None:
 
 def content_bounds(canvas, level_id: str, hidden_layer_ids=()) -> Optional[Bounds]:
     """Extent of everything drawn for a level, in model inches (or None)."""
-    surf = cairo.RecordingSurface(cairo.CONTENT_COLOR_ALPHA, None)
+    surf = cairo.RecordingSurface(cairo.CONTENT_COLOR_ALPHA, None)  # pyrefly: ignore[bad-argument-type]  # Pycairo stub omits Optional for unbounded RecordingSurface
     cr = cairo.Context(surf)
     with _print_state(canvas, level_id, hidden_layer_ids, _BOUNDS_PTS_PER_IN) as ppi:
         cr.scale(_BOUNDS_PTS_PER_IN, _BOUNDS_PTS_PER_IN)

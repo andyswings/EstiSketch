@@ -175,7 +175,7 @@ def _stock_for(length_ft: float) -> int:
 
 
 def _ceil(x: float) -> int:
-    return int(math.ceil(x - 1e-9))
+    return math.ceil(x - 1e-9)
 
 
 def _pre(m):

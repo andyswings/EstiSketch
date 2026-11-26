@@ -5,7 +5,7 @@ This module provides methods for placing and editing stairs,
 including automatic calculation of dimensions based on levels.
 """
 import math
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Optional
 from ..components import Stair, Level
 from ..Resources.tool_hints import TOOL_HINTS
 
@@ -208,7 +208,7 @@ class CanvasStairEventsMixin:
             "warnings": warnings
         }
 
-    def get_level_by_id(self, level_id: str) -> Level:
+    def get_level_by_id(self, level_id: str) -> Optional[Level]:
         """Helper to find level object by ID."""
         for level in self.levels:
             if level.id == level_id:

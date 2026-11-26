@@ -1417,6 +1417,7 @@ class EditEventsMixin:
                         if hasattr(self, "is_object_on_locked_layer") and self.is_object_on_locked_layer(check_wall):
                             continue
 
+                    raw_ratio = 0.5
                     if is_curved_wall(check_wall):
                         raw_ratio, dist, _ = arc_wall_project(check_wall, (target_x, target_y))
                     else:
@@ -1442,10 +1443,11 @@ class EditEventsMixin:
                                     target_x - check_wall.start[0]) * wx + (target_y - check_wall.start[1]) * wy
                                 left_ext = None
                                 right_ext = None
-                                if item["type"] == "door" and getattr(obj, "door_type", "") == "pocket":
+                                is_pocket = item["type"] == "door" and getattr(obj, "door_type", "") == "pocket"
+                                if is_pocket and opening_width is not None:
                                     from ..geometry.wall_chain import pocket_door_extents
                                     left_ext, right_ext = pocket_door_extents(
-                                        opening_width, getattr(obj, "swing", "left")
+                                        float(opening_width), getattr(obj, "swing", "left")
                                     )
                                 # Host is chosen by the opening's centre so it can straddle a split.
                                 best_wall, best_ratio = resolve_opening_on_chain(

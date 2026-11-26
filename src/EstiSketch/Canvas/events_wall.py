@@ -1,6 +1,6 @@
 import math
 from gi.repository import Gtk, GLib
-from typing import List
+from typing import List, Optional, Tuple
 from ..components import Wall
 from ..Resources.tool_hints import TOOL_HINTS
 
@@ -11,6 +11,7 @@ from ..Dialogs.length_input_dialog import (
 
 
 class CanvasWallMixin:
+    wall_curve_point: Optional[Tuple[float, float]]
     def _compute_wall_draw_snap(self, canvas_x: float, canvas_y: float, apply_near_foot_auto: bool = True):
         """Compute the snapped endpoint, snap_type, alignment_candidate, and near_foot_info for wall drawing."""
         last_wall = self.walls[-1] if self.walls else None
@@ -211,8 +212,8 @@ class CanvasWallMixin:
             # Check if we're in curve mode (waiting for 3rd point)
             if self.wall_curve_mode:
                 # Third click: complete the curved wall
-                if self.walls and len(self.walls) > 0:
-                    last_wall = self.walls[-1]
+                last_wall = self.walls[-1] if self.walls else None
+                if last_wall is not None:
                     bulge_point = (snapped_x, snapped_y)
                     
                     # Calculate arc from 3 points: start, end, bulge
@@ -226,13 +227,13 @@ class CanvasWallMixin:
                         last_wall.is_curved = True
                         last_wall.arc_center = (arc_cx, arc_cy)
                         last_wall.arc_radius = arc_radius
-                    pass
                     
                 # Exit curve mode and continue normal wall drawing
                 self.wall_curve_mode = False
                 self.wall_curve_point = None
                 # Continue from the END of the curved wall, not the bulge point
-                self.current_wall.start = last_wall.end
+                if last_wall is not None and self.current_wall is not None:
+                    self.current_wall.start = last_wall.end
                 self.queue_draw()
                 
             elif not self.drawing_wall:
@@ -275,24 +276,25 @@ class CanvasWallMixin:
                 self.queue_draw()
 
         elif n_press == 2:
-            if self.drawing_wall and self.walls:
+            cur_wall = self.current_wall
+            if self.drawing_wall and self.walls and cur_wall is not None:
                 # Removed save_state here - only save when wall set is
                 # finalized
-                self.current_wall.end = (snapped_x, snapped_y)
-                if self.current_wall.start != self.current_wall.end:
+                cur_wall.end = (snapped_x, snapped_y)
+                if cur_wall.start != cur_wall.end:
                     duplicate = any(
-                        w.start == self.current_wall.start and w.end == self.current_wall.end
+                        w.start == cur_wall.start and w.end == cur_wall.end
                         for w in self.walls
                     )
                     if not duplicate:
-                        if self.current_wall.identifier not in self.existing_ids:
+                        if cur_wall.identifier not in self.existing_ids:
                             self.existing_ids.append(
-                                self.current_wall.identifier
+                                cur_wall.identifier
                             )
-                        self.walls.append(self.current_wall)
+                        self.walls.append(cur_wall)
                         if near_foot_info is not None and not near_foot_info.get("auto_applied"):
                             if getattr(self.config, "WALL_NEAR_FOOT_BEHAVIOR", "auto") == "prompt":
-                                self._prompt_near_foot_wall_fix(self.current_wall, near_foot_info["nearest_foot"])
+                                self._prompt_near_foot_wall_fix(cur_wall, near_foot_info["nearest_foot"])
 
                 else:
                     self.wall_sets.append(self.walls.copy())

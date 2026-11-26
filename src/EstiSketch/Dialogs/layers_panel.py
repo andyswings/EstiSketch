@@ -1357,8 +1357,8 @@ class LayersPanel(Gtk.Box):
         elif type_name == "fixture":
             from ..fixtures_catalog import get_fixture_spec
             spec = get_fixture_spec(getattr(obj, 'symbol_type', 'base_cabinet'))
-            w = int(round(getattr(obj, 'width', 0)))
-            d = int(round(getattr(obj, 'depth', 0)))
+            w = round(getattr(obj, 'width', 0))
+            d = round(getattr(obj, 'depth', 0))
             return f"{spec['label']} - {w}\"×{d}\""
 
         elif type_name == "door":

@@ -1,4 +1,11 @@
+from typing import Optional, Tuple
+
+
 class CanvasToolMixin:
+    tool_mode: Optional[str]
+    dimension_offset_preview: Optional[Tuple[float, float]]
+    circle_radius_preview: Optional[float]
+
     def set_tool_mode(self, mode):
         self.tool_mode = mode
         self.opening_ghost = None  # clear door/window ghost on tool change

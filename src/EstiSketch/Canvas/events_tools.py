@@ -1,4 +1,5 @@
 import math
+from typing import Optional, Tuple
 from gi.repository import Gtk
 from ..components import Door, Window, Polyline
 from ..geometry.arc_wall import (
@@ -11,6 +12,8 @@ from ..Resources.tool_hints import TOOL_HINTS
 
 
 class CanvasToolsMixin:
+    dimension_offset_preview: Optional[Tuple[float, float]]
+    circle_radius_preview: Optional[float]
     def _opening_candidate_walls(self) -> list:
         """Visible, unlocked walls an opening may extend across (for split-wall placement)."""
         walls = []
@@ -59,6 +62,7 @@ class CanvasToolsMixin:
                 if hasattr(self, "is_object_on_locked_layer") and self.is_object_on_locked_layer(wall):
                     continue
                 curved = is_curved_wall(wall)
+                ratio = 0.5
                 if curved:
                     ratio, dist, _ = arc_wall_project(wall, click_pt)
                 else:
@@ -368,17 +372,21 @@ class CanvasToolsMixin:
             self.update_hint(TOOL_HINTS.get("add_dimension_offset", TOOL_HINTS["add_dimension_active"]))
         else:
             # Third click - finalize with offset
+            dim_start = self.dimension_start
+            dim_end = self.dimension_end
+            if dim_start is None or dim_end is None:
+                return
             offset = self._calculate_dimension_offset(
-                self.dimension_start,
-                self.dimension_end,
+                dim_start,
+                dim_end,
                 (canvas_x, canvas_y)
             )
 
             # Create dimension object
             dim_id = self.generate_identifier("dimension", self.existing_ids)
             new_dimension = self.Dimension(
-                start=self.dimension_start,
-                end=self.dimension_end,
+                start=dim_start,
+                end=dim_end,
                 offset=offset,
                 identifier=dim_id,
                 layer_id=self.active_layer_id
@@ -787,26 +795,28 @@ class CanvasToolsMixin:
              print(f"Circle center set at {self.circle_center}")
              self.update_hint(TOOL_HINTS["add_circle_active"])
         else:
-             # Second click: Set Radius and Finalize
-             radius = math.hypot(sx - self.circle_center[0], sy - self.circle_center[1])
-             if radius > 0:
-                 circle_id = self.generate_identifier("circle", self.existing_ids)
-                 new_circle = self.Circle(
-                     center=self.circle_center,
-                     radius=radius,
-                     identifier=circle_id,
-                     layer_id=self.active_layer_id
-                 )
-                 self.circles.append(new_circle)
-                 self.existing_ids.append(circle_id)
-                 print(f"Circle created with radius {radius}")
-                 self.save_state()
-             
-             # Reset
-             self.drawing_circle = False
-             self.circle_center = None
-             self.circle_radius_preview = None
-             self.update_hint(TOOL_HINTS["add_circle"])
+            # Second click: Set Radius and Finalize
+            center = self.circle_center
+            if center is not None:
+                radius = math.hypot(sx - center[0], sy - center[1])
+                if radius > 0:
+                    circle_id = self.generate_identifier("circle", self.existing_ids)
+                    new_circle = self.Circle(
+                        center=center,
+                        radius=radius,
+                        identifier=circle_id,
+                        layer_id=self.active_layer_id
+                    )
+                    self.circles.append(new_circle)
+                    self.existing_ids.append(circle_id)
+                    print(f"Circle created with radius {radius}")
+                    self.save_state()
+
+            # Reset
+            self.drawing_circle = False
+            self.circle_center = None
+            self.circle_radius_preview = None
+            self.update_hint(TOOL_HINTS["add_circle"])
         
         
         if not self.drawing_circle:
@@ -1170,39 +1180,48 @@ class CanvasToolsMixin:
 
         if self.leader_elbow is None:
             # Click 2: Elbow bend
+            tip = self.leader_tip
+            if tip is None:
+                return
             self.leader_elbow = (canvas_x, canvas_y)
             if n_press == 2:
                 # Double-click: auto horizontal shoulder landing
-                landing_dir = 16.0 if canvas_x >= self.leader_tip[0] else -16.0
+                landing_dir = 16.0 if canvas_x >= tip[0] else -16.0
                 shoulder = (canvas_x + landing_dir, canvas_y)
-                self.finalize_leader(self.leader_tip, self.leader_elbow, shoulder)
+                self.finalize_leader(tip, self.leader_elbow, shoulder)
             else:
                 self.update_hint(TOOL_HINTS["add_leader_shoulder"])
                 self.queue_draw()
             return
 
         # Click 3: Shoulder landing point
-        shoulder = (canvas_x, canvas_y)
-        self.finalize_leader(self.leader_tip, self.leader_elbow, shoulder)
-
-    def finalize_leader(self, tip: tuple = None, elbow: tuple = None, shoulder: tuple = None) -> None:
-        """Finalize the leader callout and select it for editing."""
+        tip = self.leader_tip
         if tip is None:
-            tip = getattr(self, "leader_tip", None)
-        if elbow is None:
-            elbow = getattr(self, "leader_elbow", None)
-        if tip is None or elbow is None:
+            return
+        shoulder = (canvas_x, canvas_y)
+        self.finalize_leader(tip, self.leader_elbow, shoulder)
+
+    def finalize_leader(
+        self,
+        tip: Optional[Tuple[float, float]] = None,
+        elbow: Optional[Tuple[float, float]] = None,
+        shoulder: Optional[Tuple[float, float]] = None,
+    ) -> None:
+        """Finalize the leader callout and select it for editing."""
+        resolved_tip = tip if tip is not None else getattr(self, "leader_tip", None)
+        resolved_elbow = elbow if elbow is not None else getattr(self, "leader_elbow", None)
+        if resolved_tip is None or resolved_elbow is None:
             self.drawing_leader = False
             self.leader_tip = None
             self.leader_elbow = None
             self.queue_draw()
             return
         if shoulder is None:
-            shoulder = (elbow[0] + 30.0, elbow[1])
+            shoulder = (resolved_elbow[0] + 30.0, resolved_elbow[1])
         lead_id = self.generate_identifier("leader", self.existing_ids)
         new_leader = self.LeaderCallout(
-            tip=tip,
-            elbow=elbow,
+            tip=resolved_tip,
+            elbow=resolved_elbow,
             shoulder=shoulder,
             text="Note",
             identifier=lead_id,

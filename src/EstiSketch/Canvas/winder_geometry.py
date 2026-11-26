@@ -76,7 +76,7 @@ def l_stair_layout(total_steps: int, steps_before_landing: int, tread_depth: flo
         dict with steps_before, steps_after, run_before, run_after,
         landing_depth, winder_count (clamped).
     """
-    winders = int(winder_count or 0)
+    winders = winder_count or 0
     winders = max(0, min(winders, MAX_WINDERS, max(total_steps - 2, 0)))
     flight_total = total_steps - winders
 

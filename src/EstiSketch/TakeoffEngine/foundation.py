@@ -79,7 +79,7 @@ def bolts_for_piece(length_ft: float, max_spacing_ft: float, end_offset_in: floa
     span = length_ft - 2 * end_offset_in / 12.0
     if span <= 0:
         return 1
-    return int(math.ceil(span / max_spacing_ft - 1e-9)) + 1
+    return math.ceil(span / max_spacing_ft - 1e-9) + 1
 
 
 def plate_pieces(run_ft: float, plate_len_ft: float) -> List[float]:

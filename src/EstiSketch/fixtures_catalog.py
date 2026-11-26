@@ -4,7 +4,10 @@ Kept free of GTK/Cairo so geometry, snapping, packing, and takeoff helpers
 can be unit-tested headlessly.
 """
 import math
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from .components import Fixture
 
 from .geometry.arc_wall import arc_wall_project, arc_wall_tangent, is_curved_wall
 
@@ -958,7 +961,7 @@ def _make_fixture(
     ident = generate_identifier("fixture", existing_ids)
     if existing_ids is not None:
         existing_ids.append(ident)
-    ct_flag = spec["has_countertop"] if has_countertop is None else bool(has_countertop)
+    ct_flag = spec["has_countertop"] if has_countertop is None else has_countertop
     return Fixture(
         symbol_type=symbol_type,
         x=x,
@@ -986,7 +989,7 @@ def pack_cabinet_run(
     depth: float = 24.0,
     side: float = 1.0,
     existing_ids: Optional[List[str]] = None,
-) -> List[object]:
+) -> List["Fixture"]:
     """Generate modular base (and optional upper) cabinets along a run line ``start -> end``."""
     dx = end[0] - start[0]
     dy = end[1] - start[1]
@@ -1084,7 +1087,7 @@ def generate_kitchen_or_vanity_layout(
     countertop_material: str = "quartz",
     layer_id: str = "",
     existing_ids: Optional[List[str]] = None,
-) -> List[object]:
+) -> List["Fixture"]:
     """Build an individually-editable kitchen or bath vanity layout anchored at ``origin``."""
     items_local: List[Tuple[str, float, float, float, Optional[float], Optional[float]]] = []
     base_d = 24.0

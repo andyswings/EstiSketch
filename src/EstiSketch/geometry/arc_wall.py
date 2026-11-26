@@ -4,9 +4,24 @@ Kept free of GTK/Cairo so snapping, projection, intersections, and door/window
 cutouts can be unit-tested headlessly.
 """
 import math
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TypedDict
 
 Point = Tuple[float, float]
+
+
+class ArcOpeningCutout(TypedDict):
+    """Annular sector and chord jamb geometry for an opening in a curved wall."""
+
+    cx: float
+    cy: float
+    radius: float
+    theta_lo: float
+    theta_hi: float
+    theta_start: float
+    theta_end: float
+    jamb_start: Point
+    jamb_end: Point
+    half_span: float
 
 
 def is_curved_wall(wall) -> bool:
@@ -318,7 +333,7 @@ def arc_opening_cutout(
     wall,
     ratio: float,
     opening_width: float,
-) -> Optional[Dict[str, object]]:
+) -> Optional[ArcOpeningCutout]:
     """Compute annular sector & chord jamb geometry for an opening in a curved wall.
 
     Matching chord distance ``hypot(jamb_end - jamb_start) == opening_width``

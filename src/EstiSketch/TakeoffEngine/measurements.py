@@ -195,10 +195,12 @@ def openings(plan, runs) -> Dict[str, Any]:
 def wall_framing_measurements(plan, snap_in: float = 0.25,
                               default_wall_width: float = DEFAULT_WALL_WIDTH_IN) -> Dict[str, Any]:
     runs = wall_runs(plan, snap_in, default_wall_width)
-    m = {"wall_runs": runs, "wall_lf_outside": sum(r["length_ft"] for r in runs)}
-    m.update(openings(plan, runs))
+    opening_info = openings(plan, runs)
+    opening_list = opening_info["openings"]
+    m: Dict[str, Any] = {"wall_runs": runs, "wall_lf_outside": sum(r["length_ft"] for r in runs)}
+    m.update(opening_info)
     ext = [r for r in runs if r["exterior"]]
-    ext_open = [o for o in m["openings"] if o["exterior"]]
+    ext_open = [o for o in opening_list if o["exterior"]]
     m.update({
         "exterior_wall_area_sqft": sum(r["gross_area_sqft"] for r in ext),
         "exterior_gable_area_sqft": sum(r["gable_area_sqft"] for r in ext),

@@ -769,7 +769,7 @@ def tessellate_curved_wall_points(
     if abs(delta) < 1e-4:
         return [start, end]
 
-    steps = max(2, int(math.ceil(math.degrees(abs(delta)) / max_seg_deg)))
+    steps = max(2, math.ceil(math.degrees(abs(delta)) / max_seg_deg))
     pts = [start]
     for i in range(1, steps):
         t = i / steps
@@ -1977,7 +1977,7 @@ def _l_stair_layout_in(
     winder_count: int = 0,
 ) -> Dict[str, float]:
     """Compute flight step counts and run lengths for an L-shaped stair."""
-    winders = max(0, min(int(winder_count or 0), 5, max(total_steps - 2, 0)))
+    winders = max(0, min(winder_count or 0, 5, max(total_steps - 2, 0)))
     flight_total = max(1, total_steps - winders)
     if 0 < steps_before_landing < flight_total:
         steps_before = steps_before_landing
@@ -2428,7 +2428,7 @@ def find_hb5_package() -> str:
     )
 
 
-def _ensure_collection(name: str, parent) -> "bpy.types.Collection":
+def _ensure_collection(name: str, parent) -> object:
     import bpy
 
     col = bpy.data.collections.get(name)
@@ -2531,7 +2531,7 @@ def _get_or_create_wall_finish_material(
         base_srgb = color_rgb
         if accent_srgb is not None:
             accent_srgb = tuple(max(0.0, c * 0.72) for c in color_rgb)
-        hex_tag = "".join(f"{int(round(max(0.0, min(1.0, c)) * 255)):02x}" for c in color_rgb)
+        hex_tag = "".join(f"{round(max(0.0, min(1.0, c)) * 255):02x}" for c in color_rgb)
     else:
         hex_tag = "default"
 
@@ -2822,7 +2822,7 @@ def _build_roof_mesh(
     def _get_bm_vert(x_in: float, y_in: float, z_in: float):
         xm, ym = inches_to_blender_xy(x_in, y_in, cx, cy)
         zm = z_in * INCH_TO_M
-        key = (int(round(xm * 10000)), int(round(ym * 10000)), int(round(zm * 10000)))
+        key = (round(xm * 10000), round(ym * 10000), round(zm * 10000))
         v = vert_cache.get(key)
         if v is None:
             v = bm.verts.new((xm, ym, zm))

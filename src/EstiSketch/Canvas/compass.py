@@ -110,7 +110,7 @@ def draw_north_arrow(
     cr.show_text("N")
 
     if show_degree_label:
-        deg_text = f"{int(round(norm_deg)) % 360}°"
+        deg_text = f"{round(norm_deg) % 360}°"
         cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         cr.set_font_size(max(8.0, radius * 0.36))
         dext = cr.text_extents(deg_text)

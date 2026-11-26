@@ -578,13 +578,15 @@ def solve_and_clean_roof(
         # If still no ridge or hip lines, run complex roof geometry solver
         if not any(l.line_type in ("ridge", "hip") for l in sketched):
             from .complex_roof import calculate_complex_roof_geometry, group_opposite_eave_sides
-            markings = {e.wall_identifier: e.edge_type for e in roof.edges}
-            edge_pitches = {
-                e.wall_identifier: float(
-                    e.pitch_rise if getattr(e, 'pitch_rise', None) is not None else roof.pitch_rise
+            markings = {e.wall_identifier: e.edge_type for e in roof.edges if e.wall_identifier}
+            edge_pitches: Dict[str, float] = {}
+            for e in roof.edges:
+                if not e.wall_identifier:
+                    continue
+                edge_pr = getattr(e, 'pitch_rise', None)
+                edge_pitches[e.wall_identifier] = float(
+                    edge_pr if edge_pr is not None else roof.pitch_rise
                 )
-                for e in roof.edges
-            }
             marked_walls = [w for w in walls if getattr(w, 'identifier', '') in markings]
             edge_elevations: Dict[str, float] = {}
             for mw in marked_walls:

@@ -150,7 +150,7 @@ class RoofSection:
 
     @property
     def framing_type_normalized(self) -> str:
-        ft = str(self.framing_type).lower()
+        ft = self.framing_type.lower()
         if 'stick' in ft:
             return 'stick'
         return 'truss'

@@ -260,9 +260,9 @@ class FloorOpening:
         self.points = [tuple(pt) for pt in points]
         self.opening_type = opening_type
         self.label = label
-        self.ceiling_only = bool(ceiling_only)
-        self.show_cross = bool(show_cross)
-        self.show_label = bool(show_label)
+        self.ceiling_only = ceiling_only
+        self.show_cross = show_cross
+        self.show_label = show_label
 
     @property
     def display_label(self) -> str:
@@ -330,14 +330,14 @@ class Fixture:
         self.base_elevation = float(base_elevation)
 
         ct_default = bool(spec["has_countertop"])
-        self.has_countertop = ct_default if has_countertop is None else bool(has_countertop)
+        self.has_countertop = ct_default if has_countertop is None else has_countertop
         oh_default = float(spec["countertop_overhang"]) if self.has_countertop else 0.0
         self.countertop_overhang = float(
             countertop_overhang if countertop_overhang is not None else oh_default
         )
         self.countertop_thickness = float(countertop_thickness)
         self.countertop_material = countertop_material or "quartz"
-        self.has_backsplash = bool(has_backsplash)
+        self.has_backsplash = has_backsplash
         self.door_swing = door_swing or "left"
         self.fill_color = fill_color
         self.countertop_color = countertop_color

@@ -82,7 +82,7 @@ def open_in_blender(
         stem = "unsaved_project"
     xml_out = os.path.join(bridge_dir, f"{stem}.xml")
 
-    project_io.save_project(canvas, int(window_width), int(window_height), xml_out)
+    project_io.save_project(canvas, window_width, window_height, xml_out)
 
     cmd = [blender_exe, "--python", script_path, "--", xml_out]
     popen_kwargs = {}

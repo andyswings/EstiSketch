@@ -1,4 +1,5 @@
-from ..components import Layer
+from typing import Optional, Tuple
+
 from ..components import Layer, Level
 from ..roof_components import Roof, RoofEdge
 from .events_helpers import EventsHelpersMixin
@@ -125,7 +126,7 @@ class CanvasArea(Gtk.DrawingArea,
 
         # Curved wall state (for 3-point arc walls)
         self.wall_curve_mode = False  # True when waiting for arc bulge point (3rd click)
-        self.wall_curve_point = None  # The arc bulge point for preview
+        self.wall_curve_point: Optional[Tuple[float, float]] = None  # The arc bulge point for preview
 
         self.auto_dimension_mode = False
         self.last_wall_angle = None
@@ -133,7 +134,7 @@ class CanvasArea(Gtk.DrawingArea,
         # Wall editing state
         self.editing_wall = None     # The wall being edited
         self.editing_handle = None   # "start" or "end"
-        self.handle_radius = 15      # device pixels for hit detection
+        self.handle_radius: int = 15      # device pixels for hit detection
 
         # Polyline drawing state
         # current segments (list of Polyline)
@@ -166,7 +167,7 @@ class CanvasArea(Gtk.DrawingArea,
         self.drawing_dimension = False  # Flag for dimension mode
         self.dimension_start = None  # First click point (x, y)
         self.dimension_end = None  # Second click point (x, y)
-        self.dimension_offset_preview = None  # Mouse position for offset preview
+        self.dimension_offset_preview: Optional[Tuple[float, float]] = None  # Mouse position for offset preview
 
         # Dimension chain & leader callout state
         self.dimension_chains = []  # List of DimensionChain objects
@@ -189,7 +190,7 @@ class CanvasArea(Gtk.DrawingArea,
         # Face-flush guide (line_start, line_end, kind) shown while editing
         # an existing wall; None when no face snap is active.
         self.edit_face_guide = None
-        self.tool_mode = None  # "draw_walls" or "draw_rooms"
+        self.tool_mode: Optional[str] = None  # "draw_walls" or "draw_rooms"
 
         # Project-level takeoff state (assumptions, overrides, custom items, reference)
         self.takeoff_state = {
@@ -231,7 +232,7 @@ class CanvasArea(Gtk.DrawingArea,
         self.circles = []
         self.drawing_circle = False
         self.circle_center = None
-        self.circle_radius_preview = None
+        self.circle_radius_preview: Optional[float] = None
 
         # Arc drawing state
         self.arcs = []
@@ -375,7 +376,7 @@ class CanvasArea(Gtk.DrawingArea,
         self.dimension_offset_preview = None
         self.drawing_circle = False
         self.circle_center = None
-        self.circle_radius_preview = None
+        self.circle_radius_preview: Optional[float] = None
         self.drawing_arc = False
         self.arc_start = None
         self.arc_end = None
@@ -402,7 +403,9 @@ class CanvasArea(Gtk.DrawingArea,
     # Layer Management Methods
     # ─────────────────────────────────────────────────────────────────────────
 
-    def add_layer(self, name: str = None, level_id: str = None) -> str:
+    def add_layer(
+        self, name: Optional[str] = None, level_id: Optional[str] = None
+    ) -> Optional[str]:
         """Add a new layer and return its ID. Returns None if max layers reached."""
         if len(self.layers) >= self.MAX_LAYERS:
             print(f"Cannot add more than {self.MAX_LAYERS} layers")

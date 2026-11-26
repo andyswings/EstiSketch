@@ -56,7 +56,7 @@ def _custom_line_items(state: Dict[str, Any]) -> List[LineItem]:
 
 def _fmt_num(val: float) -> str:
     if abs(val - round(val)) < 1e-6:
-        return f"{int(round(val))}"
+        return f"{round(val)}"
     return f"{val:.2f}"
 
 
@@ -522,7 +522,7 @@ def create_takeoff_dialog(parent: Optional[Gtk.Window], canvas: Any) -> Gtk.Wind
                 row.append(d_lbl)
 
                 dd = Gtk.DropDown(model=Gtk.StringList.new(choices))
-                dd.set_selected(max(0, min(len(choices) - 1, int(round(cur_val)))))
+                dd.set_selected(max(0, min(len(choices) - 1, round(cur_val))))
 
                 def _on_choice(widget, _pspec, k=key, dv=default_val):
                     val = float(widget.get_selected())
@@ -599,6 +599,8 @@ def create_takeoff_dialog(parent: Optional[Gtk.Window], canvas: Any) -> Gtk.Wind
             var_list.append(empty)
             return
 
+        if ctrl.result is None:
+            return
         variances = compare_to_reference(ctrl.result, ref)
         for vp in variances:
             if abs(vp.diff) < 1e-6:
@@ -693,12 +695,24 @@ def create_takeoff_dialog(parent: Optional[Gtk.Window], canvas: Any) -> Gtk.Wind
 
         fd.save(win, None, _done)
 
+    def _export_csv_path(path: str) -> None:
+        if ctrl.result is None:
+            return
+        export_takeoff_csv(ctrl.result, path)
+        status_bar.set_text(f"Exported CSV to {os.path.basename(path)}")
+
+    def _export_json_path(path: str) -> None:
+        if ctrl.result is None:
+            return
+        export_takeoff_json(ctrl.result, ctrl.checks, path)
+        status_bar.set_text(f"Exported JSON to {os.path.basename(path)}")
+
     btn_export_csv.connect(
         "clicked",
         lambda _b: _choose_save_path(
             "Export Takeoff CSV",
             "takeoff.csv",
-            lambda p: (export_takeoff_csv(ctrl.result, p), status_bar.set_text(f"Exported CSV to {os.path.basename(p)}")),
+            _export_csv_path,
         ),
     )
     btn_export_json.connect(
@@ -706,7 +720,7 @@ def create_takeoff_dialog(parent: Optional[Gtk.Window], canvas: Any) -> Gtk.Wind
         lambda _b: _choose_save_path(
             "Export Takeoff JSON",
             "takeoff.json",
-            lambda p: (export_takeoff_json(ctrl.result, ctrl.checks, p), status_bar.set_text(f"Exported JSON to {os.path.basename(p)}")),
+            _export_json_path,
         ),
     )
 

@@ -79,7 +79,7 @@ def _draw_offset_tile(
 
     y_start = math.floor(-r / course_h) * course_h
     y = y_start
-    row_idx = int(round(y_start / course_h))
+    row_idx = round(y_start / course_h)
     while y <= r + 1e-6:
         cr.move_to(-r, y)
         cr.line_to(r, y)
@@ -123,13 +123,13 @@ def _draw_herringbone(
     cr.set_source_rgba(0.55, 0.42, 0.28, opacity * 0.45)
     cr.set_line_width(0.6 / max(zoom_transform, 1e-3))
 
-    limit_t = int(math.ceil(r / w)) + k + 2
-    limit_m = int(math.ceil(r / (k * w))) + 2
+    limit_t = math.ceil(r / w) + k + 2
+    limit_m = math.ceil(r / (k * w)) + 2
     if (2 * limit_t + 1) * (2 * limit_m + 1) > 16000:
         scale_up = math.sqrt(((2 * limit_t + 1) * (2 * limit_m + 1)) / 16000.0)
         w *= scale_up
-        limit_t = int(math.ceil(r / w)) + k + 2
-        limit_m = int(math.ceil(r / (k * w))) + 2
+        limit_t = math.ceil(r / w) + k + 2
+        limit_m = math.ceil(r / (k * w)) + 2
 
     reach = r + k * w
     for t in range(-limit_t, limit_t + 1):
@@ -153,8 +153,8 @@ def _draw_chevron(
     cr.set_source_rgba(0.55, 0.42, 0.28, opacity * 0.45)
     cr.set_line_width(0.6 / max(zoom_transform, 1e-3))
 
-    c_min = int(math.floor(-r / col_w))
-    c_max = int(math.ceil(r / col_w))
+    c_min = math.floor(-r / col_w)
+    c_max = math.ceil(r / col_w)
     y_min = math.floor((-r - col_w) / dy) * dy
     y_max = r + col_w
 
@@ -193,10 +193,10 @@ def _draw_hex_tile(
     cr.set_source_rgba(0.45, 0.45, 0.48, opacity * 0.45)
     cr.set_line_width(0.6 / max(zoom_transform, 1e-3))
 
-    c_min = int(math.floor((-r - 2.0 * a) / dx))
-    c_max = int(math.ceil((r + 2.0 * a) / dx))
-    r_min = int(math.floor((-r - 2.0 * a) / dy))
-    r_max = int(math.ceil((r + 2.0 * a) / dy))
+    c_min = math.floor((-r - 2.0 * a) / dx)
+    c_max = math.ceil((r + 2.0 * a) / dx)
+    r_min = math.floor((-r - 2.0 * a) / dy)
+    r_max = math.ceil((r + 2.0 * a) / dy)
 
     for col in range(c_min, c_max + 1):
         cx = col * dx
@@ -225,8 +225,8 @@ def _draw_basketweave(
         cr.line_to(r, v)
         v += block
 
-    i_min = int(math.floor(-r / block))
-    i_max = int(math.ceil(r / block))
+    i_min = math.floor(-r / block)
+    i_max = math.ceil(r / block)
     for ix in range(i_min, i_max + 1):
         x0 = ix * block
         for iy in range(i_min, i_max + 1):
@@ -250,8 +250,8 @@ def _draw_stipple_cells(
 ) -> None:
     cell = _safe_step(2.0 * r, cell_base, max_steps=140)
     cr.set_source_rgba(*rgba)
-    ix_min = int(math.floor(-r / cell))
-    ix_max = int(math.ceil(r / cell))
+    ix_min = math.floor(-r / cell)
+    ix_max = math.ceil(r / cell)
     seeds = (
         (73856093, 19349663),
         (83492791, 2971215073),
@@ -281,7 +281,7 @@ def _draw_carpet_weave(
 
     y_start = math.floor(-r / row_step) * row_step
     y = y_start
-    row_idx = int(round(y_start / row_step))
+    row_idx = round(y_start / row_step)
     while y <= r + 1e-6:
         offset = 0.5 * dash_pitch if (row_idx & 1) else 0.0
         x = math.floor((-r - offset) / dash_pitch) * dash_pitch + offset

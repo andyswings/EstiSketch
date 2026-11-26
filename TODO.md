@@ -1,8 +1,6 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
-- [ ] Add to AGENTS.md the following: All fixes or features added must be marked in the TODO list under the Done section. The use of the "Any" type hint should be avoided unless there is no other single correct type hint.
-- [ ] We should go through each file and fix all known problems flagged by Pyrefly.
 - [ ] When it comes time to ship the software, we will need to package it with Blender or somehow extract enough of Blender to be able to do our 3D rendering and editing. I don't know if this is even possible in any practical way, but it's something to think about. Maybe we can use Blender as a backend service. We need to put together a comprehensive plan for what we want to do regarding the 3D modeling aspect of the application. 
 - [ ] Currently when we send a floor plan to Blender to be turned into a 3D model, items which don't have a 3D model are drawn as wireframes. We need a plan to generate our own 3D models so that we don't have to do this. 
 - [ ] We have basic support for sending our drawing to Blender for 3D rendering. However, we should make it possible to bring it back into the 2D editor after making edits in Blender. I don't know if we need to somehow read Blender files and try to identify valid geometry to bring back (so we don't try to import things like lights and cameras, monkeys, etc...), or if we can implement our own data format that can be read/written by both Blender and EstiSketch to exchange the 3D models.
@@ -147,6 +145,9 @@
 (None)
 
 ## Done ✅ (latest first)
+### Code Quality & Tooling (2026-11-26)
+- [x] Cleared all Pyrefly diagnostics across `src/EstiSketch/` (196 errors and 58 warnings down to 0/0): added `ArcOpeningCutout` `TypedDict` in `geometry/arc_wall.py`, aligned `CanvasArea` and mixin attribute annotations (`CanvasDrawMixin`, `CanvasEventsMixin`, `CanvasSelectionMixin`, `CanvasToolMixin`, `CanvasToolsMixin`, `CanvasWallMixin`), fixed `NameError` shortcut calls (`_open_fixture_browser` / `_open_kitchen_layout_dialog`) and `on_status_update` annotation in `main.py`, added null/bounds narrowing across `Canvas/`, `Dialogs/takeoff_dialog.py`, `TakeoffEngine/`, `Takeoff/framing_takeoff.py`, `geometry/roof_solver.py`, and `blender_bridge/estisketch_to_hb5.py`, typed `fixtures_catalog.py` builders as `List[Fixture]`, and removed redundant `int`/`bool`/`str` conversions (2026-11-26).
+- [x] Updated `AGENTS.md` to require logging all completed fixes/features in `TODO.md` under `## Done ✅` and to forbid `Any` type hints unless no other single correct type hint exists (2026-11-26).
 ### Bug fixes (2026-11-26)
 - [x] Expanded architectural layout checks (`geometry/design_checks.py`) and demo houses (`examples/demo_houses/generate_demo_houses.py` + regenerated XMLs): added pocket door cavity clearance (`pocket_door_violations`), bathroom door ingress/egress and toilet front clearance (`bathroom_clearance_violations`), sink/vanity front clearance (`sink_and_vanity_clearance_violations`), bathtub drain-end plumbing-wall check (`bathtub_drain_wall_violations`), laundry appliance front door-opening clearance (`laundry_appliance_violations`), and corrected bi-fold orientation in `door_swing_polygon`; tests in `tests/test_design_checks.py` and `tests/test_demo_houses.py` (2026-11-26).
 - [x] Pocket doors now reserve a total rough frame width of ``2 * callout + 2"`` (e.g., `6' 2"` for a `3' 0"` door): added `pocket_door_total_width` & `pocket_door_extents` and extended `resolve_opening_on_chain` (`geometry/wall_chain.py`), wired clamping into door placement/ghost/dragging (`Canvas/events_tools.py`, `Canvas/canvas_events.py`, `Canvas/events_edit.py`), drew the dashed pocket cavity frame (`Canvas/door_window_renderer.py`), added a Pocket Frame Width readout in `DoorPropertiesWidget` (`Dialogs/properties_dock.py`), and updated framing rough-opening counts & wall reports (`Takeoff/building_takeoff.py`); tests in `tests/test_wall_chain_openings.py` and `tests/test_wall_finishes.py` (2026-11-26).
@@ -321,4 +322,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2026-11-23_
+_Last updated: 2026-11-26_

@@ -585,10 +585,10 @@ class CanvasGroupMixin:
         save_undo: bool = True,
     ) -> None:
         """Lock or unlock ``group`` and all of its member objects."""
-        group.locked = bool(locked)
+        group.locked = locked
         for _, obj in self.get_group_members(group):
             if hasattr(obj, "locked"):
-                obj.locked = bool(locked)
+                obj.locked = locked
         if locked:
             self.deselect_group(group, emit_signal=True)
         if save_undo and hasattr(self, "save_state"):
@@ -604,10 +604,10 @@ class CanvasGroupMixin:
         save_undo: bool = True,
     ) -> None:
         """Show or hide ``group`` and all of its member objects."""
-        group.visible = bool(visible)
+        group.visible = visible
         for _, obj in self.get_group_members(group):
             if hasattr(obj, "visible"):
-                obj.visible = bool(visible)
+                obj.visible = visible
         if not visible:
             self.deselect_group(group, emit_signal=True)
         if save_undo and hasattr(self, "save_state"):

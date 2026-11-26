@@ -1,3 +1,5 @@
+from typing import Optional
+
 from ..Resources.framing import roughOpeningExtraStuds
 
 
@@ -9,8 +11,8 @@ class FramingEstimator:
     @staticmethod
     def calculate_stud_count(
             wall,
-            doors: list = None,
-            windows: list = None,
+            doors: Optional[list] = None,
+            windows: Optional[list] = None,
             connected_walls: int = 0) -> int:
         """
         Calculate the number of studs required for a wall.
@@ -67,8 +69,8 @@ class FramingEstimator:
     @staticmethod
     def estimate_wall_materials(
             wall,
-            doors: list = None,
-            windows: list = None,
+            doors: Optional[list] = None,
+            windows: Optional[list] = None,
             connected_walls: int = 0) -> dict:
         """
         Estimate all framing materials for a single wall.
@@ -105,7 +107,7 @@ class FramingEstimator:
     @staticmethod
     def estimate_all_walls(
             wall_sets: list,
-            walls_with_openings: dict = None) -> dict:
+            walls_with_openings: Optional[dict] = None) -> dict:
         """
         Estimate framing materials for all walls in the project.
 

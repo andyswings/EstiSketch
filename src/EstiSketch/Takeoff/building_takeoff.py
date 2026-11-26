@@ -49,7 +49,7 @@ def format_ft_in(inches: float) -> str:
     feet = int(total_inches // INCHES_PER_FOOT)
     rem_inches = total_inches % INCHES_PER_FOOT
     if abs(rem_inches - round(rem_inches)) < 0.05:
-        return f"{feet}' {int(round(rem_inches))}\""
+        return f"{feet}' {round(rem_inches)}\""
     return f"{feet}' {rem_inches:.1f}\""
 
 
@@ -765,8 +765,8 @@ def generate_stair_takeoff(canvas) -> Dict:
             "posts": posts,
         })
 
-    balusters = int(math.ceil(total_rail_lf * 3.0))
-    handrail_12ft_sticks = int(math.ceil((total_rail_lf * 1.10) / 12.0)) if total_rail_lf > 0 else 0
+    balusters = math.ceil(total_rail_lf * 3.0)
+    handrail_12ft_sticks = math.ceil((total_rail_lf * 1.10) / 12.0) if total_rail_lf > 0 else 0
     total_newel_posts = sum(d["posts"] for d in stair_details)
 
     return {

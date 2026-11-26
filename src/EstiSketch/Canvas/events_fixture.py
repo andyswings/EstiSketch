@@ -180,8 +180,9 @@ class CanvasFixtureMixin:
 
     def rotate_active_fixture_preview(self, step_deg: float = 90.0) -> None:
         self.active_fixture_rotation = (float(getattr(self, "active_fixture_rotation", 0.0)) + step_deg) % 360.0
-        if getattr(self, "pending_layout_config", None) is not None:
-            self.pending_layout_config["rotation_deg"] = self.active_fixture_rotation
+        cfg = getattr(self, "pending_layout_config", None)
+        if cfg is not None:
+            cfg["rotation_deg"] = self.active_fixture_rotation
         pos = getattr(self, "_last_mouse_pos", None)
         if pos is not None:
             mx, my = pos
@@ -284,7 +285,8 @@ class CanvasFixtureMixin:
         mx, my = self.device_to_model(x, y, pixels_per_inch)
         sx, sy, out_n = self._snap_run_endpoint_with_normal(mx, my)
 
-        if getattr(self, "cabinet_run_start", None) is None:
+        start = getattr(self, "cabinet_run_start", None)
+        if start is None:
             self.cabinet_run_start = (sx, sy)
             self.cabinet_run_preview = (sx, sy)
             self._cabinet_run_start_normal = out_n
@@ -294,7 +296,6 @@ class CanvasFixtureMixin:
             self.queue_draw()
             return
 
-        start = self.cabinet_run_start
         end = (sx, sy)
         # Keep orthogonal snap if nearly H or V
         if abs(end[0] - start[0]) > 4.0 and abs(end[1] - start[1]) < 4.0:
@@ -334,12 +335,12 @@ class CanvasFixtureMixin:
         self.queue_draw()
 
     def _handle_cabinet_run_motion(self, x: float, y: float) -> None:
-        if getattr(self, "cabinet_run_start", None) is None:
+        start = getattr(self, "cabinet_run_start", None)
+        if start is None:
             return
         pixels_per_inch = getattr(self.config, "PIXELS_PER_INCH", 2.0)
         mx, my = self.device_to_model(x, y, pixels_per_inch)
         sx, sy, out_n = self._snap_run_endpoint_with_normal(mx, my)
-        start = self.cabinet_run_start
         if abs(sx - start[0]) > 4.0 and abs(sy - start[1]) < 4.0:
             sy = start[1]
         elif abs(sy - start[1]) > 4.0 and abs(sx - start[0]) < 4.0:

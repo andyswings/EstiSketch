@@ -1,12 +1,16 @@
 import math
-from typing import Any
+from typing import Optional, Tuple
 from gi.repository import Gtk
 
 
 class CanvasEventsMixin:
-    walls: Any
-    current_room_points: Any
-    circle_center: Any
+    walls: list
+    current_room_points: list
+    circle_center: Optional[Tuple[float, float]]
+    handle_radius: int
+    wall_curve_point: Optional[Tuple[float, float]]
+    dimension_offset_preview: Optional[Tuple[float, float]]
+    circle_radius_preview: Optional[float]
 
     def on_click(
             self,

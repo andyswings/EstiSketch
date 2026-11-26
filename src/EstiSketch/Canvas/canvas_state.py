@@ -37,7 +37,9 @@ class CanvasStateMixin:
         caller = stack[-2]
         print(f"save_state called from {caller.filename}:{caller.lineno} in {caller.name}")
         print(
-            f"save_state: {len(state['wall_sets'])} wall sets, {len(state['walls'])} walls, {len(state['rooms'])} rooms, {len(state['roofs'])} roofs")
+            f"save_state: {len(self.wall_sets)} wall sets, {len(self.walls)} walls, "
+            f"{len(self.rooms)} rooms, {len(getattr(self, 'roofs', []))} roofs"
+        )
 
     def restore_state(self, state):
         self.wall_sets = copy.deepcopy(state["wall_sets"])

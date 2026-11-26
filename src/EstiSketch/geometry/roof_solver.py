@@ -559,8 +559,16 @@ def solve_roof_geometry(
                 z1 = (eave_planes[0].eave_z_start + eave_planes[0].eave_z_end) / 2.0
                 z2 = (eave_planes[1].eave_z_start + eave_planes[1].eave_z_end) / 2.0
                 from EstiSketch.Canvas.roof_solver import distance_point_to_segment
-                mid1 = ((eave_planes[0].eave_start[0] + eave_planes[0].eave_end[0]) / 2.0, (eave_planes[0].eave_start[1] + eave_planes[0].eave_end[1]) / 2.0)
-                span = distance_point_to_segment(mid1, eave_planes[1].eave_start, eave_planes[1].eave_end)[0] or 1.0
+                e0_s = eave_planes[0].eave_start
+                e0_e = eave_planes[0].eave_end
+                e1_s = eave_planes[1].eave_start
+                e1_e = eave_planes[1].eave_end
+                p0_s = (e0_s.x, e0_s.y) if isinstance(e0_s, RoofVertex) else e0_s
+                p0_e = (e0_e.x, e0_e.y) if isinstance(e0_e, RoofVertex) else e0_e
+                p1_s = (e1_s.x, e1_s.y) if isinstance(e1_s, RoofVertex) else e1_s
+                p1_e = (e1_e.x, e1_e.y) if isinstance(e1_e, RoofVertex) else e1_e
+                mid1 = ((p0_s[0] + p0_e[0]) / 2.0, (p0_s[1] + p0_e[1]) / 2.0)
+                span = distance_point_to_segment(mid1, p1_s, p1_e)[0] or 1.0
                 if s1 + s2 > 0:
                     raw_ratio = (s2 + (z2 - z1) / span) / (s1 + s2)
                     ratio = max(0.05, min(0.95, raw_ratio))

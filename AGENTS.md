@@ -38,7 +38,7 @@ Mandatory standards for all LLM-generated and edited code in the EstiSketch repo
 - **Dataclasses & defaults**:
   - Prefer `@dataclass` with typed fields and `field(default_factory=...)` for collections.
   - Never use mutable default arguments (`[]`, `{}`) in function signatures or class attributes.
-- **Strictness**: Avoid `Any` except at untyped GTK/PyGObject, Cairo, or Blender (`bpy`) boundaries. Define clear type aliases (e.g., `Point = tuple[float, float]`) or `Protocol`s for structured data.
+- **Strictness**: Avoid `Any` unless there is no other single correct type hint; prefer concrete types, `Protocol`, `TypedDict`, `Union`, or `object` with runtime narrowing (including at GTK/PyGObject, Cairo, or Blender `bpy` boundaries whenever a narrower type is practical). Define clear type aliases (e.g., `Point = tuple[float, float]`) or `Protocol`s for structured data.
 
 ---
 
@@ -92,6 +92,7 @@ Mandatory standards for all LLM-generated and edited code in the EstiSketch repo
 - **Verification before completion**:
   - Run targeted `pytest` suites (and full `pytest` for shared/core changes) after your final edit.
   - Run `flake8` on all created or modified Python files.
+- **TODO / Done tracking**: Every completed fix or feature must be recorded in `TODO.md` under `## Done ✅ (latest first)` (and checked off or removed from the backlog section if it was tracked there).
 - **Scoped changes**:
   - Keep diffs strictly scoped to the request. Do not leave debug `print` statements, scratch files, or commented-out dead code in the repository.
   - Never commit or track generated build/packaging artifacts (`dist/`, `build/`, `build_deb/`, `build_pyinstaller/`, `.venv/`, `__pycache__/`).

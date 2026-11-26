@@ -46,6 +46,8 @@ class TakeoffEngine:
 
     def _expand(self, item: LineItem, measurements, res: TakeoffResult) -> List[LineItem]:
         """Turn a multi-row item into one concrete item per row (ids are `item:key`)."""
+        if item.multi is None:
+            return []
         try:
             rows = item.multi(measurements, self.assumptions.resolve_all(item.id))
         except Exception as exc:

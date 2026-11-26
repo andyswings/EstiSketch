@@ -35,9 +35,9 @@ def _rgb_to_hex(color) -> str:
     """Serialize an optional (r, g, b) float tuple in 0..1 to '#RRGGBB', or ''."""
     if not isinstance(color, (tuple, list)) or len(color) < 3:
         return ""
-    r = max(0, min(255, int(round(float(color[0]) * 255.0))))
-    g = max(0, min(255, int(round(float(color[1]) * 255.0))))
-    b = max(0, min(255, int(round(float(color[2]) * 255.0))))
+    r = max(0, min(255, round(float(color[0]) * 255.0)))
+    g = max(0, min(255, round(float(color[1]) * 255.0)))
+    b = max(0, min(255, round(float(color[2]) * 255.0)))
     return f"#{r:02x}{g:02x}{b:02x}"
 
 

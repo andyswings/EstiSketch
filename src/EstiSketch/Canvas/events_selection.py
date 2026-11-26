@@ -9,7 +9,7 @@ class CanvasSelectionMixin:
     zoom: float
     offset_x: float
     offset_y: float
-    tool_mode: Any
+    tool_mode: Optional[str]
     config: Any
     selected_items: List[Dict[str, Any]]
     clipboard: List[Any]
@@ -26,7 +26,7 @@ class CanvasSelectionMixin:
     stairs: List[Any]
     roofs: List[Any]
     blueprints: List[Any]
-    handle_radius: float
+    handle_radius: int
 
     # Transient editing and dragging state
     editing_wall: Any
@@ -1951,8 +1951,8 @@ class CanvasSelectionMixin:
             return
 
         # Finalize unified multi-object move
-        if getattr(self, "dragging_multi_snapshot", None) is not None:
-            snapshot = self.dragging_multi_snapshot
+        snapshot = getattr(self, "dragging_multi_snapshot", None)
+        if snapshot is not None:
             was_moved = getattr(self, "_multi_drag_moved", False)
             moved = was_moved or math.hypot(offset_x, offset_y) > 2.0
             self.dragging_multi_snapshot = None

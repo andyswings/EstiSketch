@@ -14,10 +14,10 @@ class CanvasDrawMixin:
     zoom: float
     offset_x: float
     offset_y: float
-    tool_mode: str
+    tool_mode: Optional[str]
     config: Any
     converter: Any
-    handle_radius: float
+    handle_radius: int
     snap_type: str
     drawing_wall: bool
     drawing_circle: bool
@@ -2083,6 +2083,8 @@ class CanvasDrawMixin:
             cr.stroke()
 
         # 3. Ticks or Arrows at each witness intersection
+        slash_vec_x = 0.0
+        slash_vec_y = 0.0
         if show_arrows:
             slash_len = 6.0 / (self.zoom * pixels_per_inch)
             slash_vec_x = (ux + px) * 0.7071 * slash_len
