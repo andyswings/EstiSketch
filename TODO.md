@@ -1,6 +1,11 @@
 # TODO / Backlog
 
 ## 🚀 High Priority (do next)
+- [ ] When it comes time to ship the software, we will need to package it with Blender or somehow extract enough of Blender to be able to do our 3D rendering and editing. I don't know if this is even possible in any practical way, but it's something to think about. Maybe we can use Blender as a backend service. We need to put together a comprehensive plan for what we want to do regarding the 3D modeling aspect of the application. 
+- [ ] Currently when we send a floor plan to Blender to be turned into a 3D model, items which don't have a 3D model are drawn as wireframes. We need a plan to generate our own 3D models so that we don't have to do this. 
+- [ ] We have basic support for sending our drawing to Blender for 3D rendering. However, we should make it possible to bring it back into the 2D editor after making edits in Blender. I don't know if we need to somehow read Blender files and try to identify valid geometry to bring back (so we don't try to import things like lights and cameras, monkeys, etc...), or if we can implement our own data format that can be read/written by both Blender and EstiSketch to exchange the 3D models.
+- [ ] Related to the above, we need to settle on a file format for saving drawings and other project related data. We should also come up with a plan for how to best handle imports and exports to and from other software packages. It should be unique to our application and support both 2d and 3d data. In the case of SH3D, they basically just put everything in a folder and zip it up and change the extension. Is that the best way to handle things in our case?
+- [ ] We need to create an interface where the user can choose number of bedrooms, bathrooms, levels of home, garage size, square footage range, etc... and have it auto-populate a floor plan. It should be able to generate a few different options/styles to choose from, and let the user choose one. We should have the ability to choose how many different options to generate, and how many different styles (up to a maximum so we don't overload the system or user). It should also let the user make modifications to the generated floor plan, and save the floor plan as a new project. We should also have the ability to choose from a number of different styles of home (craftsman, modern, victorian, etc...) and have it generate a floor plan that is appropriate for that style (architecturally, structurally, code-wise, etc...). 
 - [ ] Real printer support: add a "Print..." button to the Print dialog that sends the sheets to a physical printer via `Gtk.PrintOperation` (system print dialog, paper/printer selection), reusing `print_renderer.render_page` so output matches the preview. Needs testing on actual hardware (including large-format plotters and paper-size mapping).
 - [ ] Print line weights: lines currently print at a constant ~2 pt regardless of drawing scale. Add a line-weight setting (per-object-type pen weights / global multiplier) in the Print dialog so plots look right at any scale.
 - [ ] Print tiling: a drawing larger than the sheet at a fixed scale is clipped. Add an option to tile it across multiple pages (with overlap/registration marks and page numbering), and show the tile grid in the preview.
@@ -137,6 +142,8 @@
 - [ ] Themes
 
 ## 🐛 Known Bugs / FIXMEs
+
+### Noticed in the 2D interface
 - [ ] Double clicking in a closed loop of walls to create a room, draws a room to the center of the walls instead of drawing to the inside edge of the walls as was intended.
 - [ ] Unable to select objects under a roof.
 - [ ] When selecting "New" from the file menu, not all canvas data is deleted. This is a problem.
@@ -145,6 +152,18 @@
 - [ ] Asymetrical pitch settings do not seem to affect where the ridge is drawn like it should. Only the labels change.
 - [ ] Unable to select and move a room once created.
 - [ ] Trying to move multiple objects at the same time does not always work properly.
+
+### Noticed in the 3D interface
+- [ ] Footers not mitered at corners
+- [ ] Floors are visible from the outside of the building as a recessed groove around the perimeter of the building. These should be covered with walls in the rendering.
+- [ ] Some interior walls are not mitered where they should be.
+
+### Noticed in Both 2D and 3D interfaces
+- [ ] Stair case has no landing at the top in the case of our example house 2. We need to implement checks to ensure that there is a level landing at the top and bottom of the stair case. It should also be flush with the floor of the second story.
+- [ ] Stair case is surrounded by walls in the case of our example house 2 such that it would be impossible to access it. We need to implement checks to ensure that staircases are not surrounded by walls and can be accessed.
+- [ ] At least one of the example houses has furniture placed in a way that makes it impossible to open the doors. We need to implement checks to ensure that furniture does not block doors.
+- [ ] At least one of the example houses has furniture extending through an exterior wall. We need to implement checks to ensure that furniture does not extend through walls both when generating example houses and when a user is drawing. 
+
 
 ## Done ✅ (latest first)
 ### v0.4.0-beta (2026-11-23)
