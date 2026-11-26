@@ -1042,6 +1042,11 @@ class EditEventsMixin:
             mx, my = self.device_to_model(current_device_x, current_device_y, pixels_per_inch)
             ang = math.degrees(math.atan2(my - fix.y, mx - fix.x)) - 90.0
             fix.rotation = (round(ang / 15.0) * 15.0) % 360.0
+            if hasattr(self, "_get_structural_visible_walls"):
+                from ..geometry.design_checks import clamp_fixture_out_of_walls
+                clamp_fixture_out_of_walls(
+                    fix, self._get_structural_visible_walls(), orig_pos=(fix.x, fix.y)
+                )
             self.queue_draw()
             return
 
@@ -1072,10 +1077,17 @@ class EditEventsMixin:
                             snap_shift = (sx - cand_x, sy - cand_y)
 
             rooms = getattr(self, "rooms", [])
+            structural_walls = (
+                self._get_structural_visible_walls()
+                if hasattr(self, "_get_structural_visible_walls")
+                else []
+            )
+            from ..geometry.design_checks import clamp_fixture_out_of_walls
             for fix, ox, oy, orig_rot in self.dragging_fixtures:
                 fix.x = ox + dx + snap_shift[0]
                 fix.y = oy + dy + snap_shift[1]
                 fix.rotation = orig_rot
+                clamp_fixture_out_of_walls(fix, structural_walls, orig_pos=(ox, oy))
                 resolve_fixture_surface(fix, rooms)
             self.queue_draw()
             return
@@ -1091,6 +1103,7 @@ class EditEventsMixin:
             ox, oy, orig_rot = self.dragging_fixture_start_pos
             nx, ny = ox + dx, oy + dy
             from ..fixtures_catalog import resolve_fixture_surface, snap_fixture_to_walls
+            from ..geometry.design_checks import clamp_fixture_out_of_walls
             if getattr(getattr(self, "snap_manager", None), "snap_enabled", True):
                 sx, sy, rot, _ = snap_fixture_to_walls(
                     nx, ny, fix.width, fix.depth,
@@ -1100,6 +1113,12 @@ class EditEventsMixin:
                 fix.x, fix.y, fix.rotation = sx, sy, rot
             else:
                 fix.x, fix.y = nx, ny
+            structural_walls = (
+                self._get_structural_visible_walls()
+                if hasattr(self, "_get_structural_visible_walls")
+                else []
+            )
+            clamp_fixture_out_of_walls(fix, structural_walls, orig_pos=(ox, oy))
             resolve_fixture_surface(fix, getattr(self, "rooms", []))
             self.queue_draw()
             return

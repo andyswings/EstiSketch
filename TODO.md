@@ -153,15 +153,9 @@
 ### Noticed in the 3D interface
 - [ ] Takeoff deducts an opening that straddles a split wall from the host wall only instead of splitting the deduction across overlapped collinear walls.
 
-### Noticed in Both 2D and 3D interfaces
-- [ ] Stair case has no landing at the top in the case of our example house 2. We need to implement checks to ensure that there is a level landing at the top and bottom of the stair case. It should also be flush with the floor of the second story.
-- [ ] Stair case is surrounded by walls in the case of our example house 2 such that it would be impossible to access it. We need to implement checks to ensure that staircases are not surrounded by walls and can be accessed.
-- [ ] At least one of the example houses has furniture placed in a way that makes it impossible to open the doors. We need to implement checks to ensure that furniture does not block doors.
-- [ ] At least one of the example houses has furniture extending through an exterior wall. We need to implement checks to ensure that furniture does not extend through walls both when generating example houses and when a user is drawing. 
-
-
 ## Done ✅ (latest first)
 ### Bug fixes (2026-11-26)
+- [x] Added architectural layout checks (`geometry/design_checks.py`) verifying furniture/fixture wall clearance, door-swing clearance, stair top/bottom landings, second-story flushness, and unobstructed stair access; wired live wall clamping into 2D fixture placement/dragging/rotation (`Canvas/events_fixture.py`, `Canvas/events_edit.py`), aligned U-shaped stairs in Blender export (`blender_bridge/estisketch_to_hb5.py`), and fixed all violations in the 3 demo houses (`examples/demo_houses/generate_demo_houses.py` + regenerated XMLs); tests in `tests/test_design_checks.py` and `tests/test_demo_houses.py` (2026-11-26).
 - [x] Mitered 3D footers at wall corners (`compute_mitered_strip_polygons`, `_build_level_footers` in `blender_bridge/estisketch_to_hb5.py`); tests in `tests/test_blender_bridge.py` (2026-11-26).
 - [x] Exterior rim-band walls cover upper-level floor perimeter grooves (`_build_level_rim_bands` in `blender_bridge/estisketch_to_hb5.py`) matching the exterior wall finish; verified on House 2 in Blender (2026-11-26).
 - [x] Interior L-/Z-wall chains now orient head-to-tail and compute per-level miters (`orient_interior_wall_chains`, `compute_level_wall_miters` in `blender_bridge/estisketch_to_hb5.py`) without flipping T-junctions or cross-level seams; tests in `tests/test_blender_bridge.py` and verified in Blender (2026-11-26).

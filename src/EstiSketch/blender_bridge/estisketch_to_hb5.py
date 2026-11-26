@@ -3611,6 +3611,10 @@ def _build_stair_object(
         riser_m = total_rise_m / steps
         if ps.stair_type == "straight" and ps.total_run > 0.0:
             tread_depth_m = (ps.total_run / steps) * INCH_TO_M
+        elif ps.stair_type == "u-shaped":
+            before = ps.steps_before_landing if 0 < ps.steps_before_landing < steps else steps // 2
+            scale = max(1, before - 1) / max(1, before)
+            tread_depth_m = max(0.12, scale * ps.tread_depth * INCH_TO_M)
         else:
             tread_depth_m = max(0.15, ps.tread_depth * INCH_TO_M)
         tread_thick_m = 1.25 * INCH_TO_M

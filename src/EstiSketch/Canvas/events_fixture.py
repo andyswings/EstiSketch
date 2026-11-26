@@ -5,6 +5,7 @@ from typing import List, Optional, Tuple
 
 from ..Resources.tool_hints import TOOL_HINTS
 from ..components import Fixture
+from ..geometry.design_checks import clamp_fixture_out_of_walls
 from ..fixtures_catalog import (
     generate_kitchen_or_vanity_layout,
     get_fixture_spec,
@@ -45,17 +46,26 @@ class CanvasFixtureMixin:
         self.dragging_fixtures = None
         self.rotating_fixture = None
 
-    def _get_visible_walls(self) -> List[object]:
+    def _get_structural_visible_walls(self) -> List[object]:
+        """Return only visible, non-symbolic walls (excluding synthetic room edges)."""
         walls: List[object] = []
         for ws in getattr(self, "wall_sets", []):
             for w in ws:
+                if getattr(w, "symbolic", False):
+                    continue
                 if not hasattr(self, "is_object_on_visible_layer") or self.is_object_on_visible_layer(w):
                     walls.append(w)
         for w in getattr(self, "walls", []):
+            if getattr(w, "symbolic", False):
+                continue
             if w not in walls and (
                 not hasattr(self, "is_object_on_visible_layer") or self.is_object_on_visible_layer(w)
             ):
                 walls.append(w)
+        return walls
+
+    def _get_visible_walls(self) -> List[object]:
+        walls = self._get_structural_visible_walls()
 
         # Also include visible room boundary edges when not already backed by structural walls
         for room in getattr(self, "rooms", []):
@@ -123,6 +133,9 @@ class CanvasFixtureMixin:
             rotation=rot,
             layer_id=getattr(self, "active_layer_id", ""),
         )
+        clamp_fixture_out_of_walls(
+            fix, self._get_structural_visible_walls(), orig_pos=(model_x, model_y)
+        )
         resolve_fixture_surface(fix, getattr(self, "rooms", []))
         return fix
 
@@ -159,7 +172,9 @@ class CanvasFixtureMixin:
             layer_id=getattr(self, "active_layer_id", ""),
         )
         rooms = getattr(self, "rooms", [])
+        structural_walls = self._get_structural_visible_walls()
         for it in items:
+            clamp_fixture_out_of_walls(it, structural_walls, orig_pos=(model_x, model_y))
             resolve_fixture_surface(it, rooms)
         return items
 

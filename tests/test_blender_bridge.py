@@ -166,8 +166,8 @@ def test_house2_stairs_cutouts_transform_and_railings():
     proj = bridge.parse_estisketch_xml(xml_path)
     assert len(proj.stairs) == 1
     st = proj.stairs[0]
-    assert st.stair_type == "straight"
-    assert st.start_point == pytest.approx((252.0, 290.0))
+    assert st.stair_type == "u-shaped"
+    assert st.start_point == pytest.approx((304.0, 300.0))
 
     cutouts = bridge.compute_room_hole_cutouts(proj)
     upper_hall = next(r for r in proj.rooms if r.name == "Upper Hall")
@@ -178,7 +178,7 @@ def test_house2_stairs_cutouts_transform_and_railings():
 
     cx, cy = bridge.compute_plan_center(proj)
     loc, rot_z = bridge.compute_hb5_stair_transform(st, 0.0, cx, cy)
-    sx_m, sy_m = bridge.inches_to_blender_xy(252.0, 290.0, cx, cy)
+    sx_m, sy_m = bridge.inches_to_blender_xy(304.0, 300.0, cx, cy)
     assert loc[0] == pytest.approx(sx_m, abs=1e-5)
     assert loc[1] == pytest.approx(sy_m + (st.width * bridge.INCH_TO_M) / 2.0, abs=1e-5)
     assert loc[2] == pytest.approx(0.0)

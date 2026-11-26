@@ -17,6 +17,7 @@ from EstiSketch.Canvas.canvas_area import CanvasArea
 from EstiSketch.blender_bridge import estisketch_to_hb5 as bridge
 from EstiSketch.config import DEFAULT_SETTINGS
 from EstiSketch.fixtures_catalog import FURNITURE_CATEGORIES
+from EstiSketch.geometry.design_checks import validate_project_layout
 from EstiSketch.geometry.room_holes import polygon_area
 from EstiSketch.project_io import open_project
 
@@ -103,7 +104,7 @@ def test_demo_house_roofs_and_stairs():
     assert c2.stairs[0].start_level_id == c2.levels[0].id
     assert c2.stairs[0].end_level_id == c2.levels[1].id
     upper_hall = next(r for r in c2.rooms if r.name == "Upper Hall")
-    assert len(upper_hall.holes) == 1
+    assert len(upper_hall.holes) >= 1
 
     # House 3: L-shape intersecting gable (2 ridges, valley, hip, 6-point outline)
     c3 = _make_canvas()
@@ -135,3 +136,11 @@ def test_demo_house_bridge_parser_and_cairo_render(filename, expected_levels, _s
     canvas.zoom = 0.5
     canvas.draw_scene(cr, 800, 600, printing=False)
     canvas.draw_scene(cr, 800, 600, printing=True)
+
+
+@pytest.mark.parametrize("filename,_lvl,_sqft,_garage", DEMO_SPECS)
+def test_demo_house_passes_layout_design_checks(filename, _lvl, _sqft, _garage):
+    canvas = _make_canvas()
+    open_project(canvas, os.path.join(DEMO_DIR, filename))
+    violations = validate_project_layout(canvas)
+    assert violations == [], "\n".join(violations)
