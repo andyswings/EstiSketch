@@ -82,6 +82,7 @@ def save_project(canvas, window_width, window_height, filepath):
         level_elem.set("name", level.name)
         level_elem.set("elevation", str(level.elevation))
         level_elem.set("height", str(level.height))
+        level_elem.set("floor_thickness", str(getattr(level, "floor_thickness", 10.0)))
 
     # Save active level ID
     active_level_id = getattr(canvas, 'active_level_id', '')
@@ -806,7 +807,8 @@ def open_project(canvas, filepath):
                 id=_get_attr_text(level_elem, "id", ""),
                 name=_get_attr_text(level_elem, "name", "Level"),
                 elevation=_get_attr_float(level_elem, "elevation", 0.0),
-                height=_get_attr_float(level_elem, "height", 96.0)
+                height=_get_attr_float(level_elem, "height", 96.0),
+                floor_thickness=_get_attr_float(level_elem, "floor_thickness", 10.0),
             )
             if hasattr(canvas, 'levels'):
                 canvas.levels.append(level)

@@ -1665,7 +1665,7 @@ def generate_wall_finish_report(canvas) -> str:
 
 def extract_fixtures_takeoff(canvas) -> Dict:
     """Summarize cabinets, countertops, vanities, plumbing fixtures, appliances, and mechanical units."""
-    from ..fixtures_catalog import get_fixture_spec
+    from ..fixtures_catalog import FURNITURE_CATEGORIES, get_fixture_spec
 
     base_cabinet_in = 0.0
     upper_cabinet_in = 0.0
@@ -1680,6 +1680,8 @@ def extract_fixtures_takeoff(canvas) -> Dict:
         sym = getattr(fx, "symbol_type", "base_cabinet")
         spec = get_fixture_spec(sym)
         cat = getattr(fx, "category", spec["category"])
+        if cat in FURNITURE_CATEGORIES:
+            continue
         w = float(getattr(fx, "width", spec["width"]))
         d = float(getattr(fx, "depth", spec["depth"]))
         h = float(getattr(fx, "height", spec["height"]))

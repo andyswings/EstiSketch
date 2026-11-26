@@ -126,6 +126,10 @@ def _base_fill_color(fixture) -> Tuple[float, float, float]:
         return (0.97, 0.95, 0.91)
     if cat == "bathroom_fixture":
         return (0.99, 0.99, 1.0)
+    if cat in ("living_furniture", "bedroom_furniture"):
+        return (0.95, 0.93, 0.89)
+    if cat in ("dining_furniture", "office_furniture"):
+        return (0.92, 0.88, 0.82)
     return (0.94, 0.95, 0.97)
 
 
@@ -277,6 +281,76 @@ def _draw_pass_base(cr: cairo.Context, fixture, zoom_transform: float, opacity: 
         elif sym == "base_drawer_cabinet":
             # Front pull bar
             cr.move_to(-w * 0.25, hd - 1.5); cr.line_to(w * 0.25, hd - 1.5); cr.stroke()
+        elif sym in ("bed_king", "bed_queen", "bed_twin"):
+            # Headboard along -Y, pillows, and folded duvet line
+            hb_h = min(4.0, d * 0.06)
+            cr.set_source_rgba(0.84, 0.79, 0.72, opacity)
+            cr.rectangle(-hw, -hd, w, hb_h)
+            cr.fill_preserve()
+            cr.set_source_rgba(0.16, 0.18, 0.22, opacity)
+            cr.stroke()
+            pillow_count = 1 if sym == "bed_twin" else 2
+            pil_gap = 4.0
+            pil_w = (w - (pillow_count + 1) * pil_gap) / pillow_count
+            pil_d = min(14.0, d * 0.20)
+            for pi in range(pillow_count):
+                px = -hw + pil_gap + pi * (pil_w + pil_gap)
+                _rounded_rect(cr, px, -hd + hb_h + 2.0, pil_w, pil_d, 2.0)
+                cr.set_source_rgba(0.99, 0.99, 1.0, opacity)
+                cr.fill_preserve()
+                cr.set_source_rgba(0.16, 0.18, 0.22, opacity)
+                cr.stroke()
+            duvet_y = -hd + min(d * 0.34, 24.0)
+            cr.move_to(-hw, duvet_y); cr.line_to(hw, duvet_y); cr.stroke()
+        elif sym in ("sofa", "loveseat", "armchair"):
+            back_d = min(7.0, d * 0.22)
+            arm_w = min(5.5, w * 0.16)
+            cr.move_to(-hw + arm_w, -hd + back_d); cr.line_to(hw - arm_w, -hd + back_d)
+            cr.move_to(-hw + arm_w, -hd); cr.line_to(-hw + arm_w, hd)
+            cr.move_to(hw - arm_w, -hd); cr.line_to(hw - arm_w, hd)
+            seats = 3 if sym == "sofa" else (2 if sym == "loveseat" else 1)
+            seat_span = max(4.0, w - 2.0 * arm_w)
+            for si in range(1, seats):
+                sx = -hw + arm_w + seat_span * (si / seats)
+                cr.move_to(sx, -hd + back_d); cr.line_to(sx, hd)
+            cr.stroke()
+        elif sym in ("dining_table", "coffee_table", "end_table"):
+            inset = min(2.5, w * 0.08, d * 0.08)
+            _rounded_rect(cr, -hw + inset, -hd + inset, w - 2.0 * inset, d - 2.0 * inset, 2.0)
+            cr.stroke()
+            if sym == "dining_table":
+                _draw_tag(cr, "DINING", w, cy=0.0, size=4.8, opacity=opacity, rotation_deg=fixture.rotation)
+        elif sym == "dining_chair":
+            back_d = min(3.0, d * 0.20)
+            cr.rectangle(-hw + 1.0, -hd, w - 2.0, back_d)
+            cr.stroke()
+        elif sym == "office_chair":
+            back_d = min(3.5, d * 0.18)
+            _rounded_rect(cr, -hw + 2.0, -hd + back_d + 1.0, w - 4.0, d - back_d - 3.0, 3.0)
+            cr.stroke()
+            cr.arc(0.0, -hd + back_d + 1.0, min(hw, hd) * 0.65, math.pi * 1.15, math.pi * 1.85)
+            cr.stroke()
+        elif sym == "desk":
+            ped_w = min(15.0, w * 0.28)
+            cr.save()
+            cr.set_dash([2.5 / zoom_transform, 2.0 / zoom_transform])
+            cr.rectangle(hw - ped_w, -hd + 1.5, ped_w - 1.5, d - 3.0)
+            cr.stroke()
+            cr.restore()
+            _draw_tag(cr, "DESK", w - ped_w, cy=0.0, size=4.5, opacity=opacity, rotation_deg=fixture.rotation)
+        elif sym in ("nightstand", "dresser"):
+            cr.move_to(-w * 0.30, hd - 1.5); cr.line_to(w * 0.30, hd - 1.5); cr.stroke()
+        elif sym == "tv_console":
+            # Thin TV bar near back edge (-Y)
+            tv_w = min(w * 0.85, 52.0)
+            cr.set_source_rgba(0.18, 0.20, 0.24, opacity)
+            cr.rectangle(-tv_w / 2.0, -hd + 2.5, tv_w, 2.5)
+            cr.fill()
+        elif sym == "bookshelf":
+            for frac in (0.25, 0.5, 0.75):
+                bx = -hw + w * frac
+                cr.move_to(bx, -hd + 1.5); cr.line_to(bx, hd - 1.5)
+            cr.stroke()
 
     cr.restore()
 

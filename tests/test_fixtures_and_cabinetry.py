@@ -75,8 +75,10 @@ def _to_device(canvas, mx: float, my: float):
 
 
 def test_catalog_and_fixture_dataclass_properties():
-    assert len(FIXTURE_CATALOG) == 30
-    assert len(FIXTURE_CATEGORIES) >= 5
+    assert len(FIXTURE_CATALOG) == 46
+    assert len(FIXTURE_CATEGORIES) >= 9
+    for cat_key in ("living_furniture", "bedroom_furniture", "dining_furniture", "office_furniture"):
+        assert any(k == cat_key for k, _ in FIXTURE_CATEGORIES)
     assert "quartz" in COUNTERTOP_MATERIALS
     assert "floor" in MOUNT_SURFACES and "slab" in MOUNT_SURFACES
 
@@ -376,10 +378,19 @@ def test_fixtures_takeoff_and_supplier_quotes():
     # L-corner cabinet (36x36 minus 12x12 inner notch = 8.0 sq ft, 4.0 LF)
     c1 = Fixture(symbol_type="corner_base_cabinet", x=150.0, y=18.0, width=36.0, depth=36.0, countertop_material="quartz", countertop_overhang=0.0)
     wc = Fixture(symbol_type="toilet", x=200.0, y=50.0)
-    canvas.fixtures.extend([b1, b2, u1, t1, c1, wc])
+    # Furniture items should be excluded from construction takeoff/quotes
+    sofa = Fixture(symbol_type="sofa", x=300.0, y=50.0)
+    bed = Fixture(symbol_type="bed_queen", x=300.0, y=150.0)
+    canvas.fixtures.extend([b1, b2, u1, t1, c1, wc, sofa, bed])
 
     summary = extract_fixtures_takeoff(canvas)
     assert summary["total_fixtures"] == 6
+
+    # Verify preview icon rendering succeeds for all catalog symbols including furniture
+    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, 64, 64)
+    cr = cairo.Context(surf)
+    for sym in ("sofa", "bed_king", "dining_table", "desk", "office_chair", "tv_console", "bookshelf"):
+        draw_fixture_preview_icon(cr, sym, 64, 64)
     assert pytest.approx(summary["base_cabinet_lf"], rel=1e-3) == 10.0
     assert pytest.approx(summary["upper_cabinet_lf"], rel=1e-3) == 3.0
     assert summary["tall_cabinet_count"] == 1
