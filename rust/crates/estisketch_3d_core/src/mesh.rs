@@ -30,6 +30,7 @@ pub enum MaterialStyle {
     Stone = 5,
     Shingle = 6,
     Glass = 7,
+    Concrete = 8,
 }
 
 /// Architectural PBR surface definition.

@@ -169,11 +169,32 @@ vec3 procedural_albedo(vec3 base, vec2 uv, vec3 n) {
         float course = fract(v_world_pos.z / 0.16);
         float shadow = mix(0.76, 1.04, smoothstep(0.0, 0.15, course));
         return base * shadow;
-    } else if (u_mat_style == 5 || u_mat_style == 6) {
-        // Stone / Roof shingles subtle variation
+    } else if (u_mat_style == 5) {
+        // Natural stone masonry blocks & subtle mortar variation
+        vec2 block = vec2(floor(p.x * 2.2), floor((p.y + v_world_pos.z * 0.6) * 3.8));
+        float var = 0.86 + 0.24 * hash21(block + abs(n.xy) * 2.0);
+        float fine = 0.94 + 0.10 * hash21(floor(p * 14.0));
+        return base * var * fine;
+    } else if (u_mat_style == 6) {
+        // Roof shingles with staggered tab courses
+        float course_idx = floor((p.y + v_world_pos.z) * 3.5);
         float course = fract((p.y + v_world_pos.z) * 3.5);
-        float nval = 0.91 + 0.14 * hash21(floor(p * 4.5 + abs(n.xy) * 2.0));
-        return base * nval * mix(0.84, 1.0, smoothstep(0.0, 0.12, course));
+        float tab = fract(p.x * 1.4 + mod(course_idx, 2.0) * 0.5);
+        float tab_seam = smoothstep(0.0, 0.03, tab) * smoothstep(1.0, 0.97, tab);
+        float nval = 0.90 + 0.14 * hash21(vec2(floor(p.x * 1.4), course_idx));
+        return base * nval * mix(0.84, 1.0, smoothstep(0.0, 0.12, course)) * mix(0.88, 1.0, tab_seam);
+    } else if (u_mat_style == 8) {
+        // Troweled architectural concrete slab with aggregate stipple and expansion joints
+        float stipple = 0.95 + 0.08 * hash21(floor(p * 22.0)) + 0.04 * hash21(floor(p * 68.0));
+        float mottle = 0.96 + 0.08 * sin(p.x * 1.3 + cos(p.y * 1.1));
+        vec2 slab_uv = fract(p / 2.4);
+        float joint = 1.0;
+        if (abs(n.z) > 0.7) {
+            float jx = smoothstep(0.0, 0.008, slab_uv.x) * smoothstep(1.0, 0.992, slab_uv.x);
+            float jy = smoothstep(0.0, 0.008, slab_uv.y) * smoothstep(1.0, 0.992, slab_uv.y);
+            joint = mix(0.76, 1.0, jx * jy);
+        }
+        return base * stipple * mottle * joint;
     }
     return base * (0.985 + 0.025 * hash21(floor(p * 12.0)));
 }

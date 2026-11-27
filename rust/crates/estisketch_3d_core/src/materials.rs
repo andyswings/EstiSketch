@@ -62,6 +62,17 @@ pub fn wall_finish_material(finish: &str, rgb_override: Option<[f64; 3]>) -> Mat
             pattern_rotation_deg: 0.0,
             transparent: false,
         }
+    } else if lower.contains("concrete") {
+        MaterialDef {
+            name: finish.to_string(),
+            base_color: color3(rgb_override, [0.64, 0.64, 0.62]),
+            roughness: 0.88,
+            metallic: 0.0,
+            style: MaterialStyle::Concrete,
+            pattern_scale: 1.0,
+            pattern_rotation_deg: 0.0,
+            transparent: false,
+        }
     } else if lower.contains("wood") || lower.contains("cedar") {
         MaterialDef {
             name: finish.to_string(),
@@ -117,7 +128,7 @@ pub fn floor_material(pattern: &str, rotation_deg: f64, scale: f64) -> MaterialD
     } else if lower.contains("carpet") {
         ([0.74, 0.72, 0.68, 1.0], MaterialStyle::Solid, 0.94)
     } else if lower.contains("concrete") {
-        ([0.62, 0.62, 0.60, 1.0], MaterialStyle::Stone, 0.88)
+        ([0.66, 0.66, 0.64, 1.0], MaterialStyle::Concrete, 0.88)
     } else {
         ([0.76, 0.69, 0.58, 1.0], MaterialStyle::Wood, 0.65)
     };
@@ -190,10 +201,10 @@ pub fn roof_material(material: &str) -> MaterialDef {
 pub fn concrete_material() -> MaterialDef {
     MaterialDef {
         name: "Concrete".to_string(),
-        base_color: [0.56, 0.56, 0.54, 1.0],
+        base_color: [0.58, 0.58, 0.56, 1.0],
         roughness: 0.90,
         metallic: 0.0,
-        style: MaterialStyle::Stone,
+        style: MaterialStyle::Concrete,
         pattern_scale: 1.2,
         pattern_rotation_deg: 0.0,
         transparent: false,

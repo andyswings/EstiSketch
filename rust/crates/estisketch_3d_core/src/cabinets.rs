@@ -42,6 +42,11 @@ struct RunItem<'a> {
     z_top: f32,
 }
 
+/// True when `symbol_type` is an L-shaped corner cabinet (`corner_base_cabinet` or `corner_upper_cabinet`).
+fn is_corner_cabinet(symbol_type: &str) -> bool {
+    symbol_type.to_lowercase().contains("corner")
+}
+
 /// Emit all cabinet/vanity bodies, shaker doors/drawers, basins/faucets, and merged run countertops.
 pub fn emit_cabinet_meshes(all_fixtures: &[&FixtureIR], parts: &mut Vec<MeshPart>) {
     let run_items: Vec<RunItem<'_>> = all_fixtures
@@ -89,7 +94,10 @@ pub fn emit_cabinet_meshes(all_fixtures: &[&FixtureIR], parts: &mut Vec<MeshPart
             let same_dir = run_items[i].u.dot(run_items[j].u) > 0.99
                 && run_items[i].v.dot(run_items[j].v) > 0.99;
 
-            if same_dir {
+            if same_dir
+                && !is_corner_cabinet(&run_items[i].fx.symbol_type)
+                && !is_corner_cabinet(&run_items[j].fx.symbol_type)
+            {
                 let du = diff.dot(run_items[i].u);
                 let dv = diff.dot(run_items[i].v).abs();
                 let target_span = 0.5 * (run_items[i].w + run_items[j].w);
@@ -131,7 +139,11 @@ pub fn emit_cabinet_meshes(all_fixtures: &[&FixtureIR], parts: &mut Vec<MeshPart
     }
 
     for members in groups.values() {
-        emit_merged_run_countertop(&run_items, members, parts);
+        if members.len() == 1 && is_corner_cabinet(&run_items[members[0]].fx.symbol_type) {
+            emit_corner_countertop(run_items[members[0]].fx, parts);
+        } else {
+            emit_merged_run_countertop(&run_items, members, parts);
+        }
     }
 
     // Emit each shaker cabinet carcass, doors/drawers, hardware, and basins.
@@ -224,6 +236,73 @@ fn emit_merged_run_countertop(items: &[RunItem<'_>], members: &[usize], parts: &
     }
 }
 
+fn emit_corner_countertop(fx: &FixtureIR, parts: &mut Vec<MeshPart>) {
+    let origin = Vec3::new(fx.loc_m[0] as f32, fx.loc_m[1] as f32, fx.loc_m[2] as f32);
+    let rot_z = fx.rot_z_rad as f32;
+    let w = (fx.width_m as f32).max(0.15);
+    let d = (fx.depth_m as f32).max(0.15);
+    let z_top = (fx.loc_m[2] + fx.height_m) as f32;
+    let ct_thick = (fx.countertop_thickness_m as f32).clamp(0.02, 0.08);
+    let oh = (fx.countertop_overhang_m as f32).max(0.0);
+
+    // Match 2D `_corner_poly(w, d, 24" + overhang)` in local 3D frame:
+    // back walls at `-X` and `+Y`, inside notch facing `(+X, -Y)`.
+    let arm_d = 0.6096f32.min(w - 0.05).min(d - 0.05).max(0.28);
+    let arm_ct = (arm_d + oh).min(w - 0.04).min(d - 0.04);
+    let local_pts = [
+        (-w * 0.5, d * 0.5),
+        (-w * 0.5, -d * 0.5),
+        (-w * 0.5 + arm_ct, -d * 0.5),
+        (-w * 0.5 + arm_ct, d * 0.5 - arm_ct),
+        (w * 0.5, d * 0.5 - arm_ct),
+        (w * 0.5, d * 0.5),
+    ];
+    let (sr, cr) = rot_z.sin_cos();
+    let world_pts: Vec<[f64; 2]> = local_pts
+        .iter()
+        .map(|&(lx, ly)| {
+            [
+                (origin.x + lx * cr - ly * sr) as f64,
+                (origin.y + lx * sr + ly * cr) as f64,
+            ]
+        })
+        .collect();
+
+    let mut ct_mb = MeshBuilder::new();
+    ct_mb.push_extruded_polygon(&world_pts, &[], z_top - ct_thick, z_top);
+
+    if fx.has_backsplash {
+        let bs_h = 0.10f32;
+        let bs_d = 0.020f32;
+        // Backsplash along +Y rear wall
+        ct_mb.push_oriented_box(
+            origin,
+            rot_z,
+            Vec3::new(0.0, d * 0.5 - bs_d * 0.5, z_top + bs_h * 0.5),
+            Vec3::new(w, bs_d, bs_h),
+        );
+        // Backsplash along -X side wall (non-overlapping with +Y strip)
+        let bs2_len = (d - bs_d).max(0.05);
+        ct_mb.push_oriented_box(
+            origin,
+            rot_z,
+            Vec3::new(-w * 0.5 + bs_d * 0.5, -bs_d * 0.5, z_top + bs_h * 0.5),
+            Vec3::new(bs_d, bs2_len, bs_h),
+        );
+    }
+
+    if let Some(p) = ct_mb.into_part(
+        &fx.id,
+        "fixture",
+        &fx.level_id,
+        "CornerCountertop",
+        PartFlags::default(),
+        countertop_material(&fx.countertop_material, fx.countertop_color),
+    ) {
+        parts.push(p);
+    }
+}
+
 fn emit_single_cabinet(
     fx: &FixtureIR,
     left_abutted: bool,
@@ -259,8 +338,12 @@ fn emit_single_cabinet(
     let box_cz = toe_h + box_h * 0.5;
 
     if is_corner {
-        // L-shaped corner carcass with diagonal front shaker face
-        let arm_d = (d * 0.52).max(0.28);
+        // L-shaped corner carcass flush to -X and +Y walls, matching 2D 24"/12" arm depth
+        let default_arm = if is_upper { 0.3048f32 } else { 0.6096f32 };
+        let arm_d = default_arm.min(w - 0.05).min(d - 0.05).max(0.20);
+        let rem_d = (d - arm_d).max(0.05);
+        let (sr, cr) = rot_z.sin_cos();
+
         body_mb.push_oriented_box(
             origin,
             rot_z,
@@ -270,32 +353,61 @@ fn emit_single_cabinet(
         body_mb.push_oriented_box(
             origin,
             rot_z,
-            Vec3::new(-w * 0.5 + arm_d * 0.5, 0.0, box_cz),
-            Vec3::new(arm_d, d, box_h),
+            Vec3::new(-w * 0.5 + arm_d * 0.5, -d * 0.5 + rem_d * 0.5, box_cz),
+            Vec3::new(arm_d, rem_d, box_h),
         );
         if toe_h > 0.0 {
+            let kick_d = (arm_d - 0.04).max(0.08);
             body_mb.push_oriented_box(
                 origin,
                 rot_z,
-                Vec3::new(0.0, d * 0.5 - arm_d * 0.5, toe_h * 0.5),
-                Vec3::new(w - 0.02, arm_d - 0.04, toe_h),
+                Vec3::new(0.0, d * 0.5 - arm_d * 0.5 + 0.015, toe_h * 0.5),
+                Vec3::new((w - 0.02).max(0.08), kick_d, toe_h),
             );
+            let kick_rem = (d - arm_d + 0.02).max(0.05);
             body_mb.push_oriented_box(
                 origin,
                 rot_z,
-                Vec3::new(-w * 0.5 + arm_d * 0.5, 0.0, toe_h * 0.5),
-                Vec3::new(arm_d - 0.04, d - 0.02, toe_h),
+                Vec3::new(
+                    -w * 0.5 + arm_d * 0.5 - 0.015,
+                    -d * 0.5 + kick_rem * 0.5,
+                    toe_h * 0.5,
+                ),
+                Vec3::new(kick_d, kick_rem, toe_h),
             );
         }
+
+        // Shaker doors along both inside-corner faces (+Y arm facing -Y, -X arm facing +X)
+        let rem_w = (w - arm_d).max(0.16);
+        let d1_x = -w * 0.5 + arm_d + rem_w * 0.5;
+        let d1_y = d * 0.5 - arm_d - 0.010;
         push_shaker_door(
             &mut body_mb,
             &mut hw_mb,
             origin,
-            rot_z + std::f32::consts::FRAC_PI_4,
-            Vec3::new(0.04, 0.02, box_cz),
-            (w * 0.55).max(0.32),
+            rot_z,
+            Vec3::new(d1_x, d1_y, box_cz),
+            (rem_w - 0.025).max(0.14),
             box_h - 0.02,
             false,
+        );
+
+        let d2_lx = -w * 0.5 + arm_d + 0.010;
+        let d2_ly = -d * 0.5 + rem_d * 0.5;
+        let door2_orig = Vec3::new(
+            origin.x + d2_lx * cr - d2_ly * sr,
+            origin.y + d2_lx * sr + d2_ly * cr,
+            origin.z,
+        );
+        push_shaker_door(
+            &mut body_mb,
+            &mut hw_mb,
+            door2_orig,
+            rot_z + std::f32::consts::FRAC_PI_2,
+            Vec3::new(0.0, 0.0, box_cz),
+            (rem_d - 0.025).max(0.14),
+            box_h - 0.02,
+            true,
         );
     } else {
         if toe_h > 0.0 {

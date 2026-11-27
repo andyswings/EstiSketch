@@ -136,11 +136,12 @@
 - [ ] Themes
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] 3D model of a corner sink doesn't have backsplash on both sides.  It only has it on one side. Also inside corner should have the counter top notched out just like the cabinet. Currently the counter top juts out into the kitchen space. 
-- [ ] Example house 2 Garage floor has shingle roof texture instead of concrete. 
-- [ ] U-shaped stairs in the 3D view the upper flight rails are rendered correctly, but the steps are rendered in another location.
 
 ## Done ✅ (latest first)
+### 3D Rendering & Geometry Bug Fixes (2026-11-26)
+- [x] Fixed corner base cabinet countertops and backsplashes (`estisketch_3d_core/src/cabinets.rs`): added dedicated L-notched countertop extrusion (`emit_corner_countertop`) so corner countertops match the inside corner notch instead of jutting into the kitchen space, added dual-wall backsplashes along both `-X` and `+Y` host walls, and aligned 3D L-carcass/door arms with 2D 24"/12" geometry (`corner_base_cabinet_countertop_is_notched_with_dual_backsplash`).
+- [x] Fixed concrete floor rendering with roof shingle shader lines (`mesh.rs`, `materials.rs`, `estisketch_3d_gl/src/shaders.rs`): added distinct `MaterialStyle::Concrete = 8` for `concrete_stipple` garage floors, concrete wall finishes, and foundation footers with troweled aggregate stipple + expansion joint grooves separated from `MaterialStyle::Shingle` and `MaterialStyle::Stone` (`concrete_floor_uses_concrete_material_style_not_shingle_or_stone`).
+- [x] Fixed U-shaped and L-shaped stair upper flight alignment (`estisketch_3d_core/src/mesher.rs`): aligned Flight 1 step count/run, stair well gap (`inner_radius_m`), landing bounds, and Flight 2 left/right turn origin & orientation with `compute_stair_railing_paths_3d` so upper steps sit inside the upper railings (`u_shaped_stair_upper_flight_aligns_with_railing_bounds`).
 ### Native 3D Engine — Phases 5 & 6 (2026-11-26)
 - [x] Implemented portable `.esk` ZIP project bundle (`esk_archive.py`, `project_io.py`, `Canvas/`, `View3D/viewport.py`, `main.py`) packing `manifest.json`, `project.xml`, `views.json`, `overrides_3d.json`, file-backed `blueprints/`, embedded `assets/*.glb`, `sync/blender_state.json`, and optional `preview.png` with automatic ZIP-magic & extension detection and full backwards-compatible `.xml` save/load (`tests/test_esk_archive.py`) (2026-11-26).
 - [x] Added `.glb`, `.gltf`, and `.obj` 3D model import (`estisketch_3d_core/src/{assets,glb_export}.rs`, `estisketch_3d_py`, `native_3d.py`, `CustomAsset`, `File > Import 3D Asset`) with pure-Rust Andrew monotone chain 2D convex-hull footprint projection, FNV-1a mesh hashing, 2D plan silhouette rendering (`Canvas/canvas_draw.py`), and `SceneIR` 3D instantiation (`scene_ir/{parsed,builder}.py`, `mesher.rs`) (2026-11-26).

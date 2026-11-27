@@ -885,10 +885,12 @@ fn emit_stair_meshes(stair: &StairIR, parts: &mut Vec<MeshPart>) {
             flight_total / 2
         };
         let sa = flight_total.saturating_sub(sb);
-        let rb = (sb as f32) * tread_d;
+        let sb_treads = sb.saturating_sub(1);
+        let rb = (sb_treads as f32) * tread_d;
+        let ra = (sa.saturating_sub(1) as f32) * tread_d;
         let ld = (stair.landing_depth_m as f32).max(w);
 
-        emit_flight(&mut tread_mb, loc, rot_z, sb, 0.0, tread_d);
+        emit_flight(&mut tread_mb, loc, rot_z, sb_treads, 0.0, tread_d);
         let z_land = (sb as f32) * riser_h;
         tread_mb.push_oriented_box(
             loc,
@@ -902,25 +904,30 @@ fn emit_stair_meshes(stair: &StairIR, parts: &mut Vec<MeshPart>) {
             loc + Vec3::new(lx * cr - ly * sr, lx * sr + ly * cr, lz)
         };
         let z_after = z_land + (winders as f32) * riser_h;
-        if stair.turn_direction == "left" {
-            let orig2 = to_world(w, rb + ld - w, z_after);
-            emit_flight(
-                &mut tread_mb,
-                orig2,
-                rot_z - std::f32::consts::FRAC_PI_2,
-                sa,
-                0.0,
-                tread_d,
-            );
+        let td2 = if sa > 1 && ra > 0.0 {
+            ra / (sa as f32)
         } else {
-            let orig2 = to_world(0.0, rb + ld, z_after);
+            tread_d
+        };
+        if stair.turn_direction == "left" {
+            let orig2 = to_world(0.0, rb + ld - w, z_after);
             emit_flight(
                 &mut tread_mb,
                 orig2,
                 rot_z + std::f32::consts::FRAC_PI_2,
                 sa,
                 0.0,
-                tread_d,
+                td2,
+            );
+        } else {
+            let orig2 = to_world(w, rb + ld, z_after);
+            emit_flight(
+                &mut tread_mb,
+                orig2,
+                rot_z - std::f32::consts::FRAC_PI_2,
+                sa,
+                0.0,
+                td2,
             );
         }
     } else if stair.stair_type == "u-shaped" {
@@ -931,30 +938,49 @@ fn emit_stair_meshes(stair: &StairIR, parts: &mut Vec<MeshPart>) {
                 n_steps / 2
             };
         let sa = n_steps.saturating_sub(sb);
-        let rb = (sb as f32) * tread_d;
-        let ld = (stair.landing_depth_m as f32).max(w);
+        let sb_treads = sb.saturating_sub(1);
+        let rb = (sb_treads as f32) * tread_d;
+        let ra = (sa.saturating_sub(1) as f32) * tread_d;
+        let ld = if stair.landing_depth_m > 0.0 {
+            stair.landing_depth_m as f32
+        } else {
+            w
+        };
+        let ir = stair.inner_radius_m as f32;
+        let well = if (ir - 0.1524).abs() < 1e-3 {
+            0.0
+        } else {
+            ir.max(0.0)
+        };
         let z_land = (sb as f32) * riser_h;
 
-        emit_flight(&mut tread_mb, loc, rot_z, sb, 0.0, tread_d);
+        emit_flight(&mut tread_mb, loc, rot_z, sb_treads, 0.0, tread_d);
         let (sr, cr) = rot_z.sin_cos();
         let to_world = |lx: f32, ly: f32, lz: f32| -> Vec3 {
             loc + Vec3::new(lx * cr - ly * sr, lx * sr + ly * cr, lz)
         };
+        // Local +X is right of Flight 1; left turns advance into negative local X by (-well - w).
+        let land_w = w * 2.0 + well;
         let lx_mid = if stair.turn_direction == "left" {
-            w
+            -0.5 * well
         } else {
-            0.0
+            w + 0.5 * well
         };
         tread_mb.push_oriented_box(
             loc,
             rot_z,
             Vec3::new(lx_mid, rb + ld * 0.5, z_land - 0.08),
-            Vec3::new(w * 2.0, ld, 0.16),
+            Vec3::new(land_w, ld, 0.16),
         );
         let orig2 = if stair.turn_direction == "left" {
-            to_world(w * 2.0, rb, z_land)
+            to_world(-well, rb, z_land)
         } else {
-            to_world(0.0, rb, z_land)
+            to_world(w * 2.0 + well, rb, z_land)
+        };
+        let td2 = if sa > 1 && ra > 0.0 {
+            ra / (sa as f32)
+        } else {
+            tread_d
         };
         emit_flight(
             &mut tread_mb,
@@ -962,7 +988,7 @@ fn emit_stair_meshes(stair: &StairIR, parts: &mut Vec<MeshPart>) {
             rot_z + std::f32::consts::PI,
             sa,
             0.0,
-            tread_d,
+            td2,
         );
     } else if stair.stair_type == "spiral" {
         let inner_r = (stair.inner_radius_m as f32).max(0.08);
@@ -1582,5 +1608,211 @@ mod tests {
                 "Symbol {sym} only produced {tris} triangles (placeholder box)"
             );
         }
+    }
+
+    #[test]
+    fn corner_base_cabinet_countertop_is_notched_with_dual_backsplash() {
+        let mut scene = rich_scene();
+        scene.walls.clear();
+        scene.openings.clear();
+        scene.rooms.clear();
+        scene.roofs.clear();
+        scene.footers.clear();
+        scene.rim_bands.clear();
+        scene.stairs.clear();
+        scene.fixtures = vec![crate::scene_ir::FixtureIR {
+            id: "cab_corner_1".into(),
+            level_id: "lvl_1".into(),
+            symbol_type: "corner_base_cabinet".into(),
+            category: "kitchen_cabinet".into(),
+            loc_m: [0.0, 0.0, 0.0],
+            rot_z_rad: 0.0,
+            width_m: 0.9144,
+            depth_m: 0.9144,
+            height_m: 0.9144,
+            has_countertop: true,
+            countertop_overhang_m: 0.0381,
+            countertop_thickness_m: 0.0381,
+            countertop_material: "quartz".into(),
+            has_backsplash: true,
+            fill_color: None,
+            countertop_color: None,
+        }];
+        let mut state = SceneState::new();
+        state.load_scene(scene).unwrap();
+        let built = build_scene_mesh(&state);
+
+        let ct = built
+            .parts
+            .iter()
+            .find(|p| p.sub_part == "CornerCountertop")
+            .expect("expected CornerCountertop mesh part");
+
+        let arm_ct = 0.6096f32 + 0.0381;
+        let notch_x = -0.9144 * 0.5 + arm_ct + 0.005;
+        let notch_y = 0.9144 * 0.5 - arm_ct - 0.005;
+        assert!(
+            ct.vertices
+                .iter()
+                .all(|v| !(v.pos[0] > notch_x && v.pos[1] < notch_y)),
+            "countertop jutted into inside corner notch"
+        );
+
+        let has_top_wall_bs = ct
+            .vertices
+            .iter()
+            .any(|v| v.pos[2] > 0.93 && v.pos[1] > 0.9144 * 0.5 - 0.03);
+        let has_left_wall_bs = ct
+            .vertices
+            .iter()
+            .any(|v| v.pos[2] > 0.93 && v.pos[0] < -0.9144 * 0.5 + 0.03);
+        assert!(
+            has_top_wall_bs,
+            "missing +Y wall backsplash on corner sink/cabinet"
+        );
+        assert!(
+            has_left_wall_bs,
+            "missing -X wall backsplash on corner sink/cabinet"
+        );
+    }
+
+    #[test]
+    fn concrete_floor_uses_concrete_material_style_not_shingle_or_stone() {
+        let mut scene = rich_scene();
+        scene.walls.clear();
+        scene.openings.clear();
+        scene.roofs.clear();
+        scene.footers.clear();
+        scene.rim_bands.clear();
+        scene.stairs.clear();
+        scene.fixtures.clear();
+        scene.rooms[0].floor_pattern = "concrete_stipple".into();
+
+        let mut state = SceneState::new();
+        state.load_scene(scene).unwrap();
+        let built = build_scene_mesh(&state);
+        let floor_part = built
+            .parts
+            .iter()
+            .find(|p| p.sub_part == "Floor")
+            .expect("expected Floor part");
+        assert_eq!(
+            floor_part.material.style,
+            crate::mesh::MaterialStyle::Concrete
+        );
+    }
+
+    #[test]
+    fn u_shaped_stair_upper_flight_aligns_with_railing_bounds() {
+        let mut scene = rich_scene();
+        scene.walls.clear();
+        scene.openings.clear();
+        scene.rooms.clear();
+        scene.roofs.clear();
+        scene.footers.clear();
+        scene.rim_bands.clear();
+        scene.fixtures.clear();
+
+        scene.stairs = vec![StairIR {
+            id: "stair_u_left".into(),
+            level_id: "lvl_1".into(),
+            stair_type: "u-shaped".into(),
+            loc_m: [-0.813, -3.048, 0.0],
+            rot_z_rad: -std::f64::consts::FRAC_PI_2,
+            width_m: 0.9144,
+            total_rise_m: 2.6924,
+            num_steps: 14,
+            tread_depth_m: 0.254,
+            total_run_m: 3.048,
+            turn_direction: "left".into(),
+            landing_depth_m: 0.9652,
+            steps_before_landing: 7,
+            winder_count: 0,
+            inner_radius_m: 0.0508,
+            rotation_degrees: 270.0,
+            has_left_rail: true,
+            has_right_rail: true,
+            rail_height_m: 0.9144,
+            railing_paths_m: vec![vec![
+                [-0.813, -3.048, 0.0],
+                [0.711, -3.048, 1.3462],
+                [0.711, -2.9972, 1.3462],
+                [-0.813, -2.9972, 2.6924],
+            ]],
+        }];
+
+        let mut state = SceneState::new();
+        state.load_scene(scene).unwrap();
+        let built = build_scene_mesh(&state);
+        let treads = built
+            .parts
+            .iter()
+            .find(|p| p.sub_part == "Treads")
+            .expect("expected Treads part");
+        let upper_verts: Vec<_> = treads.vertices.iter().filter(|v| v.pos[2] > 1.40).collect();
+        assert!(
+            !upper_verts.is_empty(),
+            "expected upper flight tread geometry"
+        );
+        for v in upper_verts {
+            assert!(
+                v.pos[0] >= -0.85 && v.pos[0] <= 0.74,
+                "upper tread X={} outside railing bounds",
+                v.pos[0]
+            );
+            assert!(
+                v.pos[1] >= -3.03 && v.pos[1] <= -2.06,
+                "upper tread Y={} outside left-turn U-stair railing bounds",
+                v.pos[1]
+            );
+        }
+
+        // Verify right-turn symmetry moves upper flight to +Y side
+        let mut right_scene = rich_scene();
+        right_scene.walls.clear();
+        right_scene.openings.clear();
+        right_scene.rooms.clear();
+        right_scene.roofs.clear();
+        right_scene.footers.clear();
+        right_scene.rim_bands.clear();
+        right_scene.fixtures.clear();
+        right_scene.stairs = vec![StairIR {
+            id: "stair_u_right".into(),
+            level_id: "lvl_1".into(),
+            stair_type: "u-shaped".into(),
+            loc_m: [0.0, 0.0, 0.0],
+            rot_z_rad: 0.0,
+            width_m: 0.9144,
+            total_rise_m: 2.6924,
+            num_steps: 14,
+            tread_depth_m: 0.254,
+            total_run_m: 3.048,
+            turn_direction: "right".into(),
+            landing_depth_m: 0.9652,
+            steps_before_landing: 7,
+            winder_count: 0,
+            inner_radius_m: 0.0508,
+            rotation_degrees: 270.0,
+            has_left_rail: false,
+            has_right_rail: false,
+            rail_height_m: 0.9144,
+            railing_paths_m: vec![],
+        }];
+        let mut right_state = SceneState::new();
+        right_state.load_scene(right_scene).unwrap();
+        let right_built = build_scene_mesh(&right_state);
+        let right_treads = right_built
+            .parts
+            .iter()
+            .find(|p| p.sub_part == "Treads")
+            .unwrap();
+        assert!(
+            right_treads
+                .vertices
+                .iter()
+                .filter(|v| v.pos[2] > 1.40)
+                .all(|v| v.pos[0] >= 0.94 && v.pos[0] <= 1.90),
+            "right-turn U-stair upper flight X bounds misaligned"
+        );
     }
 }
