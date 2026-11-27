@@ -20,17 +20,24 @@ from EstiSketch.components import (  # noqa: E402
     Room,
     Stair,
     Wall,
+    Window,
 )
 from EstiSketch.geometry.design_checks import (  # noqa: E402
     bathtub_drain_wall_violations,
     bathroom_clearance_violations,
     clamp_fixture_out_of_walls,
+    door_swing_direction_violations,
     fixture_door_violations,
     fixture_wall_violations,
+    kitchen_island_and_walkway_violations,
+    kitchen_sink_window_violations,
     laundry_appliance_violations,
+    opening_ingress_egress_violations,
     pocket_door_violations,
+    room_access_violations,
     sink_and_vanity_clearance_violations,
     stair_landing_and_access_violations,
+    validate_project_layout_detailed,
 )
 
 
@@ -234,3 +241,103 @@ def test_bathroom_sink_tub_drain_and_laundry_checks() -> None:
     assert laundry_appliance_violations([washer_ok], [], walls, layer_map) == []
     bifold_in = Door("bi-fold", 36.0, 80.0, swing="left", orientation="outswing", layer_id="l1")
     assert fixture_door_violations([washer_ok], [(walls[0], bifold_in, 0.5)], layer_map)
+
+
+def test_opening_ingress_egress_and_room_access_checks() -> None:
+    layer_map = {"l1": "lvl1"}
+    # Two side-by-side rooms (left: Living, right: Enclosed)
+    walls = [
+        Wall((0.0, 0.0), (240.0, 0.0), 6.0, 96.0, exterior_wall=True, layer_id="l1"),
+        Wall((240.0, 0.0), (240.0, 180.0), 6.0, 96.0, exterior_wall=True, layer_id="l1"),
+        Wall((240.0, 180.0), (0.0, 180.0), 6.0, 96.0, exterior_wall=True, layer_id="l1"),
+        Wall((0.0, 180.0), (0.0, 0.0), 6.0, 96.0, exterior_wall=True, layer_id="l1"),
+        Wall((120.0, 0.0), (120.0, 180.0), 4.5, 96.0, exterior_wall=False, layer_id="l1"),
+    ]
+    r_left = Room([(0.0, 0.0), (120.0, 0.0), (120.0, 180.0), (0.0, 180.0)], layer_id="l1")
+    r_left.name = "Living"
+    r_right = Room([(120.0, 0.0), (240.0, 0.0), (240.0, 180.0), (120.0, 180.0)], layer_id="l1")
+    r_right.name = "Sealed Room"
+
+    slider = Door("sliding", 72.0, 80.0, swing="left", orientation="inswing", layer_id="l1")
+    # Sealed Room has no door/opening -> flagged
+    access_v = room_access_violations([r_left, r_right], walls, [(walls[0], slider, 0.25)], [], layer_map)
+    assert any("Sealed Room" in m for m in access_v)
+    assert not any("Living" in m for m in access_v)
+
+    # Adding a framed opening on the dividing wall gives Sealed Room access
+    opening = Door("frame", 42.0, 80.0, swing="left", orientation="inswing", layer_id="l1")
+    assert room_access_violations(
+        [r_left, r_right], walls, [(walls[0], slider, 0.25), (walls[4], opening, 0.5)], [], layer_map
+    ) == []
+
+    # Furniture directly in front of the sliding door fails ingress/egress check
+    blocker_sofa = Fixture("sofa", x=60.0, y=24.0, width=84.0, depth=36.0, layer_id="l1")
+    assert opening_ingress_egress_violations(
+        [blocker_sofa], [(walls[0], slider, 0.25)], walls, layer_map
+    )
+    clear_sofa = Fixture("sofa", x=60.0, y=100.0, width=84.0, depth=36.0, layer_id="l1")
+    assert opening_ingress_egress_violations(
+        [clear_sofa], [(walls[0], slider, 0.25)], walls, layer_map
+    ) == []
+
+
+def test_kitchen_sink_window_door_swing_and_walkway_checks() -> None:
+    layer_map = {"l1": "lvl1"}
+    w_n = Wall((0.0, 0.0), (240.0, 0.0), 6.0, 96.0, exterior_wall=True, layer_id="l1")
+    w_e = Wall((240.0, 0.0), (240.0, 240.0), 6.0, 96.0, exterior_wall=True, layer_id="l1")
+    w_s = Wall((240.0, 240.0), (0.0, 240.0), 6.0, 96.0, exterior_wall=True, layer_id="l1")
+    w_w = Wall((0.0, 240.0), (0.0, 0.0), 6.0, 96.0, exterior_wall=True, layer_id="l1")
+    w_hall_w = Wall((160.0, 0.0), (160.0, 240.0), 4.5, 96.0, layer_id="l1")
+    w_hall_e = Wall((190.0, 0.0), (190.0, 240.0), 4.5, 96.0, layer_id="l1")  # 25.5" clear hall!
+    walls = [w_n, w_e, w_s, w_w, w_hall_w, w_hall_e]
+
+    # 1. Kitchen sink on exterior wall w_n (x=60, y=15)
+    sink = Fixture("sink_base_cabinet", x=60.0, y=15.0, width=36.0, depth=24.0, layer_id="l1")
+    assert kitchen_sink_window_violations([sink], walls, [], layer_map)
+
+    win_off = Window(36.0, 36.0, "double-hung", layer_id="l1")
+    assert kitchen_sink_window_violations([sink], walls, [(w_n, win_off, 0.30)], layer_map)
+    assert kitchen_sink_window_violations([sink], walls, [(w_n, win_off, 0.25)], layer_map) == []
+
+    # 2. Island 36" walkway check + narrow hallway < 36" check
+    hall = Room([(160.0, 0.0), (190.0, 0.0), (190.0, 240.0), (160.0, 240.0)], layer_id="l1")
+    hall.name = "Main Hallway"
+    hall.room_type = "hallway"
+    bed = Room([(190.0, 0.0), (240.0, 0.0), (240.0, 240.0), (190.0, 240.0)], layer_id="l1")
+    bed.name = "Bedroom"
+    bed.room_type = "bedroom"
+
+    island_tight = Fixture("island_cabinet", x=60.0, y=70.0, width=60.0, depth=32.0, layer_id="l1")
+    v_walk = kitchen_island_and_walkway_violations([sink, island_tight], walls, [hall, bed], layer_map)
+    assert any("Kitchen island" in m for m in v_walk)
+    assert any("Main Hallway" in m for m in v_walk)
+
+    # 3. Door swinging into hallway instead of into bedroom, and exterior outswing
+    d_bad_hall = Door("single", 32.0, 80.0, swing="left", orientation="outswing", layer_id="l1")
+    # w_hall_e goes (190,0)->(190,240): t=(0,1), p=(-1,0). inswing is -X (into hall), outswing is +X (into bed)
+    d_in_hall = Door("single", 32.0, 80.0, swing="left", orientation="inswing", layer_id="l1")
+    v_sw = door_swing_direction_violations([(w_hall_e, d_in_hall, 0.5)], [hall, bed], layer_map)
+    assert any("Main Hallway" in m for m in v_sw)
+    assert door_swing_direction_violations([(w_hall_e, d_bad_hall, 0.5)], [hall, bed], layer_map) == []
+
+    # 4. Structured validate_project_layout_detailed returns categorized LayoutIssue records
+    w_sealed = Wall((0.0, 120.0), (160.0, 120.0), 4.5, 96.0, layer_id="l1")
+    sealed = Room([(0.0, 120.0), (160.0, 120.0), (160.0, 240.0), (0.0, 240.0)], layer_id="l1")
+    sealed.name = "Sealed Closet"
+    fake_canvas = SimpleNamespace(
+        layers=[Layer(id="l1", name="L1", level_id="lvl1")],
+        levels=[Level(id="lvl1", name="Level 1", elevation=0.0)],
+        wall_sets=[walls + [w_sealed]],
+        walls=[],
+        fixtures=[sink, island_tight],
+        doors=[(w_hall_e, d_in_hall, 0.5)],
+        windows=[],
+        rooms=[hall, bed, sealed],
+        stairs=[],
+    )
+    detailed = validate_project_layout_detailed(fake_canvas)
+    cats = {issue.category for issue in detailed}
+    assert "Kitchen Sink Window" in cats
+    assert "Door Swing Direction" in cats
+    assert "Kitchen Island & Walkway" in cats
+    assert "Room Access" in cats

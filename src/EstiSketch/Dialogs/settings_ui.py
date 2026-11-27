@@ -84,8 +84,14 @@ def create_settings_dialog(parent, config_constants, canvas):
         row += 1
 
     # Group 2: Dropdown Menus
+    dropdown_labels = {
+        "estisketch": "EstiSketch Assets (No Add-on Needed)",
+        "auto": "Auto (Home Builder 5 if Installed)",
+        "hb5": "Home Builder 5 Add-on (Optional)",
+    }
     dropdowns = [
         ("Units", "UNITS", ["feet_inches", "metric"]),
+        ("Blender 3D Asset Source", "BLENDER_ASSET_SOURCE", ["estisketch", "auto", "hb5"]),
         ("Near-Foot Length Fix", "WALL_NEAR_FOOT_BEHAVIOR", ["auto", "prompt", "off"]),
         ("Wall Display Pattern", "WALL_DISPLAY_PATTERN", ["solid", "patterned", "filled_rectangle"]),
         ("Construction Type", "CONSTRUCTION_TYPE", ["stick", "metal", "cinder", "pole"]),
@@ -105,7 +111,8 @@ def create_settings_dialog(parent, config_constants, canvas):
         grid.attach(lbl, 0, row, 1, 1)
         combo = Gtk.ComboBoxText()
         for option in options:
-            combo.append(option, option.replace("_", " ").title())
+            display = dropdown_labels.get(option, option.replace("_", " ").title())
+            combo.append(option, display)
         combo.set_active_id(getattr(config_constants, key, options[0]))
         dropdown_widgets[key] = combo
         grid.attach(combo, 1, row, 1, 1)

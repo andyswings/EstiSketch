@@ -17,6 +17,9 @@ from .Dialogs import estimate_materials
 from .Dialogs import takeoff_dialog
 from .Dialogs import manage_materials
 from .Dialogs import settings_ui
+from .Dialogs import layout_checks_dialog
+from .Dialogs import floor_plan_generator_dialog
+from .floor_plan_generator import GeneratedFloorPlan, populate_canvas_from_plan
 from .Printing import print_dialog
 from .Canvas import canvas_area
 from .Canvas.project_reset import reset_canvas_content
@@ -74,6 +77,11 @@ class EstimatorApp(Gtk.Application):
         new_action.connect("activate", self.on_new)
         self.add_action(new_action)
 
+        # Auto-populate multi-option / multi-style floor plan generator
+        gen_plan_action = Gio.SimpleAction.new("generate_floor_plan", None)
+        gen_plan_action.connect("activate", self.on_generate_floor_plan)
+        self.add_action(gen_plan_action)
+
         # Print / export PDF
         print_action = Gio.SimpleAction.new("print", None)
         print_action.connect("activate", lambda a, p: self.on_print())
@@ -103,6 +111,11 @@ class EstimatorApp(Gtk.Application):
         settings_action = Gio.SimpleAction.new("settings")
         settings_action.connect("activate", self.on_settings_clicked)
         self.add_action(settings_action)
+
+        # Architectural layout checks
+        layout_checks_action = Gio.SimpleAction.new("layout_checks", None)
+        layout_checks_action.connect("activate", self.on_layout_checks)
+        self.add_action(layout_checks_action)
 
         # Open recent project
         recent_action = Gio.SimpleAction.new("open_recent", None)
@@ -904,6 +917,12 @@ class EstimatorApp(Gtk.Application):
             elif keyname == "s":
                 self.show_save_as_dialog()
                 return True
+            elif keyname == "l":
+                self.on_layout_checks(None, None)
+                return True
+            elif keyname == "n":
+                self.on_generate_floor_plan(None, None)
+                return True
 
         return False
 
@@ -1172,6 +1191,7 @@ class EstimatorApp(Gtk.Application):
             self.window.get_height() if self.window else 900,
             blender_path=getattr(self.config, "BLENDER_EXECUTABLE", ""),
             project_filepath=self.current_filepath or "",
+            asset_source=getattr(self.config, "BLENDER_ASSET_SOURCE", "estisketch"),
         )
         if ok:
             if sync_dir:
@@ -1190,6 +1210,66 @@ class EstimatorApp(Gtk.Application):
         )
         dlg.connect("response", lambda d, _r: d.destroy())
         dlg.present()
+
+    def on_generate_floor_plan(self, action: object, parameter: object) -> None:
+        """Open the Multi-Style / Multi-Option Floor Plan Generator dialog."""
+        floor_plan_generator_dialog.show_floor_plan_generator_dialog(
+            self.window,
+            on_apply_plan=self._apply_generated_floor_plan,
+        )
+
+    def _apply_generated_floor_plan(
+        self, plan: GeneratedFloorPlan, save_as: bool
+    ) -> None:
+        """Load a generated floor plan into the editor (confirming if unsaved)."""
+        def _do_load() -> None:
+            self._stop_blender_watcher()
+            populate_canvas_from_plan(plan, self.canvas)
+            self.canvas.save_state()
+            self.current_filepath = None
+            self.update_dirty_state(True)
+            self._refresh_sidebar_layers()
+            self.viewport_3d.mark_dirty()
+            self.canvas.queue_draw()
+            if hasattr(self.canvas, "update_hint"):
+                self.canvas.update_hint(
+                    f"Loaded {plan.style_name} ({plan.variant_name}, {plan.living_sqft:,.0f} sq ft)"
+                )
+            if save_as:
+                self.show_save_as_dialog()
+
+        if not self.is_dirty:
+            _do_load()
+            return
+
+        dlg = Gtk.MessageDialog(
+            transient_for=self.window,
+            modal=True,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.NONE,
+            text="Unsaved Changes",
+            secondary_text="Replace your current unsaved drawing with the generated floor plan?",
+        )
+        dlg.add_buttons(
+            "Cancel", Gtk.ResponseType.CANCEL,
+            "Replace Drawing", Gtk.ResponseType.ACCEPT,
+        )
+
+        def _on_resp(d: Gtk.MessageDialog, response: Gtk.ResponseType) -> None:
+            d.destroy()
+            if response == Gtk.ResponseType.ACCEPT:
+                _do_load()
+
+        dlg.connect("response", _on_resp)
+        dlg.present()
+
+    def on_layout_checks(self, action: object, parameter: object) -> None:
+        """Open the non-modal architectural layout checks window."""
+        layout_checks_dialog.show_layout_checks_dialog(
+            self.window,
+            self.canvas,
+            on_navigate=self._refresh_sidebar_layers,
+        )
 
     def on_settings_clicked(self, button: Gtk.Button, *args) -> None:
         """

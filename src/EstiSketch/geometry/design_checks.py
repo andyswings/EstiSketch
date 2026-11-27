@@ -11,6 +11,7 @@ Cairo, or Blender dependencies so it runs directly under ``pytest``.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 import math
 from typing import Any, Iterable
 
@@ -21,6 +22,7 @@ from .wall_chain import collinear_chain, pocket_door_extents
 Point = tuple[float, float]
 
 _NON_SWING_DOORS = frozenset({"frame", "pocket", "sliding", "garage"})
+_HINGED_SWING_DOORS = frozenset({"single", "double"})
 _SINK_VANITY_SYMBOLS = frozenset({
     "vanity_single",
     "vanity_double",
@@ -28,8 +30,27 @@ _SINK_VANITY_SYMBOLS = frozenset({
     "utility_sink",
     "sink_base_cabinet",
 })
+_KITCHEN_SINK_SYMBOLS = frozenset({
+    "sink_base_cabinet",
+    "kitchen_sink_single",
+    "kitchen_sink_double",
+})
+_CIRCULATION_ROOM_TYPES = frozenset({"hallway", "corridor", "foyer", "entry"})
+_UTILITY_CLOSET_ROOM_TYPES = frozenset({"closet", "pantry", "utility", "laundry", "garage"})
 _LAUNDRY_SYMBOLS = frozenset({"washer", "dryer"})
 _EPS = 1e-6
+
+
+@dataclass(frozen=True)
+class LayoutIssue:
+    """Structured architectural layout violation for headless & GUI reporting."""
+
+    category: str
+    severity: str
+    message: str
+    level_id: str = ""
+    location_in: Point | None = None
+    object_id: str = ""
 
 
 def _point_in_poly(pt: Point, poly: list[Point]) -> bool:
@@ -740,6 +761,7 @@ def bathroom_clearance_violations(
     layer_to_level: dict[str, str],
     min_door_clear_in: float = 24.0,
     min_toilet_front_in: float = 21.0,
+    check_fixtures: bool = True,
 ) -> list[str]:
     """Check bathroom door ingress/egress landing clearance and toilet 21\" front clearance."""
     violations: list[str] = []
@@ -805,7 +827,8 @@ def bathroom_clearance_violations(
             label = f"Bathroom door ({door.door_type}) at ({cx:.1f}, {cy:.1f}) ingress/egress"
             violations.extend(
                 _check_rect_clear(
-                    landing, door, label, dlvl, wall_polys, floor_fx_polys,
+                    landing, door, label, dlvl, wall_polys,
+                    floor_fx_polys if check_fixtures else [],
                     skip_wall_ids=skip_ids,
                 )
             )
@@ -1010,8 +1033,767 @@ def laundry_appliance_violations(
     return violations
 
 
-def validate_project_layout(canvas: Any) -> list[str]:
-    """Run all architectural layout checks on a canvas or headless project."""
+def _collect_opening_ingress_egress_issues(
+    fixtures: Iterable[Any],
+    doors: Iterable[tuple[Any, Any, float]],
+    walls: Iterable[Any],
+    layer_to_level: dict[str, str],
+    min_clear_in: float = 24.0,
+    tolerance_in: float = 1.0,
+) -> list[LayoutIssue]:
+    """Check every door/opening on both sides for unobstructed ingress/egress."""
+    del walls
+    issues: list[LayoutIssue] = []
+    floor_fx_polys = [
+        (fx, layer_to_level.get(getattr(fx, "layer_id", ""), ""), _fixture_polygon(fx))
+        for fx in fixtures
+        if _is_floor_standing_fixture(fx)
+    ]
+
+    for wall, door, ratio in doors:
+        if wall is None:
+            continue
+        cx, cy = arc_wall_point(wall, ratio)
+        tx, ty = arc_wall_tangent(wall, ratio)
+        tlen = math.hypot(tx, ty)
+        if tlen <= 1e-6:
+            continue
+        tx, ty = tx / tlen, ty / tlen
+        px, py = -ty, tx
+        dlvl = layer_to_level.get(getattr(door, "layer_id", ""), "")
+        half_t = float(getattr(wall, "width", 4.5) or 4.5) / 2.0
+        dw = float(getattr(door, "width", 36.0) or 36.0)
+        half_w = max(10.0, (dw - 4.0) / 2.0)
+
+        for side in (1.0, -1.0):
+            nx, ny = side * px, side * py
+            d0 = half_t + 0.5
+            d1 = half_t + min_clear_in
+            landing = [
+                (cx - half_w * tx + d0 * nx, cy - half_w * ty + d0 * ny),
+                (cx + half_w * tx + d0 * nx, cy + half_w * ty + d0 * ny),
+                (cx + half_w * tx + d1 * nx, cy + half_w * ty + d1 * ny),
+                (cx - half_w * tx + d1 * nx, cy - half_w * ty + d1 * ny),
+            ]
+            for fx, flvl, fpoly in floor_fx_polys:
+                if not _same_level(dlvl, flvl):
+                    continue
+                ov = _sat_overlap(landing, fpoly)
+                if ov is not None and ov[0] > tolerance_in:
+                    msg = (
+                        f"Fixture {fx.symbol_type} at ({fx.x:.1f}, {fx.y:.1f}) blocks "
+                        f"{door.door_type} opening at ({cx:.1f}, {cy:.1f}) ingress/egress "
+                        f"by {ov[0]:.2f}\""
+                    )
+                    issues.append(
+                        LayoutIssue(
+                            category="Opening Ingress/Egress",
+                            severity="error",
+                            message=msg,
+                            level_id=dlvl,
+                            location_in=(cx, cy),
+                            object_id=str(getattr(fx, "identifier", "") or ""),
+                        )
+                    )
+    return issues
+
+
+def opening_ingress_egress_violations(
+    fixtures: Iterable[Any],
+    doors: Iterable[tuple[Any, Any, float]],
+    walls: Iterable[Any],
+    layer_to_level: dict[str, str],
+    min_clear_in: float = 24.0,
+    tolerance_in: float = 1.0,
+) -> list[str]:
+    """Verify no floor-standing fixture blocks ingress/egress at any door or opening."""
+    return [
+        i.message
+        for i in _collect_opening_ingress_egress_issues(
+            fixtures, doors, walls, layer_to_level, min_clear_in, tolerance_in
+        )
+    ]
+
+
+def _collect_kitchen_sink_window_issues(
+    fixtures: Iterable[Any],
+    walls: Iterable[Any],
+    windows: Iterable[tuple[Any, Any, float]],
+    layer_to_level: dict[str, str],
+    max_wall_gap_in: float = 4.0,
+    max_center_offset_in: float = 2.0,
+) -> list[LayoutIssue]:
+    """Verify exterior-wall kitchen sinks have a centered window in that wall."""
+    issues: list[LayoutIssue] = []
+    wall_list = list(walls)
+    fx_list = list(fixtures)
+    sink_bases = [
+        fx for fx in fx_list if getattr(fx, "symbol_type", "") == "sink_base_cabinet"
+    ]
+
+    ext_walls: list[tuple[Any, str, Point, Point, float, float]] = []
+    for wall in wall_list:
+        if getattr(wall, "symbolic", False) or getattr(wall, "is_curved", False):
+            continue
+        if not getattr(wall, "exterior_wall", False):
+            continue
+        dx = float(wall.end[0]) - float(wall.start[0])
+        dy = float(wall.end[1]) - float(wall.start[1])
+        wlen = math.hypot(dx, dy)
+        if wlen <= 1e-4:
+            continue
+        half_t = float(getattr(wall, "width", 6.0) or 6.0) / 2.0
+        wlvl = layer_to_level.get(getattr(wall, "layer_id", ""), "")
+        ext_walls.append((wall, wlvl, (float(wall.start[0]), float(wall.start[1])),
+                          (dx / wlen, dy / wlen), wlen, half_t))
+
+    win_list = [
+        (w, win, float(ratio), layer_to_level.get(getattr(win, "layer_id", ""), ""))
+        for w, win, ratio in windows
+        if w is not None
+    ]
+
+    for fx in fx_list:
+        sym = getattr(fx, "symbol_type", "")
+        if sym not in _KITCHEN_SINK_SYMBOLS:
+            continue
+        flvl = layer_to_level.get(getattr(fx, "layer_id", ""), "")
+        # Skip drop-in sink stacked directly on top of a sink_base_cabinet on same level
+        if sym != "sink_base_cabinet":
+            has_base = False
+            for sb in sink_bases:
+                sblvl = layer_to_level.get(getattr(sb, "layer_id", ""), "")
+                if _same_level(flvl, sblvl):
+                    if math.hypot(float(sb.x) - float(fx.x), float(sb.y) - float(fx.y)) <= 6.0:
+                        has_base = True
+                        break
+            if has_base:
+                continue
+
+        rad = math.radians(float(getattr(fx, "rotation", 0.0) or 0.0))
+        fx_ux, fx_uy = math.cos(rad), math.sin(rad)
+        back_nx, back_ny = math.sin(rad), -math.cos(rad)
+        hd = float(getattr(fx, "depth", 24.0) or 24.0) / 2.0
+        back_pt = (float(fx.x) + hd * back_nx, float(fx.y) + hd * back_ny)
+
+        matched_wall: tuple[Any, Point, Point] | None = None
+        best_gap = float("inf")
+        for wall, wlvl, (wx0, wy0), (wux, wuy), wlen, half_t in ext_walls:
+            if not _same_level(flvl, wlvl):
+                continue
+            if abs(fx_ux * wux + fx_uy * wuy) < 0.85:
+                continue
+            u = (back_pt[0] - wx0) * wux + (back_pt[1] - wy0) * wuy
+            if u < -1.0 or u > wlen + 1.0:
+                continue
+            wnx, wny = -wuy, wux
+            back_n = (back_pt[0] - wx0) * wnx + (back_pt[1] - wy0) * wny
+            dx_wall = wx0 + u * wux - float(fx.x)
+            dy_wall = wy0 + u * wuy - float(fx.y)
+            dot_to_wall = dx_wall * back_nx + dy_wall * back_ny
+            if dot_to_wall <= 0.0:
+                continue
+            face_gap = abs(back_n) - half_t
+            if -1.5 <= face_gap <= max_wall_gap_in and abs(face_gap) < best_gap:
+                best_gap = abs(face_gap)
+                matched_wall = (wall, (wx0, wy0), (wux, wuy))
+
+        if matched_wall is None:
+            continue
+
+        host_wall, origin, uvec = matched_wall
+        same_lvl_walls = [
+            w for w in wall_list
+            if _same_level(flvl, layer_to_level.get(getattr(w, "layer_id", ""), ""))
+        ]
+        chain = collinear_chain(host_wall, same_lvl_walls)
+        chain_ids = {id(w) for w in chain}
+        sink_u = (float(fx.x) - origin[0]) * uvec[0] + (float(fx.y) - origin[1]) * uvec[1]
+        sink_w = float(getattr(fx, "width", 36.0) or 36.0)
+
+        nearby_windows: list[tuple[float, float]] = []
+        for ow, win, ratio, wlvl in win_list:
+            if id(ow) not in chain_ids or not _same_level(flvl, wlvl):
+                continue
+            wc = arc_wall_point(ow, ratio)
+            win_u = (wc[0] - origin[0]) * uvec[0] + (wc[1] - origin[1]) * uvec[1]
+            win_w = float(getattr(win, "width", 36.0) or 36.0)
+            dist = abs(win_u - sink_u)
+            if dist <= max(sink_w, 36.0) / 2.0 + win_w / 2.0:
+                nearby_windows.append((dist, win_u))
+
+        if not nearby_windows:
+            issues.append(
+                LayoutIssue(
+                    category="Kitchen Sink Window",
+                    severity="error",
+                    message=(
+                        f"Kitchen sink ({sym}) at ({fx.x:.1f}, {fx.y:.1f}) is on an exterior "
+                        f"wall without a window centered above it"
+                    ),
+                    level_id=flvl,
+                    location_in=(float(fx.x), float(fx.y)),
+                    object_id=str(getattr(fx, "identifier", "") or ""),
+                )
+            )
+            continue
+
+        min_offset, _ = min(nearby_windows, key=lambda item: item[0])
+        if min_offset > max_center_offset_in:
+            issues.append(
+                LayoutIssue(
+                    category="Kitchen Sink Window",
+                    severity="warning",
+                    message=(
+                        f"Window above exterior kitchen sink ({sym}) at ({fx.x:.1f}, {fx.y:.1f}) "
+                        f"is off-center by {min_offset:.1f}\" (> {max_center_offset_in:g}\")"
+                    ),
+                    level_id=flvl,
+                    location_in=(float(fx.x), float(fx.y)),
+                    object_id=str(getattr(fx, "identifier", "") or ""),
+                )
+            )
+    return issues
+
+
+def kitchen_sink_window_violations(
+    fixtures: Iterable[Any],
+    walls: Iterable[Any],
+    windows: Iterable[tuple[Any, Any, float]],
+    layer_to_level: dict[str, str],
+    max_wall_gap_in: float = 4.0,
+    max_center_offset_in: float = 2.0,
+) -> list[str]:
+    """Verify kitchen sinks placed on exterior walls have a centered window above them."""
+    return [
+        i.message
+        for i in _collect_kitchen_sink_window_issues(
+            fixtures, walls, windows, layer_to_level, max_wall_gap_in, max_center_offset_in
+        )
+    ]
+
+
+def _is_circulation_room(room: Any) -> bool:
+    rtype = (getattr(room, "room_type", "") or "").lower()
+    rname = (getattr(room, "name", "") or "").lower()
+    if rtype in _CIRCULATION_ROOM_TYPES:
+        return True
+    return any(tok in rname for tok in ("hall", "foyer", "corridor"))
+
+
+def _is_utility_or_closet_room(room: Any) -> bool:
+    rtype = (getattr(room, "room_type", "") or "").lower()
+    rname = (getattr(room, "name", "") or "").lower()
+    if rtype in _UTILITY_CLOSET_ROOM_TYPES:
+        return True
+    return any(tok in rname for tok in ("closet", "pantry", "laundry"))
+
+
+def _collect_door_swing_direction_issues(
+    doors: Iterable[tuple[Any, Any, float]],
+    rooms: Iterable[Any],
+    layer_to_level: dict[str, str],
+) -> list[LayoutIssue]:
+    """Verify hinged doors swing inward into rooms rather than outward or into hallways."""
+    issues: list[LayoutIssue] = []
+    rooms_by_lvl: dict[str, list[Any]] = {}
+    for r in rooms:
+        if len(getattr(r, "points", [])) >= 3:
+            rlvl = layer_to_level.get(getattr(r, "layer_id", ""), "")
+            rooms_by_lvl.setdefault(rlvl, []).append(r)
+
+    for wall, door, ratio in doors:
+        if wall is None or getattr(door, "door_type", "") not in _HINGED_SWING_DOORS:
+            continue
+        spoly = door_swing_polygon(wall, door, ratio)
+        if spoly is None:
+            continue
+        cx, cy = arc_wall_point(wall, ratio)
+        sc = _rect_center(spoly)
+        vx, vy = sc[0] - cx, sc[1] - cy
+        vlen = math.hypot(vx, vy)
+        if vlen <= 1e-6:
+            continue
+        nx, ny = vx / vlen, vy / vlen
+        half_t = float(getattr(wall, "width", 4.5) or 4.5) / 2.0
+        dlvl = layer_to_level.get(getattr(door, "layer_id", ""), "")
+        cand_rooms = [
+            r for rlvl, rlist in rooms_by_lvl.items() if _same_level(dlvl, rlvl) for r in rlist
+        ]
+        if not cand_rooms:
+            continue
+
+        swing_probe = (cx + (half_t + 8.0) * nx, cy + (half_t + 8.0) * ny)
+        opp_probe = (cx - (half_t + 8.0) * nx, cy - (half_t + 8.0) * ny)
+
+        swing_room = next((r for r in cand_rooms if _point_in_poly(swing_probe, r.points)), None)
+        other_room = next((r for r in cand_rooms if _point_in_poly(opp_probe, r.points)), None)
+
+        if swing_room is None and other_room is not None:
+            issues.append(
+                LayoutIssue(
+                    category="Door Swing Direction",
+                    severity="error",
+                    message=(
+                        f"Door {door.door_type} at ({cx:.1f}, {cy:.1f}) swings outward "
+                        f"outside '{other_room.name or other_room.room_type}'"
+                    ),
+                    level_id=dlvl,
+                    location_in=(cx, cy),
+                    object_id=str(getattr(door, "identifier", "") or ""),
+                )
+            )
+        elif swing_room is not None and other_room is not None and swing_room is not other_room:
+            bad_hall_swing = (
+                _is_circulation_room(swing_room),
+                not _is_circulation_room(other_room),
+                not _is_utility_or_closet_room(other_room),
+            )
+            if all(bad_hall_swing):
+                issues.append(
+                    LayoutIssue(
+                        category="Door Swing Direction",
+                        severity="warning",
+                        message=(
+                            f"Door {door.door_type} at ({cx:.1f}, {cy:.1f}) swings into "
+                            f"'{swing_room.name or swing_room.room_type}' instead of into "
+                            f"'{other_room.name or other_room.room_type}'"
+                        ),
+                        level_id=dlvl,
+                        location_in=(cx, cy),
+                        object_id=str(getattr(door, "identifier", "") or ""),
+                    )
+                )
+    return issues
+
+
+def door_swing_direction_violations(
+    doors: Iterable[tuple[Any, Any, float]],
+    rooms: Iterable[Any],
+    layer_to_level: dict[str, str],
+) -> list[str]:
+    """Verify hinged doors swing inward into habitable rooms, not outward or into hallways."""
+    return [i.message for i in _collect_door_swing_direction_issues(doors, rooms, layer_to_level)]
+
+
+def _segments_intersect(a1: Point, a2: Point, b1: Point, b2: Point) -> bool:
+    def _ccw(p1: Point, p2: Point, p3: Point) -> float:
+        return (p2[0] - p1[0]) * (p3[1] - p1[1]) - (p2[1] - p1[1]) * (p3[0] - p1[0])
+
+    d1 = _ccw(b1, b2, a1)
+    d2 = _ccw(b1, b2, a2)
+    d3 = _ccw(a1, a2, b1)
+    d4 = _ccw(a1, a2, b2)
+    return ((d1 > 1e-4 and d2 < -1e-4) or (d1 < -1e-4 and d2 > 1e-4)) and (
+        (d3 > 1e-4 and d4 < -1e-4) or (d3 < -1e-4 and d4 > 1e-4)
+    )
+
+
+def _collect_kitchen_island_and_walkway_issues(
+    fixtures: Iterable[Any],
+    walls: Iterable[Any],
+    rooms: Iterable[Any],
+    layer_to_level: dict[str, str],
+    min_walkway_in: float = 36.0,
+    tolerance_in: float = 1.0,
+) -> list[LayoutIssue]:
+    """Check 36\"+ clearances around kitchen islands, kitchen aisles, and hallways."""
+    issues: list[LayoutIssue] = []
+    wall_polys = [
+        (w, layer_to_level.get(getattr(w, "layer_id", ""), ""), wp)
+        for w in walls
+        if (wp := _wall_polygon(w)) is not None
+    ]
+    floor_fx_polys = [
+        (fx, layer_to_level.get(getattr(fx, "layer_id", ""), ""), _fixture_polygon(fx))
+        for fx in fixtures
+        if _is_floor_standing_fixture(fx)
+    ]
+
+    # Part A: Kitchen island 36" clearance on all 4 sides
+    for fx, flvl, _poly in floor_fx_polys:
+        if getattr(fx, "symbol_type", "") != "island_cabinet":
+            continue
+        hw = float(getattr(fx, "width", 72.0) or 72.0) / 2.0
+        hd = float(getattr(fx, "depth", 36.0) or 36.0) / 2.0
+        oh = (
+            float(getattr(fx, "countertop_overhang", 0.0) or 0.0)
+            if getattr(fx, "has_countertop", False)
+            else 0.0
+        )
+        side_rects = [
+            ("front", _fixture_local_rect(fx, -hw + 1.0, hd + oh + 0.5, hw - 1.0, hd + oh + min_walkway_in)),
+            ("back", _fixture_local_rect(fx, -hw + 1.0, -hd - min_walkway_in, hw - 1.0, -hd - 0.5)),
+            ("left", _fixture_local_rect(fx, -hw - min_walkway_in, -hd + 1.0, -hw - 0.5, hd + oh - 1.0)),
+            ("right", _fixture_local_rect(fx, hw + 0.5, -hd + 1.0, hw + min_walkway_in, hd + oh - 1.0)),
+        ]
+        for side_name, rect in side_rects:
+            label = f"Kitchen island at ({fx.x:.1f}, {fx.y:.1f}) {side_name} {min_walkway_in:g}\""
+            for msg in _check_rect_clear(
+                rect, fx, label, flvl, wall_polys, floor_fx_polys, tolerance_in=tolerance_in
+            ):
+                issues.append(
+                    LayoutIssue(
+                        category="Kitchen Island & Walkway",
+                        severity="error",
+                        message=msg,
+                        level_id=flvl,
+                        location_in=(float(fx.x), float(fx.y)),
+                        object_id=str(getattr(fx, "identifier", "") or ""),
+                    )
+                )
+
+    # Part B: Opposing kitchen work aisles (galley runs / facing walls >= 36")
+    kitchen_cats = {"kitchen_cabinet", "kitchen_appliance"}
+    seen_aisle_pairs: set[tuple[int, int]] = set()
+    for fx, flvl, _poly in floor_fx_polys:
+        sym = getattr(fx, "symbol_type", "")
+        if getattr(fx, "category", "") not in kitchen_cats:
+            continue
+        if sym in ("island_cabinet", "corner_base_cabinet"):
+            continue
+        hw = float(getattr(fx, "width", 24.0) or 24.0) / 2.0
+        hd = float(getattr(fx, "depth", 24.0) or 24.0) / 2.0
+        oh = (
+            float(getattr(fx, "countertop_overhang", 0.0) or 0.0)
+            if getattr(fx, "has_countertop", False)
+            else 0.0
+        )
+        front_y = hd + oh
+        aisle_rect = _fixture_local_rect(
+            fx, -hw + 2.0, front_y + 0.5, hw - 2.0, front_y + min_walkway_in
+        )
+        rad = math.radians(float(getattr(fx, "rotation", 0.0) or 0.0))
+        fx_ux, fx_uy = math.cos(rad), math.sin(rad)
+        fx_fnx, fx_fny = -math.sin(rad), math.cos(rad)
+
+        for wall, wlvl, wpoly in wall_polys:
+            if not _same_level(flvl, wlvl):
+                continue
+            wdx = float(wall.end[0]) - float(wall.start[0])
+            wdy = float(wall.end[1]) - float(wall.start[1])
+            wlen = math.hypot(wdx, wdy)
+            if wlen <= 1e-4 or abs((wdx / wlen) * fx_ux + (wdy / wlen) * fx_uy) < 0.7:
+                continue
+            ov = _sat_overlap(aisle_rect, wpoly)
+            if ov is not None and ov[0] > tolerance_in:
+                issues.append(
+                    LayoutIssue(
+                        category="Kitchen Island & Walkway",
+                        severity="error",
+                        message=(
+                            f"Kitchen {sym} at ({fx.x:.1f}, {fx.y:.1f}) aisle clearance "
+                            f"(< {min_walkway_in:g}\") blocked by wall {wall.start}->{wall.end} "
+                            f"by {ov[0]:.2f}\""
+                        ),
+                        level_id=flvl,
+                        location_in=(float(fx.x), float(fx.y)),
+                        object_id=str(getattr(fx, "identifier", "") or ""),
+                    )
+                )
+
+        for other, olvl, opoly in floor_fx_polys:
+            if other is fx or not _same_level(flvl, olvl):
+                continue
+            if getattr(other, "symbol_type", "") == "island_cabinet":
+                continue  # Already checked in Part A
+            if getattr(other, "category", "") not in kitchen_cats:
+                continue
+            orad = math.radians(float(getattr(other, "rotation", 0.0) or 0.0))
+            o_fnx, o_fny = -math.sin(orad), math.cos(orad)
+            if fx_fnx * o_fnx + fx_fny * o_fny > -0.5:
+                continue
+            pair_key = (min(id(fx), id(other)), max(id(fx), id(other)))
+            if pair_key in seen_aisle_pairs:
+                continue
+            ov = _sat_overlap(aisle_rect, opoly)
+            if ov is not None and ov[0] > tolerance_in:
+                seen_aisle_pairs.add(pair_key)
+                issues.append(
+                    LayoutIssue(
+                        category="Kitchen Island & Walkway",
+                        severity="error",
+                        message=(
+                            f"Kitchen work aisle between {sym} at ({fx.x:.1f}, {fx.y:.1f}) and "
+                            f"{other.symbol_type} at ({other.x:.1f}, {other.y:.1f}) is "
+                            f"under {min_walkway_in:g}\" by {ov[0]:.2f}\""
+                        ),
+                        level_id=flvl,
+                        location_in=(float(fx.x), float(fx.y)),
+                        object_id=str(getattr(fx, "identifier", "") or ""),
+                    )
+                )
+
+    # Part C: Hallways and circulation rooms >= 36" clear width
+    for room in rooms:
+        pts = getattr(room, "points", [])
+        if len(pts) < 3:
+            continue
+        rtype = (getattr(room, "room_type", "") or "").lower()
+        rname = (getattr(room, "name", "") or "").lower()
+        if rtype not in ("hallway", "corridor") and "hall" not in rname:
+            continue
+        rlvl = layer_to_level.get(getattr(room, "layer_id", ""), "")
+        lvl_walls: list[tuple[Any, Point, Point, float, float]] = []
+        for wall, wlvl, _wpoly in wall_polys:
+            if not _same_level(rlvl, wlvl):
+                continue
+            wx0, wy0 = float(wall.start[0]), float(wall.start[1])
+            wx1, wy1 = float(wall.end[0]), float(wall.end[1])
+            wlen = math.hypot(wx1 - wx0, wy1 - wy0)
+            if wlen < 12.0:
+                continue
+            lvl_walls.append((wall, (wx0, wy0), (wx1, wy1), wlen, float(wall.width or 4.5)))
+
+        # Find parallel wall pairs facing across the hallway
+        border_walls: list[tuple[Any, Point, Point, Point, float, float]] = []
+        for wall, p0, p1, wlen, wthick in lvl_walls:
+            ux, uy = (p1[0] - p0[0]) / wlen, (p1[1] - p0[1]) / wlen
+            nx, ny = -uy, ux
+            mid = ((p0[0] + p1[0]) / 2.0, (p0[1] + p1[1]) / 2.0)
+            d_probe = wthick / 2.0 + 4.0
+            in_pos = _point_in_poly((mid[0] + d_probe * nx, mid[1] + d_probe * ny), pts)
+            in_neg = _point_in_poly((mid[0] - d_probe * nx, mid[1] - d_probe * ny), pts)
+            if in_pos or in_neg:
+                border_walls.append((wall, p0, p1, (ux, uy), wlen, wthick))
+
+        flagged_hall = False
+        for i in range(len(border_walls)):
+            if flagged_hall:
+                break
+            w1, p10, p11, u1, _l1, t1 = border_walls[i]
+            m1 = ((p10[0] + p11[0]) / 2.0, (p10[1] + p11[1]) / 2.0)
+            for j in range(i + 1, len(border_walls)):
+                w2, p20, p21, u2, _l2, t2 = border_walls[j]
+                if abs(u1[0] * u2[0] + u1[1] * u2[1]) < 0.95:
+                    continue
+                # Check overlap along u1
+                a_lo = min(0.0, (p11[0] - p10[0]) * u1[0] + (p11[1] - p10[1]) * u1[1])
+                a_hi = max(0.0, (p11[0] - p10[0]) * u1[0] + (p11[1] - p10[1]) * u1[1])
+                b0 = (p20[0] - p10[0]) * u1[0] + (p20[1] - p10[1]) * u1[1]
+                b1 = (p21[0] - p10[0]) * u1[0] + (p21[1] - p10[1]) * u1[1]
+                b_lo, b_hi = min(b0, b1), max(b0, b1)
+                span_lo = max(a_lo, b_lo)
+                span_hi = min(a_hi, b_hi)
+                if span_hi - span_lo < 18.0:
+                    continue
+                perp_dist = abs((p20[0] - p10[0]) * (-u1[1]) + (p20[1] - p10[1]) * u1[0])
+                clear_w = perp_dist - (t1 + t2) / 2.0
+                if clear_w <= 2.0:
+                    continue
+                if clear_w < min_walkway_in - tolerance_in:
+                    m2 = ((p20[0] + p21[0]) / 2.0, (p20[1] + p21[1]) / 2.0)
+                    mid_span = ((m1[0] + m2[0]) / 2.0, (m1[1] + m2[1]) / 2.0)
+                    if not _point_in_poly(mid_span, pts):
+                        continue
+                    blocked_mid = any(
+                        _segments_intersect(m1, m2, op0, op1)
+                        for ow, op0, op1, _, _ in lvl_walls
+                        if ow is not w1 and ow is not w2
+                    )
+                    if blocked_mid:
+                        continue
+                    issues.append(
+                        LayoutIssue(
+                            category="Kitchen Island & Walkway",
+                            severity="error",
+                            message=(
+                                f"High-traffic hallway '{room.name or 'Hallway'}' clear width is "
+                                f"{clear_w:.1f}\" (< {min_walkway_in:g}\" required)"
+                            ),
+                            level_id=rlvl,
+                            location_in=mid_span,
+                            object_id=str(getattr(room, "identifier", "") or ""),
+                        )
+                    )
+                    flagged_hall = True
+                    break
+
+    return issues
+
+
+def kitchen_island_and_walkway_violations(
+    fixtures: Iterable[Any],
+    walls: Iterable[Any],
+    rooms: Iterable[Any],
+    layer_to_level: dict[str, str],
+    min_walkway_in: float = 36.0,
+    tolerance_in: float = 1.0,
+) -> list[str]:
+    """Verify 36\"+ walking clearances around kitchen islands, kitchen aisles, and hallways."""
+    return [
+        i.message
+        for i in _collect_kitchen_island_and_walkway_issues(
+            fixtures, walls, rooms, layer_to_level, min_walkway_in, tolerance_in
+        )
+    ]
+
+
+def _collect_room_access_issues(
+    rooms: Iterable[Any],
+    walls: Iterable[Any],
+    doors: Iterable[tuple[Any, Any, float]],
+    stairs: Iterable[Any],
+    layer_to_level: dict[str, str],
+    min_open_gap_in: float = 30.0,
+) -> list[LayoutIssue]:
+    """Verify every room has at least one door, opening, open passage, or stair landing."""
+    issues: list[LayoutIssue] = []
+    wall_polys_by_lvl: dict[str, list[tuple[Any, list[Point]]]] = {}
+    for w in walls:
+        wp = _wall_polygon(w)
+        if wp is not None:
+            wlvl = layer_to_level.get(getattr(w, "layer_id", ""), "")
+            wall_polys_by_lvl.setdefault(wlvl, []).append((w, wp))
+
+    room_list: list[tuple[Any, str]] = [
+        (r, layer_to_level.get(getattr(r, "layer_id", ""), ""))
+        for r in rooms
+        if len(getattr(r, "points", [])) >= 3
+    ]
+
+    door_probes: list[tuple[str, Point, Point]] = []
+    for wall, door, ratio in doors:
+        if wall is None:
+            continue
+        cx, cy = arc_wall_point(wall, ratio)
+        tx, ty = arc_wall_tangent(wall, ratio)
+        tlen = math.hypot(tx, ty)
+        if tlen <= 1e-6:
+            continue
+        nx, ny = -ty / tlen, tx / tlen
+        half_t = float(getattr(wall, "width", 4.5) or 4.5) / 2.0
+        dlvl = layer_to_level.get(getattr(door, "layer_id", ""), "")
+        door_probes.append((
+            dlvl,
+            (cx + (half_t + 6.0) * nx, cy + (half_t + 6.0) * ny),
+            (cx - (half_t + 6.0) * nx, cy - (half_t + 6.0) * ny),
+        ))
+
+    stair_probes: list[tuple[str, Point]] = []
+    for st in stairs:
+        s_lvl = getattr(st, "start_level_id", "") or layer_to_level.get(
+            getattr(st, "layer_id", ""), ""
+        )
+        e_lvl = getattr(st, "end_level_id", "") or s_lvl
+        brect, trect, _, _ = stair_landing_rects(st, 36.0)
+        stair_probes.append((s_lvl, _rect_center(brect)))
+        stair_probes.append((e_lvl, _rect_center(trect)))
+
+    for room, rlvl in room_list:
+        pts = room.points
+        has_door = any(
+            _same_level(rlvl, dlvl) and (_point_in_poly(p1, pts) or _point_in_poly(p2, pts))
+            for dlvl, p1, p2 in door_probes
+        )
+        if has_door:
+            continue
+
+        has_stair = any(
+            _same_level(rlvl, slvl) and _point_in_poly(sc, pts)
+            for slvl, sc in stair_probes
+        )
+        if has_stair:
+            continue
+
+        # Check for open-concept passage (wall-free gap >= min_open_gap_in into another room)
+        same_lvl_walls = [
+            (w, wp)
+            for wlvl, wlist in wall_polys_by_lvl.items()
+            if _same_level(rlvl, wlvl)
+            for w, wp in wlist
+        ]
+        other_rooms = [
+            oroom for oroom, olvl in room_list if oroom is not room and _same_level(rlvl, olvl)
+        ]
+        has_open_passage = False
+        npts = len(pts)
+        for idx in range(npts):
+            if has_open_passage:
+                break
+            a = pts[idx]
+            b = pts[(idx + 1) % npts]
+            ex, ey = b[0] - a[0], b[1] - a[1]
+            elen = math.hypot(ex, ey)
+            if elen < min_open_gap_in:
+                continue
+            ux, uy = ex / elen, ey / elen
+            nx, ny = -uy, ux
+            mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+            if _point_in_poly((mid[0] + 2.0 * nx, mid[1] + 2.0 * ny), pts):
+                out_nx, out_ny = -nx, -ny
+            else:
+                out_nx, out_ny = nx, ny
+
+            blocked: list[tuple[float, float]] = []
+            for _w, wp in same_lvl_walls:
+                n_vals = [(p[0] - a[0]) * out_nx + (p[1] - a[1]) * out_ny for p in wp]
+                if max(n_vals) < -6.0 or min(n_vals) > 6.0:
+                    continue
+                u_vals = [(p[0] - a[0]) * ux + (p[1] - a[1]) * uy for p in wp]
+                s0 = max(0.0, min(u_vals))
+                s1 = min(elen, max(u_vals))
+                if s1 - s0 > 0.5:
+                    blocked.append((s0, s1))
+            blocked.sort()
+            merged: list[tuple[float, float]] = []
+            for s0, s1 in blocked:
+                if merged and s0 <= merged[-1][1] + 0.5:
+                    merged[-1] = (merged[-1][0], max(merged[-1][1], s1))
+                else:
+                    merged.append((s0, s1))
+
+            gaps: list[tuple[float, float]] = []
+            cur = 0.0
+            for s0, s1 in merged:
+                if s0 - cur >= min_open_gap_in:
+                    gaps.append((cur, s0))
+                cur = max(cur, s1)
+            if elen - cur >= min_open_gap_in:
+                gaps.append((cur, elen))
+
+            for g0, g1 in gaps:
+                gm = (g0 + g1) / 2.0
+                probe_out = (a[0] + gm * ux + 8.0 * out_nx, a[1] + gm * uy + 8.0 * out_ny)
+                if any(_point_in_poly(probe_out, oroom.points) for oroom in other_rooms):
+                    has_open_passage = True
+                    break
+
+        if not has_open_passage:
+            rc = _rect_center(pts)
+            rlabel = getattr(room, "name", "") or getattr(room, "room_type", "") or "Unnamed Room"
+            issues.append(
+                LayoutIssue(
+                    category="Room Access",
+                    severity="error",
+                    message=f"Room '{rlabel}' has no door, opening, or open passage for access",
+                    level_id=rlvl,
+                    location_in=rc,
+                    object_id=str(getattr(room, "identifier", "") or ""),
+                )
+            )
+    return issues
+
+
+def room_access_violations(
+    rooms: Iterable[Any],
+    walls: Iterable[Any],
+    doors: Iterable[tuple[Any, Any, float]],
+    stairs: Iterable[Any],
+    layer_to_level: dict[str, str],
+    min_open_gap_in: float = 30.0,
+) -> list[str]:
+    """Verify every room has at least one door, opening, open passage, or stair landing."""
+    return [
+        i.message
+        for i in _collect_room_access_issues(
+            rooms, walls, doors, stairs, layer_to_level, min_open_gap_in
+        )
+    ]
+
+
+def validate_project_layout_detailed(canvas: Any) -> list[LayoutIssue]:
+    """Run all architectural layout checks on ``canvas`` and return structured issues."""
     layer_to_level = {
         getattr(layer, "id", ""): getattr(layer, "level_id", "")
         for layer in getattr(canvas, "layers", [])
@@ -1035,19 +1817,44 @@ def validate_project_layout(canvas: Any) -> list[str]:
     stairs = list(getattr(canvas, "stairs", []))
     levels = list(getattr(canvas, "levels", []))
 
-    violations: list[str] = []
-    violations.extend(fixture_wall_violations(fixtures, walls, layer_to_level))
-    violations.extend(fixture_door_violations(fixtures, doors, layer_to_level))
-    violations.extend(pocket_door_violations(doors, walls, windows, layer_to_level))
-    violations.extend(
-        bathroom_clearance_violations(doors, fixtures, rooms, walls, layer_to_level)
+    issues: list[LayoutIssue] = []
+
+    def _wrap(category: str, messages: list[str], severity: str = "error") -> None:
+        for msg in messages:
+            issues.append(LayoutIssue(category=category, severity=severity, message=msg))
+
+    _wrap("Wall Penetration", fixture_wall_violations(fixtures, walls, layer_to_level))
+    _wrap("Door Swing vs Fixture", fixture_door_violations(fixtures, doors, layer_to_level))
+    issues.extend(
+        _collect_opening_ingress_egress_issues(fixtures, doors, walls, layer_to_level)
     )
-    violations.extend(sink_and_vanity_clearance_violations(fixtures, walls, layer_to_level))
-    violations.extend(bathtub_drain_wall_violations(fixtures, walls, layer_to_level))
-    violations.extend(laundry_appliance_violations(fixtures, doors, walls, layer_to_level))
-    violations.extend(
+    _wrap("Pocket Door", pocket_door_violations(doors, walls, windows, layer_to_level))
+    _wrap(
+        "Bathroom Clearance",
+        bathroom_clearance_violations(
+            doors, fixtures, rooms, walls, layer_to_level, check_fixtures=False
+        ),
+    )
+    _wrap("Sink & Vanity", sink_and_vanity_clearance_violations(fixtures, walls, layer_to_level))
+    _wrap("Bathtub Plumbing", bathtub_drain_wall_violations(fixtures, walls, layer_to_level))
+    _wrap("Laundry Clearance", laundry_appliance_violations(fixtures, doors, walls, layer_to_level))
+    issues.extend(
+        _collect_kitchen_sink_window_issues(fixtures, walls, windows, layer_to_level)
+    )
+    issues.extend(_collect_door_swing_direction_issues(doors, rooms, layer_to_level))
+    issues.extend(
+        _collect_kitchen_island_and_walkway_issues(fixtures, walls, rooms, layer_to_level)
+    )
+    issues.extend(_collect_room_access_issues(rooms, walls, doors, stairs, layer_to_level))
+    _wrap(
+        "Stairs & Landings",
         stair_landing_and_access_violations(
             stairs, walls, rooms, doors, fixtures, levels, layer_to_level
-        )
+        ),
     )
-    return violations
+    return issues
+
+
+def validate_project_layout(canvas: Any) -> list[str]:
+    """Run all architectural layout checks on a canvas or headless project."""
+    return [issue.message for issue in validate_project_layout_detailed(canvas)]

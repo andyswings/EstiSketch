@@ -13,6 +13,7 @@ def create_file_menu(app: Gtk.Application) -> Gtk.MenuButton:
     """Create the top-left application file menu button bound to Gio actions."""
     menu_model = Gio.Menu()
     menu_model.append("New", "app.new")
+    menu_model.append("Generate Floor Plan...", "app.generate_floor_plan")
     menu_model.append("Open", "app.open")
     menu_model.append("Open Recent Project", "app.open_recent")
     menu_model.append("Import SH3D", "app.import_sh3d")
@@ -27,6 +28,7 @@ def create_file_menu(app: Gtk.Application) -> Gtk.MenuButton:
     menu_model.append("Open 3D in Blender...", "app.open_in_blender")
 
     menu_model.append_section("", Gio.Menu())
+    menu_model.append("Check Architectural Layout...", "app.layout_checks")
     menu_model.append("Settings", "app.settings")
 
     menu_model.append_section("", Gio.Menu())

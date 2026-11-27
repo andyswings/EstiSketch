@@ -118,6 +118,7 @@ DEFAULT_SETTINGS = {
     "TAKEOFF_CEILING_TYPE": "vaulted",
     "LAYER_FOCUS_MODE": False,
     "BLENDER_EXECUTABLE": "",
+    "BLENDER_ASSET_SOURCE": "estisketch",
     "DEBUG": False
 }
 
