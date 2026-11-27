@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "crates/estisketch_3d_core",
+    "crates/estisketch_3d_gl",
+    "crates/estisketch_3d_py",
+]
+resolver = "2"

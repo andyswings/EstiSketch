@@ -11,6 +11,7 @@ testfile.py
 /simple_house.xml
 /simple_house_reference.json
 /long_narrow.xml
+/docs/EstiSketch_Execution_Plan_&_Monetization_Roadmap.docx
 examples/
 
 # Pixi environments and executable
@@ -41,3 +42,9 @@ pixi.zip
 
 # Conda recipe build artifacts
 conda-recipe/.conda/
+
+# Native Rust 3D engine build artifacts
+rust/target/
+src/EstiSketch/_native_3d*.so
+src/EstiSketch/_native_3d*.pyd
+src/EstiSketch/_native_3d*.dylib

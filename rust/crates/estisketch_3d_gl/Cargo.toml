@@ -1,0 +1,9 @@
+[package]
+name = "estisketch_3d_gl"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+estisketch_3d_core = { path = "../estisketch_3d_core" }
+glow = "0.14"

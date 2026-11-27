@@ -143,6 +143,9 @@
 (None)
 
 ## Done ✅ (latest first)
+### Native 3D Engine — Phase 0 (2026-11-26)
+- [x] Extracted shared pure-Python Layer 1 parsing and geometry solvers from `blender_bridge/estisketch_to_hb5.py` into `scene_ir/` (`parsed.py`, `solvers.py`, `schema.py`, `builder.py`), added `parse_estisketch_canvas`, canonical `SceneIR` v1 / `SceneDeltaIR` serialization, and `diff_scene_ir`, and kept `estisketch_to_hb5.py` Layer 2 + standalone CLI parity intact via re-exports (`tests/test_blender_bridge.py`, `tests/test_scene_ir.py`) (2026-11-26).
+- [x] Scaffolded Rust 3D workspace under `rust/` (`crates/estisketch_3d_core`, `crates/estisketch_3d_gl`, `crates/estisketch_3d_py` PyO3 `abi3-py310` module `_native_3d`), added `packaging/build_native_3d.py`, optional Python wrapper `native_3d.py`, `.gitignore` rules, and `.github/workflows/release.yml` Rust test/build CI steps; verified with `cargo test`, `pyrefly`, `pytest`, and `flake8` (2026-11-26).
 ### Printing Suite Completion (2026-11-26)
 - [x] Real printer support (`Printing/gtk_printer.py`, `Printing/print_dialog.py`): added `"Print..."` button backed by `Gtk.PrintOperation` (`Gtk.Unit.POINTS`, full-page rendering), standard + custom `Gtk.PaperSize` mapping for all 14 paper/plotter sizes (Letter through Arch E / ANSI E), zero hardware margins, and `print_renderer.render_page` reuse; unit-tested with `tests/test_printing.py` (hardware/plotter output ready for manual printer verification) (2026-11-26).
 - [x] Print tiling (`Printing/print_settings.py`, `Printing/print_renderer.py`, `Printing/print_dialog.py`): added fixed-scale multi-page tiling with configurable overlap, dashed trim & crosshair registration marks, `R#C#` sheet numbering/badges, multi-tile PDF/SVG export, and interactive clickable `Tile Grid` overview preview; tests in `tests/test_printing.py` (2026-11-26).

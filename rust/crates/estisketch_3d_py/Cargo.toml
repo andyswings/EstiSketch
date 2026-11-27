@@ -1,0 +1,15 @@
+[package]
+name = "estisketch_3d_py"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "_native_3d"
+crate-type = ["cdylib"]
+
+[dependencies]
+estisketch_3d_core = { path = "../estisketch_3d_core" }
+estisketch_3d_gl = { path = "../estisketch_3d_gl" }
+pyo3 = { version = "0.24", features = ["extension-module", "abi3-py310"] }
+serde_json = "1.0"

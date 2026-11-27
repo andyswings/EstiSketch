@@ -28,7 +28,17 @@ jobs:
             python3-numpy \
             python3-reportlab \
             python3-pytest \
+            python3-dev \
             xvfb
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run Rust unit tests
+        run: cargo test --manifest-path rust/Cargo.toml
+
+      - name: Build native 3D Python extension
+        run: /usr/bin/python3 packaging/build_native_3d.py
 
       - name: Run test suite
         env:
