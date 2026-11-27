@@ -323,6 +323,93 @@ impl MeshBuilder {
         self.push_quad(c010, c000, c001, c011); // -X left
     }
 
+    /// Emit a chamfered box (`size = [w, d, h]` meters) with beveled top and vertical corners.
+    pub fn push_beveled_box(
+        &mut self,
+        origin: Vec3,
+        rot_z_rad: f32,
+        center_offset: Vec3,
+        size: Vec3,
+        bevel: f32,
+    ) {
+        let b = bevel
+            .max(0.0)
+            .min(size.x * 0.2)
+            .min(size.y * 0.2)
+            .min(size.z * 0.25);
+        if b <= 1e-4 {
+            self.push_oriented_box(origin, rot_z_rad, center_offset, size);
+            return;
+        }
+        // Main body + slightly inset chamfered top cap so silhouette reads softly without Z-fighting
+        let body_h = (size.z - b).max(1e-4);
+        self.push_oriented_box(
+            origin,
+            rot_z_rad,
+            center_offset + Vec3::new(0.0, 0.0, -b * 0.5),
+            Vec3::new(size.x, size.y, body_h),
+        );
+        self.push_oriented_box(
+            origin,
+            rot_z_rad,
+            center_offset + Vec3::new(0.0, 0.0, size.z * 0.5 - b * 0.5),
+            Vec3::new(
+                (size.x - 2.0 * b).max(1e-4),
+                (size.y - 2.0 * b).max(1e-4),
+                b,
+            ),
+        );
+    }
+
+    /// Emit a closed vertical/tapered cylinder (`radii = [r_bot, r_top]`, `base_offset` bottom center).
+    pub fn push_cylinder(
+        &mut self,
+        origin: Vec3,
+        rot_z_rad: f32,
+        base_offset: Vec3,
+        radii: [f32; 2],
+        height: f32,
+        segments: usize,
+    ) {
+        let rb = radii[0].max(1e-4);
+        let rt = radii[1].max(1e-4);
+        let h = height.max(1e-4);
+        let n = segments.clamp(6, 32);
+        let (sr, cr) = rot_z_rad.sin_cos();
+        let xf = |lx: f32, ly: f32, lz: f32| -> Vec3 {
+            let p = base_offset + Vec3::new(lx, ly, lz);
+            origin + Vec3::new(p.x * cr - p.y * sr, p.x * sr + p.y * cr, p.z)
+        };
+
+        let mut bot_pts: Vec<Vec3> = Vec::with_capacity(n);
+        let mut top_pts: Vec<Vec3> = Vec::with_capacity(n);
+        for i in 0..n {
+            let ang = (i as f32) * std::f32::consts::TAU / (n as f32);
+            let (sa, ca) = ang.sin_cos();
+            bot_pts.push(xf(rb * ca, rb * sa, 0.0));
+            top_pts.push(xf(rt * ca, rt * sa, h));
+        }
+
+        let c_bot = xf(0.0, 0.0, 0.0);
+        let c_top = xf(0.0, 0.0, h);
+        for i in 0..n {
+            let j = (i + 1) % n;
+            self.push_quad(bot_pts[i], bot_pts[j], top_pts[j], top_pts[i]);
+            self.push_tri(
+                c_top,
+                top_pts[i],
+                top_pts[j],
+                [[0.5, 0.5], [1.0, 0.5], [0.8, 0.9]],
+            );
+            self.push_tri(
+                c_bot,
+                bot_pts[j],
+                bot_pts[i],
+                [[0.5, 0.5], [0.8, 0.9], [1.0, 0.5]],
+            );
+        }
+    }
+
     /// Extrude a 2D polygon (`outer`) with optional interior holes from `z_bot` to `z_top` (meters).
     pub fn push_extruded_polygon(
         &mut self,

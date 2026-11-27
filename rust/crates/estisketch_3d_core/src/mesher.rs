@@ -4,19 +4,30 @@ use std::collections::{BTreeMap, HashMap};
 
 use glam::{Vec2, Vec3};
 
+use crate::assets::AssetLibrary;
+use crate::cabinets::{emit_cabinet_meshes, is_cabinet_like};
 use crate::engine::SceneState;
+use crate::fixtures::emit_procedural_fixture;
 use crate::materials::{
-    ceiling_material, concrete_material, countertop_material, door_leaf_material, fixture_material,
-    floor_material, glass_material, railing_material, roof_material, stair_tread_material,
-    trim_material, wall_finish_material,
+    ceiling_material, concrete_material, floor_material, railing_material, roof_material,
+    stair_tread_material, trim_material, wall_finish_material,
 };
 use crate::mesh::{BuiltSceneMesh, LevelBounds, MeshBuilder, MeshPart, PartFlags};
+use crate::openings::emit_opening_meshes;
 use crate::scene_ir::{
-    FooterIR, LevelIR, OpeningIR, RimBandIR, RoofIR, RoomIR, StairIR, WallIR, WallSegmentIR,
+    FixtureIR, FooterIR, LevelIR, RimBandIR, RoofIR, RoomIR, StairIR, WallIR, WallSegmentIR,
 };
 
 /// Build all structural and architectural 3D meshes from a validated [`SceneState`].
 pub fn build_scene_mesh(state: &SceneState) -> BuiltSceneMesh {
+    build_scene_mesh_with_assets(state, None)
+}
+
+/// Build all structural and architectural 3D meshes, resolving curated/custom `.glb` assets via `assets`.
+pub fn build_scene_mesh_with_assets(
+    state: &SceneState,
+    mut assets: Option<&mut AssetLibrary>,
+) -> BuiltSceneMesh {
     let mut parts: Vec<MeshPart> = Vec::new();
     let level_by_id: HashMap<&str, &LevelIR> =
         state.levels.values().map(|l| (l.id.as_str(), l)).collect();
@@ -81,8 +92,68 @@ pub fn build_scene_mesh(state: &SceneState) -> BuiltSceneMesh {
         emit_stair_meshes(stair, &mut parts);
     }
 
+    // Separate `.glb` manifest assets from procedural fixtures; cabinets always participate in runs.
+    let mut run_eligible_fixtures: Vec<&FixtureIR> = Vec::new();
+    let mut non_cabinet_procedural: Vec<&FixtureIR> = Vec::new();
     for fx in state.fixtures.values() {
-        emit_fixture_meshes(fx, &mut parts);
+        if is_cabinet_like(&fx.symbol_type) {
+            run_eligible_fixtures.push(fx);
+            continue;
+        }
+        if let Some(lib) = assets.as_deref_mut() {
+            if let Some(mut loaded_parts) = lib.instantiate_fixture_parts(fx) {
+                parts.append(&mut loaded_parts);
+                if fx.has_countertop {
+                    run_eligible_fixtures.push(fx);
+                }
+                continue;
+            }
+        }
+        if fx.has_countertop {
+            run_eligible_fixtures.push(fx);
+        }
+        non_cabinet_procedural.push(fx);
+    }
+
+    emit_cabinet_meshes(&run_eligible_fixtures, &mut parts);
+    for fx in non_cabinet_procedural {
+        emit_procedural_fixture(fx, &mut parts);
+    }
+
+    // Custom `.glb` assets from Sketch / Blender sync (graceful beveled box fallback if missing)
+    for item in state.custom_assets.values() {
+        if let Some(lib) = assets.as_deref() {
+            if let Ok(mut loaded) = lib.instantiate_custom_asset(item) {
+                parts.append(&mut loaded);
+                continue;
+            }
+        }
+        let mut fallback = MeshBuilder::new();
+        fallback.push_beveled_box(
+            Vec3::new(
+                item.loc_m[0] as f32,
+                item.loc_m[1] as f32,
+                item.loc_m[2] as f32 + 0.5,
+            ),
+            item.rot_z_rad as f32,
+            Vec3::ZERO,
+            Vec3::new(
+                (item.scale[0] as f32).abs().max(0.2),
+                (item.scale[1] as f32).abs().max(0.2),
+                (item.scale[2] as f32).abs().max(0.2),
+            ),
+            0.02,
+        );
+        if let Some(p) = fallback.into_part(
+            &item.id,
+            "custom_asset",
+            "",
+            "Fallback",
+            PartFlags::default(),
+            concrete_material(),
+        ) {
+            parts.push(p);
+        }
     }
 
     let mut levels: Vec<LevelBounds> = state
@@ -470,232 +541,65 @@ fn emit_baseboards_for_segment(
         spans.push((cursor, len));
     }
 
-    let bb_h = 0.11f32;
-    let bb_t = 0.016f32;
+    let bb_h = 0.115f32;
+    let bb_t = 0.018f32;
+    let bevel_h = 0.018f32;
     let rot_z = d.y.atan2(d.x);
+    let max_m = 4.0 * bb_t;
+    let left_ext0 = if seg.left_angle_rad.abs() > 1e-4 {
+        ((seg.left_angle_rad as f32).tan() * bb_t).clamp(-max_m, max_m)
+    } else {
+        0.0
+    };
+    let left_ext1 = if seg.right_angle_rad.abs() > 1e-4 {
+        (-(seg.right_angle_rad as f32).tan() * bb_t).clamp(-max_m, max_m)
+    } else {
+        0.0
+    };
+
     for (s0, s1) in spans {
-        let span_len = s1 - s0;
-        let uc = 0.5 * (s0 + s1);
+        let m0 = if s0 <= 1e-3 {
+            s0 - left_ext0.max(0.0)
+        } else {
+            s0
+        };
+        let m1 = if s1 >= len - 1e-3 {
+            s1 + left_ext1.max(0.0)
+        } else {
+            s1
+        };
+        let span_len = (m1 - m0).max(0.02);
+        let uc = 0.5 * (m0 + m1);
         if seg.left_baseboard {
             let center = p0 + d * uc - n * (bb_t * 0.5);
             trim_mb.push_oriented_box(
-                Vec3::new(center.x, center.y, z_base + bb_h * 0.5),
+                Vec3::new(center.x, center.y, z_base + (bb_h - bevel_h) * 0.5),
                 rot_z,
                 Vec3::ZERO,
-                Vec3::new(span_len, bb_t, bb_h),
+                Vec3::new(span_len, bb_t, bb_h - bevel_h),
+            );
+            trim_mb.push_oriented_box(
+                Vec3::new(center.x, center.y, z_base + bb_h - bevel_h * 0.5),
+                rot_z,
+                Vec3::new(0.0, bb_t * 0.18, 0.0),
+                Vec3::new(span_len, bb_t * 0.64, bevel_h),
             );
         }
         if seg.right_baseboard {
             let center = p0 + d * uc + n * (thick + bb_t * 0.5);
             trim_mb.push_oriented_box(
-                Vec3::new(center.x, center.y, z_base + bb_h * 0.5),
+                Vec3::new(center.x, center.y, z_base + (bb_h - bevel_h) * 0.5),
                 rot_z,
                 Vec3::ZERO,
-                Vec3::new(span_len, bb_t, bb_h),
+                Vec3::new(span_len, bb_t, bb_h - bevel_h),
             );
-        }
-    }
-}
-
-fn emit_opening_meshes(
-    opening: &OpeningIR,
-    wall: &WallIR,
-    seg: &WallSegmentIR,
-    z_base: f32,
-    parts: &mut Vec<MeshPart>,
-) {
-    let p0 = Vec2::new(seg.start_m[0] as f32, seg.start_m[1] as f32);
-    let p1 = Vec2::new(seg.end_m[0] as f32, seg.end_m[1] as f32);
-    let delta = p1 - p0;
-    let seg_len = delta.length();
-    if seg_len <= 1e-4 {
-        return;
-    }
-    let d = delta / seg_len;
-    let n = Vec2::new(-d.y, d.x);
-    let rot_z = d.y.atan2(d.x);
-
-    let w = (opening.width_m as f32).max(0.15);
-    let h = (opening.height_m as f32).max(0.20);
-    let depth = (opening.depth_m as f32).max(0.06);
-    let x_start = opening.x_local_m as f32;
-    let z0 = z_base + opening.z_local_m as f32;
-
-    let origin_xy = p0 + d * (x_start + w * 0.5) + n * (depth * 0.5);
-    let origin = Vec3::new(origin_xy.x, origin_xy.y, z0);
-
-    let mut frame_mb = MeshBuilder::new();
-    let mut panel_mb = MeshBuilder::new();
-    let mut glass_mb = MeshBuilder::new();
-
-    let jamb_w = 0.045f32;
-    let frame_d = depth + 0.025;
-    let is_garage = opening.style.contains("garage");
-
-    if opening.kind == "door" {
-        // Left & right jambs + head + threshold
-        frame_mb.push_oriented_box(
-            origin,
-            rot_z,
-            Vec3::new(-w * 0.5 + jamb_w * 0.5, 0.0, h * 0.5),
-            Vec3::new(jamb_w, frame_d, h),
-        );
-        frame_mb.push_oriented_box(
-            origin,
-            rot_z,
-            Vec3::new(w * 0.5 - jamb_w * 0.5, 0.0, h * 0.5),
-            Vec3::new(jamb_w, frame_d, h),
-        );
-        frame_mb.push_oriented_box(
-            origin,
-            rot_z,
-            Vec3::new(0.0, 0.0, h - jamb_w * 0.5),
-            Vec3::new(w, frame_d, jamb_w),
-        );
-
-        let inner_w = (w - 2.0 * jamb_w).max(0.08);
-        let inner_h = (h - jamb_w).max(0.10);
-        if is_garage {
-            // 4 horizontal sectional panels
-            let panels = 4;
-            let ph = inner_h / panels as f32;
-            for i in 0..panels {
-                let pz = (i as f32 + 0.5) * ph;
-                panel_mb.push_oriented_box(
-                    origin,
-                    rot_z,
-                    Vec3::new(0.0, 0.0, pz),
-                    Vec3::new(inner_w, 0.045, ph - 0.012),
-                );
-            }
-        } else if !opening.style.contains("open") && !opening.style.contains("arch") {
-            let has_glass = opening.style.contains("lite") || opening.style.contains("glass");
-            if has_glass {
-                let bot_h = inner_h * 0.45;
-                panel_mb.push_oriented_box(
-                    origin,
-                    rot_z,
-                    Vec3::new(0.0, 0.0, bot_h * 0.5),
-                    Vec3::new(inner_w, 0.044, bot_h),
-                );
-                let glass_h = (inner_h - bot_h - 0.06).max(0.15);
-                glass_mb.push_oriented_box(
-                    origin,
-                    rot_z,
-                    Vec3::new(0.0, 0.0, bot_h + glass_h * 0.5),
-                    Vec3::new((inner_w - 0.14).max(0.08), 0.016, glass_h),
-                );
-                frame_mb.push_oriented_box(
-                    origin,
-                    rot_z,
-                    Vec3::new(-inner_w * 0.5 + 0.035, 0.0, bot_h + glass_h * 0.5),
-                    Vec3::new(0.07, 0.044, glass_h),
-                );
-                frame_mb.push_oriented_box(
-                    origin,
-                    rot_z,
-                    Vec3::new(inner_w * 0.5 - 0.035, 0.0, bot_h + glass_h * 0.5),
-                    Vec3::new(0.07, 0.044, glass_h),
-                );
-            } else {
-                panel_mb.push_oriented_box(
-                    origin,
-                    rot_z,
-                    Vec3::new(0.0, 0.0, inner_h * 0.5),
-                    Vec3::new(inner_w, 0.044, inner_h),
-                );
-            }
-        }
-    } else {
-        // Window frame + sill + meeting rail + glazing
-        frame_mb.push_oriented_box(
-            origin,
-            rot_z,
-            Vec3::new(-w * 0.5 + jamb_w * 0.5, 0.0, h * 0.5),
-            Vec3::new(jamb_w, frame_d, h),
-        );
-        frame_mb.push_oriented_box(
-            origin,
-            rot_z,
-            Vec3::new(w * 0.5 - jamb_w * 0.5, 0.0, h * 0.5),
-            Vec3::new(jamb_w, frame_d, h),
-        );
-        frame_mb.push_oriented_box(
-            origin,
-            rot_z,
-            Vec3::new(0.0, 0.0, h - jamb_w * 0.5),
-            Vec3::new(w, frame_d, jamb_w),
-        );
-        frame_mb.push_oriented_box(
-            origin,
-            rot_z,
-            Vec3::new(0.0, 0.0, jamb_w * 0.5),
-            Vec3::new(w + 0.06, frame_d + 0.04, jamb_w * 1.1),
-        );
-
-        let inner_w = (w - 2.0 * jamb_w).max(0.08);
-        let inner_h = (h - 2.0 * jamb_w).max(0.08);
-        if opening.style.contains("sliding") || opening.style.contains("casement") {
-            frame_mb.push_oriented_box(
-                origin,
+            trim_mb.push_oriented_box(
+                Vec3::new(center.x, center.y, z_base + bb_h - bevel_h * 0.5),
                 rot_z,
-                Vec3::new(0.0, 0.0, h * 0.5),
-                Vec3::new(0.03, 0.04, inner_h),
-            );
-        } else if opening.style.contains("double") {
-            frame_mb.push_oriented_box(
-                origin,
-                rot_z,
-                Vec3::new(0.0, 0.0, h * 0.5),
-                Vec3::new(inner_w, 0.04, 0.03),
+                Vec3::new(0.0, -bb_t * 0.18, 0.0),
+                Vec3::new(span_len, bb_t * 0.64, bevel_h),
             );
         }
-        glass_mb.push_oriented_box(
-            origin,
-            rot_z,
-            Vec3::new(0.0, 0.0, h * 0.5),
-            Vec3::new(inner_w, 0.016, inner_h),
-        );
-    }
-
-    if let Some(p) = frame_mb.into_part(
-        &opening.id,
-        "opening",
-        &wall.level_id,
-        "Frame",
-        PartFlags {
-            is_roof_or_ceiling: false,
-            is_wall: false,
-        },
-        trim_material(),
-    ) {
-        parts.push(p);
-    }
-    if let Some(p) = panel_mb.into_part(
-        &opening.id,
-        "opening",
-        &wall.level_id,
-        "Leaf",
-        PartFlags {
-            is_roof_or_ceiling: false,
-            is_wall: false,
-        },
-        door_leaf_material(&opening.style),
-    ) {
-        parts.push(p);
-    }
-    if let Some(p) = glass_mb.into_part(
-        &opening.id,
-        "opening",
-        &wall.level_id,
-        "Glass",
-        PartFlags {
-            is_roof_or_ceiling: false,
-            is_wall: false,
-        },
-        glass_material(),
-    ) {
-        parts.push(p);
     }
 }
 
@@ -1190,99 +1094,12 @@ fn emit_stair_meshes(stair: &StairIR, parts: &mut Vec<MeshPart>) {
     }
 }
 
-fn emit_fixture_meshes(fx: &crate::scene_ir::FixtureIR, parts: &mut Vec<MeshPart>) {
-    let mut body_mb = MeshBuilder::new();
-    let w = (fx.width_m as f32).max(0.08);
-    let d = (fx.depth_m as f32).max(0.08);
-    let h = (fx.height_m as f32).max(0.08);
-    let origin = Vec3::new(fx.loc_m[0] as f32, fx.loc_m[1] as f32, fx.loc_m[2] as f32);
-    let rot_z = fx.rot_z_rad as f32;
-
-    let is_cabinet = fx.symbol_type.contains("cabinet")
-        || fx.symbol_type.contains("vanity")
-        || fx.symbol_type.contains("island")
-        || fx.has_countertop;
-    if is_cabinet {
-        let ct_thick = if fx.has_countertop {
-            (fx.countertop_thickness_m as f32).clamp(0.02, 0.08)
-        } else {
-            0.0
-        };
-        let toe_h = (0.10f32).min(h * 0.2);
-        let box_h = (h - ct_thick - toe_h).max(0.08);
-        body_mb.push_oriented_box(
-            origin,
-            rot_z,
-            Vec3::new(0.0, 0.03, toe_h * 0.5),
-            Vec3::new((w - 0.02).max(0.05), (d - 0.06).max(0.05), toe_h),
-        );
-        body_mb.push_oriented_box(
-            origin,
-            rot_z,
-            Vec3::new(0.0, 0.0, toe_h + box_h * 0.5),
-            Vec3::new(w, d, box_h),
-        );
-
-        if fx.has_countertop {
-            let mut ct_mb = MeshBuilder::new();
-            let oh = (fx.countertop_overhang_m as f32).max(0.0);
-            ct_mb.push_oriented_box(
-                origin,
-                rot_z,
-                Vec3::new(0.0, -oh * 0.5, h - ct_thick * 0.5),
-                Vec3::new(w + oh * 0.5, d + oh, ct_thick),
-            );
-            if fx.has_backsplash {
-                ct_mb.push_oriented_box(
-                    origin,
-                    rot_z,
-                    Vec3::new(0.0, d * 0.5 - 0.01, h + 0.05),
-                    Vec3::new(w, 0.02, 0.10),
-                );
-            }
-            if let Some(p) = ct_mb.into_part(
-                &fx.id,
-                "fixture",
-                &fx.level_id,
-                "Countertop",
-                PartFlags {
-                    is_roof_or_ceiling: false,
-                    is_wall: false,
-                },
-                countertop_material(&fx.countertop_material, fx.countertop_color),
-            ) {
-                parts.push(p);
-            }
-        }
-    } else {
-        body_mb.push_oriented_box(
-            origin,
-            rot_z,
-            Vec3::new(0.0, 0.0, h * 0.5),
-            Vec3::new(w, d, h),
-        );
-    }
-
-    if let Some(p) = body_mb.into_part(
-        &fx.id,
-        "fixture",
-        &fx.level_id,
-        "Body",
-        PartFlags {
-            is_roof_or_ceiling: false,
-            is_wall: false,
-        },
-        fixture_material(&fx.symbol_type, fx.fill_color),
-    ) {
-        parts.push(p);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::scene_ir::{
-        GableInfillIR, LevelIR, OpeningCutIR, RoofFacetIR, SceneIR, SunIR, SCENE_IR_SCHEMA_VERSION,
+        GableInfillIR, LevelIR, OpeningCutIR, OpeningIR, RoofFacetIR, SceneIR, SunIR,
+        SCENE_IR_SCHEMA_VERSION,
     };
 
     fn rich_scene() -> SceneIR {
@@ -1495,5 +1312,176 @@ mod tests {
             .parts
             .iter()
             .any(|p| p.entity_kind == "roof" && p.sub_part == "GableInfill"));
+    }
+
+    #[test]
+    fn cabinet_run_merges_adjacent_countertops() {
+        let mut scene = rich_scene();
+        scene.fixtures = (0..3)
+            .map(|i| crate::scene_ir::FixtureIR {
+                id: format!("cab_{i}"),
+                level_id: "lvl_1".into(),
+                symbol_type: "base_cabinet".into(),
+                category: "kitchen_cabinet".into(),
+                loc_m: [(i as f64) * 0.61, 1.0, 0.0],
+                rot_z_rad: 0.0,
+                width_m: 0.61,
+                depth_m: 0.61,
+                height_m: 0.876,
+                has_countertop: true,
+                countertop_overhang_m: 0.038,
+                countertop_thickness_m: 0.038,
+                countertop_material: "quartz".into(),
+                has_backsplash: true,
+                fill_color: None,
+                countertop_color: None,
+            })
+            .collect();
+        let mut state = SceneState::new();
+        state.load_scene(scene).unwrap();
+        let built = build_scene_mesh(&state);
+        let ct_parts: Vec<&MeshPart> = built
+            .parts
+            .iter()
+            .filter(|p| p.sub_part == "RunCountertop")
+            .collect();
+        assert_eq!(ct_parts.len(), 1);
+    }
+
+    #[test]
+    fn all_door_and_window_styles_emit_parts() {
+        let styles = [
+            ("door", "single"),
+            ("door", "double"),
+            ("door", "entry_lite_half"),
+            ("door", "entry_lite_full"),
+            ("door", "sliding"),
+            ("door", "pocket"),
+            ("door", "bi-fold"),
+            ("door", "frame"),
+            ("door", "garage"),
+            ("window", "fixed"),
+            ("window", "sliding"),
+            ("window", "double-hung"),
+            ("window", "casement"),
+            ("window", "awning"),
+        ];
+        for (idx, (kind, style)) in styles.iter().enumerate() {
+            let mut scene = rich_scene();
+            scene.openings = vec![crate::scene_ir::OpeningIR {
+                id: format!("op_{idx}"),
+                kind: (*kind).into(),
+                host_wall_id: "w_south".into(),
+                host_seg_index: 0,
+                x_local_m: 1.0,
+                z_local_m: if *kind == "door" { 0.0 } else { 0.9 },
+                width_m: if *style == "garage" { 2.4 } else { 1.0 },
+                depth_m: 0.14,
+                height_m: if *kind == "door" { 2.0 } else { 1.1 },
+                style: (*style).into(),
+                swing: "left".into(),
+                orientation: "inswing".into(),
+            }];
+            let mut state = SceneState::new();
+            state.load_scene(scene).unwrap();
+            let built = build_scene_mesh(&state);
+            assert!(
+                built
+                    .parts
+                    .iter()
+                    .any(|p| p.entity_kind == "opening" && p.sub_part == "Frame"),
+                "Missing frame for {kind}:{style}"
+            );
+        }
+    }
+
+    #[test]
+    fn all_fixture_symbols_produce_multi_part_geometry() {
+        let symbols = [
+            "base_cabinet",
+            "base_drawer_cabinet",
+            "sink_base_cabinet",
+            "corner_base_cabinet",
+            "upper_cabinet",
+            "corner_upper_cabinet",
+            "tall_pantry",
+            "island_cabinet",
+            "vanity_single",
+            "vanity_double",
+            "toilet",
+            "bathtub",
+            "shower_square",
+            "shower_corner",
+            "pedestal_sink",
+            "kitchen_sink_single",
+            "kitchen_sink_double",
+            "utility_sink",
+            "refrigerator",
+            "range_stove",
+            "cooktop",
+            "wall_oven",
+            "dishwasher",
+            "range_hood",
+            "microwave",
+            "washer",
+            "dryer",
+            "water_heater",
+            "furnace",
+            "air_conditioner",
+            "sofa",
+            "loveseat",
+            "armchair",
+            "coffee_table",
+            "end_table",
+            "tv_console",
+            "bed_king",
+            "bed_queen",
+            "bed_twin",
+            "nightstand",
+            "dresser",
+            "dining_table",
+            "dining_chair",
+            "desk",
+            "office_chair",
+            "bookshelf",
+        ];
+        for (idx, sym) in symbols.iter().enumerate() {
+            let mut scene = rich_scene();
+            scene.walls.clear();
+            scene.openings.clear();
+            scene.rooms.clear();
+            scene.roofs.clear();
+            scene.footers.clear();
+            scene.rim_bands.clear();
+            scene.stairs.clear();
+            scene.fixtures = vec![crate::scene_ir::FixtureIR {
+                id: format!("fx_{idx}"),
+                level_id: "lvl_1".into(),
+                symbol_type: (*sym).into(),
+                category: "test".into(),
+                loc_m: [0.0, 0.0, 0.0],
+                rot_z_rad: 0.0,
+                width_m: 1.2,
+                depth_m: 0.8,
+                height_m: 0.9,
+                has_countertop: *sym == "dishwasher"
+                    || sym.contains("cabinet")
+                    || sym.contains("vanity"),
+                countertop_overhang_m: 0.03,
+                countertop_thickness_m: 0.038,
+                countertop_material: "quartz".into(),
+                has_backsplash: true,
+                fill_color: None,
+                countertop_color: None,
+            }];
+            let mut state = SceneState::new();
+            state.load_scene(scene).unwrap();
+            let built = build_scene_mesh(&state);
+            let tris = built.stats().triangle_count;
+            assert!(
+                tris > 12,
+                "Symbol {sym} only produced {tris} triangles (placeholder box)"
+            );
+        }
     }
 }

@@ -10,9 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from EstiSketch import native_3d
+from EstiSketch import fixtures_catalog, native_3d
 from EstiSketch.scene_ir import (
+    INCH_TO_M,
     SCENE_IR_SCHEMA_VERSION,
+    FixtureIR,
+    LevelIR,
     RoomIR,
     SceneIR,
     build_scene_ir,
@@ -276,6 +279,87 @@ def test_native_3d_meshing_and_glb_export(xml_path: Path, tmp_path: Path) -> Non
     assert doc["asset"]["version"] == "2.0"
     assert len(doc["nodes"]) == part_count
     assert doc["nodes"][0]["extras"]["estisketch_id"]
+
+
+def test_all_46_fixture_symbols_and_asset_manifest() -> None:
+    if not native_3d.is_native_3d_available():
+        pytest.skip(f"_native_3d not built: {native_3d.native_3d_load_error()}")
+
+    assert len(fixtures_catalog.FIXTURE_CATALOG) == 46
+    for idx, (sym, spec) in enumerate(fixtures_catalog.FIXTURE_CATALOG.items()):
+        fx = FixtureIR(
+            id=f"fx_{idx}",
+            level_id="lvl_0",
+            symbol_type=sym,
+            category=str(spec["category"]),
+            loc_m=(0.0, 0.0, 0.0),
+            rot_z_rad=0.0,
+            width_m=float(spec["width"]) * INCH_TO_M,
+            depth_m=float(spec["depth"]) * INCH_TO_M,
+            height_m=float(spec["height"]) * INCH_TO_M,
+            has_countertop=bool(spec.get("has_countertop", False)),
+            countertop_overhang_m=0.038,
+            countertop_thickness_m=0.038,
+            countertop_material="quartz",
+            has_backsplash=True,
+        )
+        scene = SceneIR(
+            schema_version=SCENE_IR_SCHEMA_VERSION,
+            levels=[
+                LevelIR(
+                    id="lvl_0",
+                    name="Level 1",
+                    elevation_m=0.0,
+                    height_m=2.4384,
+                    floor_thickness_m=0.254,
+                )
+            ],
+            fixtures=[fx],
+        )
+        stats = native_3d.scene_mesh_stats(scene)
+        tri_count = stats["triangle_count"]
+        assert isinstance(tri_count, int) and tri_count > 12, (
+            f"Fixture symbol {sym!r} rendered only {tri_count} triangles"
+        )
+
+    session = native_3d.create_native_session()
+    assert native_3d.ASSETS_3D_DIR.is_dir()
+    loaded_manifest_count = session.set_asset_root(str(native_3d.ASSETS_3D_DIR))
+    assert loaded_manifest_count >= 8
+
+
+def test_adjacent_cabinet_run_merges_countertops(tmp_path: Path) -> None:
+    if not native_3d.is_native_3d_available():
+        pytest.skip(f"_native_3d not built: {native_3d.native_3d_load_error()}")
+
+    cabs = [
+        FixtureIR(
+            id=f"cab_{i}",
+            level_id="lvl_0",
+            symbol_type="base_cabinet",
+            category="kitchen_cabinet",
+            loc_m=(i * 0.61, 0.0, 0.0),
+            rot_z_rad=0.0,
+            width_m=0.61,
+            depth_m=0.61,
+            height_m=0.876,
+            has_countertop=True,
+            countertop_overhang_m=0.038,
+            countertop_thickness_m=0.038,
+            countertop_material="quartz",
+            has_backsplash=True,
+        )
+        for i in range(3)
+    ]
+    scene = SceneIR(schema_version=SCENE_IR_SCHEMA_VERSION, fixtures=cabs)
+    glb_path = tmp_path / "run.glb"
+    native_3d.export_scene_glb(scene, glb_path)
+    raw = glb_path.read_bytes()
+    json_len, _ = struct.unpack("<II", raw[12:20])
+    json_slice = raw[20 : 20 + json_len]  # noqa: E203
+    doc = json.loads(json_slice.decode("utf-8"))
+    ct_nodes = [n for n in doc["nodes"] if n["extras"]["sub_part"] == "RunCountertop"]
+    assert len(ct_nodes) == 1
 
 
 def ir_count(ir: SceneIR) -> int:

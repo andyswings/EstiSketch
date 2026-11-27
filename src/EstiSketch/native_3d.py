@@ -38,6 +38,10 @@ class NativeSceneSessionProtocol(Protocol):
         """Return number of loaded scene entities."""
         ...
 
+    def set_asset_root(self, asset_root: str) -> int:
+        """Load ``manifest.json`` and register `.glb` asset directory, returning entry count."""
+        ...
+
     def mesh_stats_json(self) -> str:
         """Return compiled 3D mesh statistics JSON."""
         ...
@@ -212,9 +216,15 @@ def export_scene_glb(scene: SceneIR | str, output_path: str | Path) -> int:
     return mod.export_scene_glb(payload, str(output_path))
 
 
+ASSETS_3D_DIR: Path = Path(__file__).resolve().parent / "assets_3d"
+
+
 def create_native_session() -> NativeSceneSessionProtocol:
-    """Create a stateful Rust :class:`NativeSceneSession` for incremental updates."""
-    return _require_native().NativeSceneSession()
+    """Create a stateful Rust :class:`NativeSceneSession` and register bundled assets."""
+    session = _require_native().NativeSceneSession()
+    if ASSETS_3D_DIR.is_dir():
+        session.set_asset_root(str(ASSETS_3D_DIR))
+    return session
 
 
 def serialize_delta_for_native(delta: SceneDeltaIR) -> str:

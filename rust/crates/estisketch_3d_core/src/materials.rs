@@ -341,3 +341,115 @@ pub fn countertop_material(name: &str, rgb_override: Option<[f64; 3]>) -> Materi
         transparent: false,
     }
 }
+
+/// Brushed nickel/bronze cabinet pulls, levers, and hardware handles.
+pub fn hardware_material() -> MaterialDef {
+    MaterialDef {
+        name: "HardwareNickel".to_string(),
+        base_color: [0.68, 0.69, 0.71, 1.0],
+        roughness: 0.28,
+        metallic: 0.85,
+        style: MaterialStyle::Solid,
+        pattern_scale: 1.0,
+        pattern_rotation_deg: 0.0,
+        transparent: false,
+    }
+}
+
+/// Bright chrome faucet, drain, and shower trim material.
+pub fn chrome_material() -> MaterialDef {
+    MaterialDef {
+        name: "Chrome".to_string(),
+        base_color: [0.85, 0.87, 0.90, 1.0],
+        roughness: 0.14,
+        metallic: 0.95,
+        style: MaterialStyle::Solid,
+        pattern_scale: 1.0,
+        pattern_rotation_deg: 0.0,
+        transparent: false,
+    }
+}
+
+/// Glossy vitreous porcelain for toilets, bathtubs, and vanity sinks.
+pub fn porcelain_material(rgb_override: Option<[f64; 3]>) -> MaterialDef {
+    MaterialDef {
+        name: "Porcelain".to_string(),
+        base_color: color3(rgb_override, [0.96, 0.96, 0.95]),
+        roughness: 0.20,
+        metallic: 0.0,
+        style: MaterialStyle::Solid,
+        pattern_scale: 1.0,
+        pattern_rotation_deg: 0.0,
+        transparent: false,
+    }
+}
+
+/// Brushed stainless steel for sinks, ranges, fridges, and range hoods.
+pub fn stainless_material(rgb_override: Option<[f64; 3]>) -> MaterialDef {
+    MaterialDef {
+        name: "StainlessSteel".to_string(),
+        base_color: color3(rgb_override, [0.74, 0.76, 0.78]),
+        roughness: 0.30,
+        metallic: 0.80,
+        style: MaterialStyle::Solid,
+        pattern_scale: 1.0,
+        pattern_rotation_deg: 0.0,
+        transparent: false,
+    }
+}
+
+/// Dark tinted glass/ceramic surface for oven doors, cooktops, TVs, and microwaves.
+pub fn appliance_glass_material() -> MaterialDef {
+    MaterialDef {
+        name: "ApplianceDarkGlass".to_string(),
+        base_color: [0.10, 0.11, 0.13, 1.0],
+        roughness: 0.12,
+        metallic: 0.20,
+        style: MaterialStyle::Solid,
+        pattern_scale: 1.0,
+        pattern_rotation_deg: 0.0,
+        transparent: false,
+    }
+}
+
+/// Soft woven upholstery fabric for sofas, armchairs, and dining cushions.
+pub fn upholstery_material(rgb_override: Option<[f64; 3]>) -> MaterialDef {
+    MaterialDef {
+        name: "Upholstery".to_string(),
+        base_color: color3(rgb_override, [0.55, 0.60, 0.64]),
+        roughness: 0.90,
+        metallic: 0.0,
+        style: MaterialStyle::Solid,
+        pattern_scale: 1.0,
+        pattern_rotation_deg: 0.0,
+        transparent: false,
+    }
+}
+
+/// Warm crisp linen material for mattresses, duvets, and pillows.
+pub fn fabric_linen_material() -> MaterialDef {
+    MaterialDef {
+        name: "BedLinen".to_string(),
+        base_color: [0.93, 0.91, 0.88, 1.0],
+        roughness: 0.92,
+        metallic: 0.0,
+        style: MaterialStyle::Solid,
+        pattern_scale: 1.0,
+        pattern_rotation_deg: 0.0,
+        transparent: false,
+    }
+}
+
+/// Natural warm furniture wood for tables, desks, nightstands, dressers, and shelves.
+pub fn wood_furniture_material(rgb_override: Option<[f64; 3]>) -> MaterialDef {
+    MaterialDef {
+        name: "WoodFurniture".to_string(),
+        base_color: color3(rgb_override, [0.56, 0.39, 0.25]),
+        roughness: 0.56,
+        metallic: 0.0,
+        style: MaterialStyle::Wood,
+        pattern_scale: 1.0,
+        pattern_rotation_deg: 0.0,
+        transparent: false,
+    }
+}

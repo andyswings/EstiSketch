@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use estisketch_3d_core::{
-    build_scene_mesh, write_glb_file, BuiltSceneMesh, SceneDeltaIR, SceneIR, SceneState,
-    SCENE_IR_SCHEMA_VERSION,
+    build_scene_mesh_with_assets, write_glb_file, AssetLibrary, BuiltSceneMesh, SceneDeltaIR,
+    SceneIR, SceneState, SCENE_IR_SCHEMA_VERSION,
 };
 use estisketch_3d_gl::{CameraMode, CameraPreset, GlRenderer, RenderStyle};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -41,7 +41,7 @@ fn scene_mesh_stats(scene_json: &str) -> PyResult<String> {
     let scene: SceneIR = serde_json::from_str(scene_json).map_err(to_py_value_error)?;
     let mut state = SceneState::new();
     state.load_scene(scene).map_err(to_py_value_error)?;
-    let built = build_scene_mesh(&state);
+    let built = build_scene_mesh_with_assets(&state, None);
     serde_json::to_string(&built.stats()).map_err(to_py_runtime_error)
 }
 
@@ -50,7 +50,7 @@ fn export_scene_glb(scene_json: &str, output_path: &str) -> PyResult<usize> {
     let scene: SceneIR = serde_json::from_str(scene_json).map_err(to_py_value_error)?;
     let mut state = SceneState::new();
     state.load_scene(scene).map_err(to_py_value_error)?;
-    let built = build_scene_mesh(&state);
+    let built = build_scene_mesh_with_assets(&state, None);
     write_glb_file(Path::new(output_path), &built, &state.sun).map_err(to_py_runtime_error)
 }
 
@@ -58,24 +58,29 @@ fn export_scene_glb(scene_json: &str, output_path: &str) -> PyResult<usize> {
 pub struct NativeSceneSession {
     state: SceneState,
     renderer: GlRenderer,
+    assets: Option<AssetLibrary>,
     cached_mesh: Option<BuiltSceneMesh>,
     has_loaded_once: bool,
 }
 
 impl NativeSceneSession {
+    fn rebuild_mesh(&mut self) -> BuiltSceneMesh {
+        build_scene_mesh_with_assets(&self.state, self.assets.as_mut())
+    }
+
     fn ensure_mesh(&mut self, auto_fit: bool) -> &BuiltSceneMesh {
         if self.cached_mesh.is_none() {
-            let built = build_scene_mesh(&self.state);
+            let built = self.rebuild_mesh();
             self.renderer
                 .set_scene_mesh(built.clone(), self.state.sun.clone(), auto_fit);
             self.cached_mesh = Some(built);
         }
         self.cached_mesh
-            .get_or_insert_with(|| build_scene_mesh(&self.state))
+            .get_or_insert_with(|| build_scene_mesh_with_assets(&self.state, None))
     }
 
     fn mark_mesh_dirty(&mut self, fit_camera: bool) {
-        let built = build_scene_mesh(&self.state);
+        let built = self.rebuild_mesh();
         self.renderer
             .set_scene_mesh(built.clone(), self.state.sun.clone(), fit_camera);
         self.cached_mesh = Some(built);
@@ -89,9 +94,21 @@ impl NativeSceneSession {
         Self {
             state: SceneState::new(),
             renderer: GlRenderer::default(),
+            assets: None,
             cached_mesh: None,
             has_loaded_once: false,
         }
+    }
+
+    fn set_asset_root(&mut self, asset_root: &str) -> PyResult<usize> {
+        let lib =
+            AssetLibrary::load_from_dir(Path::new(asset_root)).map_err(to_py_runtime_error)?;
+        let count = lib.manifest_len();
+        self.assets = Some(lib);
+        if self.has_loaded_once {
+            self.mark_mesh_dirty(false);
+        }
+        Ok(count)
     }
 
     fn load_scene(&mut self, scene_json: &str) -> PyResult<String> {
