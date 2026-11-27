@@ -22,6 +22,7 @@ from .Canvas.project_reset import reset_canvas_content
 from . import toolbar
 from . import config
 from . import blender_bridge
+from .View3D import Viewport3DWidget
 from types import SimpleNamespace
 
 class EstimatorApp(Gtk.Application):
@@ -75,6 +76,11 @@ class EstimatorApp(Gtk.Application):
         open_blender_action = Gio.SimpleAction.new("open_in_blender", None)
         open_blender_action.connect("activate", self.on_open_in_blender)
         self.add_action(open_blender_action)
+
+        # Export 3D .glb
+        export_glb_action = Gio.SimpleAction.new("export_glb", None)
+        export_glb_action.connect("activate", self.on_export_glb)
+        self.add_action(export_glb_action)
 
         # Open project
         open_action = Gio.SimpleAction.new("open", None)
@@ -200,12 +206,36 @@ class EstimatorApp(Gtk.Application):
         file_menu_button = create_file_menu(self)
         # save a reference so we can anchor the recent‑files popover
         self.file_menu_button = file_menu_button
-        # Pack the menu button in a horizontal box to simulate a menu bar area.
-        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        header_box.append(file_menu_button)
+        # Top header bar with file menu on the left and 2D | Split | 3D switcher centered.
+        header_box = Gtk.CenterBox()
+        header_box.set_start_widget(file_menu_button)
+
+        view_switcher = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        view_switcher.add_css_class("linked")
+        self._view_mode_buttons: dict[str, Gtk.ToggleButton] = {}
+        first_view_btn: Optional[Gtk.ToggleButton] = None
+        for mode_key, mode_label in (("2d", "2D"), ("split", "Split"), ("3d", "3D")):
+            vbtn = Gtk.ToggleButton(label=mode_label)
+            if first_view_btn is None:
+                first_view_btn = vbtn
+                vbtn.set_active(True)
+            else:
+                vbtn.set_group(first_view_btn)
+            vbtn.connect(
+                "toggled",
+                lambda b, m=mode_key: self.set_view_mode(m) if b.get_active() else None,
+            )
+            view_switcher.append(vbtn)
+            self._view_mode_buttons[mode_key] = vbtn
+        header_box.set_center_widget(view_switcher)
         vbox.append(header_box)
 
         self.canvas = canvas_area.create_canvas_area(self.config)
+        self.viewport_3d = Viewport3DWidget(
+            self.canvas, on_export_glb=self.show_export_glb_dialog
+        )
+        self.view_mode: str = "2d"
+        self.canvas.connect("content-changed", lambda _c: self.viewport_3d.mark_dirty())
 
         self.canvas.connect(
             'selection-changed',
@@ -386,8 +416,18 @@ class EstimatorApp(Gtk.Application):
         self.toolset_info["dropdown"].connect(
             "notify::selected", self.on_toolset_changed)
 
+        self.workspace_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        self.workspace_paned.set_hexpand(True)
+        self.workspace_paned.set_vexpand(True)
+        self.workspace_paned.set_resize_start_child(True)
+        self.workspace_paned.set_resize_end_child(True)
+        self.workspace_paned.set_shrink_start_child(True)
+        self.workspace_paned.set_shrink_end_child(True)
+        self.workspace_paned.set_start_child(self.canvas)
+        self.viewport_3d.set_visible(False)
+
         main_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        main_paned.set_start_child(self.canvas)
+        main_paned.set_start_child(self.workspace_paned)
         self.main_paned = main_paned
 
         # Only show properties panel if enabled in config
@@ -896,6 +936,88 @@ class EstimatorApp(Gtk.Application):
             name,
             on_settings_changed=lambda: self.update_dirty_state(True),
         )
+
+    def set_view_mode(self, mode: str) -> None:
+        """Switch central workspace between ``'2d'``, ``'split'``, and ``'3d'``."""
+        norm = mode.lower()
+        if norm not in ("2d", "split", "3d"):
+            return
+        self.view_mode = norm
+        self.workspace_paned.set_start_child(None)
+        self.workspace_paned.set_end_child(None)
+        if norm == "2d":
+            self.canvas.set_visible(True)
+            self.viewport_3d.set_visible(False)
+            self.workspace_paned.set_start_child(self.canvas)
+        elif norm == "3d":
+            self.canvas.set_visible(False)
+            self.viewport_3d.set_visible(True)
+            self.workspace_paned.set_end_child(self.viewport_3d)
+            self.viewport_3d.mark_dirty()
+        else:
+            self.canvas.set_visible(True)
+            self.viewport_3d.set_visible(True)
+            self.workspace_paned.set_start_child(self.canvas)
+            self.workspace_paned.set_end_child(self.viewport_3d)
+            alloc_w = self.workspace_paned.get_allocated_width()
+            if alloc_w > 100:
+                self.workspace_paned.set_position(alloc_w // 2)
+            self.viewport_3d.mark_dirty()
+
+    def on_export_glb(self, action: Gio.SimpleAction, parameter: object) -> None:
+        """Handle File -> Export 3D Model (.glb) action."""
+        self.show_export_glb_dialog()
+
+    def show_export_glb_dialog(self) -> None:
+        """Prompt user for a destination path and export the 3D scene as a `.glb` file."""
+        dlg = Gtk.FileDialog.new()
+        dlg.set_title("Export 3D Model (.glb)")
+        dlg.set_modal(True)
+        if self.current_filepath:
+            stem = os.path.splitext(os.path.basename(self.current_filepath))[0]
+            dlg.set_initial_name(f"{stem}.glb")
+        else:
+            dlg.set_initial_name("house.glb")
+
+        glb_filter = Gtk.FileFilter()
+        glb_filter.set_name("glTF 2.0 Binary (*.glb)")
+        glb_filter.add_pattern("*.glb")
+        filter_store = Gio.ListStore.new(Gtk.FileFilter)
+        filter_store.append(glb_filter)
+        dlg.set_filters(filter_store)
+        dlg.set_default_filter(glb_filter)
+
+        dlg.save(self.window, None, self._on_export_glb_done, None)
+
+    def _on_export_glb_done(
+        self, obj: Gtk.FileDialog, result: Gio.AsyncResult, _user_data: object
+    ) -> None:
+        try:
+            file = obj.save_finish(result)
+        except Exception:
+            return
+        if not file:
+            return
+        path = file.get_path()
+        if not path:
+            return
+        if not path.lower().endswith(".glb"):
+            path += ".glb"
+        try:
+            nbytes = self.viewport_3d.export_glb_to_path(path)
+            if hasattr(self.canvas, "update_hint"):
+                self.canvas.update_hint(f"Exported 3D model ({nbytes} bytes): {path}")
+        except (OSError, RuntimeError, ValueError) as exc:
+            err_dlg = Gtk.MessageDialog(
+                transient_for=self.window,
+                modal=True,
+                message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.OK,
+                text="Unable to Export .glb",
+                secondary_text=str(exc),
+            )
+            err_dlg.connect("response", lambda d, _r: d.destroy())
+            err_dlg.present()
 
     def on_open_in_blender(self, action: Gio.SimpleAction, parameter) -> None:
         """Export the current project and launch Blender with Home Builder 5."""

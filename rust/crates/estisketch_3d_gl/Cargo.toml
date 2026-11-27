@@ -5,5 +5,8 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
+bytemuck = { version = "1.25", features = ["derive"] }
 estisketch_3d_core = { path = "../estisketch_3d_core" }
+glam = "0.29"
 glow = "0.14"
+libloading = "0.8"

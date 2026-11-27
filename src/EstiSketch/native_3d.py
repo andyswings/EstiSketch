@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import json
+from pathlib import Path
 from typing import Protocol, cast
 
 from .scene_ir import SceneDeltaIR, SceneIR
@@ -37,6 +38,78 @@ class NativeSceneSessionProtocol(Protocol):
         """Return number of loaded scene entities."""
         ...
 
+    def mesh_stats_json(self) -> str:
+        """Return compiled 3D mesh statistics JSON."""
+        ...
+
+    def export_glb(self, output_path: str) -> int:
+        """Export current compiled 3D scene to `.glb` and return bytes written."""
+        ...
+
+    def init_gl(self) -> None:
+        """Initialize OpenGL 3.3 Core resources inside active GL context."""
+        ...
+
+    def destroy_gl(self) -> None:
+        """Release all GPU buffers, textures, and shaders cleanly."""
+        ...
+
+    def resize_gl(self, width: int, height: int) -> None:
+        """Update framebuffer viewport size in physical pixels."""
+        ...
+
+    def render_gl(self) -> None:
+        """Render shadow, sky, opaque PBR, and transparent passes."""
+        ...
+
+    def set_camera_mode(self, mode: str) -> None:
+        """Switch between ``orbit`` and ``walkthrough`` camera modes."""
+        ...
+
+    def orbit_drag(self, dx: float, dy: float) -> None:
+        """Rotate orbit camera or walkthrough head by pointer delta in pixels."""
+        ...
+
+    def pan_drag(self, dx: float, dy: float) -> None:
+        """Pan camera parallel to view plane by pointer delta in pixels."""
+        ...
+
+    def zoom_scroll(self, delta: float) -> None:
+        """Zoom camera by scroll wheel delta."""
+        ...
+
+    def walk_move(self, forward: float, right: float, up: float) -> None:
+        """Translate camera eye/target incrementally in meters."""
+        ...
+
+    def set_camera_preset(self, preset: str) -> None:
+        """Apply standard view preset (``iso``, ``top``, ``front``, ``back``, ``left``, ``right``)."""
+        ...
+
+    def fit_scene(self) -> None:
+        """Fit orbit camera smoothly around the current scene bounding box."""
+        ...
+
+    def jump_to_room(self, x_m: float, y_m: float, floor_z_m: float) -> None:
+        """Enter walkthrough mode at eye height (`1.676 m`) above `(x_m, y_m, floor_z_m)`."""
+        ...
+
+    def set_render_style(self, style: str) -> None:
+        """Set visual style (``textured``, ``clay``, ``sketch``, ``xray``)."""
+        ...
+
+    def set_time_of_day(self, hour: float) -> None:
+        """Set sun daylight hour (`6.0` to `20.0`)."""
+        ...
+
+    def set_dollhouse_level(self, level_id: str | None) -> None:
+        """Slice display up to the specified level ID (or ``None`` for all levels)."""
+        ...
+
+    def set_auto_hide_roofs(self, enabled: bool) -> None:
+        """Toggle hiding roofs and top ceilings when viewing from above."""
+        ...
+
 
 class _NativeModuleProtocol(Protocol):
     NATIVE_3D_VERSION: str
@@ -46,6 +119,12 @@ class _NativeModuleProtocol(Protocol):
         ...
 
     def summarize_scene_ir(self, scene_json: str) -> str:
+        ...
+
+    def scene_mesh_stats(self, scene_json: str) -> str:
+        ...
+
+    def export_scene_glb(self, scene_json: str, output_path: str) -> int:
         ...
 
     def NativeSceneSession(self) -> NativeSceneSessionProtocol:
@@ -113,6 +192,24 @@ def summarize_scene_ir(scene: SceneIR | str) -> dict[str, object]:
     if not isinstance(parsed, dict):
         raise ValueError("Expected JSON object from _native_3d.summarize_scene_ir")
     return cast(dict[str, object], parsed)
+
+
+def scene_mesh_stats(scene: SceneIR | str) -> dict[str, object]:
+    """Build 3D scene meshes in Rust headlessly and return vertex/triangle/bounds stats."""
+    mod = _require_native()
+    payload = scene if isinstance(scene, str) else scene.to_json()
+    raw = mod.scene_mesh_stats(payload)
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise ValueError("Expected JSON object from _native_3d.scene_mesh_stats")
+    return cast(dict[str, object], parsed)
+
+
+def export_scene_glb(scene: SceneIR | str, output_path: str | Path) -> int:
+    """Export ``scene`` directly to a binary glTF 2.0 ``.glb`` file via Rust."""
+    mod = _require_native()
+    payload = scene if isinstance(scene, str) else scene.to_json()
+    return mod.export_scene_glb(payload, str(output_path))
 
 
 def create_native_session() -> NativeSceneSessionProtocol:

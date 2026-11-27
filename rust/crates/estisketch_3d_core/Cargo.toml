@@ -5,5 +5,8 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
+bytemuck = { version = "1.25", features = ["derive"] }
+earcutr = "0.4"
+glam = "0.29"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

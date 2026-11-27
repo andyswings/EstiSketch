@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import json
+import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -244,6 +246,36 @@ def test_native_3d_round_trip_and_session() -> None:
     with pytest.raises(ValueError):
         native_3d.echo_scene_ir(SceneIR(schema_version=99).to_json())
     assert removed_wall_id in delta.removed_ids
+
+
+@pytest.mark.parametrize("xml_path", _sample_xml_paths(), ids=lambda p: p.name)
+def test_native_3d_meshing_and_glb_export(xml_path: Path, tmp_path: Path) -> None:
+    if not native_3d.is_native_3d_available():
+        pytest.skip(f"_native_3d not built: {native_3d.native_3d_load_error()}")
+
+    ir = build_scene_ir_from_xml(str(xml_path))
+    stats = native_3d.scene_mesh_stats(ir)
+    part_count = stats["part_count"]
+    tri_count = stats["triangle_count"]
+    assert isinstance(part_count, int) and part_count > 0
+    assert isinstance(tri_count, int) and tri_count > 10
+
+    glb_path = tmp_path / f"{xml_path.stem}.glb"
+    written = native_3d.export_scene_glb(ir, glb_path)
+    assert written == glb_path.stat().st_size
+    raw = glb_path.read_bytes()
+    magic, version, total_len = struct.unpack("<III", raw[:12])
+    assert magic == 0x46546C67
+    assert version == 2
+    assert total_len == len(raw)
+
+    json_len, json_type = struct.unpack("<II", raw[12:20])
+    assert json_type == 0x4E4F534A
+    json_slice = raw[20 : 20 + json_len]  # noqa: E203
+    doc = json.loads(json_slice.decode("utf-8"))
+    assert doc["asset"]["version"] == "2.0"
+    assert len(doc["nodes"]) == part_count
+    assert doc["nodes"][0]["extras"]["estisketch_id"]
 
 
 def ir_count(ir: SceneIR) -> int:
