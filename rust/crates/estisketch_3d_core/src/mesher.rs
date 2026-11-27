@@ -188,8 +188,9 @@ struct MiterProfile {
 fn segment_miter_profile(seg: &WallSegmentIR, len: f32) -> MiterProfile {
     let t = seg.thickness_m as f32;
     let max_shear = 4.0 * t;
-    let shear_l = (-(seg.left_angle_rad as f32).tan() * t).clamp(-max_shear, max_shear);
-    let shear_r = (-(seg.right_angle_rad as f32).tan() * t).clamp(-max_shear, max_shear);
+    // Matches `solve_hb5_miter_angles` convention: right_a / left_b > 0 extends the outer face.
+    let shear_l = ((seg.left_angle_rad as f32).tan() * t).clamp(-max_shear, max_shear);
+    let shear_r = ((seg.right_angle_rad as f32).tan() * t).clamp(-max_shear, max_shear);
 
     let mut u_r0 = shear_l;
     let mut u_r1 = len + shear_r;
@@ -203,14 +204,6 @@ fn segment_miter_profile(seg: &WallSegmentIR, len: f32) -> MiterProfile {
         s_r0: u_r0,
         s_r1: u_r1,
     }
-}
-
-fn lerp_u(u: f32, u_min: f32, u_max: f32, out_min: f32, out_max: f32) -> f32 {
-    if (u_max - u_min).abs() <= 1e-6 {
-        return out_min;
-    }
-    let f = ((u - u_min) / (u_max - u_min)).clamp(0.0, 1.0);
-    out_min + (out_max - out_min) * f
 }
 
 fn emit_wall_meshes(wall: &WallIR, z_base: f32, parts: &mut Vec<MeshPart>) {
@@ -236,12 +229,20 @@ fn emit_wall_meshes(wall: &WallIR, z_base: f32, parts: &mut Vec<MeshPart>) {
         let miter = segment_miter_profile(seg, len);
 
         let pt_left = |u: f32, z: f32| -> Vec3 {
-            let ul = lerp_u(u, 0.0, len, miter.s_l0, miter.s_l1);
+            let ul = u.clamp(miter.s_l0, miter.s_l1);
             let xy = p0 + d * ul;
             Vec3::new(xy.x, xy.y, z_base + z)
         };
         let pt_right = |u: f32, z: f32| -> Vec3 {
-            let ur = lerp_u(u, 0.0, len, miter.s_r0, miter.s_r1);
+            let r_min = miter.s_r0.min(miter.s_r1);
+            let r_max = miter.s_r0.max(miter.s_r1);
+            let ur = if u <= 1e-4 {
+                miter.s_r0
+            } else if u >= len - 1e-4 {
+                miter.s_r1
+            } else {
+                u.clamp(r_min, r_max)
+            };
             let xy = p0 + d * ur + n * thick;
             Vec3::new(xy.x, xy.y, z_base + z)
         };
@@ -546,31 +547,16 @@ fn emit_baseboards_for_segment(
     let bevel_h = 0.018f32;
     let rot_z = d.y.atan2(d.x);
     let max_m = 4.0 * bb_t;
-    let left_ext0 = if seg.left_angle_rad.abs() > 1e-4 {
-        ((seg.left_angle_rad as f32).tan() * bb_t).clamp(-max_m, max_m)
-    } else {
-        0.0
-    };
-    let left_ext1 = if seg.right_angle_rad.abs() > 1e-4 {
-        (-(seg.right_angle_rad as f32).tan() * bb_t).clamp(-max_m, max_m)
-    } else {
-        0.0
-    };
+    let miter = segment_miter_profile(seg, len);
+    let shift_l = ((seg.left_angle_rad as f32).tan() * bb_t).clamp(-max_m, max_m);
+    let shift_r = ((seg.right_angle_rad as f32).tan() * bb_t).clamp(-max_m, max_m);
 
     for (s0, s1) in spans {
-        let m0 = if s0 <= 1e-3 {
-            s0 - left_ext0.max(0.0)
-        } else {
-            s0
-        };
-        let m1 = if s1 >= len - 1e-3 {
-            s1 + left_ext1.max(0.0)
-        } else {
-            s1
-        };
-        let span_len = (m1 - m0).max(0.02);
-        let uc = 0.5 * (m0 + m1);
         if seg.left_baseboard {
+            let m0 = if s0 <= 1e-3 { s0 - shift_l } else { s0 };
+            let m1 = if s1 >= len - 1e-3 { s1 - shift_r } else { s1 };
+            let span_len = (m1 - m0).max(0.02);
+            let uc = 0.5 * (m0 + m1);
             let center = p0 + d * uc - n * (bb_t * 0.5);
             trim_mb.push_oriented_box(
                 Vec3::new(center.x, center.y, z_base + (bb_h - bevel_h) * 0.5),
@@ -586,6 +572,14 @@ fn emit_baseboards_for_segment(
             );
         }
         if seg.right_baseboard {
+            let m0 = if s0 <= 1e-3 { miter.s_r0 + shift_l } else { s0 };
+            let m1 = if s1 >= len - 1e-3 {
+                miter.s_r1 + shift_r
+            } else {
+                s1
+            };
+            let span_len = (m1 - m0).max(0.02);
+            let uc = 0.5 * (m0 + m1);
             let center = p0 + d * uc + n * (thick + bb_t * 0.5);
             trim_mb.push_oriented_box(
                 Vec3::new(center.x, center.y, z_base + (bb_h - bevel_h) * 0.5),
@@ -687,9 +681,10 @@ fn emit_roof_meshes(roof: &RoofIR, ext_finish: &str, parts: &mut Vec<MeshPart>) 
         if avg_n.z < 0.0 {
             clean.reverse();
         }
-        let bot: Vec<Vec3> = clean
+        // `clean` sits on the bearing plate / soffit plane; extrude roof deck upward matching HB5.
+        let top: Vec<Vec3> = clean
             .iter()
-            .map(|p| Vec3::new(p.x, p.y, p.z - thick))
+            .map(|p| Vec3::new(p.x, p.y, p.z + thick))
             .collect();
 
         // Project onto horizontal plane for clean earcutr triangulation of polygon facet
@@ -698,24 +693,24 @@ fn emit_roof_meshes(roof: &RoofIR, ext_finish: &str, parts: &mut Vec<MeshPart>) 
         let tris = earcutr::earcut(&coords, &[], 2).unwrap_or_default();
         if !tris.is_empty() {
             for &[i0, i1, i2] in tris.as_chunks::<3>().0 {
-                let a = clean[i0];
-                let b = clean[i1];
-                let c = clean[i2];
-                roof_mb.push_tri(a, b, c, [[a.x, a.y], [b.x, b.y], [c.x, c.y]]);
-                let ba = bot[i0];
-                let bb = bot[i1];
-                let bc = bot[i2];
+                let ta = top[i0];
+                let tb = top[i1];
+                let tc = top[i2];
+                roof_mb.push_tri(ta, tb, tc, [[ta.x, ta.y], [tb.x, tb.y], [tc.x, tc.y]]);
+                let ba = clean[i0];
+                let bb = clean[i1];
+                let bc = clean[i2];
                 roof_mb.push_tri(ba, bc, bb, [[ba.x, ba.y], [bc.x, bc.y], [bb.x, bb.y]]);
             }
         } else {
             for i in 1..(clean.len() - 1) {
-                let a = clean[0];
-                let b = clean[i];
-                let c = clean[i + 1];
-                roof_mb.push_tri(a, b, c, [[a.x, a.y], [b.x, b.y], [c.x, c.y]]);
-                let ba = bot[0];
-                let bb = bot[i];
-                let bc = bot[i + 1];
+                let ta = top[0];
+                let tb = top[i];
+                let tc = top[i + 1];
+                roof_mb.push_tri(ta, tb, tc, [[ta.x, ta.y], [tb.x, tb.y], [tc.x, tc.y]]);
+                let ba = clean[0];
+                let bb = clean[i];
+                let bc = clean[i + 1];
                 roof_mb.push_tri(ba, bc, bb, [[ba.x, ba.y], [bc.x, bc.y], [bb.x, bb.y]]);
             }
         }
@@ -723,7 +718,7 @@ fn emit_roof_meshes(roof: &RoofIR, ext_finish: &str, parts: &mut Vec<MeshPart>) 
         // Fascia perimeter quads
         for i in 0..clean.len() {
             let j = (i + 1) % clean.len();
-            roof_mb.push_quad(bot[i], bot[j], clean[j], clean[i]);
+            roof_mb.push_quad(clean[i], clean[j], top[j], top[i]);
         }
     }
 
@@ -1312,6 +1307,108 @@ mod tests {
             .parts
             .iter()
             .any(|p| p.entity_kind == "roof" && p.sub_part == "GableInfill"));
+    }
+
+    #[test]
+    fn wall_outside_corner_miters_to_exact_point() {
+        let mut scene = rich_scene();
+        scene.rooms.clear();
+        scene.roofs.clear();
+        scene.footers.clear();
+        scene.rim_bands.clear();
+        scene.stairs.clear();
+        scene.fixtures.clear();
+        scene.openings.clear();
+        scene.walls = vec![
+            WallIR {
+                id: "w_a".into(),
+                level_id: "lvl_1".into(),
+                layer_id: "layer_0".into(),
+                visible: true,
+                locked: false,
+                segments: vec![WallSegmentIR {
+                    seg_index: 0,
+                    start_m: [-3.0, 0.0],
+                    end_m: [0.0, 0.0],
+                    thickness_m: 0.15,
+                    height_start_m: 2.4,
+                    height_end_m: 2.4,
+                    left_angle_rad: 0.0,
+                    right_angle_rad: std::f64::consts::FRAC_PI_4,
+                    exterior: true,
+                    left_finish: "Drywall".into(),
+                    right_finish: "Siding".into(),
+                    left_color: None,
+                    right_color: None,
+                    left_baseboard: false,
+                    right_baseboard: false,
+                    opening_cuts: vec![],
+                }],
+                custom_3d_override: None,
+            },
+            WallIR {
+                id: "w_b".into(),
+                level_id: "lvl_1".into(),
+                layer_id: "layer_0".into(),
+                visible: true,
+                locked: false,
+                segments: vec![WallSegmentIR {
+                    seg_index: 0,
+                    start_m: [0.0, 0.0],
+                    end_m: [0.0, -3.0],
+                    thickness_m: 0.15,
+                    height_start_m: 2.4,
+                    height_end_m: 2.4,
+                    left_angle_rad: -std::f64::consts::FRAC_PI_4,
+                    right_angle_rad: 0.0,
+                    exterior: true,
+                    left_finish: "Drywall".into(),
+                    right_finish: "Siding".into(),
+                    left_color: None,
+                    right_color: None,
+                    left_baseboard: false,
+                    right_baseboard: false,
+                    opening_cuts: vec![],
+                }],
+                custom_3d_override: None,
+            },
+        ];
+
+        let mut state = SceneState::new();
+        state.load_scene(scene).unwrap();
+        let built = build_scene_mesh(&state);
+
+        let has_outer_corner = |wall_id: &str| {
+            built.parts.iter().any(|p| {
+                p.entity_id == wall_id
+                    && p.sub_part == "RightFace"
+                    && p.vertices
+                        .iter()
+                        .any(|v| (v.pos[0] - 0.15).abs() < 1e-4 && (v.pos[1] - 0.15).abs() < 1e-4)
+            })
+        };
+        assert!(
+            has_outer_corner("w_a"),
+            "Wall A outer face missed miter point (0.15, 0.15)"
+        );
+        assert!(
+            has_outer_corner("w_b"),
+            "Wall B outer face missed miter point (0.15, 0.15)"
+        );
+    }
+
+    #[test]
+    fn roof_deck_extrudes_upward_above_eave_plate() {
+        let mut state = SceneState::new();
+        state.load_scene(rich_scene()).unwrap();
+        let built = build_scene_mesh(&state);
+        let roof_part = built
+            .parts
+            .iter()
+            .find(|p| p.entity_kind == "roof" && p.sub_part == "RoofDeck")
+            .expect("roof deck");
+        assert!((roof_part.z_min_m - 2.4384).abs() < 1e-3);
+        assert!(roof_part.z_max_m >= 3.6 + 0.19);
     }
 
     #[test]
