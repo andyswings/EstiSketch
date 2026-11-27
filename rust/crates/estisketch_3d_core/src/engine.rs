@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::scene_ir::{
     CustomAssetIR, FixtureIR, FooterIR, LevelIR, OpeningIR, Point2D, RimBandIR, RoofIR, RoomIR,
-    SCENE_IR_SCHEMA_VERSION, SceneDeltaIR, SceneIR, StairIR, SunIR, WallIR,
+    SceneDeltaIR, SceneIR, StairIR, SunIR, WallIR, SCENE_IR_SCHEMA_VERSION,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -223,7 +223,7 @@ impl SceneState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene_ir::{WallSegmentIR};
+    use crate::scene_ir::WallSegmentIR;
 
     fn sample_scene() -> SceneIR {
         SceneIR {

@@ -1,6 +1,6 @@
 # EstiSketch Coding Guidelines
 
-Mandatory standards for all LLM-generated and edited code in the EstiSketch repository (`Python >= 3.10`, GTK4 / PyGObject, PyCairo, NumPy, optional ReportLab, and the Blender `bpy` bridge). Apply these rules to all new files and modified code without performing unrelated refactors on untouched legacy code.
+Mandatory standards for all LLM-generated and edited code in the EstiSketch repository (`Python >= 3.10`, GTK4 / PyGObject, PyCairo, NumPy, optional ReportLab, the Blender `bpy` bridge, and the `rust/` 3D engine workspace built with PyO3 `abi3-py310`, `glow`, and Serde). Apply these rules to all new files and modified code without performing unrelated refactors on untouched legacy code.
 
 ---
 
@@ -92,7 +92,32 @@ Mandatory standards for all LLM-generated and edited code in the EstiSketch repo
 - **Verification before completion**:
   - Run targeted `pytest` suites (and full `pytest` for shared/core changes) after your final edit.
   - Run `flake8` on all created or modified Python files.
+  - Whenever any file under `rust/` is created or modified, complete the full Rust build, lint, test, and native extension staging workflow in **Section 7** so everything necessary is compiled and ready to test immediately.
 - **TODO / Done tracking**: Every completed fix or feature must be recorded in `TODO.md` under `## Done ✅ (latest first)` (and checked off or removed from the backlog section if it was tracked there).
 - **Scoped changes**:
   - Keep diffs strictly scoped to the request. Do not leave debug `print` statements, scratch files, or commented-out dead code in the repository.
-  - Never commit or track generated build/packaging artifacts (`dist/`, `build/`, `build_deb/`, `build_pyinstaller/`, `.venv/`, `__pycache__/`).
+  - Never commit or track generated build/packaging artifacts (`dist/`, `build/`, `build_deb/`, `build_pyinstaller/`, `.venv/`, `__pycache__/`, `rust/target/`, `src/EstiSketch/_native_3d*.{so,pyd,dylib}`).
+
+---
+
+## 7. Rust Coding Guidelines (`rust/`)
+
+- **Formatting & Naming**:
+  - Follow `rustfmt` defaults (4 spaces per indentation level, LF line endings, max width 100 chars).
+  - Use `snake_case` for modules, crates, functions, methods, and local variables; `PascalCase` for structs, enums, traits, and type aliases; and `UPPER_SNAKE_CASE` for constants and statics.
+  - Document public structs, fields with physical meanings, traits, functions, and error conditions with `///` (or `//!` at module level), explicitly specifying physical units (`meters`, `radians`, `degrees`) and coordinate conventions (3D world space is centered **meters**, **Z-up**).
+- **Crate Architecture & Separation**:
+  - `estisketch_3d_core`: Pure-Rust data models (`SceneIR`, `SceneDeltaIR`), procedural meshers, BVH/spatial indexing, and scene state. Keep it strictly free of `glow`, GTK, and `pyo3` dependencies so core logic builds and runs headlessly with `cargo test`.
+  - `estisketch_3d_gl`: OpenGL 3.3 Core (`glow`) rendering pipeline and GPU resource management. Keep it strictly free of `pyo3` dependencies, and ensure every allocated GL buffer, texture, VAO, framebuffer, and shader program has an explicit teardown/cleanup path.
+  - `estisketch_3d_py`: Thin PyO3 (`abi3-py310`) binding layer exporting `EstiSketch._native_3d`. Keep business logic out of `estisketch_3d_py`; translate Rust errors cleanly into `PyValueError` / `PyRuntimeError` and never panic across FFI.
+- **Error Handling, Safety & Schema Invariants**:
+  - Prefer safe Rust everywhere. Use `unsafe` only at unavoidable FFI/GL boundaries (e.g., OpenGL loader function pointers or `glow` calls), keeping blocks minimal with a `// SAFETY: ...` comment explaining why the invariants hold.
+  - Never use `.unwrap()` or `.expect()` in non-test library code; return `Result<T, E>` (or explicit contextual errors) and propagate with `?`. `.unwrap()` / `.expect()` is permitted inside `#[cfg(test)]` unit tests.
+  - Keep `SceneIR` and `SceneDeltaIR` structs strictly synchronized with `src/EstiSketch/scene_ir/schema.py`, preserve `schema_version` validation, and ensure changes stay non-destructive with respect to caller state.
+- **Mandatory Compile & Verification for Testing**:
+  - **Every time anything in `rust/` changes, compile everything necessary for immediate user testing before finishing:** run `python3 packaging/build_native_3d.py` to compile `estisketch_3d_py` in `--release` and stage the updated `src/EstiSketch/_native_3d.abi3.so` (or `_native_3d.pyd` on Windows) into `src/EstiSketch/` so `run_dev.py` and `pytest` never run against stale native binaries.
+  - Always verify formatting, lints, Rust tests, and Python FFI integration after final Rust edits:
+    - `cargo fmt --manifest-path rust/Cargo.toml --check`
+    - `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings`
+    - `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo test --manifest-path rust/Cargo.toml`
+    - `python3 packaging/build_native_3d.py && python3 -m pytest tests/test_scene_ir.py -q` (plus any other relevant test suites).

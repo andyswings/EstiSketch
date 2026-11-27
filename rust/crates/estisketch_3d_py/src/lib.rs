@@ -1,4 +1,4 @@
-use estisketch_3d_core::{SCENE_IR_SCHEMA_VERSION, SceneDeltaIR, SceneIR, SceneState};
+use estisketch_3d_core::{SceneDeltaIR, SceneIR, SceneState, SCENE_IR_SCHEMA_VERSION};
 use estisketch_3d_gl::GlRenderer;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
