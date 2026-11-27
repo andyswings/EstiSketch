@@ -2,7 +2,7 @@ use std::path::Path;
 
 use estisketch_3d_core::{
     build_scene_mesh_with_assets, write_glb_file, AssetLibrary, BuiltSceneMesh, SceneDeltaIR,
-    SceneIR, SceneState, SCENE_IR_SCHEMA_VERSION,
+    SceneIR, ScenePicker, SceneState, SCENE_IR_SCHEMA_VERSION,
 };
 use estisketch_3d_gl::{CameraMode, CameraPreset, GlRenderer, RenderStyle};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -60,6 +60,7 @@ pub struct NativeSceneSession {
     renderer: GlRenderer,
     assets: Option<AssetLibrary>,
     cached_mesh: Option<BuiltSceneMesh>,
+    cached_picker: Option<ScenePicker>,
     has_loaded_once: bool,
 }
 
@@ -74,9 +75,18 @@ impl NativeSceneSession {
             self.renderer
                 .set_scene_mesh(built.clone(), self.state.sun.clone(), auto_fit);
             self.cached_mesh = Some(built);
+            self.cached_picker = None;
         }
         self.cached_mesh
             .get_or_insert_with(|| build_scene_mesh_with_assets(&self.state, None))
+    }
+
+    fn ensure_picker(&mut self) -> &ScenePicker {
+        if self.cached_picker.is_none() {
+            let built = self.ensure_mesh(!self.has_loaded_once).clone();
+            self.cached_picker = Some(ScenePicker::from_mesh(&built));
+        }
+        self.cached_picker.get_or_insert_with(ScenePicker::default)
     }
 
     fn mark_mesh_dirty(&mut self, fit_camera: bool) {
@@ -84,6 +94,7 @@ impl NativeSceneSession {
         self.renderer
             .set_scene_mesh(built.clone(), self.state.sun.clone(), fit_camera);
         self.cached_mesh = Some(built);
+        self.cached_picker = None;
     }
 }
 
@@ -96,6 +107,7 @@ impl NativeSceneSession {
             renderer: GlRenderer::default(),
             assets: None,
             cached_mesh: None,
+            cached_picker: None,
             has_loaded_once: false,
         }
     }
@@ -232,6 +244,58 @@ impl NativeSceneSession {
 
     fn set_auto_hide_roofs(&mut self, enabled: bool) {
         self.renderer.auto_hide_roofs = enabled;
+    }
+
+    fn screen_ray(&self, ndc_x: f32, ndc_y: f32) -> ([f32; 3], [f32; 3]) {
+        let (origin, dir) = self.renderer.screen_ray(ndc_x, ndc_y);
+        (origin.to_array(), dir.to_array())
+    }
+
+    fn pick_screen(&mut self, ndc_x: f32, ndc_y: f32) -> PyResult<Option<String>> {
+        let (origin, dir) = self.renderer.screen_ray(ndc_x, ndc_y);
+        let filter = self.renderer.active_pick_filter();
+        let hit = self.ensure_picker().pick_ray(origin, dir, &filter);
+        hit.map(|h| serde_json::to_string(&h).map_err(to_py_runtime_error))
+            .transpose()
+    }
+
+    fn pick_ray(&mut self, origin: [f32; 3], direction: [f32; 3]) -> PyResult<Option<String>> {
+        let filter = self.renderer.active_pick_filter();
+        let hit = self
+            .ensure_picker()
+            .pick_ray_coords(origin, direction, &filter);
+        hit.map(|h| serde_json::to_string(&h).map_err(to_py_runtime_error))
+            .transpose()
+    }
+
+    fn set_selected_entities(&mut self, entity_ids: Vec<String>) {
+        self.renderer.selected_entity_ids = entity_ids;
+    }
+
+    fn set_hovered_entity(
+        &mut self,
+        entity_id: Option<String>,
+        sub_part: Option<String>,
+        sub_part_only: bool,
+    ) {
+        self.renderer.hovered_entity_id = entity_id.filter(|s| !s.is_empty());
+        self.renderer.hovered_sub_part = sub_part.filter(|s| !s.is_empty());
+        self.renderer.hover_sub_part_only = sub_part_only;
+    }
+
+    fn set_transform_preview(
+        &mut self,
+        entity_id: String,
+        pivot_m: [f32; 3],
+        delta_pos_m: [f32; 3],
+        delta_rot_z_rad: f32,
+    ) {
+        self.renderer
+            .set_transform_preview(entity_id, pivot_m, delta_pos_m, delta_rot_z_rad);
+    }
+
+    fn clear_transform_preview(&mut self) {
+        self.renderer.transform_preview = None;
     }
 }
 

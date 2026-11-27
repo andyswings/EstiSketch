@@ -7,7 +7,8 @@ pub mod shaders;
 use std::num::NonZeroU32;
 
 use estisketch_3d_core::{
-    BuiltSceneMesh, LevelBounds, MaterialDef, MaterialStyle, SceneSummary, SunIR,
+    is_part_visible, BuiltSceneMesh, LevelBounds, MaterialDef, MaterialStyle, PickFilter,
+    SceneSummary, SunIR,
 };
 use glam::{Mat4, Vec3};
 use glow::HasContext;
@@ -48,11 +49,35 @@ pub struct RendererStatus {
     pub gl_initialized: bool,
 }
 
+/// Live GPU-side model matrix override used during 60 FPS drag/rotation previews.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TransformPreview {
+    /// Target `SceneIR` entity identifier being transformed.
+    pub entity_id: String,
+    /// Rotation pivot in world **meters** (Z-up).
+    pub pivot_m: Vec3,
+    /// Translation offset from initial state in **meters**.
+    pub delta_pos_m: Vec3,
+    /// Rotation delta around Z axis in **radians**.
+    pub delta_rot_z_rad: f32,
+}
+
+impl TransformPreview {
+    /// Compute the world model matrix applying rotation around `pivot_m` followed by translation.
+    pub fn model_matrix(&self) -> Mat4 {
+        Mat4::from_translation(self.pivot_m + self.delta_pos_m)
+            * Mat4::from_rotation_z(self.delta_rot_z_rad)
+            * Mat4::from_translation(-self.pivot_m)
+    }
+}
+
 struct GpuPart {
     vao: glow::VertexArray,
     vbo: glow::Buffer,
     ebo: glow::Buffer,
     index_count: i32,
+    entity_id: String,
+    sub_part: String,
     level_id: String,
     is_roof_or_ceiling: bool,
     is_wall: bool,
@@ -209,6 +234,8 @@ impl GlGpuState {
                     vbo,
                     ebo,
                     index_count: part.indices.len() as i32,
+                    entity_id: part.entity_id.clone(),
+                    sub_part: part.sub_part.clone(),
                     level_id: part.level_id.clone(),
                     is_roof_or_ceiling: part.is_roof_or_ceiling,
                     is_wall: part.is_wall,
@@ -272,6 +299,16 @@ pub struct GlRenderer {
     pub levels: Vec<LevelBounds>,
     /// Sun/north orientation from SceneIR.
     pub sun: SunIR,
+    /// Entity IDs currently highlighted as selected in the 3D viewport.
+    pub selected_entity_ids: Vec<String>,
+    /// Hovered entity ID under the pointer in 3D view.
+    pub hovered_entity_id: Option<String>,
+    /// Hovered sub-part label (used by Paint Brush face-only hover tinting).
+    pub hovered_sub_part: Option<String>,
+    /// When true, only highlight the hovered sub-part rather than the whole entity.
+    pub hover_sub_part_only: bool,
+    /// Active 60 FPS GPU transform preview override for dragged/rotated fixtures.
+    pub transform_preview: Option<TransformPreview>,
 }
 
 impl Default for GlRenderer {
@@ -298,6 +335,11 @@ impl GlRenderer {
             bounds_max: [4.0, 4.0, 3.5],
             levels: Vec::new(),
             sun: SunIR::default(),
+            selected_entity_ids: Vec::new(),
+            hovered_entity_id: None,
+            hovered_sub_part: None,
+            hover_sub_part_only: false,
+            transform_preview: None,
         }
     }
 
@@ -375,21 +417,83 @@ impl GlRenderer {
         Vec3::new(elev.cos() * az.cos(), elev.cos() * az.sin(), elev.sin()).normalize_or_zero()
     }
 
-    fn part_visible(&self, part: &GpuPart, hide_roofs: bool, level_cutoff: Option<f32>) -> bool {
-        if hide_roofs && part.is_roof_or_ceiling {
-            return false;
+    /// Compute active viewport aspect ratio (`width / height`).
+    pub fn aspect_ratio(&self) -> f32 {
+        (self.viewport_width as f32) / (self.viewport_height.max(1) as f32)
+    }
+
+    /// Unproject OpenGL NDC coordinates `(ndc_x, ndc_y)` into `(origin_m, dir_m)`.
+    pub fn screen_ray(&self, ndc_x: f32, ndc_y: f32) -> (Vec3, Vec3) {
+        self.camera.screen_ray(ndc_x, ndc_y, self.aspect_ratio())
+    }
+
+    /// Apply a zero-rebuild GPU model matrix offset for smooth 60 FPS interactive drags.
+    pub fn set_transform_preview(
+        &mut self,
+        entity_id: String,
+        pivot_m: [f32; 3],
+        delta_pos_m: [f32; 3],
+        delta_rot_z_rad: f32,
+    ) {
+        self.transform_preview = Some(TransformPreview {
+            entity_id,
+            pivot_m: Vec3::from_array(pivot_m),
+            delta_pos_m: Vec3::from_array(delta_pos_m),
+            delta_rot_z_rad,
+        });
+    }
+
+    /// Build the active visibility filter matching Dollhouse & Auto-Hide Roofs state.
+    pub fn active_pick_filter(&self) -> PickFilter {
+        let hide_roofs = self.auto_hide_roofs
+            && (self.camera.is_looking_down() || self.dollhouse_level_id.is_some());
+        let level_cutoff_z_m = self.dollhouse_level_id.as_ref().and_then(|id| {
+            self.levels
+                .iter()
+                .find(|lvl| lvl.id == *id)
+                .map(|lvl| lvl.top_z_m)
+        });
+        PickFilter {
+            hide_roofs,
+            dollhouse_level_id: self.dollhouse_level_id.clone(),
+            level_cutoff_z_m,
         }
-        if let Some(cutoff) = level_cutoff {
-            if let Some(ref active_id) = self.dollhouse_level_id {
-                if part.level_id != *active_id && part.z_min_m > cutoff - 0.05 {
-                    return false;
-                }
-            }
-            if part.z_max_m > cutoff + 0.15 && part.is_roof_or_ceiling {
-                return false;
+    }
+
+    fn part_visible(&self, part: &GpuPart, filter: &PickFilter) -> bool {
+        is_part_visible(
+            &part.level_id,
+            part.is_roof_or_ceiling,
+            part.z_min_m,
+            part.z_max_m,
+            filter,
+        )
+    }
+
+    fn part_model_matrix(&self, entity_id: &str) -> Mat4 {
+        if let Some(ref preview) = self.transform_preview {
+            if preview.entity_id == entity_id {
+                return preview.model_matrix();
             }
         }
-        true
+        Mat4::IDENTITY
+    }
+
+    fn part_highlight_mode(&self, part: &GpuPart) -> i32 {
+        if self
+            .selected_entity_ids
+            .iter()
+            .any(|id| id == &part.entity_id)
+        {
+            return 2;
+        }
+        if self.hovered_entity_id.as_deref() == Some(part.entity_id.as_str())
+            && (!self.hover_sub_part_only
+                || self.hovered_sub_part.as_deref() == Some(part.sub_part.as_str()))
+        {
+            return 1;
+        }
+        0
     }
 
     /// Render shadow pass, backdrop, opaque geometry, and transparent glass into `Gtk.GLArea` FBO.
@@ -406,22 +510,14 @@ impl GlRenderer {
 
         let sun_dir = self.active_sun_direction();
         let light_vp = compute_light_vp(self.bounds_min, self.bounds_max, sun_dir);
-        let aspect = (self.viewport_width as f32) / (self.viewport_height.max(1) as f32);
+        let aspect = self.aspect_ratio();
         let view = self.camera.view_matrix();
         let proj = self.camera.proj_matrix(aspect);
         let vp = proj * view;
         let inv_vp = vp.inverse();
         let cam_pos = self.camera.eye_pos();
 
-        let hide_roofs = self.auto_hide_roofs
-            && (self.camera.is_looking_down() || self.dollhouse_level_id.is_some());
-        let level_cutoff = self.dollhouse_level_id.as_ref().and_then(|id| {
-            self.levels
-                .iter()
-                .find(|lvl| lvl.id == *id)
-                .map(|lvl| lvl.top_z_m)
-        });
-
+        let filter = self.active_pick_filter();
         let style_int = self.render_style as i32;
 
         // SAFETY: Valid current Gtk.GLArea OpenGL context; restore caller's DRAW_FRAMEBUFFER before
@@ -441,9 +537,11 @@ impl GlRenderer {
             gl.use_program(Some(gpu.shadow_prog));
             set_uniform_mat4(gl, gpu.shadow_prog, "u_light_vp", &light_vp);
             for part in &gpu.parts {
-                if part.material.transparent || !self.part_visible(part, hide_roofs, level_cutoff) {
+                if part.material.transparent || !self.part_visible(part, &filter) {
                     continue;
                 }
+                let model_mat = self.part_model_matrix(&part.entity_id);
+                set_uniform_mat4(gl, gpu.shadow_prog, "u_model", &model_mat);
                 gl.bind_vertex_array(Some(part.vao));
                 gl.draw_elements(glow::TRIANGLES, part.index_count, glow::UNSIGNED_INT, 0);
             }
@@ -500,7 +598,7 @@ impl GlRenderer {
 
             let is_xray = self.render_style == RenderStyle::XRay;
             for part in &gpu.parts {
-                if !self.part_visible(part, hide_roofs, level_cutoff) {
+                if !self.part_visible(part, &filter) {
                     continue;
                 }
                 let is_trans = part.material.transparent
@@ -509,7 +607,9 @@ impl GlRenderer {
                 if is_trans {
                     continue;
                 }
-                draw_gpu_part(gl, gpu.scene_prog, part, 1.0);
+                let model_mat = self.part_model_matrix(&part.entity_id);
+                let hl_mode = self.part_highlight_mode(part);
+                draw_gpu_part(gl, gpu.scene_prog, part, 1.0, &model_mat, hl_mode);
             }
 
             // 5. Transparent glass & X-Ray walls pass
@@ -517,7 +617,7 @@ impl GlRenderer {
             gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
             gl.depth_mask(false);
             for part in &gpu.parts {
-                if !self.part_visible(part, hide_roofs, level_cutoff) {
+                if !self.part_visible(part, &filter) {
                     continue;
                 }
                 let is_xray_wall = is_xray && part.is_wall;
@@ -527,7 +627,9 @@ impl GlRenderer {
                     continue;
                 }
                 let alpha_ovr = if is_xray_wall { 0.25 } else { 1.0 };
-                draw_gpu_part(gl, gpu.scene_prog, part, alpha_ovr);
+                let model_mat = self.part_model_matrix(&part.entity_id);
+                let hl_mode = self.part_highlight_mode(part);
+                draw_gpu_part(gl, gpu.scene_prog, part, alpha_ovr, &model_mat, hl_mode);
             }
 
             gl.depth_mask(true);
@@ -541,7 +643,18 @@ impl GlRenderer {
     }
 }
 
-unsafe fn draw_gpu_part(gl: &glow::Context, prog: glow::Program, part: &GpuPart, alpha_ovr: f32) {
+unsafe fn draw_gpu_part(
+    gl: &glow::Context,
+    prog: glow::Program,
+    part: &GpuPart,
+    alpha_ovr: f32,
+    model_mat: &Mat4,
+    highlight_mode: i32,
+) {
+    set_uniform_mat4(gl, prog, "u_model", model_mat);
+    if let Some(loc) = gl.get_uniform_location(prog, "u_highlight_mode") {
+        gl.uniform_1_i32(Some(&loc), highlight_mode);
+    }
     if let Some(loc) = gl.get_uniform_location(prog, "u_base_color") {
         let c = part.material.base_color;
         gl.uniform_4_f32(Some(&loc), c[0], c[1], c[2], c[3]);

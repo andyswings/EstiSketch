@@ -9,10 +9,69 @@ from __future__ import annotations
 
 import importlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, cast
 
 from .scene_ir import SceneDeltaIR, SceneIR
+
+
+@dataclass(frozen=True)
+class PickHit:
+    """Closest raycast intersection returned by the Rust 3D BVH picker.
+
+    Attributes:
+        entity_id: Source ``SceneIR`` entity identifier.
+        entity_kind: Entity category (``"wall"``, ``"opening"``, ``"room"``, ``"roof"``,
+            ``"stair"``, ``"fixture"``).
+        sub_part: Hit mesh sub-part (``"LeftFace"``, ``"RightFace"``, ``"RoofDeck"``, etc.).
+        world_pos_m: Intersection point ``(x, y, z)`` in **meters** (Z-up).
+        normal: Unit surface normal facing back toward the camera ray in **meters**.
+        distance_m: Distance along ray from origin in **meters**.
+    """
+
+    entity_id: str
+    entity_kind: str
+    sub_part: str
+    world_pos_m: tuple[float, float, float]
+    normal: tuple[float, float, float]
+    distance_m: float
+
+
+def _as_vec3(value: object, field_name: str) -> tuple[float, float, float]:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ValueError(f"PickHit.{field_name} must be a 3-element sequence")
+    coords: list[float] = []
+    for elem in value:
+        if not isinstance(elem, (int, float)):
+            raise ValueError(f"PickHit.{field_name} entries must be numeric")
+        coords.append(float(elem))
+    return (coords[0], coords[1], coords[2])
+
+
+def parse_pick_hit(raw_json: str | None) -> PickHit | None:
+    """Parse a JSON ``PickHit`` string from ``_native_3d`` into :class:`PickHit`."""
+    if not raw_json:
+        return None
+    parsed = json.loads(raw_json)
+    if not isinstance(parsed, dict):
+        raise ValueError("Expected JSON object for PickHit")
+    entity_id = parsed.get("entity_id")
+    entity_kind = parsed.get("entity_kind")
+    sub_part = parsed.get("sub_part")
+    distance_m = parsed.get("distance_m")
+    if not isinstance(entity_id, str) or not isinstance(entity_kind, str):
+        raise ValueError("Malformed PickHit fields from native 3D picker")
+    if not isinstance(sub_part, str) or not isinstance(distance_m, (int, float)):
+        raise ValueError("Malformed PickHit fields from native 3D picker")
+    return PickHit(
+        entity_id=entity_id,
+        entity_kind=entity_kind,
+        sub_part=sub_part,
+        world_pos_m=_as_vec3(parsed.get("world_pos_m"), "world_pos_m"),
+        normal=_as_vec3(parsed.get("normal"), "normal"),
+        distance_m=float(distance_m),
+    )
 
 
 class NativeSceneSessionProtocol(Protocol):
@@ -112,6 +171,51 @@ class NativeSceneSessionProtocol(Protocol):
 
     def set_auto_hide_roofs(self, enabled: bool) -> None:
         """Toggle hiding roofs and top ceilings when viewing from above."""
+        ...
+
+    def screen_ray(
+        self, ndc_x: float, ndc_y: float
+    ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        """Unproject OpenGL NDC coordinates ``(ndc_x, ndc_y)`` into ``(origin_m, dir_m)``."""
+        ...
+
+    def pick_screen(self, ndc_x: float, ndc_y: float) -> str | None:
+        """Raycast from NDC screen coordinates and return JSON ``PickHit`` or ``None``."""
+        ...
+
+    def pick_ray(
+        self,
+        origin: tuple[float, float, float],
+        direction: tuple[float, float, float],
+    ) -> str | None:
+        """Raycast in world **meters** and return JSON ``PickHit`` or ``None``."""
+        ...
+
+    def set_selected_entities(self, entity_ids: list[str]) -> None:
+        """Highlight selected entity IDs in the OpenGL shader pass."""
+        ...
+
+    def set_hovered_entity(
+        self,
+        entity_id: str | None,
+        sub_part: str | None,
+        sub_part_only: bool,
+    ) -> None:
+        """Highlight hovered entity or sub-part in the OpenGL shader pass."""
+        ...
+
+    def set_transform_preview(
+        self,
+        entity_id: str,
+        pivot_m: tuple[float, float, float],
+        delta_pos_m: tuple[float, float, float],
+        delta_rot_z_rad: float,
+    ) -> None:
+        """Apply zero-rebuild GPU model matrix offset for smooth interactive drags."""
+        ...
+
+    def clear_transform_preview(self) -> None:
+        """Clear any active GPU transform preview matrix override."""
         ...
 
 

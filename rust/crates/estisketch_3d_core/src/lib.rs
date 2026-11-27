@@ -12,6 +12,7 @@ pub mod materials;
 pub mod mesh;
 pub mod mesher;
 pub mod openings;
+pub mod picking;
 pub mod scene_ir;
 
 pub use assets::{load_glb_asset, parse_glb_bytes, AssetLibrary, LoadedGlbAsset};
@@ -22,6 +23,7 @@ pub use mesh::{
     MeshStats, PartFlags, Vertex,
 };
 pub use mesher::{build_scene_mesh, build_scene_mesh_with_assets};
+pub use picking::{is_part_visible, PickFilter, PickHit, ScenePicker};
 pub use scene_ir::{
     CustomAssetIR, FixtureIR, FooterIR, GableInfillIR, LevelIR, OpeningCutIR, OpeningIR, RimBandIR,
     RoofFacetIR, RoofIR, RoomIR, SceneDeltaIR, SceneIR, StairIR, SunIR, WallIR, WallSegmentIR,

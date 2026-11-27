@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import math
 
 import gi
 
@@ -10,15 +11,38 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 from .. import native_3d  # noqa: E402
+from ..Canvas.floor_patterns import FLOOR_PATTERNS  # noqa: E402
+from ..components import WALL_FINISH_OPTIONS  # noqa: E402
 from ..scene_ir import (  # noqa: E402
     SceneIR,
     build_scene_ir_from_canvas,
     diff_scene_ir,
 )
+from .editor import (  # noqa: E402
+    ROOF_MATERIAL_OPTIONS,
+    EditActionResult,
+    Editor3DController,
+    ndc_from_widget_xy,
+    select_from_hit,
+    selected_entity_ids_from_canvas,
+)
+
+_SWATCH_PALETTE: tuple[str, ...] = (
+    "#FFFFFF",
+    "#EAE6DF",
+    "#D7CEC2",
+    "#B8C4CC",
+    "#A8B5A2",
+    "#C87D55",
+    "#7D848B",
+    "#3A424D",
+)
+_FLOOR_PATTERN_IDS: tuple[str, ...] = tuple(pid for pid, _label in FLOOR_PATTERNS)
+_FLOOR_PATTERN_LABELS: list[str] = [label for _pid, label in FLOOR_PATTERNS]
 
 
 class Viewport3DWidget(Gtk.Overlay):
-    """Embedded live OpenGL 3.3 3D viewport with camera, style, and dollhouse HUD."""
+    """Embedded live OpenGL 3.3 3D viewport with camera, editing tools, and Paint Brush."""
 
     def __init__(
         self,
@@ -35,12 +59,22 @@ class Viewport3DWidget(Gtk.Overlay):
         self._canvas = canvas
         self._on_export_glb = on_export_glb
         self._session: native_3d.NativeSceneSessionProtocol | None = None
+        self._editor = Editor3DController()
         self._last_ir: SceneIR | None = None
         self._dirty: bool = True
         self._sync_source_id: int | None = None
+        self._syncing_from_3d: bool = False
         self._gl_error: str | None = None
+
         self._drag_last_x: float = 0.0
         self._drag_last_y: float = 0.0
+        self._drag_start_x: float = 0.0
+        self._drag_start_y: float = 0.0
+        self._drag_max_px: float = 0.0
+        self._drag_button: int = 0
+        self._drag_editing: bool = False
+        self._last_hover_key: tuple[str, str, bool] | None = None
+
         self._updating_dropdowns: bool = False
         self._level_ids: list[str] = []
         self._room_centers: list[tuple[float, float, float]] = []
@@ -64,6 +98,7 @@ class Viewport3DWidget(Gtk.Overlay):
         self._attach_input_controllers()
         self._build_fallback_banner()
         self._build_hud_bar()
+        self._build_status_pill()
 
         if not native_3d.is_native_3d_available():
             detail = native_3d.native_3d_load_error() or "module not compiled"
@@ -77,7 +112,13 @@ class Viewport3DWidget(Gtk.Overlay):
         drag.set_button(0)
         drag.connect("drag-begin", self._on_drag_begin)
         drag.connect("drag-update", self._on_drag_update)
+        drag.connect("drag-end", self._on_drag_end)
         self._gl_area.add_controller(drag)
+
+        motion = Gtk.EventControllerMotion()
+        motion.connect("motion", self._on_pointer_motion)
+        motion.connect("leave", self._on_pointer_leave)
+        self._gl_area.add_controller(motion)
 
         scroll = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
         scroll.connect("scroll", self._on_scroll)
@@ -104,6 +145,32 @@ class Viewport3DWidget(Gtk.Overlay):
         self._fallback_label.set_text(message)
         self._fallback_box.set_visible(True)
 
+    def _build_status_pill(self) -> None:
+        pill = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        pill.set_halign(Gtk.Align.CENTER)
+        pill.set_valign(Gtk.Align.END)
+        pill.set_margin_bottom(12)
+        pill.add_css_class("osd")
+        pill.set_can_target(False)
+        pill.set_visible(False)
+
+        self._status_label = Gtk.Label()
+        self._status_label.set_margin_start(10)
+        self._status_label.set_margin_end(10)
+        self._status_label.set_margin_top(4)
+        self._status_label.set_margin_bottom(4)
+        pill.append(self._status_label)
+        self._status_pill = pill
+        self.add_overlay(pill)
+
+    def _set_hud_message(self, message: str) -> None:
+        text = message.strip()
+        if not text:
+            self._status_pill.set_visible(False)
+            return
+        self._status_label.set_text(text)
+        self._status_pill.set_visible(True)
+
     def _build_hud_bar(self) -> None:
         hud = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         hud.set_halign(Gtk.Align.CENTER)
@@ -113,14 +180,35 @@ class Viewport3DWidget(Gtk.Overlay):
         hud.set_margin_end(8)
         hud.add_css_class("toolbar")
 
+        self._select_btn = Gtk.ToggleButton(label="Select")
+        self._select_btn.set_active(True)
+        self._select_btn.set_tooltip_text(
+            "Select & Edit 3D objects (V) — Right-drag orbits camera"
+        )
+        self._select_btn.connect("toggled", self._on_mode_toggled)
+        hud.append(self._select_btn)
+
         self._orbit_btn = Gtk.ToggleButton(label="Orbit")
-        self._orbit_btn.set_active(True)
-        self._orbit_btn.set_tooltip_text("Orbit / Dollhouse navigation")
+        self._orbit_btn.set_group(self._select_btn)
+        self._orbit_btn.set_tooltip_text("Orbit / Dollhouse navigation (O)")
         self._orbit_btn.connect("toggled", self._on_mode_toggled)
         hud.append(self._orbit_btn)
 
+        self._paint_btn = Gtk.ToggleButton(label="Paint")
+        self._paint_btn.set_group(self._select_btn)
+        self._paint_btn.set_tooltip_text(
+            "Paint Material Brush (B) — Shift+Click: Room walls | Alt+Click: Eyedropper"
+        )
+        self._paint_btn.connect("toggled", self._on_mode_toggled)
+        hud.append(self._paint_btn)
+
+        self._brush_btn = Gtk.MenuButton(label="Brush")
+        self._brush_btn.set_tooltip_text("Configure active 3D Paint Brush finishes & colors")
+        self._brush_btn.set_popover(self._build_brush_popover())
+        hud.append(self._brush_btn)
+
         self._walk_btn = Gtk.ToggleButton(label="Walk")
-        self._walk_btn.set_group(self._orbit_btn)
+        self._walk_btn.set_group(self._select_btn)
         self._walk_btn.set_tooltip_text("First-person Walkthrough (WASD + Drag look)")
         self._walk_btn.connect("toggled", self._on_mode_toggled)
         hud.append(self._walk_btn)
@@ -158,8 +246,7 @@ class Viewport3DWidget(Gtk.Overlay):
         self._style_combo.connect("notify::selected", self._on_style_changed)
         hud.append(self._style_combo)
 
-        sun_lbl = Gtk.Label(label="Sun:")
-        hud.append(sun_lbl)
+        hud.append(Gtk.Label(label="Sun:"))
         self._sun_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 6.0, 20.0, 0.25)
         self._sun_scale.set_value(13.5)
         self._sun_scale.set_size_request(90, -1)
@@ -176,6 +263,150 @@ class Viewport3DWidget(Gtk.Overlay):
         self._hud_bar = hud
         self.add_overlay(hud)
 
+    def _build_brush_popover(self) -> Gtk.Popover:
+        pop = Gtk.Popover()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+        box.set_margin_start(10)
+        box.set_margin_end(10)
+
+        box.append(self._labeled_row("Wall Finish:", self._make_wall_finish_combo()))
+
+        swatch_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        swatch_row.append(Gtk.Label(label="Wall Color:"))
+        for hex_col in _SWATCH_PALETTE:
+            btn = Gtk.Button(label=hex_col[-2:])
+            btn.set_tooltip_text(f"Set wall color {hex_col}")
+            btn.connect("clicked", self._make_wall_color_cb(hex_col))
+            swatch_row.append(btn)
+        self._wall_color_entry = Gtk.Entry()
+        self._wall_color_entry.set_width_chars(8)
+        self._wall_color_entry.set_text(self._editor.brush.wall_color)
+        self._wall_color_entry.connect("activate", self._on_wall_color_entry)
+        swatch_row.append(self._wall_color_entry)
+        box.append(swatch_row)
+
+        box.append(self._labeled_row("Floor Pattern:", self._make_floor_combo()))
+        box.append(self._labeled_row("Roof Material:", self._make_roof_combo()))
+
+        fx_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        fx_row.append(Gtk.Label(label="Cabinet/Top:"))
+        for label, fx_col, ct_col in (
+            ("Oak", "#C99F6D", "#EAE6DF"),
+            ("White", "#F4F2EE", "#D4CFC7"),
+            ("Slate", "#4A5562", "#3A424D"),
+            ("Sage", "#8CA08E", "#E5E2DC"),
+        ):
+            btn = Gtk.Button(label=label)
+            btn.connect("clicked", self._make_fixture_preset_cb(fx_col, ct_col))
+            fx_row.append(btn)
+        box.append(fx_row)
+
+        hint = Gtk.Label(
+            label="Click: paint surface  |  Shift+Click: room walls  |  Alt+Click: sample"
+        )
+        hint.add_css_class("dim-label")
+        box.append(hint)
+        pop.set_child(box)
+        self._sync_brush_widgets()
+        return pop
+
+    def _labeled_row(self, text: str, widget: Gtk.Widget) -> Gtk.Box:
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        lbl = Gtk.Label(label=text)
+        lbl.set_xalign(0.0)
+        lbl.set_size_request(100, -1)
+        row.append(lbl)
+        row.append(widget)
+        return row
+
+    def _make_wall_finish_combo(self) -> Gtk.DropDown:
+        self._brush_wall_combo = Gtk.DropDown(
+            model=Gtk.StringList.new(list(WALL_FINISH_OPTIONS))
+        )
+        self._brush_wall_combo.connect("notify::selected", self._on_brush_wall_changed)
+        return self._brush_wall_combo
+
+    def _make_floor_combo(self) -> Gtk.DropDown:
+        self._brush_floor_combo = Gtk.DropDown(model=Gtk.StringList.new(_FLOOR_PATTERN_LABELS))
+        self._brush_floor_combo.connect("notify::selected", self._on_brush_floor_changed)
+        return self._brush_floor_combo
+
+    def _make_roof_combo(self) -> Gtk.DropDown:
+        self._brush_roof_combo = Gtk.DropDown(
+            model=Gtk.StringList.new(list(ROOF_MATERIAL_OPTIONS))
+        )
+        self._brush_roof_combo.connect("notify::selected", self._on_brush_roof_changed)
+        return self._brush_roof_combo
+
+    def _make_wall_color_cb(self, hex_col: str) -> Callable[[Gtk.Button], None]:
+        def _cb(_btn: Gtk.Button) -> None:
+            self._editor.brush.wall_color = hex_col
+            self._wall_color_entry.set_text(hex_col)
+            self._paint_btn.set_active(True)
+            self._set_hud_message(f"Brush wall: {self._editor.brush.wall_finish} ({hex_col})")
+
+        return _cb
+
+    def _make_fixture_preset_cb(
+        self, fx_col: str, ct_col: str
+    ) -> Callable[[Gtk.Button], None]:
+        def _cb(_btn: Gtk.Button) -> None:
+            self._editor.brush.fixture_color = fx_col
+            self._editor.brush.countertop_color = ct_col
+            self._paint_btn.set_active(True)
+            self._set_hud_message(f"Brush cabinet {fx_col} / top {ct_col}")
+
+        return _cb
+
+    def _on_wall_color_entry(self, entry: Gtk.Entry) -> None:
+        val = entry.get_text().strip()
+        if val.startswith("#") and len(val) in (4, 7):
+            self._editor.brush.wall_color = val
+            self._set_hud_message(f"Brush wall color: {val}")
+
+    def _on_brush_wall_changed(self, combo: Gtk.DropDown, _pspec: object) -> None:
+        if self._updating_dropdowns:
+            return
+        idx = int(combo.get_selected())
+        if 0 <= idx < len(WALL_FINISH_OPTIONS):
+            self._editor.brush.wall_finish = WALL_FINISH_OPTIONS[idx]
+
+    def _on_brush_floor_changed(self, combo: Gtk.DropDown, _pspec: object) -> None:
+        if self._updating_dropdowns:
+            return
+        idx = int(combo.get_selected())
+        if 0 <= idx < len(_FLOOR_PATTERN_IDS):
+            self._editor.brush.floor_pattern = _FLOOR_PATTERN_IDS[idx]
+
+    def _on_brush_roof_changed(self, combo: Gtk.DropDown, _pspec: object) -> None:
+        if self._updating_dropdowns:
+            return
+        idx = int(combo.get_selected())
+        if 0 <= idx < len(ROOF_MATERIAL_OPTIONS):
+            self._editor.brush.roof_material = ROOF_MATERIAL_OPTIONS[idx]
+
+    def _sync_brush_widgets(self) -> None:
+        self._updating_dropdowns = True
+        try:
+            brush = self._editor.brush
+            if brush.wall_finish in WALL_FINISH_OPTIONS:
+                self._brush_wall_combo.set_selected(
+                    WALL_FINISH_OPTIONS.index(brush.wall_finish)
+                )
+            self._wall_color_entry.set_text(brush.wall_color)
+            if brush.floor_pattern in _FLOOR_PATTERN_IDS:
+                self._brush_floor_combo.set_selected(
+                    _FLOOR_PATTERN_IDS.index(brush.floor_pattern)
+                )
+            if brush.roof_material in ROOF_MATERIAL_OPTIONS:
+                self._brush_roof_combo.set_selected(
+                    ROOF_MATERIAL_OPTIONS.index(brush.roof_material)
+                )
+        finally:
+            self._updating_dropdowns = False
+
     def _trigger_export_glb(self) -> None:
         if self._on_export_glb is not None:
             self._on_export_glb()
@@ -189,6 +420,8 @@ class Viewport3DWidget(Gtk.Overlay):
 
     def mark_dirty(self) -> None:
         """Schedule a lazy sync from the 2D canvas whenever the 3D view is visible."""
+        if self._syncing_from_3d or self._editor.active_drag is not None:
+            return
         self._dirty = True
         if not self.get_visible():
             return
@@ -200,6 +433,16 @@ class Viewport3DWidget(Gtk.Overlay):
         if self.get_visible() and self._dirty:
             self.sync_from_canvas()
         return False
+
+    def sync_selection_from_canvas(self) -> None:
+        """Synchronize 2D ``canvas.selected_items`` highlight to the 3D renderer."""
+        session = self._session
+        if session is None:
+            return
+        ids = selected_entity_ids_from_canvas(self._canvas)
+        session.set_selected_entities(ids)
+        if self._gl_error is None:
+            self._gl_area.queue_render()
 
     def sync_from_canvas(self) -> None:
         """Rebuild ``SceneIR`` from canvas, push incremental delta to Rust, and redraw."""
@@ -217,6 +460,7 @@ class Viewport3DWidget(Gtk.Overlay):
         else:
             delta = diff_scene_ir(prev, curr)
             session.upsert_entities(delta.to_json())
+        session.set_selected_entities(selected_entity_ids_from_canvas(self._canvas))
         if self._gl_error is None:
             self._gl_area.queue_render()
 
@@ -259,6 +503,7 @@ class Viewport3DWidget(Gtk.Overlay):
                 self._dirty = False
                 self._refresh_hud_lists(curr)
                 session.load_scene(curr.to_json())
+                session.set_selected_entities(selected_entity_ids_from_canvas(self._canvas))
             scale = max(1, area.get_scale_factor())
             w = max(1, area.get_width() * scale)
             h = max(1, area.get_height() * scale)
@@ -295,10 +540,103 @@ class Viewport3DWidget(Gtk.Overlay):
         if area.get_error() is None:
             session.destroy_gl()
 
-    def _on_drag_begin(self, _gesture: Gtk.GestureDrag, _x: float, _y: float) -> None:
+    def _pick_at_widget_xy(
+        self, x: float, y: float
+    ) -> tuple[native_3d.PickHit | None, tuple[float, float, float], tuple[float, float, float]]:
+        session = self._session
+        if session is None:
+            return (None, (0.0, 0.0, 0.0), (0.0, 0.0, -1.0))
+        ndc_x, ndc_y = ndc_from_widget_xy(
+            x, y, float(self._gl_area.get_width()), float(self._gl_area.get_height())
+        )
+        origin, direction = session.screen_ray(ndc_x, ndc_y)
+        raw_hit = session.pick_screen(ndc_x, ndc_y)
+        return (native_3d.parse_pick_hit(raw_hit), origin, direction)
+
+    def _apply_action_result(self, result: EditActionResult) -> None:
+        session = self._session
+        if result.hud_message:
+            self._set_hud_message(result.hud_message)
+        if result.brush_sampled:
+            self._sync_brush_widgets()
+        if session is None:
+            return
+        if result.selected_ids is not None:
+            session.set_selected_entities(result.selected_ids)
+        if result.clear_preview:
+            session.clear_transform_preview()
+        elif result.preview_transform is not None:
+            ent_id, pivot_m, delta_m, drot_rad = result.preview_transform
+            session.set_transform_preview(ent_id, pivot_m, delta_m, drot_rad)
+        if result.needs_mesh_sync:
+            self._syncing_from_3d = True
+            try:
+                self.sync_from_canvas()
+            finally:
+                self._syncing_from_3d = False
+            return
+        if result.needs_render and self._gl_error is None:
+            self._gl_area.queue_render()
+
+    def _on_pointer_motion(
+        self, _ctrl: Gtk.EventControllerMotion, x: float, y: float
+    ) -> None:
+        session = self._session
+        if session is None or self._drag_button != 0 or self._walk_btn.get_active():
+            return
+        hit, _orig, _dir = self._pick_at_widget_xy(x, y)
+        if hit is None:
+            hover_key: tuple[str, str, bool] | None = None
+        else:
+            hover_key = (hit.entity_id, hit.sub_part, self._editor.tool == "paint")
+        if hover_key != self._last_hover_key:
+            self._last_hover_key = hover_key
+            if hover_key is None:
+                session.set_hovered_entity(None, None, False)
+            else:
+                session.set_hovered_entity(hover_key[0], hover_key[1], hover_key[2])
+            if self._gl_error is None:
+                self._gl_area.queue_render()
+
+    def _on_pointer_leave(self, _ctrl: Gtk.EventControllerMotion) -> None:
+        if self._last_hover_key is not None and self._session is not None:
+            self._last_hover_key = None
+            self._session.set_hovered_entity(None, None, False)
+            if self._gl_error is None:
+                self._gl_area.queue_render()
+
+    def _on_drag_begin(self, gesture: Gtk.GestureDrag, x: float, y: float) -> None:
         self._gl_area.grab_focus()
         self._drag_last_x = 0.0
         self._drag_last_y = 0.0
+        self._drag_start_x = x
+        self._drag_start_y = y
+        self._drag_max_px = 0.0
+        self._drag_button = int(gesture.get_current_button())
+        self._drag_editing = False
+
+        if self._drag_button != 1 or self._walk_btn.get_active():
+            return
+        if self._last_ir is None or self._session is None:
+            return
+        if self._editor.tool != "select":
+            return
+
+        state = gesture.get_current_event_state()
+        shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        alt = bool(state & Gdk.ModifierType.ALT_MASK)
+        hit, origin, direction = self._pick_at_widget_xy(x, y)
+        res = self._editor.begin_drag(
+            self._canvas,
+            hit,
+            origin,
+            direction,
+            self._last_ir.plan_center_in,
+            shift=shift,
+            alt=alt,
+        )
+        self._drag_editing = res.handled
+        self._apply_action_result(res)
 
     def _on_drag_update(
         self, gesture: Gtk.GestureDrag, offset_x: float, offset_y: float
@@ -307,18 +645,72 @@ class Viewport3DWidget(Gtk.Overlay):
         dy = offset_y - self._drag_last_y
         self._drag_last_x = offset_x
         self._drag_last_y = offset_y
+        self._drag_max_px = max(self._drag_max_px, math.hypot(offset_x, offset_y))
 
         session = self._session
         if session is None:
             return
-        btn = gesture.get_current_button()
+
         state = gesture.get_current_event_state()
         is_shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
-        if btn == 3 or (btn == 2 and is_shift):
+
+        if self._drag_editing and self._last_ir is not None:
+            ndc_x, ndc_y = ndc_from_widget_xy(
+                self._drag_start_x + offset_x,
+                self._drag_start_y + offset_y,
+                float(self._gl_area.get_width()),
+                float(self._gl_area.get_height()),
+            )
+            origin, direction = session.screen_ray(ndc_x, ndc_y)
+            res = self._editor.update_drag(
+                self._canvas,
+                origin,
+                direction,
+                self._last_ir.plan_center_in,
+                shift=is_shift,
+            )
+            self._apply_action_result(res)
+            return
+
+        if self._drag_button == 3 or (self._drag_button == 2 and is_shift):
             session.pan_drag(dx, dy)
-        else:
+        elif self._drag_button in (1, 2):
             session.orbit_drag(dx, dy)
         self._gl_area.queue_render()
+
+    def _on_drag_end(
+        self, gesture: Gtk.GestureDrag, offset_x: float, offset_y: float
+    ) -> None:
+        self._drag_max_px = max(self._drag_max_px, math.hypot(offset_x, offset_y))
+        btn = self._drag_button
+        self._drag_button = 0
+
+        if self._drag_editing:
+            self._drag_editing = False
+            self._syncing_from_3d = True
+            try:
+                res = self._editor.end_drag(self._canvas)
+            finally:
+                self._syncing_from_3d = False
+            self._apply_action_result(res)
+            return
+
+        if btn == 1 and not self._walk_btn.get_active() and self._drag_max_px < 5.0:
+            state = gesture.get_current_event_state()
+            shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+            alt = bool(state & Gdk.ModifierType.ALT_MASK)
+            hit, _origin, _dir = self._pick_at_widget_xy(
+                self._drag_start_x + offset_x,
+                self._drag_start_y + offset_y,
+            )
+            self._syncing_from_3d = True
+            try:
+                res = self._editor.handle_click(self._canvas, hit, shift=shift, alt=alt)
+            finally:
+                self._syncing_from_3d = False
+            if res.commit_undo:
+                res.needs_mesh_sync = True
+            self._apply_action_result(res)
 
     def _on_scroll(
         self, _ctrl: Gtk.EventControllerScroll, _dx: float, dy: float
@@ -340,7 +732,43 @@ class Viewport3DWidget(Gtk.Overlay):
         session = self._session
         if session is None:
             return False
-        step = 0.45 if (state & Gdk.ModifierType.SHIFT_MASK) else 0.18
+        is_shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        is_alt = bool(state & Gdk.ModifierType.ALT_MASK)
+
+        if keyval == Gdk.KEY_Escape:
+            if self._editor.active_drag is not None:
+                self._drag_editing = False
+                res = self._editor.cancel_drag(self._canvas)
+                self._apply_action_result(res)
+                return True
+            ids = select_from_hit(self._canvas, None, extend=False)
+            session.set_selected_entities(ids)
+            self._set_hud_message("")
+            self._gl_area.queue_render()
+            return True
+
+        if not self._walk_btn.get_active():
+            if keyval in (Gdk.KEY_v, Gdk.KEY_V):
+                self._select_btn.set_active(True)
+                return True
+            if keyval in (Gdk.KEY_o, Gdk.KEY_O):
+                self._orbit_btn.set_active(True)
+                return True
+            if keyval in (Gdk.KEY_b, Gdk.KEY_B):
+                self._paint_btn.set_active(True)
+                return True
+            if keyval in (Gdk.KEY_r, Gdk.KEY_R):
+                step = 1.0 if is_alt else (-15.0 if is_shift else 15.0)
+                self._syncing_from_3d = True
+                try:
+                    res = self._editor.rotate_selected_fixture(self._canvas, step)
+                finally:
+                    self._syncing_from_3d = False
+                if res.handled or res.hud_message:
+                    self._apply_action_result(res)
+                    return True
+
+        step = 0.45 if is_shift else 0.18
         moved = False
         if keyval in (Gdk.KEY_w, Gdk.KEY_W, Gdk.KEY_Up):
             session.walk_move(step, 0.0, 0.0)
@@ -364,13 +792,32 @@ class Viewport3DWidget(Gtk.Overlay):
             self._gl_area.queue_render()
         return moved
 
-    def _on_mode_toggled(self, _btn: Gtk.ToggleButton) -> None:
-        session = self._session
-        if session is None:
+    def _on_mode_toggled(self, btn: Gtk.ToggleButton) -> None:
+        if not btn.get_active():
             return
-        mode = "walkthrough" if self._walk_btn.get_active() else "orbit"
-        session.set_camera_mode(mode)
-        self._gl_area.queue_render()
+        if self._walk_btn.get_active():
+            cam_mode = "walkthrough"
+            self._editor.set_tool("orbit")
+            self._set_hud_message("Walkthrough: WASD move, Drag look")
+        elif self._paint_btn.get_active():
+            cam_mode = "orbit"
+            self._editor.set_tool("paint")
+            self._set_hud_message(
+                f"Paint: {self._editor.brush.wall_finish} (Shift: Room | Alt: Sample)"
+            )
+        elif self._orbit_btn.get_active():
+            cam_mode = "orbit"
+            self._editor.set_tool("orbit")
+            self._set_hud_message("Orbit mode: Left-drag orbits")
+        else:
+            cam_mode = "orbit"
+            self._editor.set_tool("select")
+            self._set_hud_message("Select / Edit mode (Right-drag orbits)")
+
+        session = self._session
+        if session is not None:
+            session.set_camera_mode(cam_mode)
+            self._gl_area.queue_render()
 
     def _on_view_preset_changed(
         self, combo: Gtk.DropDown, _pspec: object
@@ -380,14 +827,16 @@ class Viewport3DWidget(Gtk.Overlay):
         presets = ["iso", "top", "front", "back", "left", "right"]
         idx = int(combo.get_selected())
         if 0 <= idx < len(presets):
-            self._orbit_btn.set_active(True)
+            if self._walk_btn.get_active():
+                self._select_btn.set_active(True)
             self._session.set_camera_preset(presets[idx])
             self._gl_area.queue_render()
 
     def _on_fit_clicked(self, _btn: Gtk.Button) -> None:
         if self._session is None:
             return
-        self._orbit_btn.set_active(True)
+        if self._walk_btn.get_active():
+            self._select_btn.set_active(True)
         self._session.fit_scene()
         self._gl_area.queue_render()
 

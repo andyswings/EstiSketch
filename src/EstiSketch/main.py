@@ -237,12 +237,7 @@ class EstimatorApp(Gtk.Application):
         self.view_mode: str = "2d"
         self.canvas.connect("content-changed", lambda _c: self.viewport_3d.mark_dirty())
 
-        self.canvas.connect(
-            'selection-changed',
-            lambda canvas, selected: (
-                hasattr(self, 'properties_dock') and 
-                self.properties_dock and 
-                self.properties_dock.refresh_tabs(selected)))
+        self.canvas.connect("selection-changed", self._on_canvas_selection_changed)
 
         # Define toggle callbacks.
 
@@ -591,6 +586,11 @@ class EstimatorApp(Gtk.Application):
         else:
             context.add_class("success")
             self.dirty_indicator.set_tooltip_text("All changes saved")
+
+    def _on_canvas_selection_changed(self, _canvas: object, selected: object) -> None:
+        if hasattr(self, "properties_dock") and self.properties_dock:
+            self.properties_dock.refresh_tabs(selected)
+        self.viewport_3d.sync_selection_from_canvas()
 
     def on_key_pressed(self, controller: Gtk.EventControllerKey, keyval: int, keycode: int, state: Gdk.ModifierType) -> bool:
         """

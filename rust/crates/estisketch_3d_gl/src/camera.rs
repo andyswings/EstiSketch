@@ -1,6 +1,6 @@
 //! Orbit/Dollhouse and First-Person Walkthrough cameras in centered Z-up meters.
 
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec3, Vec4};
 
 /// Navigation mode for the 3D viewport camera.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -147,6 +147,26 @@ impl Camera3D {
         Mat4::perspective_rh_gl(self.fov_deg.to_radians(), aspect.max(0.05), 0.05, 500.0)
     }
 
+    /// Unproject OpenGL NDC coordinates `(ndc_x, ndc_y)` in `[-1, 1]` into `(origin_m, dir_m)`.
+    pub fn screen_ray(&self, ndc_x: f32, ndc_y: f32, aspect: f32) -> (Vec3, Vec3) {
+        let vp = self.proj_matrix(aspect) * self.view_matrix();
+        let inv_vp = vp.inverse();
+        let near_clip = inv_vp * Vec4::new(ndc_x, ndc_y, -1.0, 1.0);
+        let far_clip = inv_vp * Vec4::new(ndc_x, ndc_y, 1.0, 1.0);
+        let origin = if near_clip.w.abs() > 1e-6 {
+            near_clip.truncate() / near_clip.w
+        } else {
+            self.eye_pos()
+        };
+        let far = if far_clip.w.abs() > 1e-6 {
+            far_clip.truncate() / far_clip.w
+        } else {
+            self.target
+        };
+        let dir = (far - origin).normalize_or_zero();
+        (origin, dir)
+    }
+
     /// Rotate orbit camera (or walkthrough head) from mouse pixel delta `(dx, dy)`.
     pub fn orbit_drag(&mut self, dx: f32, dy: f32) {
         let sens = 0.0065;
@@ -291,5 +311,19 @@ mod tests {
         cam.jump_to_point(1.5, -2.0, 2.7);
         assert_eq!(cam.mode, CameraMode::Walkthrough);
         assert!((cam.eye_pos().z - 4.376).abs() < 1e-4);
+    }
+
+    #[test]
+    fn center_screen_ray_points_along_view_axis() {
+        let mut cam = Camera3D::default();
+        cam.fit_bounds([-4.0, -3.0, 0.0], [4.0, 3.0, 2.7]);
+        let (origin, dir) = cam.screen_ray(0.0, 0.0, 16.0 / 9.0);
+        let expected = (cam.target - cam.eye_pos()).normalize();
+        assert!(dir.dot(expected) > 0.999);
+        assert!((origin - cam.eye_pos()).length() < 0.2);
+
+        cam.set_mode(CameraMode::Walkthrough);
+        let (_, wdir) = cam.screen_ray(0.0, 0.0, 16.0 / 9.0);
+        assert!(wdir.dot(cam.walk_forward()) > 0.999);
     }
 }

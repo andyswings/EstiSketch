@@ -3,9 +3,10 @@
 pub const SHADOW_VERT: &str = r#"#version 330 core
 layout (location = 0) in vec3 a_pos;
 uniform mat4 u_light_vp;
+uniform mat4 u_model;
 
 void main() {
-    gl_Position = u_light_vp * vec4(a_pos, 1.0);
+    gl_Position = u_light_vp * u_model * vec4(a_pos, 1.0);
 }
 "#;
 
@@ -74,6 +75,7 @@ layout (location = 2) in vec2 a_uv;
 
 uniform mat4 u_vp;
 uniform mat4 u_light_vp;
+uniform mat4 u_model;
 
 out vec3 v_world_pos;
 out vec3 v_world_normal;
@@ -81,11 +83,12 @@ out vec2 v_uv;
 out vec4 v_light_pos;
 
 void main() {
-    v_world_pos = a_pos;
-    v_world_normal = normalize(a_normal);
+    vec4 world_pos = u_model * vec4(a_pos, 1.0);
+    v_world_pos = world_pos.xyz;
+    v_world_normal = normalize(mat3(u_model) * a_normal);
     v_uv = a_uv;
-    v_light_pos = u_light_vp * vec4(a_pos, 1.0);
-    gl_Position = u_vp * vec4(a_pos, 1.0);
+    v_light_pos = u_light_vp * world_pos;
+    gl_Position = u_vp * world_pos;
 }
 "#;
 
@@ -108,6 +111,7 @@ uniform float u_pattern_scale;
 uniform float u_pattern_rot_deg;
 uniform int u_render_style;
 uniform float u_alpha_override;
+uniform int u_highlight_mode;
 
 float hash21(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
@@ -198,11 +202,18 @@ void main() {
     vec3 l = normalize(u_sun_dir);
 
     float alpha = (u_alpha_override < 0.99) ? u_alpha_override : u_base_color.a;
+    float rim = pow(1.0 - max(dot(n, v), 0.0), 2.2);
     if (u_mat_style == 7 || alpha < 0.99) {
         float fresnel = pow(1.0 - max(dot(n, v), 0.0), 3.0);
         vec3 glass_col = mix(u_base_color.rgb, vec3(0.84, 0.92, 0.98), fresnel * 0.65);
         float spec = pow(max(dot(n, normalize(l + v)), 0.0), 48.0) * 0.55;
-        frag_color = vec4(glass_col + vec3(spec), clamp(alpha + fresnel * 0.30, 0.15, 0.85));
+        vec3 tinted = glass_col + vec3(spec);
+        if (u_highlight_mode == 2) {
+            tinted = mix(tinted, vec3(0.98, 0.56, 0.14), 0.25 + 0.45 * rim);
+        } else if (u_highlight_mode == 1) {
+            tinted = mix(tinted, vec3(0.24, 0.62, 0.98), 0.18 + 0.32 * rim);
+        }
+        frag_color = vec4(tinted, clamp(alpha + fresnel * 0.30, 0.15, 0.85));
         return;
     }
 
@@ -226,6 +237,12 @@ void main() {
     float edge_strength = (u_render_style == 2) ? 0.80 : (u_render_style == 1 ? 0.42 : 0.22);
     vec3 ink = (u_render_style == 2) ? vec3(0.10, 0.22, 0.42) : vec3(0.15, 0.14, 0.13);
     lit = mix(lit, ink, smoothstep(0.18, 0.75, crease) * edge_strength);
+
+    if (u_highlight_mode == 2) {
+        lit = mix(lit, vec3(0.98, 0.56, 0.14), 0.18 + 0.52 * rim);
+    } else if (u_highlight_mode == 1) {
+        lit = mix(lit, vec3(0.24, 0.62, 0.98), 0.12 + 0.35 * rim);
+    }
 
     frag_color = vec4(lit, 1.0);
 }
