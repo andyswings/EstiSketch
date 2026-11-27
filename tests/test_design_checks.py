@@ -34,6 +34,7 @@ from EstiSketch.geometry.design_checks import (  # noqa: E402
     laundry_appliance_violations,
     opening_ingress_egress_violations,
     pocket_door_violations,
+    primary_bath_access_violations,
     room_access_violations,
     sink_and_vanity_clearance_violations,
     stair_landing_and_access_violations,
@@ -341,3 +342,73 @@ def test_kitchen_sink_window_door_swing_and_walkway_checks() -> None:
     assert "Door Swing Direction" in cats
     assert "Kitchen Island & Walkway" in cats
     assert "Room Access" in cats
+
+
+def test_primary_bath_access_violations_flags_hallway_only_and_passes_ensuite() -> None:
+    layer_map = {"l1": "lvl1", "l2": "lvl2"}
+    w_n = Wall((0.0, 0.0), (240.0, 0.0), 6.0, 96.0, exterior_wall=True, layer_id="l1")
+    w_e = Wall((240.0, 0.0), (240.0, 180.0), 6.0, 96.0, exterior_wall=True, layer_id="l1")
+    w_s = Wall((240.0, 180.0), (0.0, 180.0), 6.0, 96.0, exterior_wall=True, layer_id="l1")
+    w_w = Wall((0.0, 180.0), (0.0, 0.0), 6.0, 96.0, exterior_wall=True, layer_id="l1")
+    w_hall = Wall((0.0, 120.0), (240.0, 120.0), 4.5, 96.0, layer_id="l1")
+    w_mid = Wall((144.0, 0.0), (144.0, 120.0), 4.5, 96.0, layer_id="l1")
+    walls = [w_n, w_e, w_s, w_w, w_hall, w_mid]
+
+    pbed = Room([(0.0, 0.0), (144.0, 0.0), (144.0, 120.0), (0.0, 120.0)], layer_id="l1")
+    pbed.name = "Primary Bedroom"
+    pbed.room_type = "bedroom"
+    pbath = Room([(144.0, 0.0), (240.0, 0.0), (240.0, 120.0), (144.0, 120.0)], layer_id="l1")
+    pbath.name = "Primary Bath"
+    pbath.room_type = "bathroom"
+    hall = Room([(0.0, 120.0), (240.0, 120.0), (240.0, 180.0), (0.0, 180.0)], layer_id="l1")
+    hall.name = "Hallway"
+    hall.room_type = "hallway"
+    rooms = [pbed, pbath, hall]
+
+    d_bed = Door("single", 32.0, 80.0, swing="left", orientation="outswing", layer_id="l1")
+    d_bath_hall = Door("single", 30.0, 80.0, swing="left", orientation="outswing", layer_id="l1")
+    d_ensuite = Door("pocket", 30.0, 80.0, swing="left", orientation="inswing", layer_id="l1")
+
+    # 1. Both open only onto Hallway with solid wall between -> Primary Suite Access error
+    hall_only_doors = [(w_hall, d_bed, 0.3), (w_hall, d_bath_hall, 0.8)]
+    assert primary_bath_access_violations(rooms, walls, hall_only_doors, layer_map) == [
+        "Primary bathroom 'Primary Bath' must be directly accessible from 'Primary Bedroom'"
+    ]
+    fake_bad = SimpleNamespace(
+        layers=[Layer(id="l1", name="L1", level_id="lvl1")],
+        levels=[Level(id="lvl1", name="Level 1", elevation=0.0)],
+        wall_sets=[walls],
+        walls=[],
+        fixtures=[],
+        doors=hall_only_doors,
+        windows=[],
+        rooms=rooms,
+        stairs=[],
+    )
+    assert any(
+        issue.category == "Primary Suite Access"
+        for issue in validate_project_layout_detailed(fake_bad)
+    )
+
+    # 2. Adding direct door/pocket door on w_mid -> passes
+    ensuite_doors = [(w_hall, d_bed, 0.3), (w_mid, d_ensuite, 0.5)]
+    assert primary_bath_access_violations(rooms, walls, ensuite_doors, layer_map) == []
+
+    # 3. Master suite with open passage (w_mid omitted -> >=30" open gap) -> passes
+    pbed.name = "Master Bedroom"
+    pbath.name = "Master Bath"
+    assert primary_bath_access_violations(
+        rooms, [w_n, w_e, w_s, w_w, w_hall], [(w_hall, d_bed, 0.3)], layer_map
+    ) == []
+
+    # 4. Hall bath not named primary/master/ensuite is not flagged
+    pbath.name = "Full Bath 1"
+    assert primary_bath_access_violations(rooms, walls, hall_only_doors, layer_map) == []
+
+    # 5. Primary bath on Level 2 with Primary Bedroom only on Level 1 -> flagged
+    pbath_l2 = Room([(144.0, 0.0), (240.0, 0.0), (240.0, 120.0), (144.0, 120.0)], layer_id="l2")
+    pbath_l2.name = "En-Suite Bath"
+    pbath_l2.room_type = "bathroom"
+    viols_l2 = primary_bath_access_violations([pbed, pbath_l2], walls, [], layer_map)
+    assert len(viols_l2) == 1
+    assert "none found on this level" in viols_l2[0]

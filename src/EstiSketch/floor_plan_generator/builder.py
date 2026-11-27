@@ -809,16 +809,27 @@ def _split_bath_counts(bathrooms: float, levels: int) -> tuple[int, int, int, in
     return (0, half_total, full_total, 0)
 
 
+def _has_ensuite_primary_bath(n_beds: int, has_primary: bool, n_full: int) -> bool:
+    """Return True when a Primary Bedroom gets an attached en-suite Primary Bath."""
+    return has_primary and n_beds >= 1 and (n_full >= 2 or (n_beds == 1 and n_full == 1))
+
+
 def _balance_wing_rows(
     items: list[tuple[str, str, bool]],
     min_widths: dict[str, float],
+    lock_first_pair: bool = False,
 ) -> tuple[list[tuple[str, str, bool]], list[tuple[str, str, bool]]]:
     """Greedily balance wing rooms across North and South rows by minimum width."""
     north_items: list[tuple[str, str, bool]] = []
     south_items: list[tuple[str, str, bool]] = []
     north_w = 0.0
     south_w = 0.0
-    for item in items:
+    start_idx = 0
+    if lock_first_pair and len(items) >= 2:
+        north_items.extend([items[0], items[1]])
+        north_w = min_widths[items[0][0]] + min_widths[items[1][0]]
+        start_idx = 2
+    for item in items[start_idx:]:
         item_w = min_widths[item[0]]
         if north_w <= south_w:
             north_items.append(item)
@@ -826,7 +837,7 @@ def _balance_wing_rows(
         else:
             south_items.append(item)
             south_w += item_w
-    if not south_items and len(north_items) > 1:
+    if not lock_first_pair and not south_items and len(north_items) > 1:
         south_items.append(north_items.pop())
     return (north_items, south_items)
 
@@ -936,14 +947,23 @@ def _layout_bedroom_wing(
         "office": 1.20,
     }
 
+    has_primary = any(is_p for _, is_p in bed_specs)
+    ensuite_pair = _has_ensuite_primary_bath(len(bed_specs), has_primary, full_baths)
+
     # North row and South row cells
     all_cells: list[tuple[str, str, bool]] = []
-
-    for bname, is_p in bed_specs:
-        all_cells.append(("bedroom", bname, is_p))
-    for i in range(full_baths):
-        bname = "Primary Bath" if i == 0 and any(p for _, p in bed_specs) else f"Full Bath {i + 1}"
-        all_cells.append(("bathroom", bname, False))
+    if ensuite_pair:
+        all_cells.append(("bedroom", bed_specs[0][0], True))
+        all_cells.append(("bathroom", "Primary Bath", False))
+        for bname, is_p in bed_specs[1:]:
+            all_cells.append(("bedroom", bname, is_p))
+        for i in range(1, full_baths):
+            all_cells.append(("bathroom", f"Full Bath {i + 1}", False))
+    else:
+        for bname, is_p in bed_specs:
+            all_cells.append(("bedroom", bname, is_p))
+        for i in range(full_baths):
+            all_cells.append(("bathroom", f"Full Bath {i + 1}", False))
     for i in range(half_baths):
         all_cells.append(("half_bath", "Half Bath" if i == 0 else f"Half Bath {i + 1}", False))
     if include_laundry:
@@ -951,7 +971,11 @@ def _layout_bedroom_wing(
     if include_office:
         all_cells.append(("office", "Home Office", False))
 
-    north_items, south_items = _balance_wing_rows(all_cells, min_widths)
+    north_items, south_items = _balance_wing_rows(
+        all_cells, min_widths, lock_first_pair=ensuite_pair
+    )
+    if ensuite_pair and not south_items:
+        south_items.append(("laundry", "Utility / Mudroom", False))
 
     if (row_variation & 1) and north_items and south_items:
         north_items, south_items = south_items, north_items
@@ -1137,12 +1161,30 @@ def _layout_bedroom_wing(
                     canvas, label, pts, h, lid,
                     "tile", style.bath_floor_pattern, "bathroom", is_slab=is_slab,
                 )
-                door_x = _cell_door_x(max(cx0 + 24.0, cx1 - 30.0))
-                west_bath_flags[idx] = trimmed_west_end
-                _add_door_to_room(
-                    canvas, hall_wall, door_x, "x", (door_x, rcenter[1]),
-                    "single", 30.0, lid, swing="left",
-                )
+                bed_west = idx > 0 and items[idx - 1][0] == "bedroom" and items[idx - 1][2]
+                bed_east = all((
+                    idx + 1 < len(items),
+                    idx + 1 < len(items) and items[idx + 1][0] == "bedroom",
+                    idx + 1 < len(items) and items[idx + 1][2],
+                ))
+                is_ensuite = label == "Primary Bath" and (bed_west or bed_east)
+                if is_ensuite:
+                    shared_idx = (idx - 1) if bed_west else idx
+                    shared_wall = part_walls[shared_idx]
+                    door_y = (ry1 - 22.0) if is_north_row else (ry0 + 22.0)
+                    pocket_swing = "left" if is_north_row else "right"
+                    _add_door(
+                        canvas, shared_wall, _ratio_along(shared_wall, door_y, "y"),
+                        "pocket", 30.0, 80.0, lid, swing=pocket_swing,
+                    )
+                    west_bath_flags[idx] = bed_west
+                else:
+                    door_x = _cell_door_x(max(cx0 + 24.0, cx1 - 30.0))
+                    west_bath_flags[idx] = trimmed_west_end
+                    _add_door_to_room(
+                        canvas, hall_wall, door_x, "x", (door_x, rcenter[1]),
+                        "single", 30.0, lid, swing="left",
+                    )
                 ext_w = ext_walls_lookup["north" if is_north_row else "south"]
                 if _wall_has_span(ext_w, (cx0 + cx1) / 2.0, "x", min_margin=20.0):
                     _add_window(
@@ -1221,6 +1263,7 @@ def _min_wing_width(
     compact_baths: bool = False,
     minimal_hall: bool = False,
     include_office: bool = False,
+    has_primary: bool = True,
 ) -> float:
     """Compute minimum wing width so every row cell meets architectural minimums."""
     if all((
@@ -1239,14 +1282,24 @@ def _min_wing_width(
         "laundry": 72.0,
         "office": 96.0,
     }
-    items: list[tuple[str, str, bool]] = [("bedroom", "", False) for _ in range(n_beds)]
-    items.extend(("bathroom", "", False) for _ in range(n_full))
+    ensuite_pair = _has_ensuite_primary_bath(n_beds, has_primary, n_full)
+    items: list[tuple[str, str, bool]] = []
+    if ensuite_pair:
+        items.append(("bedroom", "", True))
+        items.append(("bathroom", "", False))
+        items.extend(("bedroom", "", False) for _ in range(n_beds - 1))
+        items.extend(("bathroom", "", False) for _ in range(n_full - 1))
+    else:
+        items.extend(("bedroom", "", False) for _ in range(n_beds))
+        items.extend(("bathroom", "", False) for _ in range(n_full))
     items.extend(("half_bath", "", False) for _ in range(n_half))
     if has_laundry:
         items.append(("laundry", "", False))
     if include_office:
         items.append(("office", "", False))
-    north_items, south_items = _balance_wing_rows(items, min_widths)
+    north_items, south_items = _balance_wing_rows(
+        items, min_widths, lock_first_pair=ensuite_pair
+    )
     north_w = sum(min_widths[k] for k, _, _ in north_items)
     south_w = sum(min_widths[k] for k, _, _ in south_items)
     return max(180.0, north_w, south_w)
@@ -1851,7 +1904,10 @@ def _build_2story_plan(
     prim_cand_w = 156.0 if compact_baths else 180.0
     prim_up_beds = max(1, req.bedrooms - 1)
     prim_wing_min = max(
-        _min_wing_width(prim_up_beds, up_full, l2_half, req.include_laundry, compact_baths=compact_baths),
+        _min_wing_width(
+            prim_up_beds, up_full, l2_half, req.include_laundry,
+            compact_baths=compact_baths, has_primary=False,
+        ),
         min_pub_w,
     )
     min_prim_2story_sqft = 2.0 * (prim_wing_min + stair_w + prim_cand_w) * min_main_d / 144.0

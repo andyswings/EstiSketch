@@ -528,3 +528,37 @@ def test_open_floor_plan_minimizes_hallways() -> None:
         assert _hallway_sqft(op) < _hallway_sqft(tp), (
             f"office open={_hallway_sqft(op):.1f} vs trad={_hallway_sqft(tp):.1f}"
         )
+
+
+def test_generated_plans_have_ensuite_primary_bath() -> None:
+    from EstiSketch.geometry.design_checks import primary_bath_access_violations
+
+    for levels in (1, 2):
+        for concept in ("open", "traditional"):
+            for beds, baths in ((1, 1.0), (3, 2.0), (4, 2.5), (5, 3.5)):
+                if levels == 2 and beds == 1:
+                    continue
+                plans = generate_floor_plans(
+                    FloorPlanRequest(
+                        bedrooms=beds,
+                        bathrooms=baths,
+                        levels=levels,
+                        garage_cars=2,
+                        include_office=(beds >= 3),
+                        include_dining=True,
+                        include_laundry=(beds >= 2),
+                        open_floor_plan=concept,
+                        styles=("craftsman",),
+                        options_per_style=4,
+                        seed=7,
+                    )
+                )
+                for plan in plans:
+                    layer_to_lvl = {ly.id: ly.level_id for ly in plan.canvas.layers}
+                    walls = [w for ws in plan.canvas.wall_sets for w in ws]
+                    assert primary_bath_access_violations(
+                        plan.canvas.rooms, walls, plan.canvas.doors, layer_to_lvl
+                    ) == []
+                    assert plan.layout_violations == [], (
+                        f"L{levels} {concept} {beds}bd/{baths}ba: {plan.layout_violations}"
+                    )

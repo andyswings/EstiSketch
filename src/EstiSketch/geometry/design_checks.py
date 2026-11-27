@@ -1629,6 +1629,113 @@ def kitchen_island_and_walkway_violations(
     ]
 
 
+def _is_primary_bedroom(room: Any) -> bool:
+    """Return True when ``room`` represents a primary/master bedroom suite."""
+    name = str(getattr(room, "name", "") or "").lower()
+    rtype = str(getattr(room, "room_type", "") or "").lower()
+    if "primary" not in name and "master" not in name:
+        return False
+    if rtype == "bedroom":
+        return True
+    return rtype == "" and ("bed" in name or "suite" in name) and "bath" not in name
+
+
+def _is_primary_bathroom(room: Any) -> bool:
+    """Return True when ``room`` represents a primary/master/en-suite bathroom."""
+    name = str(getattr(room, "name", "") or "").lower()
+    rtype = str(getattr(room, "room_type", "") or "").lower()
+    is_bath = rtype == "bathroom" or (rtype == "" and "bath" in name)
+    if not is_bath:
+        return False
+    return any(tok in name for tok in ("primary", "master", "ensuite", "en-suite", "en suite"))
+
+
+def _build_door_probes(
+    doors: Iterable[tuple[Any, Any, float]],
+    layer_to_level: dict[str, str],
+    skip_garage: bool = False,
+) -> list[tuple[str, Point, Point]]:
+    """Build opposite-side probe points across every door opening."""
+    probes: list[tuple[str, Point, Point]] = []
+    for wall, door, ratio in doors:
+        if wall is None:
+            continue
+        if skip_garage and getattr(door, "door_type", "") == "garage":
+            continue
+        cx, cy = arc_wall_point(wall, ratio)
+        tx, ty = arc_wall_tangent(wall, ratio)
+        tlen = math.hypot(tx, ty)
+        if tlen <= 1e-6:
+            continue
+        nx, ny = -ty / tlen, tx / tlen
+        half_t = float(getattr(wall, "width", 4.5) or 4.5) / 2.0
+        dlvl = layer_to_level.get(getattr(door, "layer_id", ""), "")
+        probes.append((
+            dlvl,
+            (cx + (half_t + 6.0) * nx, cy + (half_t + 6.0) * ny),
+            (cx - (half_t + 6.0) * nx, cy - (half_t + 6.0) * ny),
+        ))
+    return probes
+
+
+def _has_open_passage_to_rooms(
+    pts: list[Point],
+    same_lvl_walls: list[tuple[Any, list[Point]]],
+    target_rooms: list[Any],
+    min_open_gap_in: float = 30.0,
+) -> bool:
+    """Return True when any polygon edge has an unobstructed >=``min_open_gap_in`` gap to ``target_rooms``."""
+    npts = len(pts)
+    for idx in range(npts):
+        a = pts[idx]
+        b = pts[(idx + 1) % npts]
+        ex, ey = b[0] - a[0], b[1] - a[1]
+        elen = math.hypot(ex, ey)
+        if elen < min_open_gap_in:
+            continue
+        ux, uy = ex / elen, ey / elen
+        nx, ny = -uy, ux
+        mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+        if _point_in_poly((mid[0] + 2.0 * nx, mid[1] + 2.0 * ny), pts):
+            out_nx, out_ny = -nx, -ny
+        else:
+            out_nx, out_ny = nx, ny
+
+        blocked: list[tuple[float, float]] = []
+        for _w, wp in same_lvl_walls:
+            n_vals = [(p[0] - a[0]) * out_nx + (p[1] - a[1]) * out_ny for p in wp]
+            if max(n_vals) < -6.0 or min(n_vals) > 6.0:
+                continue
+            u_vals = [(p[0] - a[0]) * ux + (p[1] - a[1]) * uy for p in wp]
+            s0 = max(0.0, min(u_vals))
+            s1 = min(elen, max(u_vals))
+            if s1 - s0 > 0.5:
+                blocked.append((s0, s1))
+        blocked.sort()
+        merged: list[tuple[float, float]] = []
+        for s0, s1 in blocked:
+            if merged and s0 <= merged[-1][1] + 0.5:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], s1))
+            else:
+                merged.append((s0, s1))
+
+        gaps: list[tuple[float, float]] = []
+        cur = 0.0
+        for s0, s1 in merged:
+            if s0 - cur >= min_open_gap_in:
+                gaps.append((cur, s0))
+            cur = max(cur, s1)
+        if elen - cur >= min_open_gap_in:
+            gaps.append((cur, elen))
+
+        for g0, g1 in gaps:
+            gm = (g0 + g1) / 2.0
+            probe_out = (a[0] + gm * ux + 8.0 * out_nx, a[1] + gm * uy + 8.0 * out_ny)
+            if any(_point_in_poly(probe_out, oroom.points) for oroom in target_rooms):
+                return True
+    return False
+
+
 def _collect_room_access_issues(
     rooms: Iterable[Any],
     walls: Iterable[Any],
@@ -1652,23 +1759,7 @@ def _collect_room_access_issues(
         if len(getattr(r, "points", [])) >= 3
     ]
 
-    door_probes: list[tuple[str, Point, Point]] = []
-    for wall, door, ratio in doors:
-        if wall is None:
-            continue
-        cx, cy = arc_wall_point(wall, ratio)
-        tx, ty = arc_wall_tangent(wall, ratio)
-        tlen = math.hypot(tx, ty)
-        if tlen <= 1e-6:
-            continue
-        nx, ny = -ty / tlen, tx / tlen
-        half_t = float(getattr(wall, "width", 4.5) or 4.5) / 2.0
-        dlvl = layer_to_level.get(getattr(door, "layer_id", ""), "")
-        door_probes.append((
-            dlvl,
-            (cx + (half_t + 6.0) * nx, cy + (half_t + 6.0) * ny),
-            (cx - (half_t + 6.0) * nx, cy - (half_t + 6.0) * ny),
-        ))
+    door_probes = _build_door_probes(doors, layer_to_level, skip_garage=False)
 
     stair_probes: list[tuple[str, Point]] = []
     for st in stairs:
@@ -1696,7 +1787,6 @@ def _collect_room_access_issues(
         if has_stair:
             continue
 
-        # Check for open-concept passage (wall-free gap >= min_open_gap_in into another room)
         same_lvl_walls = [
             (w, wp)
             for wlvl, wlist in wall_polys_by_lvl.items()
@@ -1706,72 +1796,21 @@ def _collect_room_access_issues(
         other_rooms = [
             oroom for oroom, olvl in room_list if oroom is not room and _same_level(rlvl, olvl)
         ]
-        has_open_passage = False
-        npts = len(pts)
-        for idx in range(npts):
-            if has_open_passage:
-                break
-            a = pts[idx]
-            b = pts[(idx + 1) % npts]
-            ex, ey = b[0] - a[0], b[1] - a[1]
-            elen = math.hypot(ex, ey)
-            if elen < min_open_gap_in:
-                continue
-            ux, uy = ex / elen, ey / elen
-            nx, ny = -uy, ux
-            mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
-            if _point_in_poly((mid[0] + 2.0 * nx, mid[1] + 2.0 * ny), pts):
-                out_nx, out_ny = -nx, -ny
-            else:
-                out_nx, out_ny = nx, ny
+        if _has_open_passage_to_rooms(pts, same_lvl_walls, other_rooms, min_open_gap_in):
+            continue
 
-            blocked: list[tuple[float, float]] = []
-            for _w, wp in same_lvl_walls:
-                n_vals = [(p[0] - a[0]) * out_nx + (p[1] - a[1]) * out_ny for p in wp]
-                if max(n_vals) < -6.0 or min(n_vals) > 6.0:
-                    continue
-                u_vals = [(p[0] - a[0]) * ux + (p[1] - a[1]) * uy for p in wp]
-                s0 = max(0.0, min(u_vals))
-                s1 = min(elen, max(u_vals))
-                if s1 - s0 > 0.5:
-                    blocked.append((s0, s1))
-            blocked.sort()
-            merged: list[tuple[float, float]] = []
-            for s0, s1 in blocked:
-                if merged and s0 <= merged[-1][1] + 0.5:
-                    merged[-1] = (merged[-1][0], max(merged[-1][1], s1))
-                else:
-                    merged.append((s0, s1))
-
-            gaps: list[tuple[float, float]] = []
-            cur = 0.0
-            for s0, s1 in merged:
-                if s0 - cur >= min_open_gap_in:
-                    gaps.append((cur, s0))
-                cur = max(cur, s1)
-            if elen - cur >= min_open_gap_in:
-                gaps.append((cur, elen))
-
-            for g0, g1 in gaps:
-                gm = (g0 + g1) / 2.0
-                probe_out = (a[0] + gm * ux + 8.0 * out_nx, a[1] + gm * uy + 8.0 * out_ny)
-                if any(_point_in_poly(probe_out, oroom.points) for oroom in other_rooms):
-                    has_open_passage = True
-                    break
-
-        if not has_open_passage:
-            rc = _rect_center(pts)
-            rlabel = getattr(room, "name", "") or getattr(room, "room_type", "") or "Unnamed Room"
-            issues.append(
-                LayoutIssue(
-                    category="Room Access",
-                    severity="error",
-                    message=f"Room '{rlabel}' has no door, opening, or open passage for access",
-                    level_id=rlvl,
-                    location_in=rc,
-                    object_id=str(getattr(room, "identifier", "") or ""),
-                )
+        rc = _rect_center(pts)
+        rlabel = getattr(room, "name", "") or getattr(room, "room_type", "") or "Unnamed Room"
+        issues.append(
+            LayoutIssue(
+                category="Room Access",
+                severity="error",
+                message=f"Room '{rlabel}' has no door, opening, or open passage for access",
+                level_id=rlvl,
+                location_in=rc,
+                object_id=str(getattr(room, "identifier", "") or ""),
             )
+        )
     return issues
 
 
@@ -1788,6 +1827,102 @@ def room_access_violations(
         i.message
         for i in _collect_room_access_issues(
             rooms, walls, doors, stairs, layer_to_level, min_open_gap_in
+        )
+    ]
+
+
+def _collect_primary_bath_access_issues(
+    rooms: Iterable[Any],
+    walls: Iterable[Any],
+    doors: Iterable[tuple[Any, Any, float]],
+    layer_to_level: dict[str, str],
+    min_open_gap_in: float = 30.0,
+) -> list[LayoutIssue]:
+    """Verify every primary bathroom has direct access from a primary bedroom on its level."""
+    issues: list[LayoutIssue] = []
+    room_list: list[tuple[Any, str]] = [
+        (r, layer_to_level.get(getattr(r, "layer_id", ""), ""))
+        for r in rooms
+        if len(getattr(r, "points", [])) >= 3
+    ]
+    primary_baths = [(r, lvl) for r, lvl in room_list if _is_primary_bathroom(r)]
+    if not primary_baths:
+        return issues
+
+    primary_beds = [(r, lvl) for r, lvl in room_list if _is_primary_bedroom(r)]
+    wall_polys_by_lvl: dict[str, list[tuple[Any, list[Point]]]] = {}
+    for w in walls:
+        wp = _wall_polygon(w)
+        if wp is not None:
+            wlvl = layer_to_level.get(getattr(w, "layer_id", ""), "")
+            wall_polys_by_lvl.setdefault(wlvl, []).append((w, wp))
+    door_probes = _build_door_probes(doors, layer_to_level, skip_garage=True)
+
+    for pbath, pb_lvl in primary_baths:
+        pb_pts = pbath.points
+        same_lvl_pbeds = [
+            pbed for pbed, pbed_lvl in primary_beds if _same_level(pb_lvl, pbed_lvl)
+        ]
+        direct_door = False
+        for dlvl, p1, p2 in door_probes:
+            if not _same_level(pb_lvl, dlvl):
+                continue
+            for pbed in same_lvl_pbeds:
+                if (_point_in_poly(p1, pb_pts) and _point_in_poly(p2, pbed.points)) or (
+                    _point_in_poly(p2, pb_pts) and _point_in_poly(p1, pbed.points)
+                ):
+                    direct_door = True
+                    break
+            if direct_door:
+                break
+        if direct_door:
+            continue
+
+        same_lvl_walls = [
+            (w, wp)
+            for wlvl, wlist in wall_polys_by_lvl.items()
+            if _same_level(pb_lvl, wlvl)
+            for w, wp in wlist
+        ]
+        if same_lvl_pbeds and _has_open_passage_to_rooms(
+            pb_pts, same_lvl_walls, same_lvl_pbeds, min_open_gap_in
+        ):
+            continue
+
+        pb_label = str(getattr(pbath, "name", "") or "Primary Bath")
+        if same_lvl_pbeds:
+            pbed_label = str(getattr(same_lvl_pbeds[0], "name", "") or "Primary Bedroom")
+            msg = f"Primary bathroom '{pb_label}' must be directly accessible from '{pbed_label}'"
+        else:
+            msg = (
+                f"Primary bathroom '{pb_label}' must be directly accessible from a "
+                "primary bedroom (none found on this level)"
+            )
+        issues.append(
+            LayoutIssue(
+                category="Primary Suite Access",
+                severity="error",
+                message=msg,
+                level_id=pb_lvl,
+                location_in=_rect_center(pb_pts),
+                object_id=str(getattr(pbath, "identifier", "") or ""),
+            )
+        )
+    return issues
+
+
+def primary_bath_access_violations(
+    rooms: Iterable[Any],
+    walls: Iterable[Any],
+    doors: Iterable[tuple[Any, Any, float]],
+    layer_to_level: dict[str, str],
+    min_open_gap_in: float = 30.0,
+) -> list[str]:
+    """Verify every primary bathroom has direct access from a primary bedroom."""
+    return [
+        i.message
+        for i in _collect_primary_bath_access_issues(
+            rooms, walls, doors, layer_to_level, min_open_gap_in
         )
     ]
 
@@ -1846,6 +1981,7 @@ def validate_project_layout_detailed(canvas: Any) -> list[LayoutIssue]:
         _collect_kitchen_island_and_walkway_issues(fixtures, walls, rooms, layer_to_level)
     )
     issues.extend(_collect_room_access_issues(rooms, walls, doors, stairs, layer_to_level))
+    issues.extend(_collect_primary_bath_access_issues(rooms, walls, doors, layer_to_level))
     _wrap(
         "Stairs & Landings",
         stair_landing_and_access_violations(
