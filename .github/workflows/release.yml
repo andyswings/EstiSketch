@@ -34,7 +34,16 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Check Rust formatting and clippy lints
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+        run: |
+          cargo fmt --manifest-path rust/Cargo.toml --check
+          cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+
       - name: Run Rust unit tests
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
         run: cargo test --manifest-path rust/Cargo.toml
 
       - name: Build native 3D Python extension
@@ -53,6 +62,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-dev libgl1
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Build .deb package
         run: python3 packaging/build_deb.py
@@ -87,11 +104,16 @@ jobs:
             python3-cairo \
             python3-numpy \
             python3-reportlab \
+            python3-dev \
+            libgl1 \
             python3-venv \
             python3-pip \
             wget \
             file \
             xvfb
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Set up PyInstaller build environment
         run: |
@@ -135,6 +157,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Set up Miniforge with conda-forge
         uses: conda-incubator/setup-miniconda@v4

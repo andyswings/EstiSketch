@@ -10,7 +10,8 @@ use std::path::Path;
 
 use serde_json::{json, Value};
 
-use crate::mesh::{BuiltSceneMesh, MaterialKey};
+use crate::assets::LoadedGlbAsset;
+use crate::mesh::{BuiltSceneMesh, MaterialKey, MeshPart};
 use crate::scene_ir::SunIR;
 
 const GLB_MAGIC: u32 = 0x4654_6C67; // "glTF"
@@ -233,6 +234,46 @@ pub fn write_glb_file(path: &Path, mesh: &BuiltSceneMesh, sun: &SunIR) -> Result
     let mut file = File::create(path).map_err(|e| e.to_string())?;
     file.write_all(&bytes).map_err(|e| e.to_string())?;
     Ok(bytes.len())
+}
+
+/// Serialize a decoded [`LoadedGlbAsset`] into normalized binary glTF 2.0 (`.glb`) bytes.
+pub fn export_loaded_asset_to_glb(asset: &LoadedGlbAsset, name: &str) -> Result<Vec<u8>, String> {
+    let entity_name = if name.trim().is_empty() {
+        "custom_asset"
+    } else {
+        name.trim()
+    };
+    let mut parts: Vec<MeshPart> = Vec::with_capacity(asset.primitives.len());
+    for (idx, prim) in asset.primitives.iter().enumerate() {
+        if prim.vertices.is_empty() || prim.indices.is_empty() {
+            continue;
+        }
+        let mut z_min = f32::INFINITY;
+        let mut z_max = f32::NEG_INFINITY;
+        for v in &prim.vertices {
+            z_min = z_min.min(v.pos[2]);
+            z_max = z_max.max(v.pos[2]);
+        }
+        parts.push(MeshPart {
+            entity_id: entity_name.to_string(),
+            entity_kind: "custom_asset".to_string(),
+            level_id: String::new(),
+            sub_part: format!("Primitive_{idx}"),
+            is_roof_or_ceiling: false,
+            is_wall: false,
+            z_min_m: z_min,
+            z_max_m: z_max,
+            material: prim.material.clone(),
+            vertices: prim.vertices.clone(),
+            indices: prim.indices.clone(),
+        });
+    }
+    let mut built = BuiltSceneMesh {
+        parts,
+        ..BuiltSceneMesh::default()
+    };
+    built.recompute_bounds();
+    export_scene_mesh_to_glb(&built, &SunIR::default())
 }
 
 #[cfg(test)]

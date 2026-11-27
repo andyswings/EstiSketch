@@ -19,6 +19,23 @@ from .scene_ir import SceneDeltaIR, SceneIR
 
 
 @dataclass(frozen=True)
+class AssetInspection:
+    """Geometry summary returned by Rust `.glb`/`.gltf`/`.obj` asset inspection.
+
+    Attributes:
+        size_m: Normalized bounding extents ``(width, depth, height)`` in **meters**.
+        silhouette_2d_m: Counter-clockwise 2D convex hull polygon in **meters**.
+        mesh_hash: Deterministic 64-bit hex hash over vertex geometry.
+        triangle_count: Total decoded triangles across all primitives.
+    """
+
+    size_m: tuple[float, float, float]
+    silhouette_2d_m: list[tuple[float, float]]
+    mesh_hash: str
+    triangle_count: int
+
+
+@dataclass(frozen=True)
 class PickHit:
     """Closest raycast intersection returned by the Rust 3D BVH picker.
 
@@ -249,6 +266,12 @@ class _NativeModuleProtocol(Protocol):
     def export_scene_glb(self, scene_json: str, output_path: str) -> int:
         ...
 
+    def inspect_3d_asset(self, path: str) -> str:
+        ...
+
+    def import_3d_asset_to_glb(self, input_path: str, output_glb_path: str) -> str:
+        ...
+
     def NativeSceneSession(self) -> NativeSceneSessionProtocol:
         ...
 
@@ -325,6 +348,48 @@ def scene_mesh_stats(scene: SceneIR | str) -> dict[str, object]:
     if not isinstance(parsed, dict):
         raise ValueError("Expected JSON object from _native_3d.scene_mesh_stats")
     return cast(dict[str, object], parsed)
+
+
+def _parse_asset_inspection(raw_json: str) -> AssetInspection:
+    parsed = json.loads(raw_json)
+    if not isinstance(parsed, dict):
+        raise ValueError("Expected JSON object for AssetInspection")
+    size_m = _as_vec3(parsed.get("size_m"), "size_m")
+    raw_hull = parsed.get("silhouette_2d_m")
+    if not isinstance(raw_hull, list):
+        raise ValueError("AssetInspection.silhouette_2d_m must be a list")
+    hull: list[tuple[float, float]] = []
+    for pt in raw_hull:
+        if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+            x, y = pt[0], pt[1]
+            if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+                hull.append((float(x), float(y)))
+    mesh_hash = parsed.get("mesh_hash")
+    tri_count = parsed.get("triangle_count")
+    if not isinstance(mesh_hash, str) or not isinstance(tri_count, int):
+        raise ValueError("Malformed AssetInspection fields from native 3D module")
+    return AssetInspection(
+        size_m=size_m,
+        silhouette_2d_m=hull,
+        mesh_hash=mesh_hash,
+        triangle_count=tri_count,
+    )
+
+
+def inspect_3d_asset(path: str | Path) -> AssetInspection:
+    """Inspect a `.glb`, `.gltf`, or `.obj` model via Rust and return dimensions, hull & hash."""
+    mod = _require_native()
+    return _parse_asset_inspection(mod.inspect_3d_asset(str(path)))
+
+
+def import_3d_asset_to_glb(
+    input_path: str | Path, output_glb_path: str | Path
+) -> AssetInspection:
+    """Load `.glb`/`.gltf`/`.obj`, write normalized `.glb` to ``output_glb_path``, and inspect it."""
+    mod = _require_native()
+    return _parse_asset_inspection(
+        mod.import_3d_asset_to_glb(str(input_path), str(output_glb_path))
+    )
 
 
 def export_scene_glb(scene: SceneIR | str, output_path: str | Path) -> int:

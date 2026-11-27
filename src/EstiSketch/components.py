@@ -817,3 +817,54 @@ class ObjectGroup:
             self.identifier = generate_identifier("group")
 
 
+@dataclass(eq=False)
+class CustomAsset:
+    """Custom imported or Blender-sculpted 3D asset (`.glb`) with projected 2D silhouette.
+
+    All coordinates and silhouette vertices are stored in **inches** (2D Y-down model
+    space); Z is height in **inches** above level floor elevation, and ``rotation`` is in
+    **degrees**.
+    """
+
+    name: str = "Custom 3D Asset"
+    glb_rel_path: str = ""
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+    rotation: float = 0.0
+    scale: Tuple[float, float, float] = (1.0, 1.0, 1.0)
+    silhouette_2d: List[Tuple[float, float]] = field(default_factory=list)
+    glb_bytes: Optional[bytes] = None
+    level_id: str = ""
+    identifier: str = ""
+    layer_id: str = ""
+    visible: bool = True
+    locked: bool = False
+    custom_name: str = ""
+    comment: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.identifier:
+            self.identifier = generate_identifier("custom_asset")
+
+    def world_silhouette(self) -> List[Tuple[float, float]]:
+        """Return 2D footprint polygon transformed into world **inches**."""
+        import math
+
+        pts = self.silhouette_2d if len(self.silhouette_2d) >= 3 else [
+            (-18.0, -18.0),
+            (18.0, -18.0),
+            (18.0, 18.0),
+            (-18.0, 18.0),
+        ]
+        sx, sy = float(self.scale[0]), float(self.scale[1])
+        rad = math.radians(float(self.rotation))
+        ca, sa = math.cos(rad), math.sin(rad)
+        out: List[Tuple[float, float]] = []
+        for lx, ly in pts:
+            px = float(lx) * sx
+            py = float(ly) * sy
+            out.append((self.x + px * ca - py * sa, self.y + px * sa + py * ca))
+        return out
+
+

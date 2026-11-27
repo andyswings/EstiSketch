@@ -2,7 +2,6 @@
 
 ## 🚀 High Priority (do next)
 - [ ] Finish remaining architectural layout checks & UI (`geometry/design_checks.py`): when a kitchen sink is on an exterior wall, a window should be centered on the sink in that wall. add door-into-room swing direction check, kitchen island & high-traffic (36"+) walking clearance checks, and room access check (every room has at least one door or opening), and expose `validate_project_layout` in the GUI (wall penetration/clamping, door-swing vs. fixture, pocket door, stair landing/access, bathroom/toilet/sink/vanity/bathtub, and laundry checks are already implemented).
-- [ ] Implement the `.esk` ZIP project bundle format & 3D import/export (`docs/native_3d_architecture.md`, Phase 5): bundle `project.xml`, `overrides_3d.json`, embedded `assets/`, and `preview.png` with full backwards-compatible `.xml` loading, plus `.glb`/`.gltf`/`.obj` import and packaging updates (Phase 6).
 - [ ] We need to create an interface where the user can choose number of bedrooms, bathrooms, levels of home, garage size, square footage range, etc... and have it auto-populate a floor plan. It should be able to generate a few different options/styles to choose from, and let the user choose one. We should have the ability to choose how many different options to generate, and how many different styles (up to a maximum so we don't overload the system or user). It should also let the user make modifications to the generated floor plan, and save the floor plan as a new project. We should also have the ability to choose from a number of different styles of home (craftsman, modern, victorian, etc...) and have it generate a floor plan that is appropriate for that style (architecturally, structurally, code-wise, etc...). 
 
 
@@ -137,9 +136,16 @@
 - [ ] Themes
 
 ## 🐛 Known Bugs / FIXMEs
-- [ ] 3D model of a corner sink doesn't have backsplash on both sides.  It only has it on one side. Also inside corner should have the counter top notched out just like the cabinet. Currently the counter top juts out into the kitchen space.  
+- [ ] 3D model of a corner sink doesn't have backsplash on both sides.  It only has it on one side. Also inside corner should have the counter top notched out just like the cabinet. Currently the counter top juts out into the kitchen space. 
+- [ ] Example house 2 Garage floor has shingle roof texture instead of concrete. 
+- [ ] U-shaped stairs in the 3D view the upper flight rails are rendered correctly, but the steps are rendered in another location.
 
 ## Done ✅ (latest first)
+### Native 3D Engine — Phases 5 & 6 (2026-11-26)
+- [x] Implemented portable `.esk` ZIP project bundle (`esk_archive.py`, `project_io.py`, `Canvas/`, `View3D/viewport.py`, `main.py`) packing `manifest.json`, `project.xml`, `views.json`, `overrides_3d.json`, file-backed `blueprints/`, embedded `assets/*.glb`, `sync/blender_state.json`, and optional `preview.png` with automatic ZIP-magic & extension detection and full backwards-compatible `.xml` save/load (`tests/test_esk_archive.py`) (2026-11-26).
+- [x] Added `.glb`, `.gltf`, and `.obj` 3D model import (`estisketch_3d_core/src/{assets,glb_export}.rs`, `estisketch_3d_py`, `native_3d.py`, `CustomAsset`, `File > Import 3D Asset`) with pure-Rust Andrew monotone chain 2D convex-hull footprint projection, FNV-1a mesh hashing, 2D plan silhouette rendering (`Canvas/canvas_draw.py`), and `SceneIR` 3D instantiation (`scene_ir/{parsed,builder}.py`, `mesher.rs`) (2026-11-26).
+- [x] Implemented the Two-Tier Blender Sync protocol (`blender_bridge/blender_sync.py`, `blender_bridge/estisketch_sync_addon.py`, `Dialogs/blender_import_dialog.py`): glTF scene export with embedded `estisketch_id` extras, MIT Blender N-panel add-on (`ESTISKETCH_OT_export_delta`), `.esk-delta.zip` classification into Tier 1 parametric updates / Tier 2A `override_3d` / Tier 2B `custom_asset` with boilerplate filtering, atomic single-Undo application, locked-object enforcement, and parametric override reset (`tests/test_blender_sync.py`) (2026-11-26).
+- [x] Updated Debian `.deb` (`packaging/build_deb.py`), PyInstaller AppImage (`packaging/estisketch.spec`, `packaging/build_pyinstaller_appimage.sh`), Conda/Pixi/Windows (`pyproject.toml`, `conda-recipe/`, `pixi.toml`), and GitHub Actions release pipelines (`.github/workflows/release.yml`) to compile and bundle `_native_3d` and recompiled `src/EstiSketch/_native_3d.abi3.so` (2026-11-26).
 ### Native 3D Engine — Phase 4 (2026-11-26)
 - [x] Implemented MRT Screen-Space Ambient Occlusion (SSAO) with 16-tap depth/normal sampling, depth-aware bilateral blur, and screen-space crease outline composite pass (`estisketch_3d_gl/src/{shaders,lib}.rs`), headless Linux EGL offscreen renderer (`estisketch_3d_gl/src/offscreen.rs`), PyO3 offscreen RGBA8 capture & `Viewport3DWidget` SSAO toggle/PNG snapshot helper (`native_3d.py`, `View3D/viewport.py`), and automated visual regression tests rendering all 3 demo houses (`tests/test_view_3d_render.py`) (2026-11-26).
 ### Native 3D Engine — Phase 3 (2026-11-26)

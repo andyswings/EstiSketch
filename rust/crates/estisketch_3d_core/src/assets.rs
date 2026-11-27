@@ -7,10 +7,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use glam::Vec3;
-use serde::Deserialize;
+use glam::{Vec2, Vec3};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::glb_export::export_loaded_asset_to_glb;
 use crate::mesh::{MaterialDef, MaterialStyle, MeshPart, Vertex};
 use crate::scene_ir::{CustomAssetIR, FixtureIR};
 
@@ -294,6 +295,389 @@ pub fn load_glb_asset(path: &Path) -> Result<LoadedGlbAsset, String> {
     parse_glb_bytes(&raw)
 }
 
+/// Summary metrics computed for an imported `.glb`, `.gltf`, or `.obj` 3D asset.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AssetInspection {
+    /// Bounding box dimensions `[width, depth, height]` in **meters** (Z-up).
+    pub size_m: [f32; 3],
+    /// Counter-clockwise 2D convex hull footprint points `[x, y]` in **meters** centered on origin.
+    pub silhouette_2d_m: Vec<[f32; 2]>,
+    /// Deterministic 64-bit FNV-1a geometry hash hex string for Blender sync delta detection.
+    pub mesh_hash: String,
+    /// Total triangle count across all decoded mesh primitives.
+    pub triangle_count: usize,
+}
+
+/// Parse standalone JSON `.gltf` file with data-URI or relative `.bin` buffer into Z-up meters.
+pub fn load_gltf_file(path: &Path) -> Result<LoadedGlbAsset, String> {
+    let raw = std::fs::read_to_string(path).map_err(|e| format!("Read {}: {e}", path.display()))?;
+    let doc: Value = serde_json::from_str(&raw).map_err(|e| format!("Invalid glTF JSON: {e}"))?;
+    let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let bin = load_first_gltf_buffer(&doc, base_dir)?;
+    decode_gltf_doc(&doc, &bin)
+}
+
+/// Load a `.glb`, `.gltf`, or Wavefront `.obj` 3D model into normalized Z-up meters.
+pub fn load_3d_asset(path: &Path) -> Result<LoadedGlbAsset, String> {
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(str::to_lowercase)
+        .unwrap_or_default();
+    match ext.as_str() {
+        "glb" => load_glb_asset(path),
+        "gltf" => load_gltf_file(path),
+        "obj" => {
+            let raw = std::fs::read(path).map_err(|e| format!("Read {}: {e}", path.display()))?;
+            load_obj_bytes(&raw)
+        }
+        other => Err(format!(
+            "Unsupported 3D asset format '.{other}' (expected .glb, .gltf, or .obj)"
+        )),
+    }
+}
+
+/// Parse Wavefront `.obj` bytes (Y-up meters) into normalized bottom-centered Z-up meters.
+pub fn load_obj_bytes(raw: &[u8]) -> Result<LoadedGlbAsset, String> {
+    let text = String::from_utf8_lossy(raw);
+    let mut positions: Vec<[f32; 3]> = Vec::new();
+    let mut normals: Vec<[f32; 3]> = Vec::new();
+    let mut uvs: Vec<[f32; 2]> = Vec::new();
+    let mut verts: Vec<Vertex> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+
+    for line in text.lines() {
+        let trimmed = line.split('#').next().unwrap_or("").trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let mut parts = trimmed.split_whitespace();
+        let Some(tag) = parts.next() else {
+            continue;
+        };
+        match tag {
+            "v" => {
+                let coords: Vec<f32> = parts.filter_map(|p| p.parse::<f32>().ok()).collect();
+                if coords.len() >= 3 {
+                    positions.push(gltf_to_zup([coords[0], coords[1], coords[2]]));
+                }
+            }
+            "vn" => {
+                let coords: Vec<f32> = parts.filter_map(|p| p.parse::<f32>().ok()).collect();
+                if coords.len() >= 3 {
+                    normals.push(gltf_to_zup([coords[0], coords[1], coords[2]]));
+                }
+            }
+            "vt" => {
+                let coords: Vec<f32> = parts.filter_map(|p| p.parse::<f32>().ok()).collect();
+                if coords.len() >= 2 {
+                    uvs.push([coords[0], coords[1]]);
+                }
+            }
+            "f" => {
+                let corners: Vec<(Option<usize>, Option<usize>, Option<usize>)> = parts
+                    .map(|tok| {
+                        parse_obj_face_vertex(tok, positions.len(), uvs.len(), normals.len())
+                    })
+                    .collect();
+                if corners.len() < 3 {
+                    continue;
+                }
+                for i in 1..(corners.len() - 1) {
+                    let tri_refs = [corners[0], corners[i], corners[i + 1]];
+                    let mut tri_pos = [[0.0f32; 3]; 3];
+                    let mut valid = true;
+                    for (k, (pi, _, _)) in tri_refs.iter().enumerate() {
+                        if let Some(p_idx) = pi.and_then(|idx| positions.get(idx)) {
+                            tri_pos[k] = *p_idx;
+                        } else {
+                            valid = false;
+                            break;
+                        }
+                    }
+                    if !valid {
+                        continue;
+                    }
+                    let face_n = (Vec3::from_array(tri_pos[1]) - Vec3::from_array(tri_pos[0]))
+                        .cross(Vec3::from_array(tri_pos[2]) - Vec3::from_array(tri_pos[0]))
+                        .normalize_or_zero()
+                        .to_array();
+                    for (k, &(_, ti, ni)) in tri_refs.iter().enumerate() {
+                        let p = tri_pos[k];
+                        let n = ni
+                            .and_then(|idx| normals.get(idx))
+                            .copied()
+                            .unwrap_or(face_n);
+                        let uv = ti
+                            .and_then(|idx| uvs.get(idx))
+                            .copied()
+                            .unwrap_or([p[0], p[1]]);
+                        let idx = verts.len() as u32;
+                        verts.push(Vertex {
+                            pos: p,
+                            normal: n,
+                            uv,
+                        });
+                        indices.push(idx);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if verts.is_empty() || indices.is_empty() {
+        return Err("OBJ contained no valid triangle faces".to_string());
+    }
+
+    let primitives = vec![LoadedGlbPrimitive {
+        material: MaterialDef {
+            name: "ImportedObj".to_string(),
+            base_color: [0.85, 0.84, 0.82, 1.0],
+            roughness: 0.6,
+            metallic: 0.0,
+            style: MaterialStyle::Solid,
+            pattern_scale: 1.0,
+            pattern_rotation_deg: 0.0,
+            transparent: false,
+        },
+        vertices: verts,
+        indices,
+    }];
+    Ok(normalize_asset_primitives(primitives))
+}
+
+/// Compute a counter-clockwise 2D convex hull footprint `[x, y]` in **meters** for `asset`.
+pub fn compute_asset_silhouette_2d(asset: &LoadedGlbAsset) -> Vec<[f32; 2]> {
+    let mut pts: Vec<Vec2> = Vec::new();
+    for prim in &asset.primitives {
+        for v in &prim.vertices {
+            // Snap to mm grid to deduplicate dense organic meshes rapidly
+            let x = (v.pos[0] * 1000.0).round() * 0.001;
+            let y = (v.pos[1] * 1000.0).round() * 0.001;
+            pts.push(Vec2::new(x, y));
+        }
+    }
+    if pts.len() < 3 {
+        let hw = 0.5 * asset.size_m[0].max(0.1);
+        let hd = 0.5 * asset.size_m[1].max(0.1);
+        return vec![[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]];
+    }
+    pts.sort_by(|a, b| a.x.total_cmp(&b.x).then_with(|| a.y.total_cmp(&b.y)));
+    pts.dedup_by(|a, b| (*a - *b).length_squared() <= 1e-6);
+    if pts.len() < 3 {
+        let hw = 0.5 * asset.size_m[0].max(0.1);
+        let hd = 0.5 * asset.size_m[1].max(0.1);
+        return vec![[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]];
+    }
+
+    let cross2 = |o: Vec2, a: Vec2, b: Vec2| -> f32 {
+        (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+    };
+    let mut lower: Vec<Vec2> = Vec::new();
+    for &p in &pts {
+        while lower.len() >= 2 && cross2(lower[lower.len() - 2], lower[lower.len() - 1], p) <= 0.0 {
+            lower.pop();
+        }
+        lower.push(p);
+    }
+    let mut upper: Vec<Vec2> = Vec::new();
+    for &p in pts.iter().rev() {
+        while upper.len() >= 2 && cross2(upper[upper.len() - 2], upper[upper.len() - 1], p) <= 0.0 {
+            upper.pop();
+        }
+        upper.push(p);
+    }
+    lower.pop();
+    upper.pop();
+    lower.extend(upper);
+    if lower.len() < 3 {
+        let hw = 0.5 * asset.size_m[0].max(0.1);
+        let hd = 0.5 * asset.size_m[1].max(0.1);
+        return vec![[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]];
+    }
+    lower.into_iter().map(|p| [p.x, p.y]).collect()
+}
+
+/// Compute a deterministic 64-bit FNV-1a hash over `asset` vertex geometry and index count.
+pub fn compute_asset_mesh_hash(asset: &LoadedGlbAsset) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let prime: u64 = 0x0100_0000_01b3;
+    let feed = |h: &mut u64, bytes: &[u8]| {
+        for &b in bytes {
+            *h ^= u64::from(b);
+            *h = h.wrapping_mul(prime);
+        }
+    };
+    let tri_count: usize = asset.primitives.iter().map(|p| p.indices.len() / 3).sum();
+    feed(&mut hash, &(tri_count as u64).to_le_bytes());
+    for prim in &asset.primitives {
+        feed(&mut hash, &(prim.vertices.len() as u64).to_le_bytes());
+        for v in &prim.vertices {
+            for c in v.pos {
+                let q = (c * 1000.0).round() as i32;
+                feed(&mut hash, &q.to_le_bytes());
+            }
+        }
+    }
+    format!("{hash:016x}")
+}
+
+/// Summarize bounds, 2D hull silhouette, geometry hash, and triangle count for [`LoadedGlbAsset`].
+pub fn inspect_loaded_asset(asset: &LoadedGlbAsset) -> AssetInspection {
+    let triangle_count = asset.primitives.iter().map(|p| p.indices.len() / 3).sum();
+    AssetInspection {
+        size_m: asset.size_m,
+        silhouette_2d_m: compute_asset_silhouette_2d(asset),
+        mesh_hash: compute_asset_mesh_hash(asset),
+        triangle_count,
+    }
+}
+
+/// Inspect a `.glb`, `.gltf`, or `.obj` file on disk without modifying files.
+pub fn inspect_3d_asset_file(path: &Path) -> Result<AssetInspection, String> {
+    let asset = load_3d_asset(path)?;
+    Ok(inspect_loaded_asset(&asset))
+}
+
+/// Load `.glb`/`.gltf`/`.obj` from `input_path`, write normalized `.glb` to `output_glb`, and return summary.
+pub fn convert_3d_asset_to_glb(
+    input_path: &Path,
+    output_glb: &Path,
+) -> Result<AssetInspection, String> {
+    let asset = load_3d_asset(input_path)?;
+    let name = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("custom_asset");
+    let glb_bytes = export_loaded_asset_to_glb(&asset, name)?;
+    if let Some(parent) = output_glb.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Create dir {}: {e}", parent.display()))?;
+    }
+    std::fs::write(output_glb, glb_bytes)
+        .map_err(|e| format!("Write {}: {e}", output_glb.display()))?;
+    Ok(inspect_loaded_asset(&asset))
+}
+
+fn parse_obj_index(raw: &str, len: usize) -> Option<usize> {
+    if raw.is_empty() {
+        return None;
+    }
+    let idx: isize = raw.parse().ok()?;
+    if idx > 0 {
+        let z = (idx - 1) as usize;
+        (z < len).then_some(z)
+    } else if idx < 0 {
+        let abs_i = idx.unsigned_abs();
+        (abs_i <= len).then(|| len - abs_i)
+    } else {
+        None
+    }
+}
+
+fn parse_obj_face_vertex(
+    token: &str,
+    pos_len: usize,
+    uv_len: usize,
+    norm_len: usize,
+) -> (Option<usize>, Option<usize>, Option<usize>) {
+    let mut parts = token.split('/');
+    let pi = parts.next().and_then(|s| parse_obj_index(s, pos_len));
+    let ti = parts.next().and_then(|s| parse_obj_index(s, uv_len));
+    let ni = parts.next().and_then(|s| parse_obj_index(s, norm_len));
+    (pi, ti, ni)
+}
+
+fn load_first_gltf_buffer(doc: &Value, base_dir: &Path) -> Result<Vec<u8>, String> {
+    let Some(buffers) = doc.get("buffers").and_then(Value::as_array) else {
+        return Ok(Vec::new());
+    };
+    let Some(first) = buffers.first() else {
+        return Ok(Vec::new());
+    };
+    let Some(uri) = first.get("uri").and_then(Value::as_str) else {
+        return Ok(Vec::new());
+    };
+    if let Some((_, b64_part)) = uri.split_once(";base64,") {
+        if uri.starts_with("data:") {
+            return decode_base64_bytes(b64_part);
+        }
+    }
+    let rel = Path::new(uri);
+    if rel.is_absolute()
+        || rel
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(format!("Unsafe external glTF buffer URI '{uri}'"));
+    }
+    let buf_path = base_dir.join(rel);
+    std::fs::read(&buf_path).map_err(|e| format!("Read buffer {}: {e}", buf_path.display()))
+}
+
+fn decode_base64_bytes(input: &str) -> Result<Vec<u8>, String> {
+    let val_for = |b: u8| -> Option<u8> {
+        match b {
+            b'A'..=b'Z' => Some(b - b'A'),
+            b'a'..=b'z' => Some(b - b'a' + 26),
+            b'0'..=b'9' => Some(b - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    };
+    let mut out: Vec<u8> = Vec::with_capacity((input.len() * 3) / 4);
+    let mut buf: u32 = 0;
+    let mut bits: u8 = 0;
+    for b in input.bytes() {
+        if b.is_ascii_whitespace() || b == b'=' {
+            continue;
+        }
+        let v = val_for(b).ok_or_else(|| "Invalid base64 byte in glTF URI".to_string())?;
+        buf = (buf << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((buf >> bits) & 0xFF) as u8);
+        }
+    }
+    Ok(out)
+}
+
+fn normalize_asset_primitives(mut primitives: Vec<LoadedGlbPrimitive>) -> LoadedGlbAsset {
+    let mut min_v = Vec3::splat(f32::INFINITY);
+    let mut max_v = Vec3::splat(f32::NEG_INFINITY);
+    for prim in &primitives {
+        for v in &prim.vertices {
+            let vp = Vec3::from_array(v.pos);
+            min_v = min_v.min(vp);
+            max_v = max_v.max(vp);
+        }
+    }
+    if !min_v.is_finite() || !max_v.is_finite() {
+        return LoadedGlbAsset {
+            primitives,
+            size_m: [0.05, 0.05, 0.05],
+        };
+    }
+    let cx = 0.5 * (min_v.x + max_v.x);
+    let cy = 0.5 * (min_v.y + max_v.y);
+    let z0 = min_v.z;
+    for prim in &mut primitives {
+        for v in &mut prim.vertices {
+            v.pos[0] -= cx;
+            v.pos[1] -= cy;
+            v.pos[2] -= z0;
+        }
+    }
+    let ext = (max_v - min_v).max(Vec3::splat(0.05));
+    LoadedGlbAsset {
+        primitives,
+        size_m: [ext.x, ext.y, ext.z],
+    }
+}
+
 /// Parse binary `.glb` bytes into normalized Z-up primitives.
 pub fn parse_glb_bytes(raw: &[u8]) -> Result<LoadedGlbAsset, String> {
     if raw.len() < 20 {
@@ -329,7 +713,10 @@ pub fn parse_glb_bytes(raw: &[u8]) -> Result<LoadedGlbAsset, String> {
     let doc: Value = serde_json::from_slice(json_slice.ok_or("Missing GLB JSON chunk")?)
         .map_err(|e| format!("Invalid GLB JSON: {e}"))?;
     let bin = bin_slice.unwrap_or(&[]);
+    decode_gltf_doc(&doc, bin)
+}
 
+fn decode_gltf_doc(doc: &Value, bin: &[u8]) -> Result<LoadedGlbAsset, String> {
     let meshes = doc
         .get("meshes")
         .and_then(Value::as_array)
@@ -353,7 +740,7 @@ pub fn parse_glb_bytes(raw: &[u8]) -> Result<LoadedGlbAsset, String> {
             else {
                 continue;
             };
-            let Some((pos_bytes, count, pos_stride, 5126)) = accessor_slice(&doc, bin, pos_idx)
+            let Some((pos_bytes, count, pos_stride, 5126)) = accessor_slice(doc, bin, pos_idx)
             else {
                 continue;
             };
@@ -361,11 +748,11 @@ pub fn parse_glb_bytes(raw: &[u8]) -> Result<LoadedGlbAsset, String> {
             let norm_info = attrs
                 .and_then(|a| a.get("NORMAL"))
                 .and_then(Value::as_u64)
-                .and_then(|i| accessor_slice(&doc, bin, i as usize));
+                .and_then(|i| accessor_slice(doc, bin, i as usize));
             let uv_info = attrs
                 .and_then(|a| a.get("TEXCOORD_0"))
                 .and_then(Value::as_u64)
-                .and_then(|i| accessor_slice(&doc, bin, i as usize));
+                .and_then(|i| accessor_slice(doc, bin, i as usize));
 
             let mut verts = Vec::with_capacity(count);
             for i in 0..count {
@@ -419,7 +806,7 @@ pub fn parse_glb_bytes(raw: &[u8]) -> Result<LoadedGlbAsset, String> {
                 .and_then(Value::as_u64)
                 .map(|v| v as usize)
             {
-                if let Some((ib, icnt, istride, comp)) = accessor_slice(&doc, bin, idx_acc) {
+                if let Some((ib, icnt, istride, comp)) = accessor_slice(doc, bin, idx_acc) {
                     let mut out_idx = Vec::with_capacity(icnt);
                     for k in 0..icnt {
                         let off = k * istride;
@@ -455,22 +842,7 @@ pub fn parse_glb_bytes(raw: &[u8]) -> Result<LoadedGlbAsset, String> {
         return Err("GLB contained no valid mesh primitives".to_string());
     }
 
-    // Recenter XY at 0 and ground bottom at z = 0
-    let cx = 0.5 * (min_v.x + max_v.x);
-    let cy = 0.5 * (min_v.y + max_v.y);
-    let z0 = min_v.z;
-    for prim in &mut primitives {
-        for v in &mut prim.vertices {
-            v.pos[0] -= cx;
-            v.pos[1] -= cy;
-            v.pos[2] -= z0;
-        }
-    }
-    let ext = (max_v - min_v).max(Vec3::splat(0.05));
-    Ok(LoadedGlbAsset {
-        primitives,
-        size_m: [ext.x, ext.y, ext.z],
-    })
+    Ok(normalize_asset_primitives(primitives))
 }
 
 fn extract_gltf_material(mats: Option<&Vec<Value>>, prim: &Value) -> MaterialDef {
@@ -610,5 +982,25 @@ mod tests {
             countertop_color: None,
         };
         assert!(lib.instantiate_fixture_parts(&fx).is_none());
+    }
+
+    #[test]
+    fn obj_import_silhouette_hash_and_glb_conversion() {
+        let obj = b"v 0 0 0\nv 2 0 0\nv 2 1 1\nv 0 1 1\nf 1 2 3 4\n";
+        let asset = load_obj_bytes(obj).expect("parse obj");
+        assert_eq!(asset.primitives.len(), 1);
+        assert!((asset.size_m[0] - 2.0).abs() < 1e-4);
+        assert!((asset.size_m[1] - 1.0).abs() < 1e-4);
+        assert!((asset.size_m[2] - 1.0).abs() < 1e-4);
+
+        let info = inspect_loaded_asset(&asset);
+        assert_eq!(info.triangle_count, 2);
+        assert!(info.silhouette_2d_m.len() >= 3);
+        assert_eq!(info.mesh_hash.len(), 16);
+        assert_eq!(info.mesh_hash, inspect_loaded_asset(&asset).mesh_hash);
+
+        let glb = export_loaded_asset_to_glb(&asset, "pergola").expect("export obj->glb");
+        let reparsed = parse_glb_bytes(&glb).expect("reparse glb");
+        assert_eq!(info.mesh_hash, compute_asset_mesh_hash(&reparsed));
     }
 }

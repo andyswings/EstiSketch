@@ -258,6 +258,21 @@ class ParsedFixture:
 
 
 @dataclass
+class ParsedCustomAsset:
+    """Pure-Python representation of a custom `.glb` asset placed in inches."""
+
+    identifier: str
+    layer_id: str
+    name: str
+    glb_path: str
+    x: float
+    y: float
+    z: float
+    rotation: float  # degrees
+    scale: tuple[float, float, float]
+
+
+@dataclass
 class ParsedProject:
     """Container for all parsed EstiSketch elements needed for 3D conversion."""
 
@@ -270,6 +285,7 @@ class ParsedProject:
     stairs: list[ParsedStair] = field(default_factory=list)
     floor_openings: list[ParsedFloorOpening] = field(default_factory=list)
     fixtures: list[ParsedFixture] = field(default_factory=list)
+    custom_assets: list[ParsedCustomAsset] = field(default_factory=list)
     cut_lower_ceiling_under_stairs: bool = False
     north_angle: float = 0.0  # degrees
     skipped_openings: list[str] = field(default_factory=list)
@@ -825,6 +841,32 @@ def parse_estisketch_xml(xml_path: str) -> ParsedProject:
                 )
             )
 
+    custom_assets_el = root.find("CustomAssets")
+    custom_assets: list[ParsedCustomAsset] = []
+    if custom_assets_el is not None:
+        for idx, ca_el in enumerate(custom_assets_el.findall("CustomAsset")):
+            layer_id = (ca_el.get("layer_id") or "").strip()
+            if not _is_visible(ca_el):
+                continue
+            ca_id = (ca_el.get("identifier") or "").strip() or f"custom_asset_{idx}"
+            custom_assets.append(
+                ParsedCustomAsset(
+                    identifier=ca_id,
+                    layer_id=layer_id,
+                    name=ca_el.get("name", "Custom 3D Asset"),
+                    glb_path=(ca_el.get("glb") or "").strip(),
+                    x=_attr_float(ca_el, "x", 0.0),
+                    y=_attr_float(ca_el, "y", 0.0),
+                    z=_attr_float(ca_el, "z", 0.0),
+                    rotation=_attr_float(ca_el, "rotation", 0.0),
+                    scale=(
+                        _attr_float(ca_el, "scale_x", 1.0),
+                        _attr_float(ca_el, "scale_y", 1.0),
+                        _attr_float(ca_el, "scale_z", 1.0),
+                    ),
+                )
+            )
+
     cut_lower = root.get("cut_lower_ceiling_under_stairs", "False").strip().lower() == "true"
     north_angle = _attr_float(root, "north_angle", 0.0)
 
@@ -838,6 +880,7 @@ def parse_estisketch_xml(xml_path: str) -> ParsedProject:
         stairs=stairs,
         floor_openings=floor_openings,
         fixtures=fixtures,
+        custom_assets=custom_assets,
         cut_lower_ceiling_under_stairs=cut_lower,
         north_angle=north_angle,
         skipped_openings=skipped_openings,
@@ -1218,6 +1261,43 @@ def parse_estisketch_canvas(canvas: object) -> ParsedProject:
             )
         )
 
+    raw_custom = _iter_seq(getattr(canvas, "custom_assets", []))
+    custom_assets: list[ParsedCustomAsset] = []
+    if raw_custom:
+        from ..esk_archive import materialize_project_assets
+
+        materialize_project_assets(canvas)
+    for idx, ca in enumerate(raw_custom):
+        layer_id = _coerce_str(getattr(ca, "layer_id", ""))
+        if not _coerce_bool(getattr(ca, "visible", True), True):
+            continue
+        ca_id = _coerce_str(getattr(ca, "identifier", "")) or f"custom_asset_{idx}"
+        res_path = _coerce_str(
+            getattr(ca, "resolved_glb_path", "") or getattr(ca, "glb_rel_path", "")
+        )
+        raw_scale = getattr(ca, "scale", (1.0, 1.0, 1.0))
+        if isinstance(raw_scale, (tuple, list)) and len(raw_scale) >= 3:
+            scale = (
+                _coerce_float(raw_scale[0], 1.0),
+                _coerce_float(raw_scale[1], 1.0),
+                _coerce_float(raw_scale[2], 1.0),
+            )
+        else:
+            scale = (1.0, 1.0, 1.0)
+        custom_assets.append(
+            ParsedCustomAsset(
+                identifier=ca_id,
+                layer_id=layer_id,
+                name=_coerce_str(getattr(ca, "name", "Custom 3D Asset")) or "Custom 3D Asset",
+                glb_path=res_path,
+                x=_coerce_float(getattr(ca, "x", 0.0), 0.0),
+                y=_coerce_float(getattr(ca, "y", 0.0), 0.0),
+                z=_coerce_float(getattr(ca, "z", 0.0), 0.0),
+                rotation=_coerce_float(getattr(ca, "rotation", 0.0), 0.0),
+                scale=scale,
+            )
+        )
+
     cut_lower = _coerce_bool(getattr(canvas, "cut_lower_ceiling_under_stairs", False), False)
     north_angle = _coerce_float(getattr(canvas, "north_angle", 0.0), 0.0)
 
@@ -1231,6 +1311,7 @@ def parse_estisketch_canvas(canvas: object) -> ParsedProject:
         stairs=stairs,
         floor_openings=floor_openings,
         fixtures=fixtures,
+        custom_assets=custom_assets,
         cut_lower_ceiling_under_stairs=cut_lower,
         north_angle=north_angle,
         skipped_openings=skipped_openings,

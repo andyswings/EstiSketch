@@ -1,8 +1,11 @@
 import base64
 import json
+from pathlib import Path
+from typing import Callable
 import xml.etree.ElementTree as ET
 from .Canvas.utils import generate_identifier
-from .components import Wall, Room, FloorOpening, Fixture, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair, BackgroundImage, DimensionChain, LeaderCallout, ObjectGroup
+from .components import Wall, Room, FloorOpening, Fixture, CustomAsset, Door, Window, Text, Dimension, Layer, Level, Polyline, Circle, Arc, Stair, BackgroundImage, DimensionChain, LeaderCallout, ObjectGroup
+from . import esk_archive
 from .geometry.room_holes import sync_stair_holes
 from .roof_components import Roof, RoofEdge, RoofLine
 
@@ -19,6 +22,9 @@ def _save_obj_meta(elem, obj):
     comment = getattr(obj, "comment", "") or ""
     if comment:
         elem.set("comment", comment)
+    override_path = getattr(obj, "custom_3d_override", "") or ""
+    if override_path:
+        elem.set("custom_3d_override", str(override_path))
 
 
 def _load_obj_meta(elem, obj):
@@ -29,6 +35,7 @@ def _load_obj_meta(elem, obj):
         obj.locked = elem.get("locked", "False") == "True"
     obj.custom_name = elem.get("custom_name", "") or ""
     obj.comment = elem.get("comment", "") or ""
+    obj.custom_3d_override = elem.get("custom_3d_override", "") or ""
 
 
 def _rgb_to_hex(color) -> str:
@@ -55,19 +62,33 @@ def _hex_to_rgb(text: str):
         return None
 
 
-def save_project(canvas, window_width, window_height, filepath):
-    """ Save the entire project state to an XML file.
+def _format_silhouette_2d(points) -> str:
+    return ";".join(f"{float(pt[0]):.4f},{float(pt[1]):.4f}" for pt in points)
 
-    Parameters:
-    canvas: The CanvasArea instance holding project elements.
-    window_width: The current width of the project window.
-    window_height: The current height of the project window.
-    filepath: The destination filepath to write the XML.
 
-    The XML structure will include wall sets, rooms, doors, windows,
-    and the window size. Additionally, each Door and Window saves a reference
-    to the wall (set index and wall index) it is attached to.
-    """
+def _parse_silhouette_2d(raw: str) -> list[tuple[float, float]]:
+    pts: list[tuple[float, float]] = []
+    for chunk in (raw or "").split(";"):
+        chunk = chunk.strip()
+        if not chunk or "," not in chunk:
+            continue
+        x_s, y_s = chunk.split(",", 1)
+        try:
+            pts.append((float(x_s), float(y_s)))
+        except ValueError:
+            continue
+    return pts
+
+
+def build_project_xml_tree(
+    canvas,
+    window_width: int,
+    window_height: int,
+    embed_blueprints_inline: bool = True,
+) -> tuple[ET.Element, dict[str, bytes], dict[str, bytes]]:
+    """Build the canonical EstiSketch XML tree plus binary blueprint & `.glb` asset payloads."""
+    blueprint_files: dict[str, bytes] = {}
+    asset_files: dict[str, bytes] = {}
     # Create the XML root with window dimensions.
     root = ET.Element(
         "Project",
@@ -681,8 +702,7 @@ def save_project(canvas, window_width, window_height, filepath):
             m_elem = ET.SubElement(g_elem, "Member")
             m_elem.set("id", member_id)
 
-    # Save Blueprint underlays (image bytes are embedded so the project is
-    # self-contained and portable between machines).
+    # Save Blueprint underlays (inline base64 for standalone .xml, raw files for .esk)
     blueprints_elem = ET.SubElement(root, "Blueprints")
     for bp in getattr(canvas, 'blueprints', []):
         b_elem = ET.SubElement(blueprints_elem, "Blueprint")
@@ -698,8 +718,46 @@ def save_project(canvas, window_width, window_height, filepath):
         b_elem.set("visible", str(bp.visible))
         b_elem.set("locked", str(bp.locked))
         b_elem.set("level_id", bp.level_id)
-        data_elem = ET.SubElement(b_elem, "ImageData")
-        data_elem.text = base64.b64encode(bp.image_data).decode("ascii")
+        img_bytes = getattr(bp, "image_data", b"") or b""
+        if embed_blueprints_inline:
+            data_elem = ET.SubElement(b_elem, "ImageData")
+            data_elem.text = base64.b64encode(img_bytes).decode("ascii")
+        elif img_bytes:
+            arch_rel = esk_archive.blueprint_archive_relpath(
+                bp.identifier, img_bytes, getattr(bp, "image_path", "")
+            )
+            b_elem.set("archive_path", arch_rel)
+            blueprint_files[arch_rel] = bytes(img_bytes)
+
+    # Save Custom 3D Assets (embedded .glb meshes with 2D silhouettes)
+    custom_assets_elem = ET.SubElement(root, "CustomAssets")
+    for ca in getattr(canvas, "custom_assets", []):
+        ca_id = getattr(ca, "identifier", "") or ""
+        glb_rel = getattr(ca, "glb_rel_path", "") or f"assets/{ca_id}.glb"
+        ca_elem = ET.SubElement(custom_assets_elem, "CustomAsset")
+        ca_elem.set("identifier", ca_id)
+        ca_elem.set("name", str(getattr(ca, "name", "Custom 3D Asset") or ""))
+        ca_elem.set("glb", glb_rel)
+        ca_elem.set("x", str(float(getattr(ca, "x", 0.0))))
+        ca_elem.set("y", str(float(getattr(ca, "y", 0.0))))
+        ca_elem.set("z", str(float(getattr(ca, "z", 0.0))))
+        ca_elem.set("rotation", str(float(getattr(ca, "rotation", 0.0))))
+        scale = getattr(ca, "scale", (1.0, 1.0, 1.0))
+        ca_elem.set("scale_x", str(float(scale[0])))
+        ca_elem.set("scale_y", str(float(scale[1])))
+        ca_elem.set("scale_z", str(float(scale[2])))
+        ca_elem.set("level_id", str(getattr(ca, "level_id", "") or ""))
+        ca_elem.set("layer_id", str(getattr(ca, "layer_id", "") or ""))
+        ca_elem.set("silhouette_2d", _format_silhouette_2d(getattr(ca, "silhouette_2d", [])))
+        _save_obj_meta(ca_elem, ca)
+
+        raw_glb = getattr(ca, "glb_bytes", None)
+        if isinstance(raw_glb, (bytes, bytearray)) and raw_glb:
+            asset_files[glb_rel] = bytes(raw_glb)
+        else:
+            res_p = getattr(ca, "resolved_glb_path", "")
+            if isinstance(res_p, str) and Path(res_p).is_file():
+                asset_files[glb_rel] = Path(res_p).read_bytes()
 
     # Save TakeoffEngine project state (assumptions, overrides, custom items, reference)
     takeoff_state = getattr(canvas, "takeoff_state", None)
@@ -713,8 +771,19 @@ def save_project(canvas, window_width, window_height, filepath):
         ps_elem = ET.SubElement(root, "PrintSettings")
         ps_elem.text = json.dumps(print_settings, sort_keys=True)
 
-    # Write out the XML to the given file (with declaration and proper
-    # encoding).
+    return (root, blueprint_files, asset_files)
+
+
+def save_project(canvas, window_width, window_height, filepath, preview_png: bytes | None = None):
+    """Save the project state to an `.esk` archive or legacy standalone `.xml` file."""
+    if str(filepath).lower().endswith(".esk"):
+        esk_archive.save_esk_project(
+            canvas, window_width, window_height, filepath, preview_png=preview_png
+        )
+        return
+    root, _bp, _assets = build_project_xml_tree(
+        canvas, window_width, window_height, embed_blueprints_inline=True
+    )
     tree = ET.ElementTree(root)
     tree.write(filepath, encoding="utf-8", xml_declaration=True)
 
@@ -779,22 +848,29 @@ def _get_attr_float(elem, attr, default=0.0):
 
 
 def open_project(canvas, filepath):
-    """ Load a project from an XML file and update the canvas state.
-
-    Parameters:
-    canvas: The CanvasArea instance where project elements will be restored.
-    filepath: The file path of the XML project file.
-
-    Returns:
-    A tuple (window_width, window_height) as specified in the file.
-
-    This function reverses the save_project process by restoring wall sets, rooms,
-    doors, and windows. When restoring doors and windows, the attached wall is reattached
-    using the saved wall reference (set_index and wall_index).
-    """
-    # Parse the XML file.
+    """Load an `.esk` archive or legacy `.xml` project file into ``canvas``."""
+    if esk_archive.is_esk_archive(filepath):
+        return esk_archive.open_esk_project(canvas, filepath)
     tree = ET.parse(filepath)
     root = tree.getroot()
+    return load_project_xml_root(canvas, root)
+
+
+def load_project_xml_root(
+    canvas,
+    root: ET.Element,
+    archive_reader: Callable[[str], bytes | None] | None = None,
+):
+    """Populate ``canvas`` from a parsed ``Project`` XML element and optional archive reader."""
+    # Reset 3D-only metadata defaults (restored later for .esk or left clean for legacy .xml)
+    if hasattr(canvas, "custom_assets"):
+        canvas.custom_assets.clear()
+    else:
+        canvas.custom_assets = []
+    if archive_reader is None:
+        canvas.overrides_3d = {}
+        canvas.views_3d = {}
+        canvas.blender_sync_state = {}
 
     # Retrieve window dimensions (with fallback defaults if missing or invalid).
     window_width = _get_attr_int(root, "window_width", 800)
@@ -1459,12 +1535,19 @@ def open_project(canvas, filepath):
         blueprints_elem = root.find("Blueprints")
         if blueprints_elem is not None:
             for b_elem in blueprints_elem.findall("Blueprint"):
-                data_elem = b_elem.find("ImageData")
-                try:
-                    image_data = base64.b64decode(
-                        (data_elem.text or "") if data_elem is not None else "")
-                except Exception:
-                    image_data = b""
+                image_data = b""
+                arch_path = _get_attr_text(b_elem, "archive_path", "")
+                if arch_path and archive_reader is not None:
+                    raw_bp = archive_reader(arch_path)
+                    if raw_bp is not None:
+                        image_data = raw_bp
+                if not image_data:
+                    data_elem = b_elem.find("ImageData")
+                    try:
+                        image_data = base64.b64decode(
+                            (data_elem.text or "") if data_elem is not None else "")
+                    except Exception:
+                        image_data = b""
                 bp = BackgroundImage(
                     identifier=_get_attr_text(b_elem, "identifier", ""),
                     name=_get_attr_text(b_elem, "name", ""),
@@ -1546,6 +1629,37 @@ def open_project(canvas, filepath):
             _load_obj_meta(fx_elem, fx)
             canvas.fixtures.append(fx)
 
+    # --- Restore Custom 3D Assets ---
+    ca_root = root.find("CustomAssets")
+    if ca_root is not None:
+        for ca_elem in ca_root.findall("CustomAsset"):
+            glb_rel = _get_attr_text(ca_elem, "glb", "")
+            glb_bytes = None
+            if glb_rel and archive_reader is not None:
+                glb_bytes = archive_reader(glb_rel)
+            ca = CustomAsset(
+                identifier=_get_attr_text(ca_elem, "identifier", ""),
+                name=_get_attr_text(ca_elem, "name", "Custom 3D Asset"),
+                glb_rel_path=glb_rel,
+                x=_get_attr_float(ca_elem, "x", 0.0),
+                y=_get_attr_float(ca_elem, "y", 0.0),
+                z=_get_attr_float(ca_elem, "z", 0.0),
+                rotation=_get_attr_float(ca_elem, "rotation", 0.0),
+                scale=(
+                    _get_attr_float(ca_elem, "scale_x", 1.0),
+                    _get_attr_float(ca_elem, "scale_y", 1.0),
+                    _get_attr_float(ca_elem, "scale_z", 1.0),
+                ),
+                silhouette_2d=_parse_silhouette_2d(_get_attr_text(ca_elem, "silhouette_2d", "")),
+                glb_bytes=glb_bytes,
+                level_id=_get_attr_text(ca_elem, "level_id", ""),
+                layer_id=_get_attr_text(ca_elem, "layer_id", ""),
+            )
+            _load_obj_meta(ca_elem, ca)
+            canvas.custom_assets.append(ca)
+    if canvas.custom_assets:
+        esk_archive.materialize_project_assets(canvas)
+
     # --- Restore Holes (derived) ---
     # Saved <Holes> only record the source link; geometry is recomputed from
     # the sources, so holes whose source no longer exists simply vanish.
@@ -1592,6 +1706,7 @@ def open_project(canvas, filepath):
         "stairs",
         "floor_openings",
         "fixtures",
+        "custom_assets",
         "blueprints",
         "groups",
     ):

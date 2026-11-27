@@ -40,7 +40,14 @@ version = {attr = "EstiSketch.version.__version__"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-EstiSketch = ["*.json", "Resources/*.json", "Icons/*"]
+EstiSketch = [
+    "*.json",
+    "Resources/*.json",
+    "Icons/*",
+    "_native_3d*.so",
+    "_native_3d*.pyd",
+    "_native_3d*.dylib",
+]
 
 [tool.pyright]
 extraPaths = ["src"]

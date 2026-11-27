@@ -1,6 +1,9 @@
 @echo off
 REM Windows build script for EstiSketch conda package
 
+python packaging\build_native_3d.py
+if errorlevel 1 exit 1
+
 python -m pip install . --no-deps --no-build-isolation --ignore-installed -vv
 if errorlevel 1 exit 1
 

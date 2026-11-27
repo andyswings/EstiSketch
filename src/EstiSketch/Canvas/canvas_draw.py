@@ -260,6 +260,54 @@ class CanvasDrawMixin:
         cr.paint_with_alpha(opacity)
         cr.restore()
 
+    def _draw_custom_assets(self, cr) -> None:
+        """Draw imported 3D custom asset 2D silhouettes on the canvas."""
+        assets = getattr(self, "custom_assets", None)
+        if not assets:
+            return
+        selected_items = getattr(self, "selected_items", ())
+        visible_fn = getattr(self, "is_object_on_visible_layer", None)
+        for asset in assets:
+            if not getattr(asset, "visible", True):
+                continue
+            if callable(visible_fn) and not visible_fn(asset):
+                continue
+            poly = asset.world_silhouette()
+            if len(poly) < 3:
+                continue
+            selected = any(
+                isinstance(item, dict) and item.get("object") is asset
+                for item in selected_items
+            )
+            cr.save()
+            try:
+                cr.move_to(poly[0][0], poly[0][1])
+                for px, py in poly[1:]:
+                    cr.line_to(px, py)
+                cr.close_path()
+                cr.set_source_rgba(0.32, 0.55, 0.72, 0.16)
+                cr.fill_preserve()
+                if selected:
+                    cr.set_source_rgb(0.0, 0.48, 0.85)
+                    cr.set_line_width(2.0)
+                else:
+                    cr.set_source_rgb(0.20, 0.36, 0.50)
+                    cr.set_line_width(1.2)
+                cr.stroke()
+
+                cx = sum(p[0] for p in poly) / len(poly)
+                cy = sum(p[1] for p in poly) / len(poly)
+                label = getattr(asset, "custom_name", "") or getattr(
+                    asset, "name", "3D Asset"
+                )
+                cr.set_source_rgb(0.15, 0.25, 0.35)
+                cr.select_font_face("Sans", 0, 0)
+                cr.set_font_size(5.0)
+                ext = cr.text_extents(label)
+                cr.move_to(cx - ext.width / 2.0, cy + ext.height / 2.0)
+                cr.show_text(label)
+            finally:
+                cr.restore()
 
     def draw_scene(self, cr, zoom_transform, pixels_per_inch, printing=False):
         """
@@ -289,6 +337,7 @@ class CanvasDrawMixin:
 
         # Draw fixtures, cabinetry, countertops, and appliances (masks floor patterns)
         rf.draw_fixtures(self, cr, zoom_transform, printing=printing)
+        self._draw_custom_assets(cr)
 
         # Draw footers (before walls to appear underneath)
         wr.draw_footers(self, cr)

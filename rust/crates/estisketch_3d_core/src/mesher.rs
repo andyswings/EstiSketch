@@ -122,11 +122,13 @@ pub fn build_scene_mesh_with_assets(
 
     // Custom `.glb` assets from Sketch / Blender sync (graceful beveled box fallback if missing)
     for item in state.custom_assets.values() {
-        if let Some(lib) = assets.as_deref() {
-            if let Ok(mut loaded) = lib.instantiate_custom_asset(item) {
-                parts.append(&mut loaded);
-                continue;
-            }
+        let loaded = match assets.as_deref() {
+            Some(lib) => lib.instantiate_custom_asset(item),
+            None => AssetLibrary::default().instantiate_custom_asset(item),
+        };
+        if let Ok(mut loaded_parts) = loaded {
+            parts.append(&mut loaded_parts);
+            continue;
         }
         let mut fallback = MeshBuilder::new();
         fallback.push_beveled_box(

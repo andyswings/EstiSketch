@@ -1,8 +1,9 @@
 use std::path::Path;
 
 use estisketch_3d_core::{
-    build_scene_mesh_with_assets, write_glb_file, AssetLibrary, BuiltSceneMesh, SceneDeltaIR,
-    SceneIR, ScenePicker, SceneState, SCENE_IR_SCHEMA_VERSION,
+    build_scene_mesh_with_assets, convert_3d_asset_to_glb, inspect_3d_asset_file, write_glb_file,
+    AssetLibrary, BuiltSceneMesh, SceneDeltaIR, SceneIR, ScenePicker, SceneState,
+    SCENE_IR_SCHEMA_VERSION,
 };
 use estisketch_3d_gl::{CameraMode, CameraPreset, GlRenderer, RenderStyle};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -53,6 +54,19 @@ fn export_scene_glb(scene_json: &str, output_path: &str) -> PyResult<usize> {
     state.load_scene(scene).map_err(to_py_value_error)?;
     let built = build_scene_mesh_with_assets(&state, None);
     write_glb_file(Path::new(output_path), &built, &state.sun).map_err(to_py_runtime_error)
+}
+
+#[pyfunction]
+fn inspect_3d_asset(path: &str) -> PyResult<String> {
+    let info = inspect_3d_asset_file(Path::new(path)).map_err(to_py_runtime_error)?;
+    serde_json::to_string(&info).map_err(to_py_runtime_error)
+}
+
+#[pyfunction]
+fn import_3d_asset_to_glb(input_path: &str, output_glb_path: &str) -> PyResult<String> {
+    let info = convert_3d_asset_to_glb(Path::new(input_path), Path::new(output_glb_path))
+        .map_err(to_py_runtime_error)?;
+    serde_json::to_string(&info).map_err(to_py_runtime_error)
 }
 
 #[pyclass]
@@ -330,6 +344,8 @@ fn _native_3d(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(summarize_scene_ir, m)?)?;
     m.add_function(wrap_pyfunction!(scene_mesh_stats, m)?)?;
     m.add_function(wrap_pyfunction!(export_scene_glb, m)?)?;
+    m.add_function(wrap_pyfunction!(inspect_3d_asset, m)?)?;
+    m.add_function(wrap_pyfunction!(import_3d_asset_to_glb, m)?)?;
     m.add_class::<NativeSceneSession>()?;
     Ok(())
 }

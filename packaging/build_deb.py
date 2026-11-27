@@ -3,6 +3,7 @@ import ast
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -26,11 +27,28 @@ def to_debian_version(version: str) -> str:
     return re.sub(r"-(alpha|beta|rc)", r"~\1", version)
 
 
+def _detect_debian_arch() -> str:
+    """Detect host Debian architecture because the native 3D module is compiled."""
+    try:
+        res = subprocess.run(
+            ["dpkg", "--print-architecture"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        arch = res.stdout.strip()
+        if arch:
+            return arch
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return "amd64"
+
+
 # Configuration
 APP_NAME = "estisketch"
 RAW_VERSION = read_app_version()
 VERSION = to_debian_version(RAW_VERSION)
-ARCH = "all"
+ARCH = _detect_debian_arch()
 AUTHOR = "Andrew Sharon"
 EMAIL = "andrewsharon@gmx.com"
 DESCRIPTION = "A lightweight 2-D floor-plan sketcher and building estimator"
@@ -41,6 +59,7 @@ DEPENDENCIES = [
     "gir1.2-gtk-4.0",
     "python3-cairo",
     "python3-numpy",
+    "libgl1",
 ]
 RECOMMENDS = [
     "python3-reportlab",
@@ -160,6 +179,10 @@ def build_deb():
 
 
 def main():
+    subprocess.run(
+        [sys.executable, str(PROJECT_ROOT / "packaging" / "build_native_3d.py")],
+        check=True,
+    )
     clean()
     create_structure()
     copy_files()

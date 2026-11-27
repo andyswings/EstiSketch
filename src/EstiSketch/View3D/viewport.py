@@ -78,6 +78,7 @@ class Viewport3DWidget(Gtk.Overlay):
         self._updating_dropdowns: bool = False
         self._level_ids: list[str] = []
         self._room_centers: list[tuple[float, float, float]] = []
+        self._pending_view_state: dict[str, object] = {}
 
         self.set_hexpand(True)
         self.set_vexpand(True)
@@ -515,6 +516,8 @@ class Viewport3DWidget(Gtk.Overlay):
             h = max(1, area.get_height() * scale)
             session.resize_gl(w, h)
             session.init_gl()
+            if self._pending_view_state:
+                self.apply_view_state(self._pending_view_state)
             self._fallback_box.set_visible(False)
             self._gl_error = None
         except (OSError, RuntimeError, ValueError) as exc:
@@ -893,6 +896,76 @@ class Viewport3DWidget(Gtk.Overlay):
     def _on_sun_changed(self, scale: Gtk.Scale) -> None:
         if self._session is not None:
             self._session.set_time_of_day(float(scale.get_value()))
+            self._gl_area.queue_render()
+
+    def get_view_state(self) -> dict[str, object]:
+        """Return serialized 3D viewport camera/style settings for `views.json`."""
+        presets = ["iso", "top", "front", "back", "left", "right"]
+        styles = ["textured", "clay", "sketch", "xray"]
+        p_idx = int(self._view_combo.get_selected())
+        s_idx = int(self._style_combo.get_selected())
+        l_idx = int(self._level_combo.get_selected())
+        level_id = (
+            self._level_ids[l_idx]
+            if 0 <= l_idx < len(self._level_ids)
+            else ""
+        )
+        return {
+            "view_preset": presets[p_idx] if 0 <= p_idx < len(presets) else "iso",
+            "dollhouse_level": level_id,
+            "auto_hide_roofs": bool(self._auto_hide_btn.get_active()),
+            "render_style": styles[s_idx] if 0 <= s_idx < len(styles) else "textured",
+            "ssao_enabled": bool(self._ssao_btn.get_active()),
+            "time_of_day": float(self._sun_scale.get_value()),
+        }
+
+    def apply_view_state(self, state: dict[str, object]) -> None:
+        """Apply saved 3D viewport settings from `views.json`."""
+        if not isinstance(state, dict) or not state:
+            return
+        self._pending_view_state = dict(state)
+        presets = ["iso", "top", "front", "back", "left", "right"]
+        styles = ["textured", "clay", "sketch", "xray"]
+
+        view_preset = str(state.get("view_preset", "iso"))
+        render_style = str(state.get("render_style", "textured"))
+        dollhouse_level = str(state.get("dollhouse_level", ""))
+        auto_hide = bool(state.get("auto_hide_roofs", True))
+        ssao = bool(state.get("ssao_enabled", True))
+        raw_time = state.get("time_of_day", 13.5)
+        time_of_day = (
+            float(raw_time)
+            if isinstance(raw_time, (int, float))
+            else 13.5
+        )
+
+        self._updating_dropdowns = True
+        try:
+            if view_preset in presets:
+                self._view_combo.set_selected(presets.index(view_preset))
+            if render_style in styles:
+                self._style_combo.set_selected(styles.index(render_style))
+            if dollhouse_level in self._level_ids:
+                self._level_combo.set_selected(
+                    self._level_ids.index(dollhouse_level)
+                )
+            elif self._level_ids:
+                self._level_combo.set_selected(0)
+            self._auto_hide_btn.set_active(auto_hide)
+            self._ssao_btn.set_active(ssao)
+            self._sun_scale.set_value(time_of_day)
+        finally:
+            self._updating_dropdowns = False
+
+        if self._session is not None:
+            if view_preset in presets:
+                self._session.set_camera_preset(view_preset)
+            if render_style in styles:
+                self._session.set_render_style(render_style)
+            self._session.set_dollhouse_level(dollhouse_level or None)
+            self._session.set_auto_hide_roofs(auto_hide)
+            self._session.set_ssao_enabled(ssao)
+            self._session.set_time_of_day(time_of_day)
             self._gl_area.queue_render()
 
     def save_snapshot_png(

@@ -15,9 +15,13 @@ pub mod openings;
 pub mod picking;
 pub mod scene_ir;
 
-pub use assets::{load_glb_asset, parse_glb_bytes, AssetLibrary, LoadedGlbAsset};
+pub use assets::{
+    compute_asset_mesh_hash, compute_asset_silhouette_2d, convert_3d_asset_to_glb,
+    inspect_3d_asset_file, inspect_loaded_asset, load_3d_asset, load_glb_asset, load_gltf_file,
+    load_obj_bytes, parse_glb_bytes, AssetInspection, AssetLibrary, LoadedGlbAsset,
+};
 pub use engine::{SceneState, SceneSummary};
-pub use glb_export::{export_scene_mesh_to_glb, write_glb_file};
+pub use glb_export::{export_loaded_asset_to_glb, export_scene_mesh_to_glb, write_glb_file};
 pub use mesh::{
     BuiltSceneMesh, LevelBounds, MaterialDef, MaterialKey, MaterialStyle, MeshBuilder, MeshPart,
     MeshStats, PartFlags, Vertex,

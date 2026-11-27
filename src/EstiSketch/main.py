@@ -2,6 +2,7 @@ import gi
 import os
 import sys
 import json
+from pathlib import Path
 from typing import Optional, Callable
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gdk, Gio, GdkPixbuf, GObject
@@ -16,12 +17,17 @@ from .Dialogs import estimate_materials
 from .Dialogs import takeoff_dialog
 from .Dialogs import manage_materials
 from .Dialogs import settings_ui
+from .Dialogs.blender_import_dialog import BlenderImportReviewDialog
 from .Printing import print_dialog
 from .Canvas import canvas_area
 from .Canvas.project_reset import reset_canvas_content
+from .components import CustomAsset
 from . import toolbar
 from . import config
 from . import blender_bridge
+from . import esk_archive
+from . import native_3d
+from .blender_bridge import blender_sync
 from .View3D import Viewport3DWidget
 from types import SimpleNamespace
 
@@ -81,6 +87,21 @@ class EstimatorApp(Gtk.Application):
         export_glb_action = Gio.SimpleAction.new("export_glb", None)
         export_glb_action.connect("activate", self.on_export_glb)
         self.add_action(export_glb_action)
+
+        # Import 3D asset (.glb / .gltf / .obj)
+        import_asset_action = Gio.SimpleAction.new("import_3d_asset", None)
+        import_asset_action.connect("activate", self.on_import_3d_asset)
+        self.add_action(import_asset_action)
+
+        # Push 3D glTF sync bundle for Blender
+        push_sync_action = Gio.SimpleAction.new("push_blender_sync", None)
+        push_sync_action.connect("activate", self.on_push_blender_sync)
+        self.add_action(push_sync_action)
+
+        # Pull Blender delta bundle (.esk-delta.zip)
+        pull_delta_action = Gio.SimpleAction.new("pull_blender_delta", None)
+        pull_delta_action.connect("activate", self.on_pull_blender_delta)
+        self.add_action(pull_delta_action)
 
         # Open project
         open_action = Gio.SimpleAction.new("open", None)
@@ -1008,16 +1029,232 @@ class EstimatorApp(Gtk.Application):
             if hasattr(self.canvas, "update_hint"):
                 self.canvas.update_hint(f"Exported 3D model ({nbytes} bytes): {path}")
         except (OSError, RuntimeError, ValueError) as exc:
-            err_dlg = Gtk.MessageDialog(
-                transient_for=self.window,
-                modal=True,
-                message_type=Gtk.MessageType.ERROR,
-                buttons=Gtk.ButtonsType.OK,
-                text="Unable to Export .glb",
-                secondary_text=str(exc),
+            self._show_message_dialog(
+                "Unable to Export .glb", str(exc), Gtk.MessageType.ERROR
             )
-            err_dlg.connect("response", lambda d, _r: d.destroy())
-            err_dlg.present()
+
+    def _show_message_dialog(
+        self,
+        title: str,
+        message: str,
+        msg_type: Gtk.MessageType = Gtk.MessageType.INFO,
+    ) -> None:
+        """Display a simple modal status or error message dialog."""
+        dlg = Gtk.MessageDialog(
+            transient_for=self.window,
+            modal=True,
+            message_type=msg_type,
+            buttons=Gtk.ButtonsType.OK,
+            text=title,
+            secondary_text=message,
+        )
+        dlg.connect("response", lambda d, _r: d.destroy())
+        dlg.present()
+
+    def on_import_3d_asset(
+        self, action: Gio.SimpleAction, parameter: object
+    ) -> None:
+        """Handle File -> Import 3D Asset (.glb / .gltf / .obj)."""
+        self.show_import_3d_asset_dialog()
+
+    def show_import_3d_asset_dialog(self) -> None:
+        """Prompt user for a `.glb`, `.gltf`, or `.obj` model to place in the plan."""
+        dlg = Gtk.FileDialog.new()
+        dlg.set_title("Import 3D Asset (.glb / .gltf / .obj)")
+        dlg.set_modal(True)
+
+        asset_filter = Gtk.FileFilter()
+        asset_filter.set_name("3D Models (*.glb, *.gltf, *.obj)")
+        asset_filter.add_pattern("*.glb")
+        asset_filter.add_pattern("*.gltf")
+        asset_filter.add_pattern("*.obj")
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        store.append(asset_filter)
+        dlg.set_filters(store)
+        dlg.set_default_filter(asset_filter)
+        dlg.open(self.window, None, self._on_import_3d_asset_done, None)
+
+    def _on_import_3d_asset_done(
+        self, obj: Gtk.FileDialog, result: Gio.AsyncResult, _user_data: object
+    ) -> None:
+        try:
+            file = obj.open_finish(result)
+        except Exception:
+            return
+        if not file:
+            return
+        src_path = file.get_path()
+        if not src_path:
+            return
+        try:
+            cache_dir = esk_archive.materialize_project_assets(self.canvas)
+            assets_dir = cache_dir / "assets"
+            assets_dir.mkdir(parents=True, exist_ok=True)
+            src = Path(src_path)
+            safe_stem = "".join(
+                ch if (ch.isalnum() or ch in ("-", "_")) else "_"
+                for ch in src.stem
+            ).strip("_") or "asset"
+            dest = assets_dir / f"{safe_stem}.glb"
+            counter = 1
+            while dest.exists():
+                dest = assets_dir / f"{safe_stem}_{counter}.glb"
+                counter += 1
+
+            inspection = native_3d.import_3d_asset_to_glb(src, dest)
+            glb_bytes = dest.read_bytes()
+            in_per_m = 1.0 / 0.0254
+            sil_in = [
+                (float(x) * in_per_m, float(y) * in_per_m)
+                for x, y in inspection.silhouette_2d_m
+            ]
+            asset = CustomAsset(
+                name=src.stem or "Custom 3D Asset",
+                glb_rel_path=f"assets/{dest.name}",
+                x=0.0,
+                y=0.0,
+                z=0.0,
+                rotation=0.0,
+                silhouette_2d=sil_in,
+                glb_bytes=glb_bytes,
+                level_id=getattr(self.canvas, "active_level_id", "") or "",
+                layer_id=getattr(self.canvas, "active_layer_id", "") or "",
+            )
+            self.canvas.custom_assets.append(asset)
+            self.canvas.selected_items = [
+                {"type": "custom_asset", "object": asset}
+            ]
+            self.canvas.save_state()
+            self.canvas.emit("content-changed")
+            self.canvas.queue_draw()
+            if hasattr(self.canvas, "update_hint"):
+                self.canvas.update_hint(
+                    f"Imported 3D asset '{asset.name}' "
+                    f"({inspection.triangle_count} triangles)"
+                )
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._show_message_dialog(
+                "Unable to Import 3D Asset", str(exc), Gtk.MessageType.ERROR
+            )
+
+    def on_push_blender_sync(
+        self, action: Gio.SimpleAction, parameter: object
+    ) -> None:
+        """Handle File -> Push to Blender (glTF Sync)."""
+        self.show_push_blender_sync_dialog()
+
+    def show_push_blender_sync_dialog(self) -> None:
+        """Prompt for a target folder and write the Blender glTF sync bundle."""
+        dlg = Gtk.FileDialog.new()
+        dlg.set_title("Choose Folder for Blender glTF Sync Bundle")
+        dlg.set_modal(True)
+        dlg.select_folder(self.window, None, self._on_push_blender_sync_done, None)
+
+    def _on_push_blender_sync_done(
+        self, obj: Gtk.FileDialog, result: Gio.AsyncResult, _user_data: object
+    ) -> None:
+        try:
+            folder = obj.select_folder_finish(result)
+        except Exception:
+            return
+        if not folder:
+            return
+        folder_path = folder.get_path()
+        if not folder_path:
+            return
+        try:
+            res = blender_sync.export_gltf_sync_bundle(self.canvas, folder_path)
+            msg = (
+                f"Exported {res.entity_count} tracked entities.\n\n"
+                f"1. glTF Scene: {res.glb_path}\n"
+                f"2. Sync Manifest: {res.manifest_path}\n"
+                f"3. Bootstrap Script: {res.bootstrap_path}\n\n"
+                "Open project.glb in Blender, edit or sculpt freely, then use the "
+                "'EstiSketch Sync' panel in Blender's N-panel to export a "
+                ".esk-delta.zip bundle."
+            )
+            if hasattr(self.canvas, "update_hint"):
+                self.canvas.update_hint(
+                    f"Blender sync bundle exported to {res.output_dir}"
+                )
+            self._show_message_dialog("Blender Sync Bundle Ready", msg)
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._show_message_dialog(
+                "Unable to Export Blender Sync Bundle",
+                str(exc),
+                Gtk.MessageType.ERROR,
+            )
+
+    def on_pull_blender_delta(
+        self, action: Gio.SimpleAction, parameter: object
+    ) -> None:
+        """Handle File -> Pull from Blender (.esk-delta.zip)."""
+        self.show_pull_blender_delta_dialog()
+
+    def show_pull_blender_delta_dialog(self) -> None:
+        """Prompt user for a `.esk-delta.zip` file and open the review dialog."""
+        dlg = Gtk.FileDialog.new()
+        dlg.set_title("Pull Changes from Blender (.esk-delta.zip)")
+        dlg.set_modal(True)
+
+        delta_filter = Gtk.FileFilter()
+        delta_filter.set_name("Blender Delta Bundles (*.zip)")
+        delta_filter.add_pattern("*.zip")
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        store.append(delta_filter)
+        dlg.set_filters(store)
+        dlg.set_default_filter(delta_filter)
+        dlg.open(self.window, None, self._on_pull_blender_delta_done, None)
+
+    def _on_pull_blender_delta_done(
+        self, obj: Gtk.FileDialog, result: Gio.AsyncResult, _user_data: object
+    ) -> None:
+        try:
+            file = obj.open_finish(result)
+        except Exception:
+            return
+        if not file:
+            return
+        delta_path = file.get_path()
+        if not delta_path:
+            return
+        try:
+            plan = blender_sync.classify_blender_delta(self.canvas, delta_path)
+            if not plan.items:
+                warn_text = (
+                    "\n".join(plan.warnings)
+                    if plan.warnings
+                    else "No supported changes detected in delta bundle."
+                )
+                self._show_message_dialog("No Blender Changes Found", warn_text)
+                return
+
+            def _apply_plan(accepted_indices: set[int]) -> None:
+                applied, warnings = blender_sync.apply_delta_import_plan(
+                    self.canvas, plan, accepted_indices=accepted_indices
+                )
+                self._refresh_sidebar_layers()
+                self.viewport_3d.mark_dirty()
+                self.canvas.queue_draw()
+                if hasattr(self.canvas, "update_hint"):
+                    self.canvas.update_hint(
+                        f"Applied {applied} Blender delta item(s)"
+                    )
+                if warnings:
+                    self._show_message_dialog(
+                        "Blender Sync Warnings",
+                        "\n".join(warnings),
+                        Gtk.MessageType.WARNING,
+                    )
+
+            review = BlenderImportReviewDialog(self.window, plan, _apply_plan)
+            review.present()
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._show_message_dialog(
+                "Unable to Read Blender Delta",
+                str(exc),
+                Gtk.MessageType.ERROR,
+            )
 
     def on_open_in_blender(self, action: Gio.SimpleAction, parameter) -> None:
         """Export the current project and launch Blender with Home Builder 5."""
@@ -1281,57 +1518,95 @@ class EstimatorApp(Gtk.Application):
         if len(self.recent_files) > 6:
             self.recent_files.pop()
 
+    def _configure_project_filters(
+        self, dlg: Gtk.FileDialog, *, opening: bool = False
+    ) -> Gtk.FileFilter:
+        """Attach `.esk` and `.xml` filters to a project FileDialog."""
+        esk_filter = Gtk.FileFilter()
+        esk_filter.set_name("EstiSketch Project Bundle (*.esk)")
+        esk_filter.add_pattern("*.esk")
+
+        xml_filter = Gtk.FileFilter()
+        xml_filter.set_name("Legacy XML Project (*.xml)")
+        xml_filter.add_pattern("*.xml")
+
+        filter_store = Gio.ListStore.new(Gtk.FileFilter)
+        if opening:
+            both_filter = Gtk.FileFilter()
+            both_filter.set_name("EstiSketch Projects (*.esk, *.xml)")
+            both_filter.add_pattern("*.esk")
+            both_filter.add_pattern("*.xml")
+            filter_store.append(both_filter)
+            filter_store.append(esk_filter)
+            filter_store.append(xml_filter)
+            dlg.set_filters(filter_store)
+            dlg.set_default_filter(both_filter)
+            return both_filter
+
+        filter_store.append(esk_filter)
+        filter_store.append(xml_filter)
+        dlg.set_filters(filter_store)
+        dlg.set_default_filter(esk_filter)
+        return esk_filter
+
+    def _save_project_to_path(self, path: str) -> None:
+        """Sync 3D view state and persist the project to `.esk` or `.xml`."""
+        self.canvas.views_3d = self.viewport_3d.get_view_state()
+        save_project(
+            self.canvas,
+            self.window.get_width(),
+            self.window.get_height(),
+            path,
+        )
+
+    def _load_project_from_path(self, path: str) -> None:
+        """Load `.esk` or `.xml` project and synchronize 2D/3D UI state."""
+        self.current_filepath = path
+        open_project(self.canvas, path)
+        self._refresh_sidebar_layers()
+        self.viewport_3d.apply_view_state(
+            getattr(self.canvas, "views_3d", {})
+        )
+        self.viewport_3d.mark_dirty()
+        self.canvas.queue_draw()
+        self.update_dirty_state(False)
+
     def show_save_dialog(self, callback: Optional[Callable[[], None]] = None) -> None:
         """
         Save the current project or prompt for a save location.
 
         If a file path already exists, saves immediately. Otherwise, presents
-        a file save dialog restricted to project (.xml) files. An optional
+        a file save dialog for project (`.esk` or `.xml`) files. An optional
         callback is invoked after a successful save.
         """
         if self.current_filepath:
-            # Save directly if a file path is already set
-            save_project(
-                self.canvas,
-                self.window.get_width(),
-                self.window.get_height(),
-                self.current_filepath
-            )
+            self._save_project_to_path(self.current_filepath)
             self.update_dirty_state(False)
             if callback:
                 callback()
             return
-        # Otherwise, show a file save dialog
         dlg = Gtk.FileDialog.new()
         dlg.set_title("Save Project")
         dlg.set_modal(True)
-        xml_filter = Gtk.FileFilter()
-        xml_filter.set_name("Project Files (*.xml)")
-        xml_filter.add_pattern("*.xml")
-        filter_store = Gio.ListStore.new(Gtk.FileFilter)
-        filter_store.append(xml_filter)
-        dlg.set_filters(filter_store)
-        dlg.set_default_filter(xml_filter)
+        dlg.set_initial_name("project.esk")
+        self._configure_project_filters(dlg, opening=False)
         dlg.save(
             self.window,
             None,
-            lambda obj,
-            result,
-            user_data: self.on_file_dialog_save_done(
-                obj,
-                result,
-                user_data,
-                callback),
-            None)
+            lambda obj, result, user_data: self.on_file_dialog_save_done(
+                obj, result, user_data, callback
+            ),
+            None,
+        )
 
-    def on_file_dialog_save_done(self, obj: Gtk.FileDialog, result: Gio.AsyncResult, user_data: Optional[Callable[[], None]], callback: Optional[Callable[[], None]] = None) -> None:
-        """
-        Handle completion of the save file dialog.
-
-        Finalizes the selected file path, ensures a .xml extension, saves the
-        project, updates recent files and dirty state, and invokes the optional
-        callback on success.
-        """
+    def on_file_dialog_save_done(
+        self,
+        obj: Gtk.FileDialog,
+        result: Gio.AsyncResult,
+        user_data: Optional[Callable[[], None]],
+        callback: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """Finalize save dialog path (`.esk` default or `.xml`) and save project."""
         try:
             file = obj.save_finish(result)
         except Exception:
@@ -1339,51 +1614,37 @@ class EstimatorApp(Gtk.Application):
         if not file:
             return
         path = file.get_path()
-        if not path.lower().endswith(".xml"):
-            path += ".xml"
+        if not path:
+            return
+        if not path.lower().endswith((".esk", ".xml")):
+            path += ".esk"
         self.current_filepath = path
-        save_project(
-            self.canvas,
-            self.window.get_width(),
-            self.window.get_height(),
-            path
-        )
+        self._save_project_to_path(path)
         self.add_to_recent(path)
         self.update_dirty_state(False)
         if callback:
             callback()
 
     def show_save_as_dialog(self) -> None:
-        """
-        Show a save dialog to save the project as a new file.
-
-        Presents a file save dialog restricted to project (.xml) files. The
-        dialog is modal and ensures a .xml extension. On successful save,
-        updates recent files and marks the project as clean.
-        """
+        """Show a save dialog to save the project as a `.esk` bundle or `.xml`."""
         dlg = Gtk.FileDialog.new()
         dlg.set_title("Save Project As")
         dlg.set_modal(True)
-
-        # Set XML filter
-        xml_filter = Gtk.FileFilter()
-        xml_filter.set_name("Project Files (*.xml)")
-        xml_filter.add_pattern("*.xml")
-        filter_store = Gio.ListStore.new(Gtk.FileFilter)
-        filter_store.append(xml_filter)
-        dlg.set_filters(filter_store)
-        dlg.set_default_filter(xml_filter)
-
+        if self.current_filepath:
+            stem = os.path.splitext(os.path.basename(self.current_filepath))[0]
+            dlg.set_initial_name(f"{stem}.esk")
+        else:
+            dlg.set_initial_name("project.esk")
+        self._configure_project_filters(dlg, opening=False)
         dlg.save(self.window, None, self.on_file_dialog_save_as_done, None)
 
-    def on_file_dialog_save_as_done(self, obj: Gtk.FileDialog, result: Gio.AsyncResult, user_data: Optional[Callable[[], None]]) -> None:
-        """
-        Handle completion of the save file dialog.
-
-        Finalizes the selected file path, ensures a .xml extension, saves the
-        project, updates recent files and dirty state, and invokes the optional
-        callback on success.
-        """
+    def on_file_dialog_save_as_done(
+        self,
+        obj: Gtk.FileDialog,
+        result: Gio.AsyncResult,
+        user_data: Optional[Callable[[], None]],
+    ) -> None:
+        """Handle completion of Save As dialog for `.esk` or `.xml` projects."""
         try:
             file = obj.save_finish(result)
         except Exception:
@@ -1391,49 +1652,30 @@ class EstimatorApp(Gtk.Application):
         if not file:
             return
         path = file.get_path()
-        # Ensure .xml extension
-        if not path.lower().endswith(".xml"):
-            path += ".xml"
+        if not path:
+            return
+        if not path.lower().endswith((".esk", ".xml")):
+            path += ".esk"
         self.current_filepath = path
-        save_project(
-            self.canvas,
-            self.window.get_width(),
-            self.window.get_height(),
-            path
-        )
+        self._save_project_to_path(path)
         self.update_dirty_state(False)
         self.add_to_recent(path)
 
     def show_open_dialog(self) -> None:
-        """
-        Prompt the user to open an existing project file.
-
-        Presents a file chooser dialog restricted to project (.xml) files and
-        delegates loading to the open dialog completion handler.
-        """
+        """Prompt the user to open an existing `.esk` or `.xml` project file."""
         dlg = Gtk.FileDialog.new()
         dlg.set_title("Open Project")
         dlg.set_modal(True)
-
-        # Set XML filter
-        xml_filter = Gtk.FileFilter()
-        xml_filter.set_name("Project Files (*.xml)")
-        xml_filter.add_pattern("*.xml")
-        filter_store = Gio.ListStore.new(Gtk.FileFilter)
-        filter_store.append(xml_filter)
-        dlg.set_filters(filter_store)
-        dlg.set_default_filter(xml_filter)
-
+        self._configure_project_filters(dlg, opening=True)
         dlg.open(self.window, None, self.on_file_dialog_open_done, None)
 
-    def on_file_dialog_open_done(self, obj: Gtk.FileDialog, result: Gio.AsyncResult, user_data: Optional[Callable[[], None]]) -> None:
-        """
-        Handle completion of the open file dialog.
-
-        Finalizes the selected file path, ensures a .xml extension, loads the
-        project, updates recent files and dirty state, and invokes the optional
-        callback on success.
-        """
+    def on_file_dialog_open_done(
+        self,
+        obj: Gtk.FileDialog,
+        result: Gio.AsyncResult,
+        user_data: Optional[Callable[[], None]],
+    ) -> None:
+        """Handle completion of the Open dialog for `.esk` and `.xml` projects."""
         try:
             file = obj.open_finish(result)
         except Exception:
@@ -1441,12 +1683,10 @@ class EstimatorApp(Gtk.Application):
         if not file:
             return
         path = file.get_path()
+        if not path:
+            return
         self.add_to_recent(path)
-        self.current_filepath = path
-        open_project(self.canvas, path)
-        self._refresh_sidebar_layers()
-        self.canvas.queue_draw()
-        self.update_dirty_state(False)
+        self._load_project_from_path(path)
 
     def _refresh_sidebar_layers(self) -> None:
         """Refresh level, ghost, and layer controls in the sidebar after project load/reset."""
@@ -1485,11 +1725,7 @@ class EstimatorApp(Gtk.Application):
                     label=Gio.File.new_for_path(path).get_basename())
 
                 def _on_click(button, p=path):
-                    self.current_filepath = p
-                    open_project(self.canvas, p)
-                    self._refresh_sidebar_layers()
-                    self.canvas.queue_draw()
-                    self.update_dirty_state(False)
+                    self._load_project_from_path(p)
                     popover.popdown()
                 btn.connect("clicked", _on_click)
                 box.append(btn)

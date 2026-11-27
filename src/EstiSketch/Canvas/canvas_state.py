@@ -27,6 +27,8 @@ class CanvasStateMixin:
             "dimension_chains": copy.deepcopy(getattr(self, "dimension_chains", [])),
             "leader_callouts": copy.deepcopy(getattr(self, "leader_callouts", [])),
             "groups": copy.deepcopy(getattr(self, "groups", [])),
+            "custom_assets": copy.deepcopy(getattr(self, "custom_assets", [])),
+            "overrides_3d": copy.deepcopy(getattr(self, "overrides_3d", {})),
             "north_angle": float(getattr(self, "north_angle", 0.0)),
         }
         self.undo_stack.append(state)
@@ -67,6 +69,8 @@ class CanvasStateMixin:
         self.dimension_chains = copy.deepcopy(state.get("dimension_chains", []))
         self.leader_callouts = copy.deepcopy(state.get("leader_callouts", []))
         self.groups = copy.deepcopy(state.get("groups", []))
+        self.custom_assets = copy.deepcopy(state.get("custom_assets", []))
+        self.overrides_3d = copy.deepcopy(state.get("overrides_3d", {}))
         self.north_angle = float(state.get("north_angle", 0.0))
         from ..geometry.room_holes import sync_stair_holes
         sync_stair_holes(self)

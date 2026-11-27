@@ -203,6 +203,12 @@ class CanvasArea(Gtk.DrawingArea,
         # Print / PDF plot settings (dict, see Printing.print_settings)
         self.print_settings = None
 
+        # Native 3D / .esk bundle state (custom assets, Blender overrides, 3D camera views)
+        self.custom_assets = []
+        self.overrides_3d = {}
+        self.views_3d = {}
+        self.blender_sync_state = {}
+
         # Undo/Redo stacks
         self.undo_stack = []
         self.redo_stack = []

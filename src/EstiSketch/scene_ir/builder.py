@@ -16,6 +16,8 @@ from .parsed import (
     parse_estisketch_xml,
 )
 from .schema import (
+    CustomAssetIR,
+    FixtureIR,
     FooterIR,
     GableInfillIR,
     LevelIR,
@@ -578,6 +580,19 @@ def build_scene_ir(project: ParsedProject) -> SceneIR:
             )
         )
 
+    custom_assets_ir: list[CustomAssetIR] = []
+    for ca in work.custom_assets:
+        xm, ym = inches_to_blender_xy(ca.x, ca.y, cx, cy)
+        custom_assets_ir.append(
+            CustomAssetIR(
+                id=ca.identifier,
+                path=ca.glb_path,
+                loc_m=(xm, ym, ca.z * INCH_TO_M),
+                rot_z_rad=-math.radians(ca.rotation),
+                scale=ca.scale,
+            )
+        )
+
     return SceneIR(
         schema_version=SCENE_IR_SCHEMA_VERSION,
         plan_center_in=(cx, cy),
@@ -591,7 +606,7 @@ def build_scene_ir(project: ParsedProject) -> SceneIR:
         rim_bands=rim_bands_ir,
         stairs=stairs_ir,
         fixtures=fixtures_ir,
-        custom_assets=[],
+        custom_assets=custom_assets_ir,
     )
 
 

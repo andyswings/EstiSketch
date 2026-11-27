@@ -20,8 +20,11 @@ echo ""
 rm -rf "$BUILD_DIR" "$PROJECT_ROOT/build" "$DIST_DIR/estisketch"
 mkdir -p "$APPDIR" "$DIST_DIR"
 
-echo "Step 1/4: Running PyInstaller..."
+echo "Step 0/4: Building native 3D Rust extension..."
 cd "$PROJECT_ROOT"
+python3 "$SCRIPT_DIR/build_native_3d.py"
+
+echo "Step 1/4: Running PyInstaller..."
 pyinstaller --clean --noconfirm "$SCRIPT_DIR/estisketch.spec"
 
 echo "Step 2/4: Copying PyInstaller output to AppDir..."

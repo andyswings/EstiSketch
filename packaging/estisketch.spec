@@ -32,14 +32,22 @@ hiddenimports = [
     'cairo',
     'numpy',
 ]
+import glob
+
 hiddenimports.extend(estisketch_modules)
 if importlib.util.find_spec('reportlab') is not None:
     hiddenimports.extend(collect_submodules('reportlab'))
 
+native_binaries = [
+    (path, 'EstiSketch')
+    for ext in ('_native_3d*.so', '_native_3d*.pyd', '_native_3d*.dylib')
+    for path in glob.glob(os.path.join(SRC_DIR, 'EstiSketch', ext))
+]
+
 a = Analysis(
     [os.path.join(ROOT_DIR, 'run_estisketch.py')],
     pathex=[SRC_DIR],
-    binaries=[],
+    binaries=native_binaries,
     datas=[
         (os.path.join(SRC_DIR, 'EstiSketch', 'Icons'), os.path.join('EstiSketch', 'Icons')),
         (os.path.join(SRC_DIR, 'EstiSketch', 'Resources'), os.path.join('EstiSketch', 'Resources')),
