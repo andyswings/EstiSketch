@@ -2242,6 +2242,91 @@ def _map_window_type(win_type: str) -> str:
     return "SLIDER"
 
 
+def _tag_corner_origin_fixture(obj, fx: ParsedFixture) -> None:
+    """Record the object-local offset from the HB5 back-left origin to the fixture center.
+
+    EstiSketch fixtures are center-positioned, so the Blender-to-EstiSketch sync needs this
+    offset (meters, object-local) to convert an edited Blender pose back to a fixture center.
+    """
+    obj["ESTISKETCH_CENTER_OFFSET"] = [
+        fx.width * INCH_TO_M / 2.0,
+        -fx.depth * INCH_TO_M / 2.0,
+    ]
+
+
+def _has_solid_geometry(root_obj, depsgraph) -> bool:
+    """True if ``root_obj`` or any descendant is a visible, solid-shaded mesh with faces."""
+    for obj in [root_obj, *root_obj.children_recursive]:
+        if obj.type != "MESH" or obj.display_type in ("WIRE", "BOUNDS"):
+            continue
+        if obj.hide_viewport or obj.hide_get():
+            continue
+        try:
+            evaluated = obj.evaluated_get(depsgraph)
+            mesh = evaluated.to_mesh()
+            n_faces = len(mesh.polygons)
+            evaluated.to_mesh_clear()
+        except RuntimeError:
+            continue
+        if n_faces > 0:
+            return True
+    return False
+
+
+def _ensure_solid_fixtures(fixtures: List[ParsedFixture]) -> int:
+    """Give every fixture that would otherwise show only as a wire cage a solid placeholder.
+
+    Returns the number of placeholders added. Placeholders are solid boxes matching the
+    fixture ``(width, depth, height)`` so no EstiSketch item is ever missing or wireframe-only.
+    """
+    import bmesh
+    import bpy
+
+    by_id = {fx.identifier: fx for fx in fixtures}
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    mat = _get_or_create_simple_material(
+        "EstiSketch_Placeholder", (0.72, 0.72, 0.74, 1.0), roughness=0.6
+    )
+    added = 0
+    for obj in list(bpy.data.objects):
+        fid = obj.get("ESTISKETCH_ID")
+        fx = by_id.get(str(fid)) if fid else None
+        if fx is None or obj.parent is not None or _has_solid_geometry(obj, depsgraph):
+            continue
+        w_m = max(0.05, fx.width * INCH_TO_M)
+        d_m = max(0.05, fx.depth * INCH_TO_M)
+        h_m = max(0.05, fx.height * INCH_TO_M)
+        offset = obj.get("ESTISKETCH_CENTER_OFFSET")
+        cx, cy = (float(offset[0]), float(offset[1])) if offset else (0.0, 0.0)
+        bm = bmesh.new()
+        _bm_add_box(bm, cx - w_m / 2, cy - d_m / 2, 0.0, cx + w_m / 2, cy + d_m / 2, h_m, 0)
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+        mesh = bpy.data.meshes.new(f"Placeholder_{fx.identifier}")
+        bm.to_mesh(mesh)
+        bm.free()
+        mesh.materials.append(mat)
+        ph = bpy.data.objects.new(f"Placeholder_{fx.symbol_type}_{fx.identifier}", mesh)
+        ph.parent = obj
+        for col in obj.users_collection:
+            col.objects.link(ph)
+        print(f"Warning: added solid placeholder for {fx.symbol_type} {fx.identifier}")
+        added += 1
+    return added
+
+
+def _load_live_sync_module():
+    """Load ``blender_live_sync.py`` by path (it only needs ``bpy`` + stdlib)."""
+    import importlib.util
+
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "blender_live_sync.py")
+    spec = importlib.util.spec_from_file_location("estisketch_blender_live_sync", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _schedule_viewport_frame() -> None:
     import bpy
 
@@ -2265,8 +2350,21 @@ def _schedule_viewport_frame() -> None:
     bpy.app.timers.register(_frame_once, first_interval=0.1)
 
 
-def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]:
-    """Build an EstiSketch XML project inside the active Blender scene using HB5."""
+def build_in_blender(
+    xml_path: str,
+    save_blend_path: str = "",
+    sync_dir: str = "",
+    custom_assets_json: str = "",
+) -> Dict[str, int]:
+    """Build an EstiSketch XML project inside the active Blender scene using HB5.
+
+    Args:
+        xml_path: EstiSketch project XML.
+        save_blend_path: Optional ``.blend`` path to save after building.
+        sync_dir: If set, enables automatic send-back: custom assets are imported, the scene is
+            saved as ``model.blend`` there, and every Ctrl+S writes ``delta.esk-delta.zip``.
+        custom_assets_json: ``custom_assets.json`` produced by the EstiSketch launcher.
+    """
     import importlib
     import bpy
 
@@ -2848,6 +2946,7 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
             )
             if cab_obj is not None:
                 cabinet_count += 1
+                _tag_corner_origin_fixture(cab_obj, fx)
         elif sym in _HB5_APPLIANCE_SYMBOLS:
             app_obj = _build_hb5_appliance(
                 fx,
@@ -2860,6 +2959,7 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
             )
             if app_obj is not None:
                 appliance_count += 1
+                _tag_corner_origin_fixture(app_obj, fx)
         elif sym in _PLUMBING_MECHANICAL_SYMBOLS:
             pm_obj = _build_plumbing_mechanical_mesh(
                 fx, lvl, cx, cy, level_cols[lvl.id]["plumbing"]
@@ -2882,8 +2982,20 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
 
     bpy.context.view_layer.update()
 
+    custom_asset_count = 0
+    live_sync = _load_live_sync_module() if sync_dir else None
+    if live_sync is not None and custom_assets_json:
+        custom_asset_count = live_sync.import_custom_assets(
+            custom_assets_json, (cx, cy), root_col
+        )
+        bpy.context.view_layer.update()
+    placeholder_count = _ensure_solid_fixtures(project.fixtures)
+
     if save_blend_path:
         bpy.ops.wm.save_as_mainfile(filepath=save_blend_path)
+    if live_sync is not None:
+        live_sync.tag_generated_objects((cx, cy))
+        live_sync.install_save_handler(sync_dir)
 
     if not bpy.app.background:
         _schedule_viewport_frame()
@@ -2908,28 +3020,39 @@ def build_in_blender(xml_path: str, save_blend_path: str = "") -> Dict[str, int]
         "baseboards": baseboard_count,
         "footers": footer_count,
         "skipped_openings": len(project.skipped_openings),
+        "custom_assets": custom_asset_count,
+        "placeholders": placeholder_count,
     }
 
 
-def _parse_cli_args(argv: List[str]) -> Tuple[str, str]:
+def _parse_cli_args(argv: List[str]) -> Tuple[str, str, str, str]:
+    """Parse ``-- <project.xml> [--save-blend P] [--sync-dir D] [--custom-assets J]``."""
     if "--" in argv:
-        args = argv[argv.index("--") + 1 :]
+        args = argv[argv.index("--") + 1:]
     else:
         args = []
     if not args:
         raise SystemExit(
-            "Usage: blender --python estisketch_to_hb5.py -- <project.xml> [--save-blend <out.blend>]"
+            "Usage: blender --python estisketch_to_hb5.py -- <project.xml> "
+            "[--save-blend <out.blend>] [--sync-dir <dir>] [--custom-assets <json>]"
         )
-    xml_path = args[0]
-    save_blend = ""
-    if "--save-blend" in args:
-        i = args.index("--save-blend")
-        if i + 1 < len(args):
-            save_blend = args[i + 1]
-    return xml_path, save_blend
+
+    def _opt(flag: str) -> str:
+        if flag in args:
+            i = args.index(flag)
+            if i + 1 < len(args):
+                return args[i + 1]
+        return ""
+
+    return args[0], _opt("--save-blend"), _opt("--sync-dir"), _opt("--custom-assets")
 
 
 if __name__ == "__main__":
-    xml_arg, blend_arg = _parse_cli_args(sys.argv)
-    stats = build_in_blender(xml_arg, save_blend_path=blend_arg)
+    xml_arg, blend_arg, sync_arg, assets_arg = _parse_cli_args(sys.argv)
+    stats = build_in_blender(
+        xml_arg,
+        save_blend_path=blend_arg,
+        sync_dir=sync_arg,
+        custom_assets_json=assets_arg,
+    )
     print(f"EstiSketch -> HB5 import complete: {stats}")

@@ -303,10 +303,11 @@ def classify_blender_delta(canvas: object, delta_zip_path: str | Path) -> DeltaI
             payload = {str(k): v for k, v in entry.items()}
             payload["silhouette_2d"] = hull_in
             payload["mesh_hash"] = mesh_hash or str(entry.get("mesh_hash") or "")
+            assigned_id = ent_id or str(entry.get("new_estisketch_id") or "")
             items.append(
                 DeltaItem(
                     tier="custom_asset",
-                    entity_id=ent_id or "",
+                    entity_id=assigned_id,
                     entity_kind="custom_asset",
                     name=name,
                     summary=f"New custom 3D asset '{name}' ({len(hull_in)}-pt 2D footprint)",

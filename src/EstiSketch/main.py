@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Optional, Callable
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gdk, Gio, GdkPixbuf, GObject
+from gi.repository import Gtk, Gdk, Gio, GLib, GdkPixbuf, GObject
 from .version import __version__
 from .project_io import save_project, open_project
 from .sh3d_importer import import_sh3d
@@ -17,7 +17,6 @@ from .Dialogs import estimate_materials
 from .Dialogs import takeoff_dialog
 from .Dialogs import manage_materials
 from .Dialogs import settings_ui
-from .Dialogs.blender_import_dialog import BlenderImportReviewDialog
 from .Printing import print_dialog
 from .Canvas import canvas_area
 from .Canvas.project_reset import reset_canvas_content
@@ -25,9 +24,9 @@ from .components import CustomAsset
 from . import toolbar
 from . import config
 from . import blender_bridge
+from .blender_bridge.live_delta import DeltaWatcher, apply_live_delta
 from . import esk_archive
 from . import native_3d
-from .blender_bridge import blender_sync
 from .View3D import Viewport3DWidget
 from types import SimpleNamespace
 
@@ -54,6 +53,8 @@ class EstimatorApp(Gtk.Application):
         self.is_dirty = False
         # This is a list of recently opened files.
         self.recent_files = getattr(self.config, 'RECENT_FILES', [])
+        self._blender_watcher: Optional[DeltaWatcher] = None
+        self._blender_poll_id: Optional[int] = None
 
     def do_startup(self) -> None:
         """
@@ -92,16 +93,6 @@ class EstimatorApp(Gtk.Application):
         import_asset_action = Gio.SimpleAction.new("import_3d_asset", None)
         import_asset_action.connect("activate", self.on_import_3d_asset)
         self.add_action(import_asset_action)
-
-        # Push 3D glTF sync bundle for Blender
-        push_sync_action = Gio.SimpleAction.new("push_blender_sync", None)
-        push_sync_action.connect("activate", self.on_push_blender_sync)
-        self.add_action(push_sync_action)
-
-        # Pull Blender delta bundle (.esk-delta.zip)
-        pull_delta_action = Gio.SimpleAction.new("pull_blender_delta", None)
-        pull_delta_action.connect("activate", self.on_pull_blender_delta)
-        self.add_action(pull_delta_action)
 
         # Open project
         open_action = Gio.SimpleAction.new("open", None)
@@ -1137,128 +1128,45 @@ class EstimatorApp(Gtk.Application):
                 "Unable to Import 3D Asset", str(exc), Gtk.MessageType.ERROR
             )
 
-    def on_push_blender_sync(
-        self, action: Gio.SimpleAction, parameter: object
-    ) -> None:
-        """Handle File -> Push to Blender (glTF Sync)."""
-        self.show_push_blender_sync_dialog()
+    def _stop_blender_watcher(self) -> None:
+        """Stop polling any active Blender live-sync session directory."""
+        if self._blender_poll_id is not None:
+            GLib.source_remove(self._blender_poll_id)
+            self._blender_poll_id = None
+        self._blender_watcher = None
 
-    def show_push_blender_sync_dialog(self) -> None:
-        """Prompt for a target folder and write the Blender glTF sync bundle."""
-        dlg = Gtk.FileDialog.new()
-        dlg.set_title("Choose Folder for Blender glTF Sync Bundle")
-        dlg.set_modal(True)
-        dlg.select_folder(self.window, None, self._on_push_blender_sync_done, None)
+    def _start_blender_watcher(self, sync_dir: str) -> None:
+        """Begin watching ``sync_dir`` for Ctrl+S deltas written by Blender."""
+        self._stop_blender_watcher()
+        self._blender_watcher = DeltaWatcher(sync_dir)
+        self._blender_poll_id = GLib.timeout_add(750, self._poll_blender_sync)
 
-    def _on_push_blender_sync_done(
-        self, obj: Gtk.FileDialog, result: Gio.AsyncResult, _user_data: object
-    ) -> None:
+    def _poll_blender_sync(self) -> bool:
+        """Poll the active Blender sync session and apply any new save delta automatically."""
+        watcher = self._blender_watcher
+        if watcher is None:
+            self._blender_poll_id = None
+            return False
+        delta_path = watcher.poll()
+        if delta_path is None:
+            return True
         try:
-            folder = obj.select_folder_finish(result)
-        except Exception:
-            return
-        if not folder:
-            return
-        folder_path = folder.get_path()
-        if not folder_path:
-            return
-        try:
-            res = blender_sync.export_gltf_sync_bundle(self.canvas, folder_path)
-            msg = (
-                f"Exported {res.entity_count} tracked entities.\n\n"
-                f"1. glTF Scene: {res.glb_path}\n"
-                f"2. Sync Manifest: {res.manifest_path}\n"
-                f"3. Bootstrap Script: {res.bootstrap_path}\n\n"
-                "Open project.glb in Blender, edit or sculpt freely, then use the "
-                "'EstiSketch Sync' panel in Blender's N-panel to export a "
-                ".esk-delta.zip bundle."
-            )
-            if hasattr(self.canvas, "update_hint"):
-                self.canvas.update_hint(
-                    f"Blender sync bundle exported to {res.output_dir}"
-                )
-            self._show_message_dialog("Blender Sync Bundle Ready", msg)
-        except (OSError, RuntimeError, ValueError) as exc:
-            self._show_message_dialog(
-                "Unable to Export Blender Sync Bundle",
-                str(exc),
-                Gtk.MessageType.ERROR,
-            )
-
-    def on_pull_blender_delta(
-        self, action: Gio.SimpleAction, parameter: object
-    ) -> None:
-        """Handle File -> Pull from Blender (.esk-delta.zip)."""
-        self.show_pull_blender_delta_dialog()
-
-    def show_pull_blender_delta_dialog(self) -> None:
-        """Prompt user for a `.esk-delta.zip` file and open the review dialog."""
-        dlg = Gtk.FileDialog.new()
-        dlg.set_title("Pull Changes from Blender (.esk-delta.zip)")
-        dlg.set_modal(True)
-
-        delta_filter = Gtk.FileFilter()
-        delta_filter.set_name("Blender Delta Bundles (*.zip)")
-        delta_filter.add_pattern("*.zip")
-        store = Gio.ListStore.new(Gtk.FileFilter)
-        store.append(delta_filter)
-        dlg.set_filters(store)
-        dlg.set_default_filter(delta_filter)
-        dlg.open(self.window, None, self._on_pull_blender_delta_done, None)
-
-    def _on_pull_blender_delta_done(
-        self, obj: Gtk.FileDialog, result: Gio.AsyncResult, _user_data: object
-    ) -> None:
-        try:
-            file = obj.open_finish(result)
-        except Exception:
-            return
-        if not file:
-            return
-        delta_path = file.get_path()
-        if not delta_path:
-            return
-        try:
-            plan = blender_sync.classify_blender_delta(self.canvas, delta_path)
-            if not plan.items:
-                warn_text = (
-                    "\n".join(plan.warnings)
-                    if plan.warnings
-                    else "No supported changes detected in delta bundle."
-                )
-                self._show_message_dialog("No Blender Changes Found", warn_text)
-                return
-
-            def _apply_plan(accepted_indices: set[int]) -> None:
-                applied, warnings = blender_sync.apply_delta_import_plan(
-                    self.canvas, plan, accepted_indices=accepted_indices
-                )
+            result = apply_live_delta(self.canvas, delta_path)
+            if result.applied > 0:
                 self._refresh_sidebar_layers()
                 self.viewport_3d.mark_dirty()
                 self.canvas.queue_draw()
-                if hasattr(self.canvas, "update_hint"):
-                    self.canvas.update_hint(
-                        f"Applied {applied} Blender delta item(s)"
-                    )
-                if warnings:
-                    self._show_message_dialog(
-                        "Blender Sync Warnings",
-                        "\n".join(warnings),
-                        Gtk.MessageType.WARNING,
-                    )
-
-            review = BlenderImportReviewDialog(self.window, plan, _apply_plan)
-            review.present()
-        except (OSError, RuntimeError, ValueError) as exc:
-            self._show_message_dialog(
-                "Unable to Read Blender Delta",
-                str(exc),
-                Gtk.MessageType.ERROR,
-            )
+                self.update_dirty_state(True)
+            if hasattr(self.canvas, "update_hint"):
+                self.canvas.update_hint(result.summary())
+        except (OSError, ValueError, RuntimeError) as exc:
+            if hasattr(self.canvas, "update_hint"):
+                self.canvas.update_hint(f"Blender sync failed: {exc}")
+        return True
 
     def on_open_in_blender(self, action: Gio.SimpleAction, parameter) -> None:
-        """Export the current project and launch Blender with Home Builder 5."""
-        ok, msg = blender_bridge.open_in_blender(
+        """Open the project in Blender and watch for Ctrl+S saves to sync back."""
+        ok, msg, sync_dir = blender_bridge.open_in_blender_session(
             self.canvas,
             self.window.get_width() if self.window else 1024,
             self.window.get_height() if self.window else 900,
@@ -1266,6 +1174,8 @@ class EstimatorApp(Gtk.Application):
             project_filepath=self.current_filepath or "",
         )
         if ok:
+            if sync_dir:
+                self._start_blender_watcher(sync_dir)
             if hasattr(self.canvas, "update_hint"):
                 self.canvas.update_hint(msg)
             return
@@ -1494,6 +1404,7 @@ class EstimatorApp(Gtk.Application):
         Removes all drawing content, resets the current file path, marks the
         project as clean, and redraws the canvas.
         """
+        self._stop_blender_watcher()
         reset_canvas_content(self.canvas)
         # Seed the fresh undo history with the empty state
         self.canvas.save_state()
@@ -1561,6 +1472,7 @@ class EstimatorApp(Gtk.Application):
 
     def _load_project_from_path(self, path: str) -> None:
         """Load `.esk` or `.xml` project and synchronize 2D/3D UI state."""
+        self._stop_blender_watcher()
         self.current_filepath = path
         open_project(self.canvas, path)
         self._refresh_sidebar_layers()
@@ -1954,6 +1866,7 @@ class EstimatorApp(Gtk.Application):
         This method overrides Gtk.Application.do_shutdown() to save recent
         files to the configuration before shutting down the application.
         """
+        self._stop_blender_watcher()
         self.config.RECENT_FILES = self.recent_files
         config.save_config(self.config.__dict__)
         Gtk.Application.do_shutdown(self)
