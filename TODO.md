@@ -1,143 +1,106 @@
 # TODO / Backlog
 
-## 🚀 High Priority (do next)
-- [ ] Flesh out an easy-to-use Help layout and system (searchable/structured help center, contextual tool guidance, keyboard shortcuts, and clear navigation).
-- [ ] Rework and better organize the Settings interface (cleaner category navigation, logical grouping of preferences, and improved usability).
+> See [docs/unified_master_plan.md](docs/unified_master_plan.md) for the canonical product roadmap, Free/Pro/AI tier boundaries, codebase audit, and release stages (Stages 1–6).
 
+## 🚀 Stage 1 — v1.0 Free Public Launch (Do Next)
+*Goal: Ad-free, watermark-free Free drafter on Windows (`.exe`) and Linux (`.deb`/AppImage).*
+- [ ] Rework and better organize the Settings interface (`Dialogs/settings_ui.py`: categorized `Gtk.StackSidebar` navigation, logical grouping of preferences, and wire or remove dead settings such as `ENABLE_AUTO_SAVE`, `SHOW_RULERS`, `DEFAULT_FILE_FORMAT`).
+- [ ] Auto-save, backup system, and unsaved-work crash recovery (`ENABLE_AUTO_SAVE` in `config.py` exists, needs runtime autosave timer, rolling backups, and startup recovery prompt).
+- [ ] Flesh out an easy-to-use Help layout and system (`Dialogs/help_dialog.py`: searchable/structured help documentation, contextual tool guidance, keyboard shortcuts cheat sheet, built-in starter tutorials, and clear navigation).
+- [ ] Surface built-in Sample Projects in-app (`File > Sample Projects` menu loading `examples/demo_houses/` and `examples/bathroom_remodel/`).
+- [ ] On-canvas Room Tags & Area/Perimeter labels + Free-tier Basic Summary Panel (render room names, numbers, and hole-deducted area/perimeter labels on 2D canvas and prints, plus room sq ft, wall linear feet, and perimeter summary).
+- [ ] Images (PNG, JPG) export (expose 2D floor plan Cairo export and 3D viewport snapshot export in File/Export UI; offscreen 3D `save_snapshot_png` already exists).
+- [ ] Export to SweetHome3d (`.sh3d` export alongside existing `sh3d_importer.py`).
+- [ ] End-to-end `v1.0 Free` packaging & QA for standalone Windows (`.exe` / `.msi`) and Linux (`.deb` / AppImage) installers with `_native_3d` bundled.
 
-## Ideas to think about
-- [ ] Clean up the code base. I feel like we have a few things that are redundant, or code that is basically duplicates and needs to be reworked avoid having duplicates.
+## 💰 Stage 2 — v1.0 Pro Commercial Launch
+*Goal: One-time Pro license ($99–$149) delivering automated waste-optimized takeoffs, bid pricing, and CAD/BOM exports.*
+- [ ] Consolidate `Takeoff/` (`building_takeoff.py`) and `TakeoffEngine/` into one canonical takeoff pipeline with lumber-waste cut-list minimization (`TakeoffEngine/lumber.py`).
+- [ ] Cost, Labor & Markup Pricing Engine (replace `"Coming Soon"` stub in `Dialogs/estimate_cost.py` with editable unit costs, labor rates, waste/tax/overhead/markup rules, and contractor vs. client bid views).
+- [ ] DXF import and export (2D floor plan CAD interoperability).
+- [ ] Native Excel (`.xlsx`) BOM & Cost export (CSV/JSON takeoff & supplier quote CSV already exist).
+- [ ] Schedules & Drawing Tags (formal door/window/room/material schedule tables paired with plan tags `D1`, `W1` across 2D, PDF, DXF, and Excel; opening counts and fixture/material reports already exist).
+- [ ] Custom Wall Assemblies & Reusable Project Templates UI (save/load custom wall build-ups and prebuilt design templates; parametric Floor Plan Generator & `examples/` already exist).
+- [ ] Lightweight offline-friendly Ed25519 license key verification, Free/Pro feature gating (`licensing/`), product website + Merchant of Record checkout (Lemon Squeezy / Paddle), and trade-focused YouTube walkthroughs.
 
-## ✨ Core Features (essential functionality)
+## 🏗️ Stage 3 — v1.1 Pro Builder Expansion
+*Goal: Free minor update for v1.0 Pro owners adding 1–4 unit light multi-family, core architectural/MEP elements, and Asset Library Phases A1–A3.*
+- [ ] Light Multi-Family Mode (1–4 units: duplexes, triplexes, quadplexes with unit tagging, mirrored/linked unit layouts, and combined multi-unit framing, material, and cost takeoffs).
+- [ ] Columns/Posts (rectangular, round, square) (Select an edge of a room and specify approximate spacing or number of posts/columns to auto-draw with even spacing; each post remains independently editable for location/size, plus constraints such as centering two posts on a door so moving one or the door moves the other automatically).
+- [ ] Beams (load bearing, decorative, cantilever, etc.; specify material and dimensions or auto-calculate dimensions based on load).
+- [ ] Ceiling types (per-room dropped, vaulted, cathedral 3D geometry & UI; `TAKEOFF_CEILING_TYPE` flat/vaulted and angled walls already exist).
+- [ ] Railings/Guardrails (standalone deck, porch, and balcony guardrails; all stair railings in 2D/3D/takeoff already complete).
+- [ ] Electrical symbols (outlets, switches, lights, panels).
+- [ ] HVAC registers & controls (supply vents, returns, thermostats; major units `water_heater`, `furnace`, `air_conditioner` already exist).
+- [ ] Wall cleanup (detect and merge/clean overlapping collinear walls).
+- [ ] Auto-heal (detect and fix tiny gaps between near-miss wall endpoints).
+- [ ] Automatic wall join improvements (3-way T-junctions and complex mixed-thickness joins; miter joins & face-flush snapping already exist).
+- [ ] 3D Asset Library Phases A1–A3 (`docs/3d_asset_library_plan.md`: build `tools/asset_pipeline/`, `manifest.json` v2, expand core catalog from 46 to ~120–150 stylized models `< 10 MB`, auto-projected `"polylines"` 2D symbols, and upgrade `Dialogs/fixture_browser.py` with grid/2D/3D previews, tags, Favorites, and Recents).
 
-### Architectural Elements (all elements should be procedural so that once created they can easily be modified)
-- [ ] Columns/Posts (rectangular, round, square) (Maybe we should be able to select an edge of a room, and specify approximate spacing or number of posts/columns and the app should automatically draw them with the correct spacing. Once drawn though, each post should be able to be independently edited (location, size, etc...). We should be able to place constraints on posts as well, like constraining two posts to be centered on a door for example, so that if you adjust one post the other will move automatically to preserve it's being centered on the door or if the door is moved the posts move with it.)
-- [ ] Beams (load bearing, decorative, cantilever, etc...) (should be able to specify material and dimensions or let it auto calculate dimensions based on load)
-- [ ] Ceiling types (dropped, vaulted, cathedral)
-- [ ] Railings/Guardrails (deck, stair, balcony)
-- [ ] Moldings (crown, base, chair rail, casing)
+## 🤖 Stage 4 — v1.2 Dual-Mode AI & Credit Add-On
+*Goal: Local AI (0 credits, free with Pro) + optional Hosted Cloud AI credit packs.*
+- [ ] Standardize `floor_plan_generator/` on a unified OpenAI-compatible / JSON-schema interface supporting single-family and paid 2–4 unit multi-family presets.
+- [ ] In-App Guided Local AI Installer (detect RAM/GPU VRAM, recommend a quantized model, and automatically install/configure Ollama or `llama.cpp` with zero terminal commands).
+- [ ] Hosted Cloud AI serverless backend, credit metering, and Merchant of Record credit-pack checkout (strictly optional; zero impact on offline drafting/export).
 
-### Dimensions & Annotations
-- [ ] Add automatic room area calculations
-- [ ] Radial/diameter dimensions
-- [ ] Text styles (save and reuse formatting)
-- [ ] Area/Perimeter labels
-- [ ] Schedules (door/window/material)
-- [ ] Tags/Labels (room names, numbers)
+## ✨ Stage 5 — v1.3 Asset Ecosystem & Presentation Polish
+*Goal: User-extensible 3D asset ecosystem (`A4–A5`), studio drafting/documentation polish, and codebase modularization.*
+- [ ] 3D Asset Library Phases A4–A5 (`docs/3d_asset_library_plan.md`: 4-step `.glb`/`.obj` Import Wizard with zero Blender dependency + `.esk` asset embedding + `.esk-pack` Pack Manager & initial downloadable release packs).
+- [ ] Dark mode toggle & UI/canvas Themes.
+- [ ] Colors by layer.
+- [ ] Line weights/types control on screen (10-category print line weights already complete in `Printing/print_settings.py`).
+- [ ] 2D rendering styles (sketch, blueprint, presentation; 3D `Textured`/`Clay`/`Sketch`/`X-Ray` styles already complete).
+- [ ] Ceiling texture patterns in 3D (deferred from 2D Phase 4).
+- [ ] Saved named 3D camera views / perspectives (active camera/style state saves in `views.json` + 6 standard presets; add multi-bookmark UI).
+- [ ] Vertical / angled 3D section cuts (slice through building; horizontal dollhouse level slicing & auto-hide roofs already complete).
+- [ ] Photorealistic in-app 3D rendering polish (optional; real-time SSAO + one-click live Blender sync already complete).
+- [ ] OBJ export for 3D models (if still desired alongside existing `.glb` export).
+- [ ] Radial/diameter dimensions.
+- [ ] Text styles (save and reuse formatting).
+- [ ] Live associative dimension updates (live drawing preview & chain segment editing exist; link dimensions to walls).
+- [ ] Moldings (crown, chair rail, selectable casing/baseboard profiles; 2D/3D/takeoff baseboards & 3D casings already exist).
+- [ ] Backsplash patterns & wall tile layouts (floor tile patterns already complete).
+- [ ] Volume calculations (footer concrete & excavation/cut-fill; slab & thickened-edge concrete volume already complete).
+- [ ] Sheet management (multi-sheet index/organization; per-level & tiled sheets already exist).
+- [ ] Title blocks (customizable templates & logos; editable title block already exists).
+- [ ] Revision tracking.
+- [ ] Custom drawing numbering schemes (`sheet_prefix` `A-1` & `R#C#` already exist).
+- [ ] Detail libraries.
+- [ ] Print layouts with multiple views.
+- [ ] Favorites/palette (quick access to tools & fixtures).
+- [ ] Global command/object search palette (`Ctrl+K`; Layers panel & Fixture browser search already exist).
+- [ ] Inline modeless measurement input (type exact dimensions directly while drawing; `LengthInputDialog` & chain double-click already exist).
+- [ ] Customizable UI.
+- [ ] Parametric objects with general user-defined rules & constraints (doors/windows/stairs/roofs/cabinets are already parametric).
+- [ ] Smart guides (equal-spacing / distribution suggestions; alignment, face-flush, & tangent guides already exist).
+- [ ] Polar object snap tracking.
+- [ ] Clean up and split oversized codebase modules (`Dialogs/properties_dock.py`, `Canvas/events_selection.py`, `Canvas/canvas_draw.py`, and legacy roof solver wrappers).
 
-### 3D Visualization (long term) (I wonder if this part might better be done in Rust for speed?) (Likely that we don't even need to do most of this oursevles.  The user can do this in Blender.)
-- [ ] Basic 3D modeling/view
-- [ ] 3D navigation (orbit, walk through)
-- [ ] Material textures in 3D
-- [ ] Ceiling texture patterns (deferred from 2D Phase 4)
-- [ ] Lighting (sun position , artificial lights)
-- [ ] Rendering (photorealistic)
-- [ ] Camera views (save perspectives)
-- [ ] Section cuts (slice through building)
+## ⚡ Stage 6 — v2.0 Paid Major Upgrade
+*Goal: Foundational performance & structural upgrades (30–40% loyalty discount for v1.x owners).*
+- [ ] Benchmark critical paths and selectively migrate hot 2D geometry, snapping, and file I/O paths to Rust.
+- [ ] Multi-layer structural framing assemblies.
+- [ ] Header sizes and controls autocalculation based on structural loads (span-table header sizing already exists in `TakeoffEngine/wall_framing.py`).
+- [ ] Expanded IRC/IBC code compliance checking (11 architectural layout checks already complete in `geometry/design_checks.py`).
+- [ ] Artificial interior 3D lighting (sun position, north azimuth, PCF shadows, and SSAO already complete).
+- [ ] Advanced roof join tools.
+- [ ] Native macOS packaging & notarization (contingent on Windows Pro revenue).
 
-## 📊 Analysis & Documentation
-
-### Calculations
-- [ ] Header sizes and controls autocalculation based on loads (for window/door header calculations)
-- [ ] Volume calculations (concrete, excavation)
-- [ ] Live dimension updates
-- [ ] Energy analysis (heating/cooling loads)
-- [ ] Code compliance checking
-
-### Documentation
-- [ ] Sheet management
-- [ ] Title blocks (customizable templates)
-- [ ] Revision tracking
-- [ ] Drawing numbering
-- [ ] Detail libraries
-- [ ] Print layouts with multiple views
-
-## 🔄 Import/Export
-
-### Import
-- [ ] DWG/DXF import (AutoCAD files)
-- [ ] IFC import (BIM standard)
-- [ ] SketchUp (.skp)
-- [ ] CSV data import
-
-### Export  
-- [ ] Export to SweetHome3d
-- [ ] Export to PDF
-- [ ] Export to DXF
-- [ ] DWG export
-- [ ] IFC export (BIM)
-- [ ] Images (PNG, JPG) export
-- [ ] 3DS/OBJ export (3D models)
-- [ ] CSV/Excel export (schedules, takeoffs)
-
-## ⚡ Productivity & Workflow
-
-### Productivity Features
-- [ ] Templates (start from prebuilt designs)
-- [ ] Favorites/palette (quick access)
-- [ ] Search (find objects, commands)
-- [ ] Measurement input (type exact dimensions) (rudimentary implementation complete)
-- [ ] Auto-save
-- [ ] Backup system
-- [ ] Recovery (unsaved work)
-- [ ] Customizable UI
-
-### Smart Features
-- [ ] Parametric objects (objects with rules)
-- [ ] Constraints (enforce relationships)
-- [ ] Automatic wall join improvements
-- [ ] Wall cleanup (overlapping walls)
-- [ ] Auto-heal (fix gaps)
-- [ ] Smart guides (alignment suggestions)
-- [ ] Object snap tracking
-
-## 🏗️ Specialized Tools
-
-### Engineering
-- [ ] Structural analysis (loads, stresses)
-- [ ] Material properties (steel, concrete, wood)
-- [ ] Load calculations
-- [ ] Stress/strain analysis
-
-### Electrical/Plumbing/HVAC
-- [ ] Electrical symbols (outlets, switches, lights, panels)
-- [ ] HVAC (vents, returns, units)
-- [ ] Circuit calculations
-- [ ] Pipe routing
-- [ ] Duct design
-
-### Site/Landscape
-- [ ] Site plans (property boundaries)
-- [ ] Terrain modeling (contours, slopes)
-- [ ] Landscaping (trees, plants, hardscape)
-- [ ] Parking/driveways
-- [ ] Fencing
-- [ ] Pools/water features
-- [ ] Grading (elevation changes)
-
-### Kitchen/Bath Specialized
-- [ ] Living/bedroom furniture library (sofas, beds, dining tables, chairs — architectural kitchen/bath fixtures & appliances done, see Done)
-- [ ] Backsplash patterns
-- [ ] Tile layouts
-
-## 🎓 Help & Learning
-- [ ] Keyboard shortcuts cheat sheet
-- [ ] Built-in tutorials
-- [ ] Video tutorials
-- [ ] Sample projects
-- [ ] Help documentation
-- [ ] Community forum
-
-## 🎨 Presentation & Visualization
-- [ ] Line weights/types control
-- [ ] Colors by layer
-- [ ] Rendering styles (sketch, blueprint, presentation)
-- [ ] Dark mode toggle
-- [ ] Themes
+## ⚪ Deferred / Out-of-Scope (Beyond v1.x 1–4 Unit Residential Guardrail)
+*Explicitly parked to keep EstiSketch fast, focused, and free of enterprise/civil bloat.*
+- [ ] Structural analysis (FEA, loads, stresses), Material properties database (steel, concrete, wood), Full structural load calculations, Stress/strain analysis.
+- [ ] Energy analysis (Manual J heating/cooling loads), Circuit calculations (electrical), Pipe routing (plumbing), Duct design (HVAC).
+- [ ] Site plans (property boundaries), Terrain modeling (contours, slopes), Landscaping (trees, plants, hardscape), Parking/driveways, Fencing, Pools/water features, Grading (elevation changes).
+- [ ] Heavy / proprietary CAD-BIM formats: DWG import & export, IFC import & export (BIM), SketchUp (`.skp`) import, CSV data import.
+- [ ] External community forum & non-marketing video tutorials.
 
 ## 🐛 Known Bugs / FIXMEs
 
 ## Done ✅ (latest first)
+### Backlog Audit & Roadmap Triage (2026-11-27)
+- [x] Created [docs/unified_master_plan.md](docs/unified_master_plan.md) unifying the Monetization Roadmap, 3D Asset Library Plan, Native 3D/Blender/SH3D specs, and backlog audit, and aligned `TODO.md` to Stages 1–6.
+- [x] Checked off 6 previously completed backlog items verified against the codebase: automatic room area calculations (`geometry/room_holes.py`, `Takeoff/building_takeoff.py`), basic 3D modeling/view (`View3D/`, `rust/crates/estisketch_3d_core`), 3D orbit & walkthrough navigation (`estisketch_3d_gl/src/camera.rs`), 3D material textures (`estisketch_3d_gl/src/shaders.rs`), scaled/tiled PDF export (`Printing/print_renderer.py`), and living/bedroom/dining/office furniture library (`fixtures_catalog.py`, `estisketch_3d_core/src/fixtures.rs`).
+
 ### High Priority Feature Completion (2026-11-27)
 - [x] Added Primary Suite Direct Access architectural layout check (`geometry/design_checks.py`, `floor_plan_generator/builder.py`): enforced that any primary/master/en-suite bathroom must have a direct door, pocket door, or >=30" open passage to a primary/master bedroom on the same level (`primary_bath_access_violations`, `"Primary Suite Access"` category in `LayoutChecksDialog`), and updated `floor_plan_generator` so generated plans with a primary bath place it adjacent to `Primary Bedroom` with an en-suite door across all 1-story/2-story, open/traditional, and seed-varied layouts; verified with `tests/test_design_checks.py` and `tests/test_floor_plan_generator.py`.
 - [x] Auto-populate Multi-Option / Multi-Style Floor Plan Generator (`floor_plan_generator/` `{specs,styles,builder}.py`, `Dialogs/floor_plan_generator_dialog.py`, `file_menu.py`, `main.py`): added headless parametric generator supporting 1–5 bedrooms, 1.0–3.5 baths, 1–2 stories, 0–3 car garages, strict proportional `[min_sqft, max_sqft]` range solving across both 1-story rectangular/L-shaped and 2-story layouts, optional office/dining/laundry, a Layout Concept selector (`Style Default`, `Open Floor Plan` with minimal/zero hallways and open foyer/loft, `Traditional (Divided)`), 6 architectural styles (`craftsman`, `modern`, `victorian`, `ranch`, `colonial`, `farmhouse`), and 4 seed-varied layout variants (`Classic Wing`, `Split-Suite`, `L-Shaped Courtyard`, `Front-Kitchen Open`) with hard caps (`MAX_STYLES=4`, `MAX_OPTIONS_PER_STYLE=4`, `MAX_TOTAL_PLANS=12`), Cairo 2D preview cards with Level 1/2 toggle, bidirectional Min/Max Sq Ft synchronization + out-of-range guidance, debounced auto-refresh when any option changes, a `"Refresh / New Plans"` button for generating fresh seed variations, one-click `"Load Into Editor"` for modification, and `"Load & Save As New Project..."`; verified with `tests/test_floor_plan_generator.py`.
@@ -354,4 +317,4 @@
 - [x] Enable changing text color (2025-12-07)
 
 
-_Last updated: 2026-11-26_
+_Last updated: 2026-11-27_
