@@ -246,6 +246,12 @@ class Viewport3DWidget(Gtk.Overlay):
         self._style_combo.connect("notify::selected", self._on_style_changed)
         hud.append(self._style_combo)
 
+        self._ssao_btn = Gtk.ToggleButton(label="SSAO")
+        self._ssao_btn.set_active(True)
+        self._ssao_btn.set_tooltip_text("Toggle Screen-Space Ambient Occlusion (SSAO)")
+        self._ssao_btn.connect("toggled", self._on_ssao_toggled)
+        hud.append(self._ssao_btn)
+
         hud.append(Gtk.Label(label="Sun:"))
         self._sun_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 6.0, 20.0, 0.25)
         self._sun_scale.set_value(13.5)
@@ -879,10 +885,29 @@ class Viewport3DWidget(Gtk.Overlay):
             self._session.set_render_style(styles[idx])
             self._gl_area.queue_render()
 
+    def _on_ssao_toggled(self, btn: Gtk.ToggleButton) -> None:
+        if self._session is not None:
+            self._session.set_ssao_enabled(btn.get_active())
+            self._gl_area.queue_render()
+
     def _on_sun_changed(self, scale: Gtk.Scale) -> None:
         if self._session is not None:
             self._session.set_time_of_day(float(scale.get_value()))
             self._gl_area.queue_render()
+
+    def save_snapshot_png(
+        self, output_path: str, width: int = 1280, height: int = 720
+    ) -> int:
+        """Render current 3D scene headlessly via EGL and write a PNG snapshot."""
+        curr = build_scene_ir_from_canvas(self._canvas)
+        self._last_ir = curr
+        self._dirty = False
+        session = self._ensure_session()
+        if session is None:
+            raise RuntimeError("Native 3D engine is unavailable")
+        session.load_scene(curr.to_json())
+        rgba = session.render_offscreen_rgba(width, height)
+        return native_3d.write_rgba_png(output_path, width, height, rgba)
 
     def export_glb_to_path(self, output_path: str) -> int:
         """Compile current scene and export a `.glb` binary to ``output_path``."""

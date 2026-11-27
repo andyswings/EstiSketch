@@ -7,11 +7,13 @@ queried via :func:`is_native_3d_available`.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import importlib
 import json
-from dataclasses import dataclass
 from pathlib import Path
+import struct
 from typing import Protocol, cast
+import zlib
 
 from .scene_ir import SceneDeltaIR, SceneIR
 
@@ -171,6 +173,18 @@ class NativeSceneSessionProtocol(Protocol):
 
     def set_auto_hide_roofs(self, enabled: bool) -> None:
         """Toggle hiding roofs and top ceilings when viewing from above."""
+        ...
+
+    def set_ssao_enabled(self, enabled: bool) -> None:
+        """Toggle Screen-Space Ambient Occlusion post-processing."""
+        ...
+
+    def ssao_enabled(self) -> bool:
+        """Return whether SSAO post-processing is enabled."""
+        ...
+
+    def render_offscreen_rgba(self, width: int, height: int) -> bytes:
+        """Render the loaded 3D scene headlessly via EGL to tightly packed RGBA8 ``bytes``."""
         ...
 
     def screen_ray(
@@ -334,3 +348,52 @@ def create_native_session() -> NativeSceneSessionProtocol:
 def serialize_delta_for_native(delta: SceneDeltaIR) -> str:
     """Serialize a :class:`SceneDeltaIR` to JSON for ``NativeSceneSession.upsert_entities``."""
     return delta.to_json()
+
+
+def _png_chunk(tag: bytes, data: bytes) -> bytes:
+    crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+    return struct.pack("!I", len(data)) + tag + data + struct.pack("!I", crc)
+
+
+def write_rgba_png(path: str | Path, width: int, height: int, rgba: bytes) -> int:
+    """Encode tightly packed RGBA8 pixels (`width * height * 4` bytes) to a PNG file.
+
+    Uses pure Python standard library (`zlib` + `struct`) with zero external imaging
+    dependencies.
+
+    Args:
+        path: Output `.png` path.
+        width: Image width in pixels (`> 0`).
+        height: Image height in pixels (`> 0`).
+        rgba: Tightly packed top-to-bottom RGBA8 pixel bytes.
+
+    Returns:
+        Number of PNG bytes written to ``path``.
+    """
+    if width <= 0 or height <= 0:
+        raise ValueError(f"PNG dimensions must be positive (got {width}x{height})")
+    expected = width * height * 4
+    if len(rgba) != expected:
+        raise ValueError(f"Expected {expected} RGBA bytes, got {len(rgba)}")
+
+    stride = width * 4
+    raw_rows = bytearray((stride + 1) * height)
+    for y in range(height):
+        src_off = y * stride
+        dst_off = y * (stride + 1)
+        raw_rows[dst_off] = 0  # Filter type 0 (None)
+        raw_rows[dst_off + 1:dst_off + 1 + stride] = rgba[src_off:src_off + stride]
+
+    ihdr = struct.pack("!IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    idat = zlib.compress(bytes(raw_rows), level=6)
+    payload = b"".join(
+        [
+            b"\x89PNG\r\n\x1a\n",
+            _png_chunk(b"IHDR", ihdr),
+            _png_chunk(b"IDAT", idat),
+            _png_chunk(b"IEND", b""),
+        ]
+    )
+    out = Path(path)
+    out.write_bytes(payload)
+    return len(payload)

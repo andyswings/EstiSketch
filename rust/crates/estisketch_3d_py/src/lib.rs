@@ -7,6 +7,7 @@ use estisketch_3d_core::{
 use estisketch_3d_gl::{CameraMode, CameraPreset, GlRenderer, RenderStyle};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 
 fn to_py_value_error(err: impl std::fmt::Display) -> PyErr {
     PyValueError::new_err(err.to_string())
@@ -244,6 +245,28 @@ impl NativeSceneSession {
 
     fn set_auto_hide_roofs(&mut self, enabled: bool) {
         self.renderer.auto_hide_roofs = enabled;
+    }
+
+    fn set_ssao_enabled(&mut self, enabled: bool) {
+        self.renderer.ssao_enabled = enabled;
+    }
+
+    fn ssao_enabled(&self) -> bool {
+        self.renderer.ssao_enabled
+    }
+
+    fn render_offscreen_rgba<'py>(
+        &mut self,
+        py: Python<'py>,
+        width: u32,
+        height: u32,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        self.ensure_mesh(!self.has_loaded_once);
+        let img = self
+            .renderer
+            .render_offscreen_rgba(width, height)
+            .map_err(to_py_runtime_error)?;
+        Ok(PyBytes::new(py, &img.rgba))
     }
 
     fn screen_ray(&self, ndc_x: f32, ndc_y: f32) -> ([f32; 3], [f32; 3]) {

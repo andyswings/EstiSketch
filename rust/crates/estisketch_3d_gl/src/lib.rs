@@ -2,6 +2,7 @@
 
 pub mod camera;
 pub mod loader;
+pub mod offscreen;
 pub mod shaders;
 
 use std::num::NonZeroU32;
@@ -14,6 +15,7 @@ use glam::{Mat4, Vec3};
 use glow::HasContext;
 
 pub use camera::{Camera3D, CameraMode, CameraPreset};
+pub use offscreen::{render_offscreen, OffscreenImage};
 
 const SHADOW_MAP_SIZE: i32 = 2048;
 
@@ -86,14 +88,224 @@ struct GpuPart {
     material: MaterialDef,
 }
 
+struct PostTargets {
+    width: u32,
+    height: u32,
+    scene_fbo: glow::Framebuffer,
+    scene_color_tex: glow::Texture,
+    scene_normal_tex: glow::Texture,
+    scene_depth_tex: glow::Texture,
+    ssao_fbo: glow::Framebuffer,
+    ssao_tex: glow::Texture,
+    ssao_blur_fbo: glow::Framebuffer,
+    ssao_blur_tex: glow::Texture,
+}
+
+unsafe fn create_tex_2d(
+    gl: &glow::Context,
+    internal_fmt: i32,
+    width: i32,
+    height: i32,
+    format: u32,
+    ty: u32,
+    filter: i32,
+) -> Result<glow::Texture, String> {
+    let tex = gl
+        .create_texture()
+        .map_err(|e| format!("create post texture: {e}"))?;
+    gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+    gl.tex_image_2d(
+        glow::TEXTURE_2D,
+        0,
+        internal_fmt,
+        width,
+        height,
+        0,
+        format,
+        ty,
+        None,
+    );
+    gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, filter);
+    gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, filter);
+    gl.tex_parameter_i32(
+        glow::TEXTURE_2D,
+        glow::TEXTURE_WRAP_S,
+        glow::CLAMP_TO_EDGE as i32,
+    );
+    gl.tex_parameter_i32(
+        glow::TEXTURE_2D,
+        glow::TEXTURE_WRAP_T,
+        glow::CLAMP_TO_EDGE as i32,
+    );
+    gl.bind_texture(glow::TEXTURE_2D, None);
+    Ok(tex)
+}
+
+impl PostTargets {
+    fn create(gl: &glow::Context, width: u32, height: u32) -> Result<Self, String> {
+        let w = width.max(1);
+        let h = height.max(1);
+        let hw = (w / 2).max(1);
+        let hh = (h / 2).max(1);
+
+        // SAFETY: Valid active OpenGL 3.3 context; all FBOs/textures are tracked in `PostTargets`
+        // and explicitly destroyed on resize or GL teardown.
+        unsafe {
+            let raw_prev_fbo = gl.get_parameter_i32(glow::FRAMEBUFFER_BINDING) as u32;
+            let prev_fbo = NonZeroU32::new(raw_prev_fbo).map(glow::NativeFramebuffer);
+
+            let scene_color_tex = create_tex_2d(
+                gl,
+                glow::RGBA8 as i32,
+                w as i32,
+                h as i32,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::LINEAR as i32,
+            )?;
+            let scene_normal_tex = create_tex_2d(
+                gl,
+                glow::RGBA16F as i32,
+                w as i32,
+                h as i32,
+                glow::RGBA,
+                glow::HALF_FLOAT,
+                glow::NEAREST as i32,
+            )?;
+            let scene_depth_tex = create_tex_2d(
+                gl,
+                glow::DEPTH_COMPONENT24 as i32,
+                w as i32,
+                h as i32,
+                glow::DEPTH_COMPONENT,
+                glow::UNSIGNED_INT,
+                glow::NEAREST as i32,
+            )?;
+            let scene_fbo = gl
+                .create_framebuffer()
+                .map_err(|e| format!("create scene fbo: {e}"))?;
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(scene_fbo));
+            gl.framebuffer_texture_2d(
+                glow::FRAMEBUFFER,
+                glow::COLOR_ATTACHMENT0,
+                glow::TEXTURE_2D,
+                Some(scene_color_tex),
+                0,
+            );
+            gl.framebuffer_texture_2d(
+                glow::FRAMEBUFFER,
+                glow::COLOR_ATTACHMENT1,
+                glow::TEXTURE_2D,
+                Some(scene_normal_tex),
+                0,
+            );
+            gl.framebuffer_texture_2d(
+                glow::FRAMEBUFFER,
+                glow::DEPTH_ATTACHMENT,
+                glow::TEXTURE_2D,
+                Some(scene_depth_tex),
+                0,
+            );
+            gl.draw_buffers(&[glow::COLOR_ATTACHMENT0, glow::COLOR_ATTACHMENT1]);
+            let scene_status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
+
+            let ssao_tex = create_tex_2d(
+                gl,
+                glow::R8 as i32,
+                hw as i32,
+                hh as i32,
+                glow::RED,
+                glow::UNSIGNED_BYTE,
+                glow::LINEAR as i32,
+            )?;
+            let ssao_fbo = gl
+                .create_framebuffer()
+                .map_err(|e| format!("create ssao fbo: {e}"))?;
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(ssao_fbo));
+            gl.framebuffer_texture_2d(
+                glow::FRAMEBUFFER,
+                glow::COLOR_ATTACHMENT0,
+                glow::TEXTURE_2D,
+                Some(ssao_tex),
+                0,
+            );
+            let ssao_status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
+
+            let ssao_blur_tex = create_tex_2d(
+                gl,
+                glow::R8 as i32,
+                hw as i32,
+                hh as i32,
+                glow::RED,
+                glow::UNSIGNED_BYTE,
+                glow::LINEAR as i32,
+            )?;
+            let ssao_blur_fbo = gl
+                .create_framebuffer()
+                .map_err(|e| format!("create ssao blur fbo: {e}"))?;
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(ssao_blur_fbo));
+            gl.framebuffer_texture_2d(
+                glow::FRAMEBUFFER,
+                glow::COLOR_ATTACHMENT0,
+                glow::TEXTURE_2D,
+                Some(ssao_blur_tex),
+                0,
+            );
+            let blur_status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
+            gl.bind_framebuffer(glow::FRAMEBUFFER, prev_fbo);
+
+            let out = Self {
+                width: w,
+                height: h,
+                scene_fbo,
+                scene_color_tex,
+                scene_normal_tex,
+                scene_depth_tex,
+                ssao_fbo,
+                ssao_tex,
+                ssao_blur_fbo,
+                ssao_blur_tex,
+            };
+            if scene_status != glow::FRAMEBUFFER_COMPLETE
+                || ssao_status != glow::FRAMEBUFFER_COMPLETE
+                || blur_status != glow::FRAMEBUFFER_COMPLETE
+            {
+                out.destroy(gl);
+                return Err(format!(
+                    "Incomplete post-process framebuffer (scene=0x{scene_status:x}, ssao=0x{ssao_status:x}, blur=0x{blur_status:x})"
+                ));
+            }
+            Ok(out)
+        }
+    }
+
+    fn destroy(self, gl: &glow::Context) {
+        // SAFETY: Valid GL context owns all FBOs and textures stored in `PostTargets`.
+        unsafe {
+            gl.delete_framebuffer(self.scene_fbo);
+            gl.delete_framebuffer(self.ssao_fbo);
+            gl.delete_framebuffer(self.ssao_blur_fbo);
+            gl.delete_texture(self.scene_color_tex);
+            gl.delete_texture(self.scene_normal_tex);
+            gl.delete_texture(self.scene_depth_tex);
+            gl.delete_texture(self.ssao_tex);
+            gl.delete_texture(self.ssao_blur_tex);
+        }
+    }
+}
+
 struct GlGpuState {
     gl: glow::Context,
     shadow_prog: glow::Program,
     sky_prog: glow::Program,
     scene_prog: glow::Program,
+    ssao_prog: glow::Program,
+    ssao_blur_prog: glow::Program,
+    composite_prog: glow::Program,
     shadow_fbo: glow::Framebuffer,
     shadow_tex: glow::Texture,
     sky_vao: glow::VertexArray,
+    post: Option<PostTargets>,
     parts: Vec<GpuPart>,
 }
 
@@ -103,10 +315,16 @@ impl GlGpuState {
         let shadow_prog = compile_program(&gl, shaders::SHADOW_VERT, shaders::SHADOW_FRAG)?;
         let sky_prog = compile_program(&gl, shaders::SKY_VERT, shaders::SKY_FRAG)?;
         let scene_prog = compile_program(&gl, shaders::SCENE_VERT, shaders::SCENE_FRAG)?;
+        let ssao_prog = compile_program(&gl, shaders::POST_VERT, shaders::SSAO_FRAG)?;
+        let ssao_blur_prog = compile_program(&gl, shaders::POST_VERT, shaders::SSAO_BLUR_FRAG)?;
+        let composite_prog = compile_program(&gl, shaders::POST_VERT, shaders::COMPOSITE_FRAG)?;
 
         // SAFETY: Active GL 3.3 context is current inside Gtk.GLArea realize; resources are
         // explicitly released in `Self::destroy` on unrealize.
         unsafe {
+            let raw_prev_fbo = gl.get_parameter_i32(glow::FRAMEBUFFER_BINDING) as u32;
+            let prev_fbo = NonZeroU32::new(raw_prev_fbo).map(glow::NativeFramebuffer);
+
             let shadow_tex = gl
                 .create_texture()
                 .map_err(|e| format!("create shadow tex: {e}"))?;
@@ -161,7 +379,7 @@ impl GlGpuState {
             );
             gl.draw_buffer(glow::NONE);
             gl.read_buffer(glow::NONE);
-            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+            gl.bind_framebuffer(glow::FRAMEBUFFER, prev_fbo);
             gl.bind_texture(glow::TEXTURE_2D, None);
 
             let sky_vao = gl
@@ -173,9 +391,13 @@ impl GlGpuState {
                 shadow_prog,
                 sky_prog,
                 scene_prog,
+                ssao_prog,
+                ssao_blur_prog,
+                composite_prog,
                 shadow_fbo,
                 shadow_tex,
                 sky_vao,
+                post: None,
                 parts: Vec::new(),
             })
         }
@@ -262,6 +484,9 @@ impl GlGpuState {
 
     fn destroy(mut self) {
         self.clear_parts();
+        if let Some(post) = self.post.take() {
+            post.destroy(&self.gl);
+        }
         // SAFETY: Tearing down all GPU resources allocated in `init()` while GL context is current.
         unsafe {
             self.gl.delete_vertex_array(self.sky_vao);
@@ -270,6 +495,9 @@ impl GlGpuState {
             self.gl.delete_program(self.shadow_prog);
             self.gl.delete_program(self.sky_prog);
             self.gl.delete_program(self.scene_prog);
+            self.gl.delete_program(self.ssao_prog);
+            self.gl.delete_program(self.ssao_blur_prog);
+            self.gl.delete_program(self.composite_prog);
         }
     }
 }
@@ -280,7 +508,8 @@ pub struct GlRenderer {
     viewport_height: u32,
     last_entity_count: usize,
     gpu: Option<GlGpuState>,
-    pending_mesh: Option<BuiltSceneMesh>,
+    scene_mesh: Option<BuiltSceneMesh>,
+    mesh_dirty: bool,
     /// Interactive orbit / walkthrough camera.
     pub camera: Camera3D,
     /// Active presentation style.
@@ -309,6 +538,8 @@ pub struct GlRenderer {
     pub hover_sub_part_only: bool,
     /// Active 60 FPS GPU transform preview override for dragged/rotated fixtures.
     pub transform_preview: Option<TransformPreview>,
+    /// Enable multi-pass Screen-Space Ambient Occlusion & bilateral blur post-processing.
+    pub ssao_enabled: bool,
 }
 
 impl Default for GlRenderer {
@@ -325,7 +556,8 @@ impl GlRenderer {
             viewport_height: viewport_height.max(1),
             last_entity_count: 0,
             gpu: None,
-            pending_mesh: None,
+            scene_mesh: None,
+            mesh_dirty: false,
             camera: Camera3D::default(),
             render_style: RenderStyle::Textured,
             time_of_day_hour: 13.5,
@@ -340,7 +572,17 @@ impl GlRenderer {
             hovered_sub_part: None,
             hover_sub_part_only: false,
             transform_preview: None,
+            ssao_enabled: true,
         }
+    }
+
+    /// Render the current scene headlessly via EGL to tightly packed RGBA8 pixels.
+    pub fn render_offscreen_rgba(
+        &mut self,
+        width: u32,
+        height: u32,
+    ) -> Result<OffscreenImage, String> {
+        render_offscreen(self, width, height)
     }
 
     /// Update viewport framebuffer dimensions in physical pixels.
@@ -363,7 +605,8 @@ impl GlRenderer {
         if auto_fit {
             self.camera.fit_bounds(self.bounds_min, self.bounds_max);
         }
-        self.pending_mesh = Some(mesh);
+        self.scene_mesh = Some(mesh);
+        self.mesh_dirty = true;
     }
 
     /// Initialize OpenGL 3.3 Core shaders and shadow buffers inside active GL context.
@@ -372,9 +615,10 @@ impl GlRenderer {
             old.destroy();
         }
         let mut gpu = GlGpuState::init()?;
-        if let Some(mesh) = self.pending_mesh.take() {
-            gpu.upload_mesh(&mesh)?;
+        if let Some(ref mesh) = self.scene_mesh {
+            gpu.upload_mesh(mesh)?;
         }
+        self.mesh_dirty = false;
         self.gpu = Some(gpu);
         Ok(())
     }
@@ -501,11 +745,14 @@ impl GlRenderer {
         let Some(mut gpu) = self.gpu.take() else {
             return Err("OpenGL renderer not initialized (call init_gl first)".to_string());
         };
-        if let Some(mesh) = self.pending_mesh.take() {
-            if let Err(err) = gpu.upload_mesh(&mesh) {
-                self.gpu = Some(gpu);
-                return Err(err);
+        if self.mesh_dirty {
+            if let Some(ref mesh) = self.scene_mesh {
+                if let Err(err) = gpu.upload_mesh(mesh) {
+                    self.gpu = Some(gpu);
+                    return Err(err);
+                }
             }
+            self.mesh_dirty = false;
         }
 
         let sun_dir = self.active_sun_direction();
@@ -521,7 +768,33 @@ impl GlRenderer {
         let style_int = self.render_style as i32;
 
         // SAFETY: Valid current Gtk.GLArea OpenGL context; restore caller's DRAW_FRAMEBUFFER before
-        // drawing final color/depth image so GTK4 compositing works reliably.
+        // drawing final composited image so GTK4 or offscreen FBO readback works reliably.
+        let need_rebuild_post = match gpu.post.as_ref() {
+            Some(p) => p.width != self.viewport_width || p.height != self.viewport_height,
+            None => true,
+        };
+        if need_rebuild_post {
+            if let Some(old_post) = gpu.post.take() {
+                old_post.destroy(&gpu.gl);
+            }
+            match PostTargets::create(&gpu.gl, self.viewport_width, self.viewport_height) {
+                Ok(p) => gpu.post = Some(p),
+                Err(err) => {
+                    self.gpu = Some(gpu);
+                    return Err(err);
+                }
+            }
+        }
+        let Some(ref post) = gpu.post else {
+            self.gpu = Some(gpu);
+            return Err("Post-processing targets missing".to_string());
+        };
+
+        let vp_w = self.viewport_width as i32;
+        let vp_h = self.viewport_height as i32;
+        let half_w = (self.viewport_width / 2).max(1) as i32;
+        let half_h = (self.viewport_height / 2).max(1) as i32;
+
         unsafe {
             let gl = &gpu.gl;
             let raw_prev_fbo = gl.get_parameter_i32(glow::DRAW_FRAMEBUFFER_BINDING) as u32;
@@ -546,14 +819,10 @@ impl GlRenderer {
                 gl.draw_elements(glow::TRIANGLES, part.index_count, glow::UNSIGNED_INT, 0);
             }
 
-            // 2. Restore Gtk.GLArea target framebuffer
-            gl.bind_framebuffer(glow::FRAMEBUFFER, target_fbo);
-            gl.viewport(
-                0,
-                0,
-                self.viewport_width as i32,
-                self.viewport_height as i32,
-            );
+            // 2. MRT offscreen scene pass (Color + World Normal + Depth)
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(post.scene_fbo));
+            gl.draw_buffers(&[glow::COLOR_ATTACHMENT0, glow::COLOR_ATTACHMENT1]);
+            gl.viewport(0, 0, vp_w, vp_h);
             gl.clear_color(0.89, 0.91, 0.93, 1.0);
             gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
 
@@ -612,7 +881,8 @@ impl GlRenderer {
                 draw_gpu_part(gl, gpu.scene_prog, part, 1.0, &model_mat, hl_mode);
             }
 
-            // 5. Transparent glass & X-Ray walls pass
+            // 5. Transparent glass & X-Ray walls pass (write color only, preserve opaque normals)
+            gl.draw_buffers(&[glow::COLOR_ATTACHMENT0]);
             gl.enable(glow::BLEND);
             gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
             gl.depth_mask(false);
@@ -631,9 +901,93 @@ impl GlRenderer {
                 let hl_mode = self.part_highlight_mode(part);
                 draw_gpu_part(gl, gpu.scene_prog, part, alpha_ovr, &model_mat, hl_mode);
             }
-
-            gl.depth_mask(true);
             gl.disable(glow::BLEND);
+            gl.disable(glow::DEPTH_TEST);
+
+            // 6. Half-resolution SSAO + Depth-aware bilateral blur
+            if self.ssao_enabled {
+                gl.bind_framebuffer(glow::FRAMEBUFFER, Some(post.ssao_fbo));
+                gl.viewport(0, 0, half_w, half_h);
+                gl.use_program(Some(gpu.ssao_prog));
+                gl.active_texture(glow::TEXTURE0);
+                gl.bind_texture(glow::TEXTURE_2D, Some(post.scene_depth_tex));
+                if let Some(loc) = gl.get_uniform_location(gpu.ssao_prog, "u_depth_tex") {
+                    gl.uniform_1_i32(Some(&loc), 0);
+                }
+                gl.active_texture(glow::TEXTURE1);
+                gl.bind_texture(glow::TEXTURE_2D, Some(post.scene_normal_tex));
+                if let Some(loc) = gl.get_uniform_location(gpu.ssao_prog, "u_normal_tex") {
+                    gl.uniform_1_i32(Some(&loc), 1);
+                }
+                set_uniform_mat4(gl, gpu.ssao_prog, "u_vp", &vp);
+                set_uniform_mat4(gl, gpu.ssao_prog, "u_inv_vp", &inv_vp);
+                if let Some(loc) = gl.get_uniform_location(gpu.ssao_prog, "u_radius_m") {
+                    gl.uniform_1_f32(Some(&loc), 0.55);
+                }
+                if let Some(loc) = gl.get_uniform_location(gpu.ssao_prog, "u_bias_m") {
+                    gl.uniform_1_f32(Some(&loc), 0.025);
+                }
+                gl.bind_vertex_array(Some(gpu.sky_vao));
+                gl.draw_arrays(glow::TRIANGLES, 0, 3);
+
+                gl.bind_framebuffer(glow::FRAMEBUFFER, Some(post.ssao_blur_fbo));
+                gl.use_program(Some(gpu.ssao_blur_prog));
+                gl.active_texture(glow::TEXTURE0);
+                gl.bind_texture(glow::TEXTURE_2D, Some(post.ssao_tex));
+                if let Some(loc) = gl.get_uniform_location(gpu.ssao_blur_prog, "u_ssao_tex") {
+                    gl.uniform_1_i32(Some(&loc), 0);
+                }
+                gl.active_texture(glow::TEXTURE1);
+                gl.bind_texture(glow::TEXTURE_2D, Some(post.scene_depth_tex));
+                if let Some(loc) = gl.get_uniform_location(gpu.ssao_blur_prog, "u_depth_tex") {
+                    gl.uniform_1_i32(Some(&loc), 1);
+                }
+                if let Some(loc) = gl.get_uniform_location(gpu.ssao_blur_prog, "u_texel_size") {
+                    gl.uniform_2_f32(Some(&loc), 1.0 / (half_w as f32), 1.0 / (half_h as f32));
+                }
+                gl.draw_arrays(glow::TRIANGLES, 0, 3);
+            }
+
+            // 7. Composite SSAO + silhouette crease outlines into caller's target FBO
+            gl.bind_framebuffer(glow::FRAMEBUFFER, target_fbo);
+            gl.viewport(0, 0, vp_w, vp_h);
+            gl.use_program(Some(gpu.composite_prog));
+            gl.active_texture(glow::TEXTURE0);
+            gl.bind_texture(glow::TEXTURE_2D, Some(post.scene_color_tex));
+            if let Some(loc) = gl.get_uniform_location(gpu.composite_prog, "u_color_tex") {
+                gl.uniform_1_i32(Some(&loc), 0);
+            }
+            gl.active_texture(glow::TEXTURE1);
+            gl.bind_texture(glow::TEXTURE_2D, Some(post.ssao_blur_tex));
+            if let Some(loc) = gl.get_uniform_location(gpu.composite_prog, "u_ssao_tex") {
+                gl.uniform_1_i32(Some(&loc), 1);
+            }
+            gl.active_texture(glow::TEXTURE2);
+            gl.bind_texture(glow::TEXTURE_2D, Some(post.scene_normal_tex));
+            if let Some(loc) = gl.get_uniform_location(gpu.composite_prog, "u_normal_tex") {
+                gl.uniform_1_i32(Some(&loc), 2);
+            }
+            gl.active_texture(glow::TEXTURE3);
+            gl.bind_texture(glow::TEXTURE_2D, Some(post.scene_depth_tex));
+            if let Some(loc) = gl.get_uniform_location(gpu.composite_prog, "u_depth_tex") {
+                gl.uniform_1_i32(Some(&loc), 3);
+            }
+            if let Some(loc) = gl.get_uniform_location(gpu.composite_prog, "u_texel_size") {
+                gl.uniform_2_f32(Some(&loc), 1.0 / (vp_w as f32), 1.0 / (vp_h as f32));
+            }
+            if let Some(loc) = gl.get_uniform_location(gpu.composite_prog, "u_render_style") {
+                gl.uniform_1_i32(Some(&loc), style_int);
+            }
+            if let Some(loc) = gl.get_uniform_location(gpu.composite_prog, "u_ssao_enabled") {
+                gl.uniform_1_i32(Some(&loc), i32::from(self.ssao_enabled));
+            }
+            gl.bind_vertex_array(Some(gpu.sky_vao));
+            gl.draw_arrays(glow::TRIANGLES, 0, 3);
+
+            gl.active_texture(glow::TEXTURE0);
+            gl.bind_texture(glow::TEXTURE_2D, None);
+            gl.depth_mask(true);
+            gl.enable(glow::DEPTH_TEST);
             gl.bind_vertex_array(None);
             gl.use_program(None);
         }

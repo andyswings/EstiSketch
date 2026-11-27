@@ -31,7 +31,8 @@ void main() {
 
 pub const SKY_FRAG: &str = r#"#version 330 core
 in vec2 v_ndc;
-out vec4 frag_color;
+layout (location = 0) out vec4 frag_color;
+layout (location = 1) out vec4 frag_normal;
 
 uniform mat4 u_inv_vp;
 uniform vec3 u_cam_pos;
@@ -42,6 +43,7 @@ void main() {
     vec4 near_w = u_inv_vp * vec4(v_ndc, -1.0, 1.0);
     vec4 far_w  = u_inv_vp * vec4(v_ndc,  1.0, 1.0);
     vec3 ray = normalize(far_w.xyz / far_w.w - near_w.xyz / near_w.w);
+    frag_normal = vec4(0.5, 0.5, 0.5, 0.0);
 
     if (ray.z >= -0.002) {
         float h = clamp(ray.z, 0.0, 1.0);
@@ -98,7 +100,8 @@ in vec3 v_world_normal;
 in vec2 v_uv;
 in vec4 v_light_pos;
 
-out vec4 frag_color;
+layout (location = 0) out vec4 frag_color;
+layout (location = 1) out vec4 frag_normal;
 
 uniform sampler2D u_shadow_map;
 uniform vec3 u_cam_pos;
@@ -214,6 +217,7 @@ void main() {
             tinted = mix(tinted, vec3(0.24, 0.62, 0.98), 0.18 + 0.32 * rim);
         }
         frag_color = vec4(tinted, clamp(alpha + fresnel * 0.30, 0.15, 0.85));
+        frag_normal = vec4(0.5, 0.5, 0.5, 0.0);
         return;
     }
 
@@ -245,5 +249,199 @@ void main() {
     }
 
     frag_color = vec4(lit, 1.0);
+    frag_normal = vec4(normalize(n) * 0.5 + 0.5, 1.0);
+}
+"#;
+
+pub const POST_VERT: &str = r#"#version 330 core
+out vec2 v_uv;
+
+void main() {
+    const vec2 POS[3] = vec2[3](
+        vec2(-1.0, -1.0),
+        vec2( 3.0, -1.0),
+        vec2(-1.0,  3.0)
+    );
+    vec2 p = POS[gl_VertexID];
+    v_uv = p * 0.5 + 0.5;
+    gl_Position = vec4(p, 0.0, 1.0);
+}
+"#;
+
+pub const SSAO_FRAG: &str = r#"#version 330 core
+in vec2 v_uv;
+out float frag_ao;
+
+uniform sampler2D u_depth_tex;
+uniform sampler2D u_normal_tex;
+uniform mat4 u_vp;
+uniform mat4 u_inv_vp;
+uniform float u_radius_m;
+uniform float u_bias_m;
+
+const vec3 KERNEL[16] = vec3[16](
+    vec3( 0.04,  0.03, 0.12),
+    vec3(-0.08,  0.06, 0.18),
+    vec3( 0.11, -0.09, 0.22),
+    vec3(-0.14, -0.10, 0.26),
+    vec3( 0.21,  0.04, 0.20),
+    vec3(-0.05,  0.24, 0.24),
+    vec3( 0.06, -0.26, 0.28),
+    vec3(-0.27,  0.12, 0.31),
+    vec3( 0.32, -0.18, 0.35),
+    vec3(-0.18, -0.34, 0.38),
+    vec3( 0.38,  0.25, 0.42),
+    vec3(-0.36,  0.32, 0.45),
+    vec3( 0.12,  0.48, 0.48),
+    vec3(-0.46, -0.22, 0.52),
+    vec3( 0.52, -0.35, 0.55),
+    vec3(-0.28,  0.56, 0.62)
+);
+
+vec3 world_from_uv_depth(vec2 uv, float depth) {
+    vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 world = u_inv_vp * clip;
+    return world.xyz / max(abs(world.w), 1e-5);
+}
+
+void main() {
+    vec4 n_sample = texture(u_normal_tex, v_uv);
+    if (n_sample.a < 0.5) {
+        frag_ao = 1.0;
+        return;
+    }
+    float center_depth = texture(u_depth_tex, v_uv).r;
+    if (center_depth >= 0.9999) {
+        frag_ao = 1.0;
+        return;
+    }
+
+    vec3 pos = world_from_uv_depth(v_uv, center_depth);
+    vec3 n = normalize(n_sample.xyz * 2.0 - 1.0);
+    vec3 helper = (abs(n.z) < 0.9) ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+    vec3 t0 = normalize(cross(helper, n));
+    vec3 b0 = cross(n, t0);
+
+    float angle = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+    float ca = cos(angle);
+    float sa = sin(angle);
+    vec3 tangent = t0 * ca + b0 * sa;
+    vec3 bitangent = -t0 * sa + b0 * ca;
+    mat3 tbn = mat3(tangent, bitangent, n);
+
+    float occlusion = 0.0;
+    for (int i = 0; i < 16; ++i) {
+        vec3 sample_pos = pos + (tbn * KERNEL[i]) * u_radius_m;
+        vec4 offset_clip = u_vp * vec4(sample_pos, 1.0);
+        vec3 offset_ndc = offset_clip.xyz / max(abs(offset_clip.w), 1e-5);
+        vec2 sample_uv = offset_ndc.xy * 0.5 + 0.5;
+        if (sample_uv.x < 0.0 || sample_uv.x > 1.0 || sample_uv.y < 0.0 || sample_uv.y > 1.0) {
+            continue;
+        }
+        float sample_depth = texture(u_depth_tex, sample_uv).r;
+        if (sample_depth >= 0.9999) {
+            continue;
+        }
+        vec3 occ_pos = world_from_uv_depth(sample_uv, sample_depth);
+        vec3 diff = occ_pos - pos;
+        float dist_to_occ = length(diff);
+        float normal_proj = dot(diff, n);
+        float range_check = 1.0 - smoothstep(u_radius_m * 0.35, u_radius_m * 1.15, dist_to_occ);
+        if (normal_proj > u_bias_m && dist_to_occ < u_radius_m) {
+            occlusion += range_check;
+        }
+    }
+
+    frag_ao = clamp(1.0 - (occlusion / 16.0) * 1.35, 0.18, 1.0);
+}
+"#;
+
+pub const SSAO_BLUR_FRAG: &str = r#"#version 330 core
+in vec2 v_uv;
+out float frag_ao;
+
+uniform sampler2D u_ssao_tex;
+uniform sampler2D u_depth_tex;
+uniform vec2 u_texel_size;
+
+void main() {
+    float center_ao = texture(u_ssao_tex, v_uv).r;
+    float center_d = texture(u_depth_tex, v_uv).r;
+    float sum = 0.0;
+    float w_sum = 0.0;
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+            vec2 suv = clamp(v_uv + vec2(float(x), float(y)) * u_texel_size, vec2(0.0), vec2(1.0));
+            float ao = texture(u_ssao_tex, suv).r;
+            float d = texture(u_depth_tex, suv).r;
+            float w = exp(-abs(d - center_d) * 450.0);
+            sum += ao * w;
+            w_sum += w;
+        }
+    }
+    frag_ao = (w_sum > 1e-4) ? (sum / w_sum) : center_ao;
+}
+"#;
+
+pub const COMPOSITE_FRAG: &str = r#"#version 330 core
+in vec2 v_uv;
+out vec4 frag_color;
+
+uniform sampler2D u_color_tex;
+uniform sampler2D u_ssao_tex;
+uniform sampler2D u_normal_tex;
+uniform sampler2D u_depth_tex;
+uniform vec2 u_texel_size;
+uniform int u_render_style;
+uniform int u_ssao_enabled;
+
+void main() {
+    vec4 base = texture(u_color_tex, v_uv);
+    vec4 n_center = texture(u_normal_tex, v_uv);
+    vec3 col = base.rgb;
+
+    if (n_center.a > 0.5) {
+        if (u_ssao_enabled != 0 && u_render_style != 3) {
+            float ao = texture(u_ssao_tex, v_uv).r;
+            float strength = (u_render_style == 1) ? 1.0 : (u_render_style == 2 ? 0.65 : 0.85);
+            col *= mix(1.0, ao, strength);
+        }
+
+        // Screen-space normal + depth crease silhouette lines
+        float d_c = texture(u_depth_tex, v_uv).r;
+        vec3 nc = n_center.xyz * 2.0 - 1.0;
+        float norm_edge = 0.0;
+        float depth_edge = 0.0;
+        const vec2 OFF[4] = vec2[4](
+            vec2( 1.0,  0.0),
+            vec2(-1.0,  0.0),
+            vec2( 0.0,  1.0),
+            vec2( 0.0, -1.0)
+        );
+        for (int i = 0; i < 4; ++i) {
+            vec2 suv = clamp(v_uv + OFF[i] * u_texel_size, vec2(0.0), vec2(1.0));
+            vec4 n_s = texture(u_normal_tex, suv);
+            float d_s = texture(u_depth_tex, suv).r;
+            if (n_s.a > 0.5) {
+                vec3 ns = n_s.xyz * 2.0 - 1.0;
+                norm_edge = max(norm_edge, 1.0 - max(dot(nc, ns), 0.0));
+            } else {
+                norm_edge = max(norm_edge, 0.8);
+            }
+            depth_edge = max(depth_edge, abs(d_s - d_c) / max(1.0 - d_c, 0.002));
+        }
+        float edge = clamp(
+            smoothstep(0.22, 0.68, norm_edge) * 0.85 + smoothstep(0.035, 0.14, depth_edge),
+            0.0,
+            1.0
+        );
+        float ink_strength = (u_render_style == 2) ? 0.78 : (u_render_style == 1 ? 0.38 : 0.18);
+        vec3 ink_col = (u_render_style == 2) ? vec3(0.08, 0.18, 0.36) : vec3(0.14, 0.13, 0.12);
+        col = mix(col, ink_col, edge * ink_strength);
+    }
+
+    // Gentle highlight compression so bright sunlight plaster stays nuanced
+    col = col / (vec3(1.0) + max(col - vec3(0.92), vec3(0.0)) * 0.35);
+    frag_color = vec4(clamp(col, 0.0, 1.0), 1.0);
 }
 "#;
