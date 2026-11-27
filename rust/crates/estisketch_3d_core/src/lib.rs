@@ -14,6 +14,7 @@ pub mod mesher;
 pub mod openings;
 pub mod picking;
 pub mod scene_ir;
+pub mod sinks;
 
 pub use assets::{
     compute_asset_mesh_hash, compute_asset_silhouette_2d, convert_3d_asset_to_glb,

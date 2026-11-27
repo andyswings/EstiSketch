@@ -5,7 +5,7 @@
 //! - `+Y` faces backward toward the host wall.
 //! - `-X` / `+X` are left/right; bathtub drain end is at `-X`.
 
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 
 use crate::materials::{
     appliance_glass_material, chrome_material, concrete_material, fabric_linen_material,
@@ -14,6 +14,7 @@ use crate::materials::{
 };
 use crate::mesh::{MaterialDef, MeshBuilder, MeshPart, PartFlags};
 use crate::scene_ir::FixtureIR;
+use crate::sinks::{kitchen_sink_specs, push_recessed_basin, push_sink_bowl};
 
 struct PartBag {
     primary: MeshBuilder,
@@ -395,17 +396,29 @@ fn build_pedestal_sink(
         ped_h,
         14,
     );
-    bag.primary.push_beveled_box(
-        origin,
+    let floor = push_recessed_basin(
+        &mut bag.primary,
+        Vec3::new(origin.x, origin.y, origin.z),
         rot,
-        Vec3::new(0.0, 0.0, h - 0.08),
-        Vec3::new(w, d, 0.16),
-        0.02,
+        w,
+        d,
+        h - 0.16,
+        h,
+        0.06,
+        0.05,
     );
     bag.metal.push_cylinder(
         origin,
         rot,
-        Vec3::new(0.0, d * 0.5 - 0.07, h),
+        Vec3::new(0.0, -0.01, floor.z),
+        [0.028, 0.028],
+        0.005,
+        12,
+    );
+    bag.metal.push_cylinder(
+        origin,
+        rot,
+        Vec3::new(0.0, d * 0.5 - 0.03, h),
         [0.018, 0.015],
         0.14,
         12,
@@ -413,16 +426,8 @@ fn build_pedestal_sink(
     bag.metal.push_oriented_box(
         origin,
         rot,
-        Vec3::new(0.0, d * 0.5 - 0.11, h + 0.13),
-        Vec3::new(0.022, 0.10, 0.022),
-    );
-    bag.metal.push_cylinder(
-        origin,
-        rot,
-        Vec3::new(0.0, -0.02, h + 0.002),
-        [0.028, 0.028],
-        0.005,
-        12,
+        Vec3::new(0.0, d * 0.5 - 0.07, h + 0.13),
+        Vec3::new(0.022, 0.08, 0.022),
     );
 }
 
@@ -455,34 +460,49 @@ fn build_utility_or_kitchen_sink(
                 );
             }
         }
-        bag.primary.push_beveled_box(
-            origin,
-            rot,
-            Vec3::new(0.0, 0.0, h - 0.14),
-            Vec3::new(w, d, 0.28),
-            0.015,
-        );
-    } else {
-        let rim_z = h.max(0.08);
-        bag.primary.push_beveled_box(
-            origin,
-            rot,
-            Vec3::new(0.0, 0.0, rim_z * 0.5),
-            Vec3::new(w, d, rim_z.min(0.22)),
-            0.008,
-        );
-    }
-    let fz = h;
-    let bowls: &[f32] = if sym.contains("double") {
-        &[-w * 0.24, w * 0.24]
-    } else {
-        &[0.0]
-    };
-    for &bx in bowls {
+        let floor =
+            push_recessed_basin(&mut bag.primary, origin, rot, w, d, h - 0.28, h, 0.04, 0.04);
         bag.metal.push_cylinder(
             origin,
             rot,
-            Vec3::new(bx, -0.02, fz + 0.004),
+            Vec3::new(0.0, -0.01, floor.z),
+            [0.032, 0.032],
+            0.005,
+            12,
+        );
+        bag.metal.push_cylinder(
+            origin,
+            rot,
+            Vec3::new(0.0, d * 0.5 - 0.02, h),
+            [0.018, 0.015],
+            0.20,
+            12,
+        );
+        bag.metal.push_oriented_box(
+            origin,
+            rot,
+            Vec3::new(0.0, d * 0.5 - 0.07, h + 0.19),
+            Vec3::new(0.024, 0.10, 0.024),
+        );
+        return;
+    }
+
+    // Drop-in kitchen sink: origin sits on the countertop surface, bowls hang below it.
+    for spec in kitchen_sink_specs(sym, w, d, h) {
+        let floor = push_sink_bowl(
+            &mut bag.primary,
+            origin,
+            rot,
+            Vec2::new(spec.lx, spec.ly),
+            0.0,
+            spec.w,
+            spec.d,
+            spec.depth,
+        );
+        bag.metal.push_cylinder(
+            origin,
+            rot,
+            Vec3::new(floor.x, floor.y, floor.z),
             [0.032, 0.032],
             0.006,
             12,
@@ -491,7 +511,7 @@ fn build_utility_or_kitchen_sink(
     bag.metal.push_cylinder(
         origin,
         rot,
-        Vec3::new(0.0, d * 0.5 - 0.06, fz),
+        Vec3::new(0.0, d * 0.5 - 0.06, 0.0),
         [0.018, 0.015],
         0.20,
         12,
@@ -499,7 +519,7 @@ fn build_utility_or_kitchen_sink(
     bag.metal.push_oriented_box(
         origin,
         rot,
-        Vec3::new(0.0, d * 0.5 - 0.11, fz + 0.19),
+        Vec3::new(0.0, d * 0.5 - 0.11, 0.19),
         Vec3::new(0.024, 0.12, 0.024),
     );
 }

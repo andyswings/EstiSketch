@@ -117,6 +117,10 @@ sys.path.insert(0, {src!r})
 import bpy
 from EstiSketch.blender_bridge import estisketch_to_hb5 as m
 
+# The user's saved preferences may have the extension disabled; enable it for this run only.
+if not any(k.endswith("home_builder_5") for k in bpy.context.preferences.addons.keys()):
+    bpy.ops.preferences.addon_enable(module="bl_ext.blender_org.home_builder_5")
+
 stats = m.build_in_blender({xml!r}, sync_dir={sync!r}, custom_assets_json={assets!r})
 out = {{"stats": stats}}
 cab = next(o for o in bpy.data.objects if o.get("ESTISKETCH_CENTER_OFFSET") and o.get("ESTISKETCH_ID"))

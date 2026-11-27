@@ -17,6 +17,7 @@ use crate::openings::emit_opening_meshes;
 use crate::scene_ir::{
     FixtureIR, FooterIR, LevelIR, RimBandIR, RoofIR, RoomIR, StairIR, WallIR, WallSegmentIR,
 };
+use crate::sinks::{fixture_sink_cuts, SinkCut};
 
 /// Build all structural and architectural 3D meshes from a validated [`SceneState`].
 pub fn build_scene_mesh(state: &SceneState) -> BuiltSceneMesh {
@@ -115,7 +116,12 @@ pub fn build_scene_mesh_with_assets(
         non_cabinet_procedural.push(fx);
     }
 
-    emit_cabinet_meshes(&run_eligible_fixtures, &mut parts);
+    let sink_cuts: Vec<SinkCut> = state
+        .fixtures
+        .values()
+        .flat_map(fixture_sink_cuts)
+        .collect();
+    emit_cabinet_meshes(&run_eligible_fixtures, &sink_cuts, &mut parts);
     for fx in non_cabinet_procedural {
         emit_procedural_fixture(fx, &mut parts);
     }
@@ -1860,6 +1866,131 @@ mod tests {
         assert!(
             (top_area - 15.0).abs() < 0.05,
             "expected clipped cutout floor area ~15.0 m^2, got {top_area}"
+        );
+    }
+
+    fn bare_fixture_scene(fx: crate::scene_ir::FixtureIR) -> SceneState {
+        let mut scene = rich_scene();
+        scene.walls.clear();
+        scene.openings.clear();
+        scene.rooms.clear();
+        scene.roofs.clear();
+        scene.footers.clear();
+        scene.rim_bands.clear();
+        scene.stairs.clear();
+        scene.fixtures = vec![fx];
+        let mut state = SceneState::new();
+        state.load_scene(scene).unwrap();
+        state
+    }
+
+    fn test_fixture(
+        id: &str,
+        sym: &str,
+        z: f64,
+        w: f64,
+        d: f64,
+        h: f64,
+        ct: bool,
+    ) -> crate::scene_ir::FixtureIR {
+        crate::scene_ir::FixtureIR {
+            id: id.into(),
+            level_id: "lvl_1".into(),
+            symbol_type: sym.into(),
+            category: "kitchen_cabinet".into(),
+            loc_m: [0.0, 0.0, z],
+            rot_z_rad: 0.0,
+            width_m: w,
+            depth_m: d,
+            height_m: h,
+            has_countertop: ct,
+            countertop_overhang_m: 0.0381,
+            countertop_thickness_m: 0.0381,
+            countertop_material: "quartz".into(),
+            has_backsplash: true,
+            fill_color: None,
+            countertop_color: None,
+        }
+    }
+
+    #[test]
+    fn sink_base_cabinet_has_countertop_cutout_and_deep_bowl() {
+        let state = bare_fixture_scene(test_fixture(
+            "sink_1",
+            "sink_base_cabinet",
+            0.0,
+            0.762,
+            0.6096,
+            0.9144,
+            true,
+        ));
+        let built = build_scene_mesh(&state);
+        let top = 0.9144f32;
+        let ct = built
+            .parts
+            .iter()
+            .find(|p| p.sub_part == "RunCountertop")
+            .expect("countertop");
+        // No countertop top-face triangle may cover the sink opening center (0, -0.02).
+        for tri in ct.indices.as_chunks::<3>().0 {
+            let v: Vec<[f32; 3]> = tri.iter().map(|&i| ct.vertices[i as usize].pos).collect();
+            if v.iter().all(|p| (p[2] - top).abs() < 1e-4) {
+                let cx = (v[0][0] + v[1][0] + v[2][0]) / 3.0;
+                let cy = (v[0][1] + v[1][1] + v[2][1]) / 3.0;
+                assert!(
+                    !(cx.abs() < 0.2 && (cy + 0.02).abs() < 0.12),
+                    "countertop still covers the sink opening at ({cx}, {cy})"
+                );
+            }
+        }
+        let basin = built
+            .parts
+            .iter()
+            .find(|p| p.sub_part == "Basin")
+            .expect("basin");
+        let min_z = basin
+            .vertices
+            .iter()
+            .map(|v| v.pos[2])
+            .fold(f32::INFINITY, f32::min);
+        assert!(min_z < top - 0.15, "bowl too shallow: floor at z={min_z}");
+    }
+
+    #[test]
+    fn kitchen_sink_fixture_hangs_below_counter_instead_of_raised_block() {
+        let state = bare_fixture_scene(test_fixture(
+            "ks_1",
+            "kitchen_sink_double",
+            0.876,
+            0.838,
+            0.559,
+            0.229,
+            false,
+        ));
+        let built = build_scene_mesh(&state);
+        let bowl = built
+            .parts
+            .iter()
+            .find(|p| p.entity_id == "ks_1" && p.sub_part == "Body")
+            .or_else(|| built.parts.iter().find(|p| p.entity_id == "ks_1"))
+            .expect("kitchen sink part");
+        let min_z = bowl
+            .vertices
+            .iter()
+            .map(|v| v.pos[2])
+            .fold(f32::INFINITY, f32::min);
+        let max_z = bowl
+            .vertices
+            .iter()
+            .map(|v| v.pos[2])
+            .fold(f32::NEG_INFINITY, f32::max);
+        assert!(
+            min_z < 0.876 - 0.15,
+            "bowl should extend below the counter, min z={min_z}"
+        );
+        assert!(
+            max_z < 0.876 + 0.02,
+            "sink must not be a raised block, max z={max_z}"
         );
     }
 }

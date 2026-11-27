@@ -13,6 +13,7 @@ use crate::materials::{
 };
 use crate::mesh::{MeshBuilder, MeshPart, PartFlags};
 use crate::scene_ir::FixtureIR;
+use crate::sinks::{cabinet_sink_specs, push_sink_bowl, rect_world, SinkCut};
 
 /// True when `symbol_type` uses the shaker cabinetry / vanity builder.
 pub fn is_cabinet_like(symbol_type: &str) -> bool {
@@ -48,7 +49,11 @@ fn is_corner_cabinet(symbol_type: &str) -> bool {
 }
 
 /// Emit all cabinet/vanity bodies, shaker doors/drawers, basins/faucets, and merged run countertops.
-pub fn emit_cabinet_meshes(all_fixtures: &[&FixtureIR], parts: &mut Vec<MeshPart>) {
+pub fn emit_cabinet_meshes(
+    all_fixtures: &[&FixtureIR],
+    sink_cuts: &[SinkCut],
+    parts: &mut Vec<MeshPart>,
+) {
     let run_items: Vec<RunItem<'_>> = all_fixtures
         .iter()
         .copied()
@@ -142,7 +147,7 @@ pub fn emit_cabinet_meshes(all_fixtures: &[&FixtureIR], parts: &mut Vec<MeshPart
         if members.len() == 1 && is_corner_cabinet(&run_items[members[0]].fx.symbol_type) {
             emit_corner_countertop(run_items[members[0]].fx, parts);
         } else {
-            emit_merged_run_countertop(&run_items, members, parts);
+            emit_merged_run_countertop(&run_items, members, sink_cuts, parts);
         }
     }
 
@@ -160,11 +165,16 @@ pub fn emit_cabinet_meshes(all_fixtures: &[&FixtureIR], parts: &mut Vec<MeshPart
             .get(fx.id.as_str())
             .copied()
             .unwrap_or((false, false));
-        emit_single_cabinet(fx, l_ab, r_ab, parts);
+        emit_single_cabinet(fx, l_ab, r_ab, sink_cuts, parts);
     }
 }
 
-fn emit_merged_run_countertop(items: &[RunItem<'_>], members: &[usize], parts: &mut Vec<MeshPart>) {
+fn emit_merged_run_countertop(
+    items: &[RunItem<'_>],
+    members: &[usize],
+    sink_cuts: &[SinkCut],
+    parts: &mut Vec<MeshPart>,
+) {
     let first = &items[members[0]];
     let mut u_min = f32::INFINITY;
     let mut u_max = f32::NEG_INFINITY;
@@ -202,14 +212,32 @@ fn emit_merged_run_countertop(items: &[RunItem<'_>], members: &[usize], parts: &
         first.origin + first.u * (0.5 * (u_min + u_max)) + first.v * (0.5 * (v_min + v_max));
     let rot_z = first.u.y.atan2(first.u.x);
 
+    // Sink openings whose centers fall inside this run are cut through the slab.
+    let (u_lo, u_hi) = (u_min - 0.01, u_max + 0.01);
+    let (v_lo, v_hi) = (v_min - 0.01, v_max + 0.01);
+    let holes: Vec<Vec<[f64; 2]>> = sink_cuts
+        .iter()
+        .filter(|cut| {
+            let rel = cut.center - first.origin;
+            let (cu, cv) = (rel.dot(first.u), rel.dot(first.v));
+            cu >= u_lo && cu <= u_hi && cv >= v_lo && cv <= v_hi
+        })
+        .map(SinkCut::corners)
+        .collect();
+
     let mut ct_mb = MeshBuilder::new();
-    ct_mb.push_beveled_box(
-        Vec3::new(center_xy.x, center_xy.y, z_top - ct_thick * 0.5),
-        rot_z,
-        Vec3::ZERO,
-        Vec3::new(span_u, span_v, ct_thick),
-        0.004,
-    );
+    if holes.is_empty() {
+        ct_mb.push_beveled_box(
+            Vec3::new(center_xy.x, center_xy.y, z_top - ct_thick * 0.5),
+            rot_z,
+            Vec3::ZERO,
+            Vec3::new(span_u, span_v, ct_thick),
+            0.004,
+        );
+    } else {
+        let outer = rect_world(center_xy, rot_z, span_u, span_v);
+        ct_mb.push_extruded_polygon(&outer, &holes, z_top - ct_thick, z_top);
+    }
 
     if any_backsplash && !all_island {
         let bs_h = 0.10f32;
@@ -307,6 +335,7 @@ fn emit_single_cabinet(
     fx: &FixtureIR,
     left_abutted: bool,
     right_abutted: bool,
+    sink_cuts: &[SinkCut],
     parts: &mut Vec<MeshPart>,
 ) {
     let mut body_mb = MeshBuilder::new();
@@ -418,12 +447,35 @@ fn emit_single_cabinet(
                 Vec3::new((w - 0.02).max(0.08), (d - 0.06).max(0.08), toe_h),
             );
         }
-        body_mb.push_oriented_box(
-            origin,
-            rot_z,
-            Vec3::new(0.0, 0.0, box_cz),
-            Vec3::new(w, d, box_h),
-        );
+        let (sr0, cr0) = rot_z.sin_cos();
+        let body_center = Vec2::new(origin.x, origin.y);
+        let body_cuts: Vec<Vec<[f64; 2]>> = sink_cuts
+            .iter()
+            .filter(|cut| {
+                let rel = cut.center - body_center;
+                let lx = rel.x * cr0 + rel.y * sr0;
+                let ly = -rel.x * sr0 + rel.y * cr0;
+                lx.abs() <= w * 0.5 && ly.abs() <= d * 0.5
+            })
+            .map(SinkCut::corners)
+            .collect();
+        if body_cuts.is_empty() {
+            body_mb.push_oriented_box(
+                origin,
+                rot_z,
+                Vec3::new(0.0, 0.0, box_cz),
+                Vec3::new(w, d, box_h),
+            );
+        } else {
+            // Open the carcass top so the sink bowl is visible through the countertop cutout.
+            let outer = rect_world(body_center, rot_z, w, d);
+            body_mb.push_extruded_polygon(
+                &outer,
+                &body_cuts,
+                origin.z + toe_h,
+                origin.z + toe_h + box_h,
+            );
+        }
 
         // Exposed shaker end panels on un-abutted left (-X) and right (+X) ends
         if !left_abutted {
@@ -551,53 +603,41 @@ fn emit_single_cabinet(
         }
     }
 
-    // Add sink rims + chrome gooseneck faucets for sink_base_cabinet & vanities
-    if sym == "sink_base_cabinet" || sym == "vanity_single" || sym == "vanity_double" {
-        let z_ct = h;
-        let is_double = sym == "vanity_double";
-        let bowl_centers: &[f32] = if is_double {
-            &[-w * 0.24, w * 0.24]
-        } else {
-            &[0.0]
-        };
-        let bw = if is_double {
-            (w * 0.34).min(0.48)
-        } else {
-            (w * 0.56).min(0.56)
-        };
-        let bd = (d * 0.60).min(0.40);
-        for &bx in bowl_centers {
-            basin_mb.push_beveled_box(
-                origin,
-                rot_z,
-                Vec3::new(bx, -0.02, z_ct + 0.008),
-                Vec3::new(bw, bd, 0.020),
-                0.006,
-            );
-            // Chrome gooseneck faucet near rear edge (+Y)
-            chrome_mb.push_cylinder(
-                origin,
-                rot_z,
-                Vec3::new(bx, bd * 0.5 + 0.02, z_ct),
-                [0.016, 0.014],
-                0.18,
-                12,
-            );
-            chrome_mb.push_oriented_box(
-                origin,
-                rot_z,
-                Vec3::new(bx, bd * 0.5 - 0.04, z_ct + 0.17),
-                Vec3::new(0.022, 0.13, 0.022),
-            );
-            chrome_mb.push_cylinder(
-                origin,
-                rot_z,
-                Vec3::new(bx, -0.02, z_ct + 0.019),
-                [0.026, 0.026],
-                0.004,
-                12,
-            );
-        }
+    // Real sink bowls (sloped walls + floor + rim) with chrome drains and gooseneck faucets
+    for spec in cabinet_sink_specs(&sym, w, d) {
+        let floor = push_sink_bowl(
+            &mut basin_mb,
+            origin,
+            rot_z,
+            Vec2::new(spec.lx, spec.ly),
+            h,
+            spec.w,
+            spec.d,
+            spec.depth,
+        );
+        chrome_mb.push_cylinder(
+            origin,
+            rot_z,
+            Vec3::new(floor.x, floor.y, floor.z),
+            [0.030, 0.030],
+            0.005,
+            12,
+        );
+        let back_y = spec.ly + spec.d * 0.5;
+        chrome_mb.push_cylinder(
+            origin,
+            rot_z,
+            Vec3::new(spec.lx, back_y + 0.035, h),
+            [0.016, 0.014],
+            0.18,
+            12,
+        );
+        chrome_mb.push_oriented_box(
+            origin,
+            rot_z,
+            Vec3::new(spec.lx, back_y - 0.02, h + 0.17),
+            Vec3::new(0.022, 0.13, 0.022),
+        );
     }
 
     let flags = PartFlags::default();
