@@ -1350,12 +1350,18 @@ def _expand_convex_poly_2d(poly: list[Point2D], margin: float) -> list[Point2D]:
 
 
 def compute_stair_footprint_parts(stair: ParsedStair) -> list[list[Point2D]]:
-    """Return convex footprint polygon(s) in EstiSketch inches for ``stair``."""
+    """Return a single clean, non-self-intersecting footprint polygon (inches) for ``stair``.
+
+    Emitting one unified simple polygon (including ``opening_clearance``) rather than adjacent
+    or overlapping sub-rectangles guarantees ``earcutr`` receives disjoint hole contours for
+    3D floor and ceiling slab cutouts.
+    """
     width = max(12.0, stair.width)
     hw = width / 2.0
     sx, sy = stair.start_point
     ang = stair.direction_angle
     ca, sa = math.cos(ang), math.sin(ang)
+    margin = max(0.0, stair.opening_clearance)
 
     def _xf(pts: list[Point2D]) -> list[Point2D]:
         return [(sx + u * ca - v * sa, sy + u * sa + v * ca) for u, v in pts]
@@ -1363,15 +1369,11 @@ def compute_stair_footprint_parts(stair: ParsedStair) -> list[list[Point2D]]:
     def _rect(u0: float, v0: float, u1: float, v1: float) -> list[Point2D]:
         return [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]
 
-    def _sub(ox: float, oy: float, rot: float, pts: list[Point2D]) -> list[Point2D]:
-        cr, sr = math.cos(rot), math.sin(rot)
-        return [(ox + a * cr - b * sr, oy + a * sr + b * cr) for a, b in pts]
-
     stype = stair.stair_type
     if stype == "spiral":
-        r = max(6.0, stair.inner_radius) + width
-        n = 24
-        parts = [
+        r = max(2.0, stair.inner_radius) + width + margin
+        n = 32
+        return [
             [
                 (
                     sx + r * math.cos(2.0 * math.pi * i / n),
@@ -1380,7 +1382,8 @@ def compute_stair_footprint_parts(stair: ParsedStair) -> list[list[Point2D]]:
                 for i in range(n)
             ]
         ]
-    elif stype == "l-shaped":
+
+    if stype == "l-shaped":
         lay = _l_stair_layout_in(
             stair.num_steps,
             stair.steps_before_landing,
@@ -1390,21 +1393,46 @@ def compute_stair_footprint_parts(stair: ParsedStair) -> list[list[Point2D]]:
             stair.winder_count,
         )
         rb, ra, ld = lay["run_before"], lay["run_after"], lay["landing_depth"]
-        local: list[list[Point2D]] = []
-        if rb > 0:
-            local.append(_rect(0.0, -hw, rb, hw))
-        local.append(_rect(rb, -hw, rb + ld, hw))
-        if ra > 0:
-            if stair.turn_direction == "left":
-                local.append(
-                    _sub(rb + ld - hw, -hw, -math.pi / 2.0, _rect(0.0, -hw, ra, hw))
-                )
+        u0 = -margin
+        u_end = rb + ld + margin
+        u_turn = rb + ld - width - margin
+        if ra <= 1e-6 or u_turn <= u0 + 1e-3:
+            u_min = min(u0, u_turn) if ra > 1e-6 else u0
+            if ra <= 1e-6:
+                v0, v1 = -hw - margin, hw + margin
+            elif stair.turn_direction == "left":
+                v0, v1 = -hw - ra - margin, hw + margin
             else:
-                local.append(
-                    _sub(rb + ld - hw, hw, math.pi / 2.0, _rect(0.0, -hw, ra, hw))
-                )
-        parts = [_xf(p) for p in local]
-    elif stype == "u-shaped":
+                v0, v1 = -hw - margin, hw + ra + margin
+            return [_xf(_rect(u_min, v0, u_end, v1))]
+
+        if stair.turn_direction == "left":
+            v_pos = hw + margin
+            v_mid = -hw - margin
+            v_far = -hw - ra - margin
+            local_poly = [
+                (u0, v_pos),
+                (u_end, v_pos),
+                (u_end, v_far),
+                (u_turn, v_far),
+                (u_turn, v_mid),
+                (u0, v_mid),
+            ]
+        else:
+            v_neg = -hw - margin
+            v_mid = hw + margin
+            v_far = hw + ra + margin
+            local_poly = [
+                (u0, v_neg),
+                (u_end, v_neg),
+                (u_end, v_far),
+                (u_turn, v_far),
+                (u_turn, v_mid),
+                (u0, v_mid),
+            ]
+        return [_xf(local_poly)]
+
+    if stype == "u-shaped":
         ld = stair.landing_depth or width
         well = max(0.0, stair.inner_radius if stair.inner_radius != 6.0 else 0.0)
         total = stair.num_steps
@@ -1416,27 +1444,70 @@ def compute_stair_footprint_parts(stair: ParsedStair) -> list[list[Point2D]]:
         after = total - before
         rb = (before - 1) * stair.tread_depth if before > 0 else 0.0
         ra = (after - 1) * stair.tread_depth if after > 0 else 0.0
-        span = 2.0 * width + well
-        local = []
-        if rb > 0:
-            local.append(_rect(0.0, -hw, rb, hw))
-        if stair.turn_direction == "left":
-            local.append(_rect(rb, -hw - well - width, rb + ld, -hw - well - width + span))
-            ox, oy = rb, -(width + well)
-        else:
-            local.append(_rect(rb, -hw, rb + ld, -hw + span))
-            ox, oy = rb, width + well
-        if ra > 0:
-            local.append(_sub(ox, oy, math.pi, _rect(0.0, -hw, ra, hw)))
-        parts = [_xf(p) for p in local]
-    else:
-        run = max(stair.tread_depth, stair.total_run)
-        parts = [_xf(_rect(0.0, -hw, run, hw))]
+        u_end = rb + ld + margin
+        u_f1 = -margin
+        u_f2 = rb - ra - margin
+        u_well = rb - margin
 
-    margin = max(0.0, stair.opening_clearance)
-    if margin > 0.0:
-        parts = [_expand_convex_poly_2d(p, margin) for p in parts]
-    return parts
+        # Emit an 8-vertex U-polygon only when the expanded inner well remains open.
+        if well > 2.0 * margin + 1e-3 and u_well > max(u_f1, u_f2) + 1e-3:
+            if stair.turn_direction == "left":
+                local_poly = [
+                    (u_f1, hw + margin),
+                    (u_end, hw + margin),
+                    (u_end, -hw - well - width - margin),
+                    (u_f2, -hw - well - width - margin),
+                    (u_f2, -hw - well + margin),
+                    (u_well, -hw - well + margin),
+                    (u_well, -hw - margin),
+                    (u_f1, -hw - margin),
+                ]
+            else:
+                local_poly = [
+                    (u_f1, -hw - margin),
+                    (u_end, -hw - margin),
+                    (u_end, hw + well + width + margin),
+                    (u_f2, hw + well + width + margin),
+                    (u_f2, hw + well - margin),
+                    (u_well, hw + well - margin),
+                    (u_well, hw + margin),
+                    (u_f1, hw + margin),
+                ]
+            return [_xf(local_poly)]
+
+        if stair.turn_direction == "left":
+            v1 = hw + margin
+            v2 = -hw - well - width - margin
+            v_mid = -hw - 0.5 * well
+        else:
+            v1 = -hw - margin
+            v2 = hw + well + width + margin
+            v_mid = hw + 0.5 * well
+
+        if abs(u_f1 - u_f2) <= 1e-3:
+            return [_xf(_rect(min(u_f1, u_f2), min(v1, v2), u_end, max(v1, v2)))]
+        if u_f2 > u_f1:
+            local_poly = [
+                (u_f1, v1),
+                (u_end, v1),
+                (u_end, v2),
+                (u_f2, v2),
+                (u_f2, v_mid),
+                (u_f1, v_mid),
+            ]
+        else:
+            local_poly = [
+                (u_f1, v1),
+                (u_end, v1),
+                (u_end, v2),
+                (u_f2, v2),
+                (u_f2, v1),
+                (u_f1, v_mid),
+            ]
+        return [_xf(local_poly)]
+
+    run = max(stair.tread_depth, stair.total_run)
+    return [_xf(_rect(-margin, -hw - margin, run + margin, hw + margin))]
 
 
 def _polys_overlap_2d(poly_a: list[Point2D], poly_b: list[Point2D]) -> bool:

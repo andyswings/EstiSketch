@@ -433,20 +433,28 @@ impl MeshBuilder {
             outer.reverse();
         }
 
-        // Clean and orient valid interior holes clockwise for consistent side normals.
+        // Clean, clip to supporting outer edges when flush/overhanging, and orient CW for earcutr.
         let mut valid_holes: Vec<Vec<Vec2>> = Vec::new();
         for raw_hole in holes_in {
             let mut hole = clean_ring_2d(raw_hole, 1e-4);
             if hole.len() < 3 {
                 continue;
             }
+            if !hole.iter().all(|&p| pt_in_ring_2d(p, &outer)) {
+                hole = dedup_ring_2d(clip_hole_to_supporting_edges(&hole, &outer, 0.002), 1e-4);
+            }
+            if hole.len() < 3 || signed_area_2d(&hole).abs() <= 1e-4 {
+                continue;
+            }
             if signed_area_2d(&hole) > 0.0 {
                 hole.reverse();
             }
-            // Keep holes whose centroid and at least 3 vertices sit inside outer.
-            let centroid = hole.iter().copied().sum::<Vec2>() / (hole.len() as f32);
-            let inside_cnt = hole.iter().filter(|&&p| pt_in_ring_2d(p, &outer)).count();
-            if pt_in_ring_2d(centroid, &outer) && inside_cnt >= 3 {
+            if hole.iter().all(|&p| pt_in_ring_2d(p, &outer))
+                && !rings_edges_cross(&hole, &outer)
+                && valid_holes
+                    .iter()
+                    .all(|prev| !rings_edges_cross(&hole, prev))
+            {
                 valid_holes.push(hole);
             }
         }
@@ -577,10 +585,9 @@ fn emit_ring_walls(builder: &mut MeshBuilder, ring: &[Vec2], z0: f32, z1: f32) {
     }
 }
 
-pub(crate) fn clean_ring_2d(pts: &[[f64; 2]], tol: f32) -> Vec<Vec2> {
+pub(crate) fn dedup_ring_2d(pts: Vec<Vec2>, tol: f32) -> Vec<Vec2> {
     let mut out: Vec<Vec2> = Vec::with_capacity(pts.len());
-    for pt in pts {
-        let v = Vec2::new(pt[0] as f32, pt[1] as f32);
+    for v in pts {
         if out.last().is_none_or(|prev| prev.distance(v) > tol) {
             out.push(v);
         }
@@ -589,6 +596,85 @@ pub(crate) fn clean_ring_2d(pts: &[[f64; 2]], tol: f32) -> Vec<Vec2> {
         out.pop();
     }
     out
+}
+
+pub(crate) fn clean_ring_2d(pts: &[[f64; 2]], tol: f32) -> Vec<Vec2> {
+    let raw: Vec<Vec2> = pts
+        .iter()
+        .map(|pt| Vec2::new(pt[0] as f32, pt[1] as f32))
+        .collect();
+    dedup_ring_2d(raw, tol)
+}
+
+fn clip_hole_to_supporting_edges(hole: &[Vec2], outer: &[Vec2], inset: f32) -> Vec<Vec2> {
+    let mut poly = hole.to_vec();
+    let n = outer.len();
+    for i in 0..n {
+        if poly.len() < 3 {
+            break;
+        }
+        let a = outer[i];
+        let b = outer[(i + 1) % n];
+        let edge = b - a;
+        if edge.length_squared() <= 1e-10 {
+            continue;
+        }
+        // Only clip against supporting half-planes of CCW outer boundary (safe for concave rooms).
+        let is_supporting = outer.iter().all(|&v| edge.perp_dot(v - a) >= -1e-4);
+        if !is_supporting {
+            continue;
+        }
+        let n_in = Vec2::new(-edge.y, edge.x).normalize_or_zero();
+        let origin = a + n_in * inset;
+        let mut next: Vec<Vec2> = Vec::with_capacity(poly.len() + 1);
+        let mut prev = poly[poly.len() - 1];
+        let mut prev_d = (prev - origin).dot(n_in);
+        for &cur in &poly {
+            let cur_d = (cur - origin).dot(n_in);
+            if cur_d >= 0.0 {
+                if prev_d < 0.0 {
+                    let t = prev_d / (prev_d - cur_d);
+                    next.push(prev.lerp(cur, t));
+                }
+                next.push(cur);
+            } else if prev_d >= 0.0 {
+                let t = prev_d / (prev_d - cur_d);
+                next.push(prev.lerp(cur, t));
+            }
+            prev = cur;
+            prev_d = cur_d;
+        }
+        poly = next;
+    }
+    poly
+}
+
+fn segments_properly_intersect(a0: Vec2, a1: Vec2, b0: Vec2, b1: Vec2) -> bool {
+    let da = a1 - a0;
+    let db = b1 - b0;
+    let den = da.perp_dot(db);
+    if den.abs() <= 1e-8 {
+        return false;
+    }
+    let rel = b0 - a0;
+    let t = rel.perp_dot(db) / den;
+    let u = rel.perp_dot(da) / den;
+    t > 1e-5 && t < 1.0 - 1e-5 && u > 1e-5 && u < 1.0 - 1e-5
+}
+
+fn rings_edges_cross(ring_a: &[Vec2], ring_b: &[Vec2]) -> bool {
+    for i in 0..ring_a.len() {
+        let a0 = ring_a[i];
+        let a1 = ring_a[(i + 1) % ring_a.len()];
+        for j in 0..ring_b.len() {
+            let b0 = ring_b[j];
+            let b1 = ring_b[(j + 1) % ring_b.len()];
+            if segments_properly_intersect(a0, a1, b0, b1) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 pub(crate) fn signed_area_2d(pts: &[Vec2]) -> f32 {

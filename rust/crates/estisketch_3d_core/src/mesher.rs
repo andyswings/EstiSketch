@@ -1815,4 +1815,51 @@ mod tests {
             "right-turn U-stair upper flight X bounds misaligned"
         );
     }
+
+    #[test]
+    fn stair_cutout_flush_against_room_wall_is_clipped_not_dropped() {
+        let mut scene = rich_scene();
+        scene.walls.clear();
+        scene.openings.clear();
+        scene.roofs.clear();
+        scene.footers.clear();
+        scene.rim_bands.clear();
+        scene.stairs.clear();
+        scene.fixtures.clear();
+
+        // 4m x 4m room with a 1m x 1.2m cutout overhanging the y=2.0 wall edge by 0.2m
+        scene.rooms[0].outer_m = vec![[-2.0, -2.0], [2.0, -2.0], [2.0, 2.0], [-2.0, 2.0]];
+        scene.rooms[0].floor_holes_m = vec![vec![[-0.5, 1.0], [0.5, 1.0], [0.5, 2.2], [-0.5, 2.2]]];
+
+        let mut state = SceneState::new();
+        state.load_scene(scene).unwrap();
+        let built = build_scene_mesh(&state);
+        let floor_part = built
+            .parts
+            .iter()
+            .find(|p| p.sub_part == "Floor")
+            .expect("expected Floor part");
+        let top_z = floor_part.z_max_m;
+        let mut top_area = 0.0f32;
+        for &tri in floor_part.indices.as_chunks::<3>().0 {
+            let a = floor_part.vertices[tri[0] as usize].pos;
+            let b = floor_part.vertices[tri[1] as usize].pos;
+            let c = floor_part.vertices[tri[2] as usize].pos;
+            if (a[2] - top_z).abs() < 1e-4
+                && (b[2] - top_z).abs() < 1e-4
+                && (c[2] - top_z).abs() < 1e-4
+            {
+                let abx = b[0] - a[0];
+                let aby = b[1] - a[1];
+                let acx = c[0] - a[0];
+                let acy = c[1] - a[1];
+                top_area += 0.5 * (abx * acy - aby * acx).abs();
+            }
+        }
+        // Expected area = 16.0 - 1.0 * 1.0 = 15.0 m^2
+        assert!(
+            (top_area - 15.0).abs() < 0.05,
+            "expected clipped cutout floor area ~15.0 m^2, got {top_area}"
+        );
+    }
 }

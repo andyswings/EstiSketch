@@ -375,3 +375,170 @@ def ir_count(ir: SceneIR) -> int:
         list(ir.custom_assets),
     )
     return sum(len(items) for items in collections)
+
+
+def _segments_intersect_strict(
+    a0: tuple[float, float],
+    a1: tuple[float, float],
+    b0: tuple[float, float],
+    b1: tuple[float, float],
+) -> bool:
+    da_x, da_y = a1[0] - a0[0], a1[1] - a0[1]
+    db_x, db_y = b1[0] - b0[0], b1[1] - b0[1]
+    den = da_x * db_y - da_y * db_x
+    if abs(den) <= 1e-9:
+        return False
+    rx, ry = b0[0] - a0[0], b0[1] - a0[1]
+    t = (rx * db_y - ry * db_x) / den
+    u = (rx * da_y - ry * da_x) / den
+    return 1e-6 < t < 1.0 - 1e-6 and 1e-6 < u < 1.0 - 1e-6
+
+
+def _is_simple_polygon(poly: list[tuple[float, float]]) -> bool:
+    n = len(poly)
+    if n < 3:
+        return False
+    for i in range(n):
+        for j in range(i + 2, n):
+            if i == 0 and j == n - 1:
+                continue
+            if _segments_intersect_strict(poly[i], poly[(i + 1) % n], poly[j], poly[(j + 1) % n]):
+                return False
+    return True
+
+
+def test_stair_floor_cutouts_are_single_clean_polygons_and_match_house2_net_area(
+    tmp_path: Path,
+) -> None:
+    """Every stair shape yields one simple cutout polygon and meshes to exact net floor area."""
+    from EstiSketch.scene_ir.parsed import ParsedStair
+    from EstiSketch.scene_ir.solvers import compute_stair_footprint_parts
+
+    if not native_3d.is_native_3d_available():
+        pytest.skip(f"_native_3d not built: {native_3d.native_3d_load_error()}")
+
+    # 1. Verify synthetic L-shaped, U-shaped (closed & open well), and spiral cutout shapes.
+    def _stair(**kw: object) -> ParsedStair:
+        defaults: dict[str, object] = dict(
+            identifier="st",
+            layer_id="lay0",
+            level_id="l0",
+            start_level_id="l0",
+            end_level_id="l1",
+            stair_type="straight",
+            start_point=(0.0, 0.0),
+            direction_angle=0.0,
+            width=36.0,
+            total_rise=106.0,
+            riser_height=7.57,
+            num_steps=14,
+            tread_depth=10.0,
+            total_run=130.0,
+            nosing=1.0,
+            has_left_rail=True,
+            has_right_rail=True,
+            rail_height=36.0,
+            landing_depth=36.0,
+            turn_direction="left",
+            steps_before_landing=7,
+            winder_count=0,
+            inner_radius=0.0,
+            rotation_degrees=270.0,
+            opening_clearance=0.0,
+        )
+        defaults.update(kw)
+        return ParsedStair(**defaults)  # type: ignore[arg-type]
+
+    cases = [
+        _stair(
+            identifier="st_l_left",
+            stair_type="l-shaped",
+            turn_direction="left",
+            opening_clearance=2.0,
+        ),
+        _stair(
+            identifier="st_l_right",
+            stair_type="l-shaped",
+            turn_direction="right",
+            start_point=(10.0, 20.0),
+            direction_angle=0.5,
+            opening_clearance=0.0,
+        ),
+        _stair(
+            identifier="st_u_open_well",
+            stair_type="u-shaped",
+            turn_direction="left",
+            inner_radius=24.0,
+            opening_clearance=2.0,
+        ),
+        _stair(
+            identifier="st_spiral",
+            stair_type="spiral",
+            turn_direction="left",
+            inner_radius=6.0,
+            opening_clearance=2.0,
+        ),
+    ]
+    for st in cases:
+        parts = compute_stair_footprint_parts(st)
+        assert len(parts) == 1, f"{st.identifier} expected 1 cutout polygon, got {len(parts)}"
+        assert _is_simple_polygon(parts[0]), f"{st.identifier} cutout is self-intersecting"
+    assert len(compute_stair_footprint_parts(cases[2])[0]) == 8
+
+    # 2. Verify House 2 Upper Hall floor has 1 cutout and zero triangles inside stairwell.
+    house2 = DEMO_HOUSES_DIR / "house2_two_story_3bed_2bath_garage_1800sqft.xml"
+    ir = build_scene_ir_from_xml(house2)
+    upper_hall = next(r for r in ir.rooms if r.name == "Upper Hall")
+    assert len(upper_hall.floor_holes_m) == 1
+
+    glb_path = tmp_path / "house2.glb"
+    native_3d.export_scene_glb(ir, glb_path)
+    raw = glb_path.read_bytes()
+    jlen, _ = struct.unpack("<II", raw[12:20])
+    doc = json.loads(raw[20 : 20 + jlen].decode("utf-8"))  # noqa: E203
+    bin_data = raw[20 + jlen + 8 :]  # noqa: E203
+
+    def _poly_area_m2(ring: list[tuple[float, float]]) -> float:
+        total = 0.0
+        n_pts = len(ring)
+        for i in range(n_pts):
+            x0, y0 = ring[i]
+            x1, y1 = ring[(i + 1) % n_pts]
+            total += x0 * y1 - x1 * y0
+        return 0.5 * abs(total)
+
+    expected_net = _poly_area_m2(upper_hall.outer_m) - _poly_area_m2(upper_hall.floor_holes_m[0])
+    floor_node = next(
+        n
+        for n in doc["nodes"]
+        if n.get("extras", {}).get("estisketch_id") == upper_hall.id
+        if n.get("extras", {}).get("sub_part") == "Floor"
+    )
+    prim = doc["meshes"][floor_node["mesh"]]["primitives"][0]
+    pos_acc = doc["accessors"][prim["attributes"]["POSITION"]]
+    bv = doc["bufferViews"][pos_acc["bufferView"]]
+    verts = [
+        (x, -z, y)
+        for (x, y, z) in (
+            struct.unpack_from(
+                "<3f", bin_data, bv["byteOffset"] + pos_acc.get("byteOffset", 0) + i * 12
+            )
+            for i in range(pos_acc["count"])
+        )
+    ]
+    idx_acc = doc["accessors"][prim["indices"]]
+    ibv = doc["bufferViews"][idx_acc["bufferView"]]
+    fmt = "<I" if idx_acc["componentType"] == 5125 else "<H"
+    stride = 4 if idx_acc["componentType"] == 5125 else 2
+    idxs = [
+        struct.unpack_from(
+            fmt, bin_data, ibv["byteOffset"] + idx_acc.get("byteOffset", 0) + i * stride
+        )[0]
+        for i in range(idx_acc["count"])
+    ]
+    top_area = 0.0
+    for i in range(0, len(idxs), 3):
+        a, b, c = verts[idxs[i]], verts[idxs[i + 1]], verts[idxs[i + 2]]
+        if abs(a[2] - upper_hall.z_top_m) < 0.02 and abs(b[2] - upper_hall.z_top_m) < 0.02:
+            top_area += 0.5 * abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
+    assert abs(top_area - expected_net) < 0.15
